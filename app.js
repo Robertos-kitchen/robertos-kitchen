@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781616982;
+const APP_VERSION = 1781617304;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -595,10 +595,10 @@ async function resetChefChecklist(){
   renderAfterChefCheckSync();
 }
 function renderStationChecks(stKey){
-  const checks=chefChecks.filter(c=>c.stationKey===stKey);
+  const checks=chefChecks.filter(c=>c.stationKey===stKey&&c.status!=='ok');
   if(!checks.length)return '';
   return `<div class="station-checks">
-    <div class="station-checks-head">Chef checklist for this station</div>
+    <div class="station-checks-head">Chef checklist — needs attention</div>
     <div class="station-checks-body">
       ${checks.map(c=>`<div class="station-check-item">
         <span class="check-badge ${c.status}">${checkStatusLabel(c.status)}</span>
