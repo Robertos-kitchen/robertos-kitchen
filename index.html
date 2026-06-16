@@ -75,6 +75,16 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .filter-bar.visible{display:flex}
 .filter-label{font-size:11px;color:var(--vino)}
 .clear-filter{font-size:11px;color:var(--vino-light);background:none;border:1px solid var(--sabbia-dark);border-radius:3px;padding:3px 10px;cursor:pointer;margin-left:auto}
+.reset-bar{display:none;align-items:center;padding:8px 18px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark)}
+.reset-bar.visible{display:flex}
+.reset-all-btn{font-size:12px;font-weight:600;color:var(--vino);background:transparent;border:1.5px solid var(--vino);border-radius:5px;padding:7px 14px;cursor:pointer;font-family:var(--font-sans);-webkit-tap-highlight-color:transparent}
+.reset-all-btn:active{background:var(--vino);color:var(--cream)}
+.reset-all-btn.hidden{display:none}
+.reset-confirm{display:none;align-items:center;gap:8px;flex:1;background:var(--vino);border-radius:6px;padding:8px 12px}
+.reset-confirm.visible{display:flex}
+.reset-confirm-label{font-size:12px;color:var(--cream);line-height:1.3;flex:1}
+.reset-yes{background:var(--cream);color:var(--vino);border:none;border-radius:4px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font-sans)}
+.reset-no{background:transparent;color:var(--cream);border:1px solid rgba(232,217,199,.5);border-radius:4px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:var(--font-sans)}
 
 /* â”€â”€ CONTENT â”€â”€ */
 .content{padding:14px 18px 24px;background:var(--sabbia)}
@@ -930,6 +940,14 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div id="sec-counter-wrap">
   <div class="sec-counter" id="sec-counter"></div>
+  <div class="reset-bar" id="reset-bar">
+    <button class="reset-all-btn" id="reset-all-btn" onclick="showResetConfirm()">&#8635; Reset all</button>
+    <div class="reset-confirm" id="reset-confirm">
+      <span class="reset-confirm-label" id="reset-confirm-label">Reset all items to Pending?</span>
+      <button class="reset-yes" onclick="resetActiveStation()">Yes</button>
+      <button class="reset-no" onclick="cancelResetConfirm()">No</button>
+    </div>
+  </div>
   <div class="filter-bar" id="filter-bar">
     <span class="filter-label">Showing: <strong id="filter-label-text"></strong></span>
     <button class="clear-filter" onclick="clearFilter()">Show all</button>
@@ -985,11 +1003,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781613597"></script>
-<script src="recipes.js?v=1781613597"></script>
-<script src="closing-report.js?v=1781613597"></script>
-<script src="team.js?v=1781613597"></script>
-<script src="app.js?v=1781613597"></script>
+<script src="order-items.js?v=1781616982"></script>
+<script src="recipes.js?v=1781616982"></script>
+<script src="closing-report.js?v=1781616982"></script>
+<script src="team.js?v=1781616982"></script>
+<script src="app.js?v=1781616982"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

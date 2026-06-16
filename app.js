@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781613597;
+const APP_VERSION = 1781616982;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1105,6 +1105,8 @@ function renderCounter() {
     {cls:'c-pending',key:'none',num:c.none,label:'Pending'},
   ].map(card=>`<div class="sc-card ${card.cls}${activeFilter===card.key?' filter-active':''}" onclick="toggleFilter('${card.key}')"><span class="sc-num">${card.num}</span><span class="sc-label">${card.label}</span></div>`).join('');
   document.getElementById('foot-label').textContent=`${st.label} · ${total} items total`;
+  const rb=document.getElementById('reset-bar');
+  if(rb){rb.classList.add('visible');cancelResetConfirm();}
   const fb=document.getElementById('filter-bar');
   if(activeFilter){fb.classList.add('visible');document.getElementById('filter-label-text').textContent={sos:'SOS only',bu:'Backup only',ok:'OK only',none:'Pending only'}[activeFilter];}
   else fb.classList.remove('visible');
@@ -1129,6 +1131,39 @@ function applyFilter() {
 
 function toggleFilter(k){activeFilter=activeFilter===k?null:k;renderCounter();applyFilter();}
 function clearFilter(){activeFilter=null;renderCounter();applyFilter();}
+
+// ── RESET ALL (active station → Pending) ──
+function showResetConfirm(){
+  const st=STATIONS.find(s=>s.key===activeStation); if(!st)return;
+  const c=stationCounts(st); const set=c.sos+c.bu+c.ok;
+  const lbl=document.getElementById('reset-confirm-label');
+  if(lbl)lbl.textContent=set>0?`Reset ${set} item${set>1?'s':''} in ${st.label} back to Pending?`:`Nothing to reset in ${st.label}.`;
+  document.getElementById('reset-all-btn').classList.add('hidden');
+  document.getElementById('reset-confirm').classList.add('visible');
+}
+function cancelResetConfirm(){
+  const b=document.getElementById('reset-all-btn'); const c=document.getElementById('reset-confirm');
+  if(b)b.classList.remove('hidden'); if(c)c.classList.remove('visible');
+}
+async function resetActiveStation(){
+  const st=STATIONS.find(s=>s.key===activeStation); if(!st){cancelResetConfirm();return;}
+  const changed=[];
+  st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(item=>{
+    const id=mkId(st.key,ss.key,d.name,item);
+    const prev=state[id]||'none';
+    if(prev!=='none'){state[id]='none';changed.push({ss:ss.key,dn:d.name,item,prev});}
+  })));
+  cancelResetConfirm();
+  if(!changed.length)return;
+  renderTabs();renderCounter();renderContent();applyFilter();
+  if(DEV_READ_ONLY)return;
+  const rows=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',updated_at:new Date().toISOString()}));
+  const logs=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',previous_status:ch.prev}));
+  try{
+    await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
+    await sb.from('prep_status_log').insert(logs);
+  }catch(e){console.error('[resetActiveStation] save failed',e);}
+}
 
 // â”€â”€ CONTENT â”€â”€
 function renderContent() {
