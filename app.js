@@ -727,73 +727,30 @@ async function syncSevenRoomsCovers() {
   if (btn) { btn.textContent = '⟳ Syncing...'; btn.disabled = true; }
 
   try {
-    // Fetch the SevenRooms home page with credentials (session cookies)
-    var res = await fetch('https://www.sevenrooms.com/app/home/robertosdubai', {
-      credentials: 'include',
-      headers: { 'Accept': 'text/html' }
+    // Call the sevenrooms-sync Edge Function (server-side OAuth + reservations pull).
+    // The function authenticates to SevenRooms, sums covers per date, and writes
+    // them into the 'covers' table. No browser CORS issues, no scraping.
+    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-proxy-secret': 'Kitchen'
+      }
     });
 
-    if (!res.ok) throw new Error('Not logged in to SevenRooms (' + res.status + ')');
-
-    var html = await res.text();
-
-    // Parse covers from the page text
-    // SevenRooms renders data as JSON in a script tag
-    var jsonMatch = html.match(/"upcoming_covers":\s*(\[[\s\S]*?\])/);
-    var days = [];
-
-    if (jsonMatch) {
-      // Parse from JSON data in page
-      try {
-        var coversData = JSON.parse(jsonMatch[1]);
-        coversData.forEach(function(d) {
-          if (d.date && (d.night_covers !== undefined || d.covers !== undefined)) {
-            days.push({
-              service_date: d.date,
-              day_covers: d.day_covers || 0,
-              night_covers: d.night_covers || d.covers || 0,
-              updated_at: new Date().toISOString()
-            });
-          }
-        });
-      } catch(e) {}
+    var data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
     }
 
-    // Fallback: parse from rendered text
-    if (days.length === 0) {
-      var lines = html.replace(/<[^>]+>/g,'').split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l; });
-      var si = -1;
-      for (var li = 0; li < lines.length; li++) {
-        if (lines[li].includes('UPCOMING COVERS')) { si = li; break; }
-      }
-      if (si === -1) throw new Error('Could not find covers data — make sure you are logged into SevenRooms');
+    var nDays = (data.written && data.written.length) || data.days || 0;
 
-      var i = si + 1;
-      var count = 0;
-      while (i < lines.length && count < 7) {
-        var m = lines[i].match(/(\d+)\/(\d+)/);
-        if (m) {
-          var dayN = parseInt(lines[i+1]) || 0;
-          var nightN = parseInt(lines[i+3]) || 0;
-          var date = '2026-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
-          days.push({ service_date: date, day_covers: dayN, night_covers: nightN, updated_at: new Date().toISOString() });
-          count++;
-          i += 5;
-        } else { i++; }
-      }
-    }
-
-    if (days.length === 0) throw new Error('No covers data found — try refreshing SevenRooms first');
-
-    // Push to Supabase
-    var pushRes = await sb.from('covers').upsert(days, { onConflict: 'service_date' });
-    if (pushRes.error) throw new Error(pushRes.error.message);
-
-    // Update local cache and re-render
-    days.forEach(function(d){ dashCovers[d.service_date] = d; });
+    // renderDashboard() reloads the covers table via loadCovers() and repaints
+    await renderDashboard();
 
     if (btn) {
-      btn.textContent = '✓ Synced ' + days.length + ' days';
+      btn.textContent = '✓ Synced ' + nDays + ' days';
       btn.style.background = 'var(--oliva)';
       btn.style.borderColor = 'var(--oliva)';
       setTimeout(function(){
@@ -803,7 +760,6 @@ async function syncSevenRoomsCovers() {
         btn.disabled = false;
       }, 3000);
     }
-    renderDashboard();
 
   } catch(err) {
     console.error('SevenRooms sync error:', err);
@@ -811,15 +767,7 @@ async function syncSevenRoomsCovers() {
       btn.textContent = '↻ Sync SevenRooms';
       btn.disabled = false;
     }
-    // Show user-friendly message
-    var msg = err.message || 'Unknown error';
-    if (msg.includes('Not logged') || msg.includes('401') || msg.includes('403')) {
-      alert('Not logged into SevenRooms.\n\nOpen www.sevenrooms.com/app/home/robertosdubai in this browser, log in, then try again.');
-    } else if (msg.includes('CORS') || msg.includes('fetch')) {
-      alert('Browser blocked the request.\n\nMake sure you are using this app on your laptop (not a kitchen screen) and are logged into SevenRooms.');
-    } else {
-      alert('Sync failed: ' + msg);
-    }
+    alert('Sync failed: ' + (err.message || 'Unknown error'));
   }
 }
 
