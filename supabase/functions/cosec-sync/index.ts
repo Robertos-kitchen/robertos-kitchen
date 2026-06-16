@@ -54,11 +54,31 @@ function normDate(s: string): string | null {
 // Known format (Matrix COSEC v2): pipe-delimited, header row:
 //   UserID|UserName|ProcessDate|Punch1|Punch2|WorkingShift|LateIn|EarlyOut|Overtime|WorkTime
 // Punch1/Punch2 hold full timestamps ("13/06/2026 14:19:42") or are empty.
+//
+// WORKING-DAY MODEL (Roberto's kitchen + future FOH):
+//   The operational day runs 05:00 → 05:00. Shifts can end as late as ~04:00
+//   and a fresh shift (FOH event / morning prep) can start the same morning.
+//
+//   COSEC already files a late exit (e.g. 01:00–04:00) under the day the
+//   shift STARTED — confirmed on this device — so we TRUST COSEC's date
+//   grouping and never re-date a punch. The 05:00 boundary is used only to
+//   ORDER punches within a day so that a small-hours exit (e.g. 02:00) is
+//   correctly ranked AFTER an afternoon in-time (14:00), and so a morning
+//   re-entry (09:00) on a record that also holds a small-hours exit doesn't
+//   get read backwards. Within the day: earliest = clock-in, latest = clock-out.
+const DAY_START_HOUR = 5; // 05:00 cutoff
+
+// Rank a HH:MM time on a 05:00→05:00 day so 00:00–04:59 sorts AFTER the evening.
+function rankTime(t: string): number {
+  const hh = parseInt(t.substring(0, 2), 10);
+  const base = hh < DAY_START_HOUR ? hh + 24 : hh;
+  return base * 60 + parseInt(t.substring(3, 5), 10);
+}
+
 function parseCosec(raw: string): Rec[] {
-  const recs: Rec[] = [];
   const today = dubaiToday();
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  if (!lines.length) return recs;
+  if (!lines.length) return [];
 
   // Locate header to map columns (tolerant to column reordering)
   let headerIdx = -1;
@@ -80,21 +100,25 @@ function parseCosec(raw: string): Rec[] {
     start = headerIdx + 1;
   }
 
+  const recs: Rec[] = [];
   for (let i = start; i < lines.length; i++) {
     const c = lines[i].split("|");
     const id = (c[col.id] || "").trim();
     if (!id || !/^\d+$/.test(id)) continue;
-    const date = normDate(c[col.date] || "") || today;
+    const date = normDate(c[col.date] || "") || today;   // trust COSEC's working-day date
+    // Collect whatever punch times this row carries (dedup), then order them
+    // on the 05:00→05:00 clock so a small-hours exit ranks after the evening in.
+    const times = new Set<string>();
     const t1 = timeFromStamp(c[col.p1] || "");
     const t2 = timeFromStamp(c[col.p2] || "");
-    const punches: string[] = [];
-    if (t1) punches.push(t1);
-    if (t2) punches.push(t2);
+    if (t1) times.add(t1);
+    if (t2) times.add(t2);
+    const punches = Array.from(times).sort((a, b) => rankTime(a) - rankTime(b));
     recs.push({
       emp_id: id,
       att_date: date,
-      first_in: t1,
-      last_out: t2,
+      first_in: punches.length ? punches[0] : null,
+      last_out: punches.length > 1 ? punches[punches.length - 1] : null,
       punch_count: punches.length,
       punches,
     });
