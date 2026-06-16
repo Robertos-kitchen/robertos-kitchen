@@ -100,9 +100,29 @@ async function openClosingReport() {
 }
 
 // ── Load today's data: schedule + existing report ──
+let crCovers = null; // actual covers served (SevenRooms COMPLETE bookings), fetched on load
+
+async function crFetchCovers(sd) {
+  try {
+    var r = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?covers_actual=' + sd, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-proxy-secret': 'Kitchen'
+      }
+    });
+    var d = await r.json();
+    if (r.ok && d.ok && typeof d.covers === 'number') return d.covers;
+  } catch(e) { console.warn('[closing] covers fetch failed', e); }
+  return null;
+}
+
 async function crLoadToday() {
   var sd = getServiceDate();
   try {
+    // Pull actual covers served for the service date (non-blocking if it fails)
+    crCovers = await crFetchCovers(sd);
     var res = await Promise.all([
       sb.from('staff').select('*').eq('active', true).order('sort_order'),
       sb.from('roster').select('*').eq('work_date', sd),
@@ -236,11 +256,16 @@ function crRenderTonight() {
   }
   html += '</div>';
 
-  // Revenue
+  // Revenue + Covers + Report by
+  var coversDisplay = (crCovers != null)
+    ? crCovers + ' <span style="font-size:11px;font-weight:400;color:#4b5128">covers</span>'
+    : '<span style="font-size:13px;font-weight:400;color:#7a1218">syncing…</span>';
   html += '<div class="cr-two-col"><div><div class="cr-field-label">Revenue (AED)</div>'
     + '<input class="cr-input" id="cr-f-revenue" type="number" inputmode="numeric" placeholder="e.g. 60000" value="' + crEsc(crDraft.revenue) + '" onchange="crSaveDraftLocal()"></div>'
-    + '<div><div class="cr-field-label">Report by</div>'
-    + '<input class="cr-input" id="cr-f-submitted_by" type="text" placeholder="Your name" value="' + crEsc(crDraft.submitted_by) + '" onchange="crSaveDraftLocal()"></div></div>';
+    + '<div><div class="cr-field-label">Covers served <span style="text-transform:none;font-weight:400">(SevenRooms)</span></div>'
+    + '<div class="cr-input" style="background:#ede5d8;display:flex;align-items:center;font-family:Georgia,serif;font-size:20px;color:#410207">' + coversDisplay + '</div></div></div>';
+  html += '<div class="cr-two-col" style="margin-top:10px"><div><div class="cr-field-label">Report by</div>'
+    + '<input class="cr-input" id="cr-f-submitted_by" type="text" placeholder="Your name" value="' + crEsc(crDraft.submitted_by) + '" onchange="crSaveDraftLocal()"></div><div></div></div>';
   html += '</div>';
 
   // Entry sections
@@ -396,6 +421,7 @@ async function crSubmit() {
       chefs_off_duty: crChefsOff,
       day_rating: crRating || null,
       revenue_aed: crDraft.revenue !== '' ? parseFloat(crDraft.revenue) : null,
+      covers_actual: (crCovers != null) ? crCovers : null,
       briefing_foh: crDraft.briefing_foh || null,
       briefing_boh: crDraft.briefing_boh || null,
       general_feedback: crDraft.feedback || null,
@@ -474,6 +500,7 @@ function crBuildEmailHtml(sd, checks) {
     + '<table style="width:100%;font-size:14px;color:#2a1a10;border-collapse:collapse">'
     + '<tr><td style="padding:3px 0;width:170px;color:#7a1218"><strong>Service rating</strong></td><td>' + (crRating ? faces[crRating-1] + ' (' + crRating + '/5)' : '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Revenue</strong></td><td>' + (crDraft.revenue ? 'AED ' + Number(crDraft.revenue).toLocaleString() : '—') + '</td></tr>'
+    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Covers served</strong></td><td>' + (crCovers != null ? crCovers + ' <span style="color:#4b5128;font-size:12px">(SevenRooms)</span>' : '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Chefs on duty</strong></td><td>' + (crChefsOn.join(', ') || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Not on duty</strong></td><td>' + (crChefsOff.join(', ') || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Report by</strong></td><td>' + (crDraft.submitted_by || '—') + '</td></tr>'
@@ -528,6 +555,7 @@ async function crLoadHistory() {
         + (r.day_rating ? ' · ' + faces[r.day_rating-1] : '') + '</div>'
         + '<div class="cr-hist-meta">'
         + (r.revenue_aed ? 'AED ' + Number(r.revenue_aed).toLocaleString() + ' · ' : '')
+        + (r.covers_actual != null ? r.covers_actual + ' covers · ' : '')
         + nC + ' complaints · ' + n86 + ' items 86'
         + (r.checks_done != null ? ' · ' + r.checks_done + ' checked' + (r.checks_done < 10 ? ' ⚠️' : '') : '')
         + (r.chefs_on_duty && r.chefs_on_duty.length ? ' · ' + r.chefs_on_duty.join(', ') : '')
