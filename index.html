@@ -1008,11 +1008,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781635265"></script>
-<script src="recipes.js?v=1781635265"></script>
-<script src="closing-report.js?v=1781635265"></script>
-<script src="team.js?v=1781635265"></script>
-<script src="app.js?v=1781635265"></script>
+<script src="order-items.js?v=1781635469"></script>
+<script src="recipes.js?v=1781635469"></script>
+<script src="closing-report.js?v=1781635469"></script>
+<script src="team.js?v=1781635469"></script>
+<script src="app.js?v=1781635469"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1165,12 +1165,13 @@ if ('serviceWorker' in navigator) {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') reg.update();
     });
-    // When a new service worker is waiting, show update banner
+    // When a new service worker is installed, activate it immediately
+    // (no "Update now" tap needed) — controllerchange below then reloads once.
     reg.addEventListener('updatefound', () => {
       const newSW = reg.installing;
       newSW.addEventListener('statechange', () => {
         if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-          showUpdateBanner(newSW);
+          newSW.postMessage('skipWaiting');
         }
       });
     });
