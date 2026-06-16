@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781635139;
+const APP_VERSION = 1781635265;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -681,7 +681,7 @@ async function renderDashboard(){
       return '<div class="dash-cover-day dash-cover-today">' +
         '<div class="dash-cover-label">Tonight</div>' +
         '<div class="dash-cover-num">' + stillNum + '</div>' +
-        '<div class="dash-cover-sub">still expected</div>' +
+        '<div class="dash-cover-sub">upcoming</div>' +
       '</div>';
     }
     return '<div class="dash-cover-day">' +
@@ -691,21 +691,15 @@ async function renderDashboard(){
     '</div>';
   }).join('');
 
-  const liveLine = liveTonight
-    ? '<div class="dash-covers-live">Here ' + liveTonight.here + ' · <strong>' + liveTonight.upcoming + '</strong> still expected</div>'
-    : '';
-
   const coversCard = nightCovers !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${nightCovers}</div>
         <div class="ops-label">Tonight's covers</div>
-        ${liveLine}
         ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
        </div>`
     : `<div class="ops-card dash-covers-card dash-no-covers">
         <div class="ops-num">${liveTonight ? liveTonight.booked : '—'}</div>
         <div class="ops-label">Tonight's covers</div>
-        ${liveLine}
         <div class="dash-covers-sync">${liveTonight ? 'Live from SevenRooms' : 'Not synced — use laptop to sync'}</div>
        </div>`;
 
