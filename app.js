@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781634927;
+const APP_VERSION = 1781635139;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -674,7 +674,17 @@ async function renderDashboard(){
     </div>`).join(''):`<div class="report-no-data">No critical items at the moment</div>`;
 
   const coversRow = upcomingDays.map(function(d){
-    return '<div class="dash-cover-day' + (d.label==='Tonight'?' dash-cover-today':'') + '">' +
+    // Tonight is already the big card on top — repurpose its strip tile to show
+    // the live "still expected" number instead of repeating tonight's total.
+    if (d.label === 'Tonight') {
+      var stillNum = (liveTonight && liveTonight.upcoming != null) ? liveTonight.upcoming : '—';
+      return '<div class="dash-cover-day dash-cover-today">' +
+        '<div class="dash-cover-label">Tonight</div>' +
+        '<div class="dash-cover-num">' + stillNum + '</div>' +
+        '<div class="dash-cover-sub">still expected</div>' +
+      '</div>';
+    }
+    return '<div class="dash-cover-day">' +
       '<div class="dash-cover-label">' + d.label + '</div>' +
       '<div class="dash-cover-num">' + d.night + '</div>' +
       '<div class="dash-cover-sub">night</div>' +
