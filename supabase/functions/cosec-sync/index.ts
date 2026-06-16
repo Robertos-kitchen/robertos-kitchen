@@ -204,17 +204,47 @@ Deno.serve(async (req) => {
     // When pulling a specific historical date, trust the requested date
     // (some firmwares omit the date column on per-date queries).
     if (reqDate) recs.forEach((r) => { r.att_date = reqDate; });
+
+    // Only consider rows that actually carry a punch — a row with no punches
+    // must never overwrite an existing record (that's how late out-punches
+    // got lost: an early empty/in-only snapshot froze the day).
+    const punchRecs = recs.filter((r) => r.first_in || r.last_out);
+
     let upserted = 0;
-    if (recs.length) {
-      const rows = recs.map((r) => ({
-        emp_id: r.emp_id,
-        att_date: r.att_date,
-        first_in: r.first_in,
-        last_out: r.last_out,
-        punch_count: r.punch_count,
-        punches: r.punches,
-        synced_at: new Date().toISOString(),
-      }));
+    if (punchRecs.length) {
+      // Pull the existing rows for these emp/date pairs so we can MERGE
+      // rather than blind-overwrite. Rule: keep the earliest first_in and
+      // the latest last_out ever seen; never replace a real value with null.
+      const dates = Array.from(new Set(punchRecs.map((r) => r.att_date)));
+      const ids = Array.from(new Set(punchRecs.map((r) => r.emp_id)));
+      const { data: existing } = await sb.from("attendance")
+        .select("emp_id,att_date,first_in,last_out,punches")
+        .in("att_date", dates).in("emp_id", ids);
+      const exMap: Record<string, { first_in: string | null; last_out: string | null; punches: string[] }> = {};
+      (existing || []).forEach((e) => { exMap[e.emp_id + "|" + e.att_date] = e as any; });
+
+      const minT = (a: string | null, b: string | null) =>
+        a && b ? (a < b ? a : b) : (a || b);
+      const maxT = (a: string | null, b: string | null) =>
+        a && b ? (a > b ? a : b) : (a || b);
+
+      const rows = punchRecs.map((r) => {
+        const ex = exMap[r.emp_id + "|" + r.att_date];
+        const first_in = minT(ex?.first_in ?? null, r.first_in);
+        const last_out = maxT(ex?.last_out ?? null, r.last_out);
+        // Union of all punch times we've ever seen for this day, sorted.
+        const punchSet = new Set<string>([...(ex?.punches || []), ...r.punches]);
+        const punches = Array.from(punchSet).sort();
+        return {
+          emp_id: r.emp_id,
+          att_date: r.att_date,
+          first_in,
+          last_out,
+          punch_count: punches.length,
+          punches,
+          synced_at: new Date().toISOString(),
+        };
+      });
       const up = await sb.from("attendance").upsert(rows, { onConflict: "emp_id,att_date" });
       if (up.error) throw new Error("Upsert failed: " + up.error.message);
       upserted = rows.length;
