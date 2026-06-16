@@ -1,4 +1,3 @@
-﻿
 const SUPABASE_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -26,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781523608;
+const APP_VERSION = 1781613597;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1704,9 +1703,9 @@ async function loadSchedData() {
 
 // ── COSEC attendance loading & sync ──
 async function loadAttendance() {
-  var from = formatDate(addDays(schedWeekStart, -7));
-  var to = formatDate(addDays(schedWeekStart, 13));
-  var res = await sb.from('attendance').select('*').gte('att_date', from).lte('att_date', to);
+  var from = formatDate(addDays(schedWeekStart, -1));
+  var to = formatDate(addDays(schedWeekStart, 8));
+  var res = await sb.from('attendance').select('*').gte('att_date', from).lte('att_date', to).limit(2000);
   schedAttendance = {};
   (res.data || []).forEach(function(a) { schedAttendance[schedAttKey(a.emp_id, a.att_date)] = a; });
 }
