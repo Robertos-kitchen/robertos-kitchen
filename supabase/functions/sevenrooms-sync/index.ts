@@ -93,19 +93,60 @@ serve(async (req) => {
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- UPCOMING MODE: booked / here / still-expected for one date ----
+    // Returns three live numbers so the kitchen dashboard can show how many more
+    // guests are still expected as the night goes on.
+    //   booked   = all reservations excl. cancel/no-show (sum max_guests)
+    //   here     = guests who have arrived/finished (ARRIVED/COMPLETE/PAID)
+    //   upcoming = booked guests not yet arrived whose slot time is still ahead
+    const upcoming = reqUrl.searchParams.get("upcoming");
+    if (upcoming) {
+      const rows = await fetchReservations(token, venueGroupId, upcoming, upcoming);
+      const HERE = new Set(["ARRIVED", "COMPLETE", "PAID"]);
+      const nowMs = Date.now();
+      let booked = 0, here = 0, stillUpcoming = 0;
+      for (const r of rows) {
+        const st = String(r.status || "").toUpperCase();
+        if (EXCLUDE.has(st)) continue;            // drop cancel / no-show
+        const pax = Number(r.max_guests) || 0;
+        booked += pax;
+        if (HERE.has(st)) { here += pax; continue; }
+        // not yet arrived — count as upcoming only if the slot time is still ahead
+        const slot = r.real_datetime_of_slot;     // "YYYY-MM-DD HH:MM:SS" (venue local)
+        let slotMs = NaN;
+        if (slot) slotMs = Date.parse(slot.replace(" ", "T") + "+04:00"); // Dubai = UTC+4
+        if (!isNaN(slotMs) && slotMs > nowMs) stillUpcoming += pax;
+      }
+      return new Response(JSON.stringify({
+        ok: true, date: upcoming, booked, here, upcoming: stillUpcoming,
+      }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     // ---- DIAGNOSTIC MODE ----
     const diag = reqUrl.searchParams.get("diag");
     if (diag) {
       const rows = await fetchReservations(token, venueGroupId, diag, diag);
       let sumMax = 0, sumArrived = 0;
+      const statusCounts: Record<string, number> = {};
       for (const r of rows) {
         const st = String(r.status || "").toUpperCase();
+        statusCounts[st] = (statusCounts[st] || 0) + 1;
         if (st === "COMPLETE") sumMax += Number(r.max_guests) || 0;
         if (r.arrived_guests != null) sumArrived += Number(r.arrived_guests) || 0;
+      }
+      // Surface every time-like / status-like field name present on a sample row,
+      // plus one full sample reservation, so we can build the "upcoming" filter.
+      const sample = rows[0] || {};
+      const timeFields: Record<string, any> = {};
+      for (const k of Object.keys(sample)) {
+        if (/time|arriv|seat|date|status|guest/i.test(k)) timeFields[k] = sample[k];
       }
       return new Response(JSON.stringify({
         ok: true, diag_date: diag, total: rows.length,
         complete_max_guests: sumMax, sum_arrived_guests: sumArrived,
+        status_breakdown: statusCounts,
+        sample_time_status_fields: timeFields,
+        sample_keys: Object.keys(sample),
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 

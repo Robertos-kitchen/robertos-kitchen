@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781617304;
+const APP_VERSION = 1781634927;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -634,6 +634,9 @@ async function renderDashboard(){
   const nightCovers = tonight ? tonight.night_covers : null;
   const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
 
+  // Live "still expected" breakdown straight from SevenRooms (read-only)
+  const liveTonight = await fetchUpcomingTonight();
+
   // Next 6 days covers
   const upcomingDays = [];
   for (var di = 0; di < 7; di++) {
@@ -678,16 +681,22 @@ async function renderDashboard(){
     '</div>';
   }).join('');
 
+  const liveLine = liveTonight
+    ? '<div class="dash-covers-live">Here ' + liveTonight.here + ' · <strong>' + liveTonight.upcoming + '</strong> still expected</div>'
+    : '';
+
   const coversCard = nightCovers !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${nightCovers}</div>
         <div class="ops-label">Tonight's covers</div>
+        ${liveLine}
         ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
        </div>`
     : `<div class="ops-card dash-covers-card dash-no-covers">
-        <div class="ops-num">—</div>
+        <div class="ops-num">${liveTonight ? liveTonight.booked : '—'}</div>
         <div class="ops-label">Tonight's covers</div>
-        <div class="dash-covers-sync">Not synced — use laptop to sync</div>
+        ${liveLine}
+        <div class="dash-covers-sync">${liveTonight ? 'Live from SevenRooms' : 'Not synced — use laptop to sync'}</div>
        </div>`;
 
   document.getElementById('dashboard-view').innerHTML=`
@@ -719,6 +728,27 @@ async function renderDashboard(){
         <div class="ops-panel-body"><div class="critical-list">${criticalList}</div></div>
       </div>
     </div>`;
+}
+
+// Fetch live "still expected tonight" breakdown straight from SevenRooms
+// (booked / here / upcoming). Read-only, does not write to the covers table.
+async function fetchUpcomingTonight() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?upcoming=' + TODAY, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-proxy-secret': 'Kitchen'
+      }
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) return null;
+    return { booked: data.booked, here: data.here, upcoming: data.upcoming };
+  } catch (err) {
+    console.error('Upcoming fetch error:', err);
+    return null;
+  }
 }
 
 async function syncSevenRoomsCovers() {
