@@ -565,10 +565,6 @@ function teamFlags(s,answers){
 }
 
 async function teamOpenAdmin(){
-  // DEV-only safety net: report never opens on the LIVE host even if the tap pattern is found.
-  var host = (location.hostname || '').toLowerCase();
-  var isDev = host.indexOf('robertos-kitchen.github.io') !== -1 || host === 'localhost' || host === '127.0.0.1';
-  if (!isDev) { return; }
   teamMode='admin';
   try { var res=await sb.from('team_survey').select('*').order('submitted_at',{ascending:false}); teamSubmissions=res.data||[]; }
   catch(e){ teamSubmissions=[]; }
