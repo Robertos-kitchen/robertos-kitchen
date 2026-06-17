@@ -29,7 +29,10 @@ function mlComputeWeekStart(){
   let diff = (dow === 0) ? 1 : (1 - dow);
   const mon = new Date(d);
   mon.setDate(d.getDate() + diff);
-  return mon.toISOString().slice(0,10);
+  // format from LOCAL parts — .toISOString() would convert to UTC and, east of GMT
+  // (Dubai UTC+4), roll the date back a day, shifting every weekday label by one.
+  const pad = n => String(n).padStart(2,'0');
+  return mon.getFullYear() + '-' + pad(mon.getMonth()+1) + '-' + pad(mon.getDate());
 }
 function mlWeekdayToday(){
   const d = new Date(TODAY + 'T00:00:00');
