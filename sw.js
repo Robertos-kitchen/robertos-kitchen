@@ -1,9 +1,9 @@
-const CACHE = 'robertos-kitchen-v1781635469';
+const CACHE = 'robertos-kitchen-v1781714244';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
-  './order-items.js',
+  './market-list.js',
   './recipes.js',
   './manifest.json'
 ];

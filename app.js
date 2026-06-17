@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781638123;
+const APP_VERSION = 1781714244;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -46,13 +46,10 @@ setInterval(function(){
   }
 }, 60000);
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
-const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
 
 let STATIONS = [];
 let state = {};
 let chefChecks = [];
-let orderQuantities = {};
-let activeOrderDate = TODAY;
 let activeRecipeId = null;
 let activeCheckStation = null;
 let activeStation = PASS_KEY;
@@ -69,7 +66,6 @@ async function init() {
   await loadPrepList();
   await loadTodayStatus();
   await loadChefChecks();
-  loadOrderQuantities();
   if (!DEV_READ_ONLY) subscribeRealtime();
   populateSelects();
   openHome();
@@ -369,14 +365,6 @@ function renderAfterChefCheckSync(){
   else if(activeStation===DASHBOARD_KEY)renderDashboard();
   else if(activeStation===REPORTS_KEY)renderReports();
   else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY)renderContent();
-}
-function orderStorageKey(date){return ORDER_STORAGE_PREFIX + date;}
-function loadOrderQuantities(){
-  try{orderQuantities=JSON.parse(localStorage.getItem(orderStorageKey(activeOrderDate))||'{}');}
-  catch(e){orderQuantities={};}
-}
-function saveOrderQuantities(){
-  localStorage.setItem(orderStorageKey(activeOrderDate),JSON.stringify(orderQuantities));
 }
 
 // â”€â”€ SAVE STATUS TO SUPABASE â”€â”€
@@ -866,138 +854,6 @@ function applyReports(){
       <div class="ops-card"><div class="ops-num">${rows.filter(r=>['sos','review','discard'].includes(r.status)).length}</div><div class="ops-label">Needs attention</div></div>
     </div>
     ${table}`;
-}
-
-// â”€â”€ ORDER INVENTORY â”€â”€
-function orderItems(){return Array.isArray(window.ORDER_ITEMS)?window.ORDER_ITEMS:[];}
-function orderCategories(){
-  return [...new Set(orderItems().map(i=>i.category||'Market List'))].sort();
-}
-function orderRowsFiltered(){
-  const q=(document.getElementById('order-search')?.value||'').toLowerCase();
-  const cat=document.getElementById('order-category')?.value||'';
-  const only=document.getElementById('order-only')?.checked||false;
-  return orderItems().filter(i=>{
-    const qty=Number(orderQuantities[i.article]||0);
-    const text=(i.article+' '+i.name+' '+i.unit+' '+i.category).toLowerCase();
-    return (!q||text.includes(q))&&(!cat||i.category===cat)&&(!only||qty>0);
-  });
-}
-function orderTotals(){
-  let lines=0,total=0;
-  orderItems().forEach(i=>{
-    const qty=Number(orderQuantities[i.article]||0), price=Number(i.price||0);
-    if(qty>0){lines++;total+=qty*price;}
-  });
-  return {lines,total};
-}
-function money(v){return 'AED '+Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}
-function orderedLines(){
-  return orderItems().filter(i=>Number(orderQuantities[i.article]||0)>0).map(i=>{
-    const qty=Number(orderQuantities[i.article]||0), price=Number(i.price||0);
-    return {...i,qty,lineTotal:qty*price};
-  });
-}
-function renderOrderInventory(){
-  const cats=['<option value="">All categories</option>',...orderCategories().map(c=>`<option value="${c}">${c}</option>`)].join('');
-  document.getElementById('order-view').innerHTML=`
-    <div class="ops-title">Order Inventory</div>
-    <div class="ops-subtitle">${activeOrderDate} · prices from latest inventory file</div>
-    <div class="order-toolbar">
-      <div class="order-filter-grid">
-        <div class="check-field"><div class="check-label">Order date</div><input class="check-input" id="order-date" type="date" value="${activeOrderDate}" onchange="changeOrderDate(this.value)"></div>
-        <div class="check-field"><div class="check-label">Search item</div><input class="check-input" id="order-search" placeholder="Beef, tomato, flour..." oninput="renderOrderRows()"></div>
-        <div class="check-field"><div class="check-label">Category</div><select class="check-select" id="order-category" onchange="renderOrderRows()">${cats}</select></div>
-        <label class="check-label" style="display:flex;gap:7px;align-items:center;height:37px"><input id="order-only" type="checkbox" onchange="renderOrderRows()"> Ordered only</label>
-        <button class="check-reset" onclick="resetOrderList()">Reset order</button>
-      </div>
-      <div class="order-actions">
-        <button class="report-btn" onclick="showOrderedOnly()">Show ordered list</button>
-        <button class="report-btn" onclick="printOrderList()">Print ordered</button>
-        <button class="report-btn" onclick="emailOrderList()">Email ordered</button>
-      </div>
-    </div>
-    <div id="order-summary"></div>
-    <div id="order-content"></div>`;
-  renderOrderRows();
-}
-function renderOrderRows(){
-  const rows=orderRowsFiltered();
-  const totals=orderTotals();
-  document.getElementById('order-summary').innerHTML=`
-    <div class="ops-grid">
-      <div class="ops-card dark"><div class="ops-num">${money(totals.total)}</div><div class="ops-label">Total order value</div></div>
-      <div class="ops-card"><div class="ops-num">${totals.lines}</div><div class="ops-label">Ordered lines</div></div>
-      <div class="ops-card"><div class="ops-num">${orderItems().length}</div><div class="ops-label">Inventory items</div></div>
-      <div class="ops-card"><div class="ops-num">${rows.length}</div><div class="ops-label">Visible rows</div></div>
-    </div>`;
-  const table=rows.length?`<div class="order-table">
-    <div class="order-row head"><div>Article</div><div>Item</div><div>Unit</div><div>Price</div><div>Qty</div><div>Total</div><div>Action</div></div>
-    ${rows.slice(0,350).map(i=>{
-      const qty=Number(orderQuantities[i.article]||0), total=qty*Number(i.price||0);
-      return `<div class="order-row">
-        <div>${i.article}</div>
-        <div><div class="order-name">${i.name}</div><div class="order-meta">${i.category||'Market List'}</div></div>
-        <div>${i.unit||''}</div>
-        <div class="order-money">${money(i.price)}</div>
-        <div><input class="order-qty" type="number" min="0" step="0.01" value="${qty||''}" onchange="setOrderQty('${i.article}',this.value)"></div>
-        <div class="order-money">${money(total)}</div>
-        <div>${qty>0?`<button class="check-remove" onclick="clearOrderItem('${i.article}')">Clear</button>`:''}</div>
-      </div>`;
-    }).join('')}
-  </div>`:`<div class="report-no-data">No inventory items match these filters</div>`;
-  document.getElementById('order-content').innerHTML=table+(rows.length>350?`<div class="report-no-data">Showing first 350 rows. Use search or category to narrow the list.</div>`:'');
-}
-function setOrderQty(article,value){
-  const qty=Number(value||0);
-  if(qty>0)orderQuantities[article]=qty;
-  else delete orderQuantities[article];
-  saveOrderQuantities();
-  renderOrderRows();
-}
-function clearOrderItem(article){
-  delete orderQuantities[article];
-  saveOrderQuantities();
-  renderOrderRows();
-}
-function changeOrderDate(date){
-  if(!date)return;
-  activeOrderDate=date;
-  loadOrderQuantities();
-  renderOrderInventory();
-}
-function showOrderedOnly(){
-  const cb=document.getElementById('order-only');
-  if(cb)cb.checked=true;
-  renderOrderRows();
-}
-function orderText(){
-  const lines=orderedLines(), totals=orderTotals();
-  const rows=lines.map(i=>`${i.qty} ${i.unit||''} - ${i.name} (${i.article}) @ ${money(i.price)} = ${money(i.lineTotal)}`);
-  return [`Roberto's Kitchen Order`, `Date: ${activeOrderDate}`, `Lines: ${lines.length}`, `Total: ${money(totals.total)}`, '', ...rows].join('\\n');
-}
-function printOrderList(){
-  const lines=orderedLines();
-  if(!lines.length){alert('No ordered items to print.');return;}
-  const totals=orderTotals();
-  const rows=lines.map(i=>`<tr><td>${i.article}</td><td>${i.name}</td><td>${i.unit||''}</td><td>${i.qty}</td><td>${money(i.price)}</td><td>${money(i.lineTotal)}</td></tr>`).join('');
-  const w=window.open('','_blank');
-  if(!w)return;
-  w.document.write(`<html><head><title>Roberto's Kitchen Order ${activeOrderDate}</title><style>body{font-family:Arial,sans-serif;margin:28px;color:#2a1a10}h1{font-family:Georgia,serif;color:#410207}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #cfc0ad;padding:8px;text-align:left}th{background:#410207;color:#f5ede0}.total{font-size:20px;margin:12px 0;color:#410207}</style></head><body><h1>Roberto's Kitchen Order</h1><div>Date: ${activeOrderDate}</div><div class="total">Total: ${money(totals.total)}</div><table><thead><tr><th>Article</th><th>Item</th><th>Unit</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
-  w.document.close();w.focus();w.print();
-}
-function emailOrderList(){
-  const lines=orderedLines();
-  if(!lines.length){alert('No ordered items to email.');return;}
-  const subject=encodeURIComponent(`Roberto's Kitchen Order ${activeOrderDate}`);
-  const body=encodeURIComponent(orderText());
-  window.location.href=`mailto:?subject=${subject}&body=${body}`;
-}
-function resetOrderList(){
-  if(!confirm('Reset all order quantities for '+activeOrderDate+'?'))return;
-  orderQuantities={};
-  saveOrderQuantities();
-  renderOrderInventory();
 }
 
 // â”€â”€ RECIPES â”€â”€
@@ -1532,14 +1388,7 @@ function openReports(){
   document.getElementById('foot-label').textContent='Reports';
   renderReports();
 }
-function openOrderInventory(){
-  activeStation=ORDER_KEY;
-  hideAllPages();
-  document.getElementById('order-view').style.display='block';
-  document.querySelector('.footer-bar').style.display='flex';
-  document.getElementById('foot-label').textContent='Order Inventory';
-  renderOrderInventory();
-}
+function openOrderInventory(){ openMarketList(); }
 function openRecipes(){
   activeStation=RECIPES_KEY;
   hideAllPages();
