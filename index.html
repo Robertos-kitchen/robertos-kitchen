@@ -585,8 +585,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .ml-qty::-webkit-outer-spin-button,.ml-qty::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .ml-qty.filled{background:var(--vino);color:var(--cream);border-color:var(--vino);font-weight:600}
 .ml-qty::placeholder{color:var(--sabbia-dark)}
-.ml-addcustom{display:flex;gap:8px;margin-top:14px;align-items:center}
-.ml-addcustom .check-input{flex:1}
+.ml-catadd{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--sabbia-dark);background:var(--sabbia-light)}
+.ml-catadd-input{flex:1;font-size:12px;padding:7px 9px}
+.ml-catadd-btn{padding:7px 16px;background:transparent;border:1px solid var(--vino);color:var(--vino);border-radius:4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);white-space:nowrap}
+.ml-catadd-btn:hover{background:var(--vino);color:var(--cream)}
+.ml-qty.filled{position:relative}
+.ml-qty-hint{font-size:10px;color:var(--vino-light);text-align:center;margin-top:2px}
 .ml-top{position:sticky;bottom:14px;float:right;width:42px;height:42px;border-radius:50%;border:1px solid var(--vino);background:var(--vino);color:var(--cream);font-size:20px;cursor:pointer;display:none;align-items:center;justify-content:center;margin-top:10px;z-index:5}
 @media(max-width:760px){
   .ml-grid{grid-template-columns:1fr}
@@ -1059,11 +1063,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1781715093"></script>
-<script src="recipes.js?v=1781715093"></script>
-<script src="closing-report.js?v=1781715093"></script>
-<script src="team.js?v=1781715093"></script>
-<script src="app.js?v=1781715093"></script>
+<script src="market-list.js?v=1781716414"></script>
+<script src="recipes.js?v=1781716414"></script>
+<script src="closing-report.js?v=1781716414"></script>
+<script src="team.js?v=1781716414"></script>
+<script src="app.js?v=1781716414"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

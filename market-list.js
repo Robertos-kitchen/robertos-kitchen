@@ -130,18 +130,27 @@ async function mlSetQty(itemId, weekday, value){
 }
 
 // ── add a custom item (not on master list) ──
-async function mlAddCustom(){
-  const inp = document.getElementById('ml-custom-name');
+async function mlAddCustom(category, safe){
+  const inp = document.getElementById('mladd-' + safe);
+  if(!inp) return;
   const name = (inp.value||'').trim();
   if(!name) return;
+  // sort it just after the last existing item in this category
+  const inCat = mlItems.filter(i=>i.category===category);
+  const maxSort = inCat.length ? Math.max(...inCat.map(i=>i.sort_order||0)) : 0;
   const { data, error } = await sb.from('order_items')
-    .insert({ name, category:'CUSTOM', unit:'', sort_order: 9000 + mlItems.filter(i=>i.category==='CUSTOM').length, active:true })
+    .insert({ name, category, unit:'', sort_order: maxSort + 1, active:true })
     .select().single();
   if(error){ alert('Could not add item: ' + error.message); return; }
+  data.custom = true;
   mlItems.push(data);
+  mlItems.sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
   inp.value='';
-  mlSearch=''; const s=document.getElementById('ml-search'); if(s) s.value='';
-  renderMarketList();
+  mlRenderRows(mlVisibleDays());
+  mlRenderSummary();
+  // keep focus flowing: re-focus the same category's add box
+  const again = document.getElementById('mladd-' + safe);
+  if(again) again.focus();
 }
 
 // ── filtered rows ──
@@ -186,7 +195,7 @@ function renderMarketList(){
 
   document.getElementById('order-view').innerHTML = `
     <div class="ops-title">Market List</div>
-    <div class="ops-subtitle">Week ${mlWeekLabel()} · shared live · Sun closed</div>
+    <div class="ops-subtitle">Week ${mlWeekLabel()} · shared live · long-press a filled cell to clear</div>
 
     <div class="ml-toolbar">
       <div class="ml-search-wrap">
@@ -210,11 +219,6 @@ function renderMarketList(){
 
     <div id="ml-summary"></div>
     <div id="ml-content"></div>
-
-    <div class="ml-addcustom">
-      <input class="check-input" id="ml-custom-name" placeholder="Item not on the list? Type its name…" onkeydown="if(event.key==='Enter')mlAddCustom()">
-      <button class="report-btn" onclick="mlAddCustom()">Add item</button>
-    </div>
 
     <button class="ml-top" id="ml-top" onclick="document.getElementById('order-view').scrollTo({top:0,behavior:'smooth'})" aria-label="Scroll to top">↑</button>
   `;
@@ -241,7 +245,6 @@ function mlRenderSummary(){
 function mlRenderRows(days){
   const items = mlFilteredItems();
   const c = document.getElementById('ml-content'); if(!c) return;
-  if(!items.length){ c.innerHTML = `<div class="report-no-data">${mlOrderedOnly?'Nothing ordered for the shown days yet.':'No items match. Use “Add item” below for anything off-list.'}</div>`; return; }
 
   const cols = days.length;
   const todayWd = mlWeekdayToday();
@@ -249,25 +252,71 @@ function mlRenderRows(days){
   // header
   html += `<div class="ml-row ml-head"><div class="ml-cell-name">Item</div>${days.map(wd=>`<div class="ml-cell-day${wd===todayWd?' today':''}">${ML_DAYS[wd-1]}</div>`).join('')}</div>`;
 
-  let curCat = null;
-  items.forEach(it=>{
-    if(it.category !== curCat){
-      curCat = it.category;
-      html += `<div class="ml-cat" id="ml-cat-${curCat.replace(/[^a-z0-9]/gi,'_')}">${curCat}</div>`;
+  // group items by category, preserving ML_CAT_ORDER
+  const present = mlCatsPresent();
+  // when searching/ordered-only, only show categories that have matching items;
+  // when browsing the full list, show every present category (so its add box is reachable)
+  const filtering = !!(mlSearch || mlCatFilter || mlOrderedOnly);
+  const byCat = {};
+  items.forEach(it=>{ (byCat[it.category]=byCat[it.category]||[]).push(it); });
+
+  let any = false;
+  present.forEach(cat=>{
+    const rows = byCat[cat] || [];
+    if(filtering && rows.length===0) return;   // hide empty cats while filtering
+    if(mlCatFilter && cat!==mlCatFilter) return;
+    any = true;
+    const safe = cat.replace(/[^a-z0-9]/gi,'_');
+    html += `<div class="ml-cat" id="ml-cat-${safe}">${cat}</div>`;
+    rows.forEach(it=>{
+      html += `<div class="ml-row">
+        <div class="ml-cell-name"><div class="ml-name">${it.name}${it.category==='CUSTOM'||it.custom?'':''}</div><div class="ml-unit">${it.unit||''}</div></div>
+        ${days.map(wd=>{
+          const k = it.id+'|'+wd;
+          const v = mlQty[k]; const has = v!=null;
+          return `<div class="ml-cell-day${wd===todayWd?' today':''}">
+            <input class="ml-qty${has?' filled':''}" id="mlq-${k}" data-item="${it.id}" data-wd="${wd}" type="number" min="0" step="0.1" inputmode="decimal" value="${has?v:''}" placeholder="·" onchange="mlSetQty(${it.id},${wd},this.value)">
+          </div>`;
+        }).join('')}
+      </div>`;
+    });
+    // per-category add box (hidden while ordered-only, to keep the chef view clean)
+    if(!mlOrderedOnly){
+      html += `<div class="ml-catadd">
+        <input class="check-input ml-catadd-input" id="mladd-${safe}" placeholder="Add item to ${cat}…" onkeydown="if(event.key==='Enter')mlAddCustom('${cat.replace(/'/g,"\\'")}','${safe}')">
+        <button class="ml-catadd-btn" onclick="mlAddCustom('${cat.replace(/'/g,"\\'")}','${safe}')">Add</button>
+      </div>`;
     }
-    html += `<div class="ml-row">
-      <div class="ml-cell-name"><div class="ml-name">${it.name}</div><div class="ml-unit">${it.unit||''}</div></div>
-      ${days.map(wd=>{
-        const k = it.id+'|'+wd;
-        const v = mlQty[k]; const has = v!=null;
-        return `<div class="ml-cell-day${wd===todayWd?' today':''}">
-          <input class="ml-qty${has?' filled':''}" id="mlq-${k}" type="number" min="0" step="0.1" inputmode="decimal" value="${has?v:''}" placeholder="·" onchange="mlSetQty(${it.id},${wd},this.value)">
-        </div>`;
-      }).join('')}
-    </div>`;
   });
   html += `</div>`;
+
+  if(!any){ c.innerHTML = `<div class="report-no-data">${mlOrderedOnly?'Nothing ordered for the shown days yet.':'No items match your search.'}</div>`; return; }
   c.innerHTML = html;
+  mlAttachLongPress();
+}
+
+// long-press a filled qty cell to clear it (tap still edits)
+function mlAttachLongPress(){
+  const inputs = document.querySelectorAll('#ml-content .ml-qty');
+  inputs.forEach(inp=>{
+    let timer=null, fired=false;
+    const start=()=>{ if(!inp.classList.contains('filled'))return; fired=false; timer=setTimeout(()=>{
+      fired=true;
+      const id=Number(inp.dataset.item), wd=Number(inp.dataset.wd);
+      inp.value=''; inp.classList.remove('filled');
+      if(navigator.vibrate)navigator.vibrate(15);
+      mlSetQty(id, wd, '');
+    },500); };
+    const cancel=()=>{ if(timer){clearTimeout(timer);timer=null;} };
+    inp.addEventListener('touchstart', start, {passive:true});
+    inp.addEventListener('touchend', cancel);
+    inp.addEventListener('touchmove', cancel);
+    inp.addEventListener('mousedown', start);
+    inp.addEventListener('mouseup', cancel);
+    inp.addEventListener('mouseleave', cancel);
+    // prevent the long-press from also opening keyboard/edit
+    inp.addEventListener('click', e=>{ if(fired){ e.preventDefault(); inp.blur(); } });
+  });
 }
 
 // update a single cell after realtime without full re-render
