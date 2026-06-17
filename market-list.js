@@ -305,19 +305,21 @@ function mlOpenEditor(itemId){
   if(!it) return;
   mlEditItemId = itemId;
   mlEditBuf = {};
-  for(let wd=1; wd<=6; wd++){
+  const editDays = mlVisibleDays();   // match what's shown in the grid (1 day on phone / single-day mode, else the shown days)
+  editDays.forEach(wd=>{
     const v = mlQty[itemId+'|'+wd];
     mlEditBuf[wd] = (v!=null) ? String(v) : '';
-  }
+  });
   const todayWd = mlWeekdayToday();
   const old = document.getElementById('ml-editor'); if(old) old.remove();
 
-  const dayRows = [1,2,3,4,5,6].map(wd=>{
+  const single = editDays.length === 1;
+  const dayRows = editDays.map(wd=>{
     const isToday = wd===todayWd;
     const val = mlEditBuf[wd];
     const has = val!=='' && Number(val)>0;
-    return `<div class="ml-ed-row${has?' has-qty':''}" id="ml-ed-row-${wd}">
-      <div class="ml-ed-day">${ML_DAYS[wd-1]}${isToday?'<span class="ml-ed-today">today</span>':''}</div>
+    return `<div class="ml-ed-row${has?' has-qty':''}${single?' ml-ed-single':''}" id="ml-ed-row-${wd}">
+      <div class="ml-ed-day">${single?mlDateForWeekday(wd):ML_DAYS[wd-1]}${isToday?'<span class="ml-ed-today">today</span>':''}</div>
       <div class="ml-ed-stepper">
         <button type="button" class="ml-ed-step" onclick="mlEdBump(${wd},-1)" aria-label="decrease">−</button>
         <input class="ml-ed-input" id="ml-ed-q${wd}" type="number" min="0" step="0.1" inputmode="decimal"
@@ -373,11 +375,11 @@ async function mlSaveEditor(){
   const id = mlEditItemId;
   if(id==null){ mlCloseEditor(); return; }
   const writes = [];
-  for(let wd=1; wd<=6; wd++){
+  Object.keys(mlEditBuf).forEach(wd=>{
     const newVal = mlEditBuf[wd]==='' ? '' : String(Number(mlEditBuf[wd]));
     const oldVal = mlQty[id+'|'+wd]!=null ? String(mlQty[id+'|'+wd]) : '';
-    if(newVal !== oldVal){ writes.push(mlSetQty(id, wd, mlEditBuf[wd])); }
-  }
+    if(newVal !== oldVal){ writes.push(mlSetQty(id, Number(wd), mlEditBuf[wd])); }
+  });
   await Promise.all(writes);
   mlCloseEditor();
   mlRenderRows(mlVisibleDays());   // refresh grid cells with new values
