@@ -593,6 +593,20 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   .ml-row{grid-template-columns:1fr 72px}
   .ml-qty{width:64px}
 }
+.ml-actions{display:flex;gap:8px;margin-left:auto}
+.ml-daypick-overlay{position:fixed;inset:0;background:rgba(42,26,16,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:18px}
+.ml-daypick-box{background:var(--cream);border:1px solid var(--vino);border-radius:8px;padding:18px;max-width:380px;width:100%}
+.ml-daypick-title{font-family:var(--font-serif);font-size:20px;color:var(--vino);margin-bottom:14px}
+.ml-daypick-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.ml-daypick-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:11px 4px;border:1px solid var(--sabbia-dark);background:#fff;color:var(--vino);border-radius:6px;cursor:pointer;font-family:var(--font-sans);font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+.ml-daypick-btn.today{border-color:var(--oro);border-width:2px}
+.ml-daypick-btn.empty{opacity:.5}
+.ml-daypick-date{font-size:10px;color:var(--vino-light);text-transform:none;letter-spacing:0}
+.ml-daypick-none{font-size:9px;color:var(--vino-light);text-transform:uppercase}
+.ml-daypick-cancel{width:100%;padding:9px;background:transparent;border:1px solid var(--sabbia-dark);border-radius:5px;color:var(--ink);cursor:pointer;font-family:var(--font-sans);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.ml-email-status{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--vino);color:var(--cream);padding:11px 22px;border-radius:20px;font-size:13px;z-index:210;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.ml-email-status.ok{background:var(--oliva)}
+.ml-email-status.err{background:#7a1218}
 .dash-covers-card.dark .dash-covers-live{color:var(--cream)}
 .dash-covers-live strong{font-weight:700}
 .dash-covers-sync{font-size:9px;letter-spacing:.5px;opacity:.6;margin-top:4px;font-family:var(--font-sans)}
@@ -1045,11 +1059,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1781714244"></script>
-<script src="recipes.js?v=1781714244"></script>
-<script src="closing-report.js?v=1781714244"></script>
-<script src="team.js?v=1781714244"></script>
-<script src="app.js?v=1781714244"></script>
+<script src="market-list.js?v=1781715093"></script>
+<script src="recipes.js?v=1781715093"></script>
+<script src="closing-report.js?v=1781715093"></script>
+<script src="team.js?v=1781715093"></script>
+<script src="app.js?v=1781715093"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

@@ -194,6 +194,10 @@ function renderMarketList(){
       </div>
       <select class="check-select" id="ml-category" onchange="mlOnCat(this.value)">${cats}</select>
       <label class="ml-check"><input id="ml-only" type="checkbox" ${mlOrderedOnly?'checked':''} onchange="mlOnOnly(this.checked)"> Ordered only</label>
+      <div class="ml-actions">
+        <button class="report-btn" onclick="mlPrint()">Print</button>
+        <button class="report-btn" onclick="mlEmailPrompt()">Email chefs</button>
+      </div>
     </div>
 
     ${isMobile ? `
@@ -281,6 +285,112 @@ function mlOnSearch(v){ mlSearch=v; clearTimeout(mlSearchTimer); mlSearchTimer=s
 function mlOnCat(v){ mlCatFilter=v; mlRenderRows(mlVisibleDays()); }
 function mlOnOnly(v){ mlOrderedOnly=v; mlRenderRows(mlVisibleDays()); mlRenderSummary(); }
 function mlPickDay(wd){ mlActiveDay=Number(wd); renderMarketList(); }
+
+// ── consolidated order for a given weekday: [{category, items:[{name,unit,qty}]}] ──
+function mlConsolidate(weekday){
+  const groups = [];
+  let cur = null;
+  mlItems.forEach(it=>{
+    const v = mlQty[it.id+'|'+weekday];
+    if(v==null) return;
+    if(!cur || cur.category !== it.category){ cur = {category:it.category, items:[]}; groups.push(cur); }
+    cur.items.push({ name:it.name, unit:it.unit||'', qty:v });
+  });
+  return groups;
+}
+function mlDayHasOrders(weekday){
+  return mlItems.some(it=>mlQty[it.id+'|'+weekday]!=null);
+}
+
+// ── day picker (used by both print and email) ──
+function mlAskDay(action, cb){
+  const wd = mlActiveDay; // if in single-day mode, use it directly
+  if(wd){ cb(wd); return; }
+  // build a small inline picker
+  const existing = document.getElementById('ml-daypick'); if(existing) existing.remove();
+  const todayWd = mlWeekdayToday();
+  const wrap = document.createElement('div');
+  wrap.id = 'ml-daypick';
+  wrap.className = 'ml-daypick-overlay';
+  wrap.innerHTML = `<div class="ml-daypick-box">
+    <div class="ml-daypick-title">${action}: which day?</div>
+    <div class="ml-daypick-btns">
+      ${[1,2,3,4,5,6].map(d=>`<button class="ml-daypick-btn${d===todayWd?' today':''}${mlDayHasOrders(d)?'':' empty'}" onclick="mlDayPicked(${d})">${ML_DAYS[d-1]}<span class="ml-daypick-date">${mlDateForWeekday(d).split(' ').slice(1).join(' ')}</span>${mlDayHasOrders(d)?'':'<span class="ml-daypick-none">empty</span>'}</button>`).join('')}
+    </div>
+    <button class="ml-daypick-cancel" onclick="document.getElementById('ml-daypick').remove()">Cancel</button>
+  </div>`;
+  document.getElementById('order-view').appendChild(wrap);
+  mlDayPickCb = cb;
+}
+let mlDayPickCb = null;
+function mlDayPicked(wd){
+  const ov = document.getElementById('ml-daypick'); if(ov) ov.remove();
+  if(mlDayPickCb){ const cb = mlDayPickCb; mlDayPickCb = null; cb(wd); }
+}
+
+// ── build printable / email HTML for one day ──
+function mlOrderHtml(weekday){
+  const groups = mlConsolidate(weekday);
+  const dateLabel = mlDateForWeekday(weekday);
+  const lineCount = groups.reduce((n,g)=>n+g.items.length,0);
+  const body = groups.length ? groups.map(g=>`
+    <tr><td colspan="3" style="background:#410207;color:#f5ede0;font-size:11px;letter-spacing:1.5px;padding:7px 10px;text-transform:uppercase">${g.category}</td></tr>
+    ${g.items.map(it=>`<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #cfc0ad;width:90px;font-weight:bold;color:#410207">${it.qty}${it.unit?(' '+it.unit):''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #cfc0ad">${it.name}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #cfc0ad;width:80px"></td>
+    </tr>`).join('')}
+  `).join('') : `<tr><td colspan="3" style="padding:20px;text-align:center;color:#7a1218">No items ordered for ${dateLabel}.</td></tr>`;
+  return {
+    lineCount,
+    dateLabel,
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10;max-width:640px">
+      <h1 style="font-family:Georgia,serif;color:#410207;margin:0 0 2px">Roberto's — Market Order</h1>
+      <div style="font-size:13px;color:#7a1218;margin-bottom:14px">${dateLabel} · ${lineCount} line${lineCount===1?'':'s'} · week ${mlWeekLabel()}</div>
+      <table style="border-collapse:collapse;width:100%;font-size:13px"><tbody>${body}</tbody></table>
+      <div style="font-size:11px;color:#999;margin-top:14px">Sent from Roberto's Kitchen App · key into FMC by item name</div>
+    </div>`
+  };
+}
+
+// ── print ──
+function mlPrint(){
+  mlAskDay('Print', wd=>{
+    const out = mlOrderHtml(wd);
+    if(!out.lineCount){ alert('Nothing ordered for '+out.dateLabel+'.'); return; }
+    const w = window.open('','_blank');
+    if(!w){ alert('Pop-up blocked — allow pop-ups to print.'); return; }
+    w.document.write(`<html><head><title>Roberto's Market Order — ${out.dateLabel}</title></head><body style="margin:28px">${out.html}</body></html>`);
+    w.document.close(); w.focus(); setTimeout(()=>w.print(),250);
+  });
+}
+
+// ── email chefs via Resend edge function ──
+function mlEmailPrompt(){
+  mlAskDay('Email chefs', async wd=>{
+    const out = mlOrderHtml(wd);
+    if(!out.lineCount){ alert('Nothing ordered for '+out.dateLabel+' — fill some quantities first.'); return; }
+    const status = document.createElement('div');
+    status.className = 'ml-email-status'; status.textContent = 'Sending to Danilo & Antonio…';
+    document.getElementById('order-view').appendChild(status);
+    try {
+      const r = await fetch(SUPABASE_URL + '/functions/v1/send-market-order', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+SUPABASE_KEY },
+        body: JSON.stringify({
+          subject: `Market Order — ${out.dateLabel}`,
+          html: out.html
+        })
+      });
+      const data = await r.json().catch(()=>({}));
+      if(r.ok){ status.textContent = '✓ Emailed to Danilo & Antonio'; status.classList.add('ok'); }
+      else { status.textContent = '✕ Send failed: ' + (data.error||r.status); status.classList.add('err'); }
+    } catch(e){
+      status.textContent = '✕ Send failed: ' + e.message; status.classList.add('err');
+    }
+    setTimeout(()=>status.remove(), 4000);
+  });
+}
 
 // ── open / entry point ──
 async function openMarketList(){
