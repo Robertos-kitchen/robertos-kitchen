@@ -195,7 +195,7 @@ function renderMarketList(){
 
   document.getElementById('order-view').innerHTML = `
     <div class="ops-title">Market List</div>
-    <div class="ops-subtitle">Week ${mlWeekLabel()} · shared live · long-press a filled cell to clear</div>
+    <div class="ops-subtitle">Week ${mlWeekLabel()} · shared live · tap an item to set quantities</div>
 
     <div class="ml-toolbar">
       <div class="ml-search-wrap">
@@ -269,13 +269,13 @@ function mlRenderRows(days){
     const safe = cat.replace(/[^a-z0-9]/gi,'_');
     html += `<div class="ml-cat" id="ml-cat-${safe}">${cat}</div>`;
     rows.forEach(it=>{
-      html += `<div class="ml-row">
+      html += `<div class="ml-row ml-row-tap" onclick="mlOpenEditor(${it.id})">
         <div class="ml-cell-name"><div class="ml-name">${it.name}${it.category==='CUSTOM'||it.custom?'':''}</div><div class="ml-unit">${it.unit||''}</div></div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
           return `<div class="ml-cell-day${wd===todayWd?' today':''}">
-            <input class="ml-qty${has?' filled':''}" id="mlq-${k}" data-item="${it.id}" data-wd="${wd}" type="number" min="0" step="0.1" inputmode="decimal" value="${has?v:''}" placeholder="·" onchange="mlSetQty(${it.id},${wd},this.value)">
+            <div class="ml-qty${has?' filled':''}" id="mlq-${k}" data-item="${it.id}" data-wd="${wd}">${has?v:'·'}</div>
           </div>`;
         }).join('')}
       </div>`;
@@ -292,40 +292,109 @@ function mlRenderRows(days){
 
   if(!any){ c.innerHTML = `<div class="report-no-data">${mlOrderedOnly?'Nothing ordered for the shown days yet.':'No items match your search.'}</div>`; return; }
   c.innerHTML = html;
-  mlAttachLongPress();
 }
 
-// long-press a filled qty cell to clear it (tap still edits)
-function mlAttachLongPress(){
-  const inputs = document.querySelectorAll('#ml-content .ml-qty');
-  inputs.forEach(inp=>{
-    let timer=null, fired=false;
-    const start=()=>{ if(!inp.classList.contains('filled'))return; fired=false; timer=setTimeout(()=>{
-      fired=true;
-      const id=Number(inp.dataset.item), wd=Number(inp.dataset.wd);
-      inp.value=''; inp.classList.remove('filled');
-      if(navigator.vibrate)navigator.vibrate(15);
-      mlSetQty(id, wd, '');
-    },500); };
-    const cancel=()=>{ if(timer){clearTimeout(timer);timer=null;} };
-    inp.addEventListener('touchstart', start, {passive:true});
-    inp.addEventListener('touchend', cancel);
-    inp.addEventListener('touchmove', cancel);
-    inp.addEventListener('mousedown', start);
-    inp.addEventListener('mouseup', cancel);
-    inp.addEventListener('mouseleave', cancel);
-    // prevent the long-press from also opening keyboard/edit
-    inp.addEventListener('click', e=>{ if(fired){ e.preventDefault(); inp.blur(); } });
-  });
+// ── EDIT POPUP: tap an item's name OR any of its cells to open ──
+// Shows all 6 days for that item with steppers + a number field per day.
+// Local edits buffer in mlEditBuf; "Save" writes every changed day via mlSetQty.
+let mlEditItemId = null;
+let mlEditBuf = {};   // weekday -> value (string)
+
+function mlOpenEditor(itemId){
+  const it = mlItems.find(x=>x.id===itemId);
+  if(!it) return;
+  mlEditItemId = itemId;
+  mlEditBuf = {};
+  for(let wd=1; wd<=6; wd++){
+    const v = mlQty[itemId+'|'+wd];
+    mlEditBuf[wd] = (v!=null) ? String(v) : '';
+  }
+  const todayWd = mlWeekdayToday();
+  const old = document.getElementById('ml-editor'); if(old) old.remove();
+
+  const dayRows = [1,2,3,4,5,6].map(wd=>{
+    const isToday = wd===todayWd;
+    const val = mlEditBuf[wd];
+    const has = val!=='' && Number(val)>0;
+    return `<div class="ml-ed-row${has?' has-qty':''}" id="ml-ed-row-${wd}">
+      <div class="ml-ed-day">${ML_DAYS[wd-1]}${isToday?'<span class="ml-ed-today">today</span>':''}</div>
+      <div class="ml-ed-stepper">
+        <button type="button" class="ml-ed-step" onclick="mlEdBump(${wd},-1)" aria-label="decrease">−</button>
+        <input class="ml-ed-input" id="ml-ed-q${wd}" type="number" min="0" step="0.1" inputmode="decimal"
+               value="${has?val:''}" placeholder="0" oninput="mlEdInput(${wd},this.value)">
+        <button type="button" class="ml-ed-step" onclick="mlEdBump(${wd},1)" aria-label="increase">+</button>
+      </div>
+      <button type="button" class="ml-ed-clear" onclick="mlEdClear(${wd})">clear</button>
+    </div>`;
+  }).join('');
+
+  const box = document.createElement('div');
+  box.className = 'ml-daypick-overlay';
+  box.id = 'ml-editor';
+  box.innerHTML = `
+    <div class="ml-ed-modal" onclick="event.stopPropagation()">
+      <div class="ml-ed-head">
+        <div class="ml-ed-cat">${it.category}</div>
+        <div class="ml-ed-name">${it.name}</div>
+        ${it.unit?`<div class="ml-ed-unit">${it.unit}</div>`:''}
+      </div>
+      <div class="ml-ed-body">${dayRows}</div>
+      <div class="ml-ed-foot">
+        <button type="button" class="ml-ed-btn ml-ed-cancel" onclick="mlCloseEditor()">Cancel</button>
+        <button type="button" class="ml-ed-btn ml-ed-save" onclick="mlSaveEditor()">Save</button>
+      </div>
+    </div>`;
+  box.addEventListener('click', mlCloseEditor); // click backdrop closes
+  document.body.appendChild(box);
+  setTimeout(()=>{ const f=document.getElementById('ml-ed-q1'); if(f) f.focus(); }, 60);
+}
+
+function mlEdRowToggle(wd){
+  const has = mlEditBuf[wd]!=='' && Number(mlEditBuf[wd])>0;
+  const row = document.getElementById('ml-ed-row-'+wd);
+  if(row) row.classList.toggle('has-qty', has);
+}
+function mlEdInput(wd, v){ mlEditBuf[wd] = v; mlEdRowToggle(wd); }
+function mlEdBump(wd, n){
+  const cur = Number(mlEditBuf[wd]) || 0;
+  const next = Math.max(0, Math.round((cur + n)*10)/10);
+  mlEditBuf[wd] = next>0 ? String(next) : '';
+  const inp = document.getElementById('ml-ed-q'+wd);
+  if(inp) inp.value = mlEditBuf[wd];
+  mlEdRowToggle(wd);
+}
+function mlEdClear(wd){
+  mlEditBuf[wd] = '';
+  const inp = document.getElementById('ml-ed-q'+wd);
+  if(inp) inp.value = '';
+  mlEdRowToggle(wd);
+}
+async function mlSaveEditor(){
+  const id = mlEditItemId;
+  if(id==null){ mlCloseEditor(); return; }
+  const writes = [];
+  for(let wd=1; wd<=6; wd++){
+    const newVal = mlEditBuf[wd]==='' ? '' : String(Number(mlEditBuf[wd]));
+    const oldVal = mlQty[id+'|'+wd]!=null ? String(mlQty[id+'|'+wd]) : '';
+    if(newVal !== oldVal){ writes.push(mlSetQty(id, wd, mlEditBuf[wd])); }
+  }
+  await Promise.all(writes);
+  mlCloseEditor();
+  mlRenderRows(mlVisibleDays());   // refresh grid cells with new values
+  mlRenderSummary();
+}
+function mlCloseEditor(){
+  const el = document.getElementById('ml-editor'); if(el) el.remove();
+  mlEditItemId = null; mlEditBuf = {};
 }
 
 // update a single cell after realtime without full re-render
 function mlUpdateCellUI(k){
-  const inp = document.getElementById('mlq-'+k);
-  if(!inp) return;
+  const cell = document.getElementById('mlq-'+k);
+  if(!cell) return;
   const v = mlQty[k];
-  if(v==null){ inp.value=''; inp.classList.remove('filled'); }
-  else { inp.value = v; inp.classList.add('filled'); }
+  if(v==null){ cell.textContent='·'; cell.classList.remove('filled'); }
+  else { cell.textContent = v; cell.classList.add('filled'); }
 }
 
 // ── toolbar handlers ──
@@ -456,3 +525,10 @@ async function openMarketList(){
   subscribeMarketList();
   renderMarketList();
 }
+
+// ── keyboard handling for the edit popup (Esc closes, Enter saves) ──
+document.addEventListener('keydown', function(e){
+  if(!document.getElementById('ml-editor')) return;
+  if(e.key === 'Escape'){ e.preventDefault(); mlCloseEditor(); }
+  else if(e.key === 'Enter'){ e.preventDefault(); mlSaveEditor(); }
+});
