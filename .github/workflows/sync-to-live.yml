@@ -1,0 +1,60 @@
+name: Sync front-end to live (guarracinofamily)
+
+# WHY: the kitchen screen loads from guarracinofamily/robertos-kitchen ("live"),
+# but all work is pushed to this repo ("dev"). The dev->live copy used to be
+# manual and kept getting forgotten, so fixes never reached the screen.
+# This mirrors the front-end automatically on every push.
+#
+# IMPORTANT: supabase/ is deliberately NOT synced — live holds the COSEC
+# clock-out permanent fix that dev is behind on, and copying dev would
+# regress it. Supabase functions stay managed separately.
+#
+# SETUP (one time): add a repo secret named LIVE_SYNC_TOKEN containing a
+# token from the guarracinofamily account with read/write Contents access to
+# guarracinofamily/robertos-kitchen.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'supabase/**'
+      - '.github/**'
+  workflow_dispatch:   # lets you run it by hand from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out dev (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: dev
+
+      - name: Check out live (guarracinofamily)
+        uses: actions/checkout@v4
+        with:
+          repository: guarracinofamily/robertos-kitchen
+          token: ${{ secrets.LIVE_SYNC_TOKEN }}
+          path: live
+
+      - name: Copy front-end files into live (never touch supabase/)
+        run: |
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='supabase/' \
+            dev/ live/
+
+      - name: Commit & push to live if anything changed
+        run: |
+          cd live
+          git config user.name "kitchen-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No front-end changes to sync."
+          else
+            git commit -m "Sync from dev: ${{ github.event.head_commit.message }}"
+            git push
+            echo "Synced to live."
+          fi
