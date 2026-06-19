@@ -2383,9 +2383,12 @@ function schedPrint() {
         if (!row || row.status === 'working') {
           var ts = row ? formatTime(row.shift_start) : '';
           var te = row ? formatTime(row.shift_end) : '';
-          var h = calcHours(ts, te);
+          var ts2 = row ? formatTime(row.shift_start2) : '';
+          var te2 = row ? formatTime(row.shift_end2) : '';
+          var h = calcHours(ts, te, ts2, te2);
           if (ts && te) { wh += h; wd++; }
-          html += '<td' + (isToday ? ' class="pt-today"' : '') + '>' + (ts && te ? ts + '–' + te : '') + '</td>';
+          var cell = ts && te ? (ts + '–' + te + (ts2 && te2 ? '<br><span class="pt-split">' + ts2 + '–' + te2 + '</span>' : '')) : '';
+          html += '<td' + (isToday ? ' class="pt-today"' : '') + '>' + cell + '</td>';
         } else {
           var meta = STATUS_META[row.status] || { label: row.status.toUpperCase() };
           if (row.status !== 'off') wd++;
@@ -2398,21 +2401,24 @@ function schedPrint() {
   html += '</tbody></table>';
   var printDoc = '<!doctype html><html><head><title>Robertos Kitchen Roster</title>' +
     '<style>' +
-    '@page{size:A4 landscape;margin:8mm}' +
-    'body{font-family:Arial,sans-serif;color:#2a1a10;margin:0}' +
-    '.sch-print-header{margin-bottom:8px}' +
-    '.sch-print-header h2{font-size:13px;margin:0 0 2px;color:#410207}' +
-    '.sch-print-header p{font-size:9px;color:#666;margin:0}' +
-    '.sch-print-table{width:100%;border-collapse:collapse;font-size:9px}' +
-    '.sch-print-table th{background:#410207;color:#fff;padding:5px 4px;text-align:center;border:1px solid #999;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-    '.sch-print-table th.pt-name{text-align:left;padding-left:6px;min-width:130px}' +
-    '.sch-print-table td{padding:4px 4px;border:1px solid #ccc;text-align:center;font-size:9px}' +
-    '.sch-print-table td.pt-name{text-align:left;padding-left:6px;font-weight:600}' +
-    '.sch-print-table td.pt-role{text-align:left;font-size:8px;color:#666}' +
-    '.sch-print-table tr.pt-station td{background:#f5f5f5;font-weight:700;font-size:8px;letter-spacing:1px;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '@page{size:A3 landscape;margin:6mm}' +
+    'body{font-family:Arial,sans-serif;color:#2a1a10;margin:0;font-size:14px}' +
+    '.sch-print-header{margin-bottom:6px}' +
+    '.sch-print-header h2{font-size:18px;margin:0 0 2px;color:#410207}' +
+    '.sch-print-header p{font-size:10px;color:#666;margin:0}' +
+    '.sch-print-table{width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed}' +
+    '.sch-print-table th{background:#410207;color:#fff;padding:4px 4px;text-align:center;border:1px solid #999;font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table th.pt-name{text-align:left;padding-left:6px;width:14%}' +
+    '.sch-print-table th.pt-role{text-align:left;width:11%}' +
+    '.sch-print-table td{padding:2px 4px;border:1px solid #ccc;text-align:center;font-size:14px;font-weight:600;white-space:nowrap;line-height:1.1}' +
+    '.sch-print-table td.pt-name{text-align:left;padding-left:6px;font-weight:700;white-space:normal}' +
+    '.sch-print-table td.pt-role{text-align:left;font-size:12px;color:#444;font-weight:700;white-space:normal}' +
+    '.sch-print-table .pt-split{font-size:12px;color:#444;font-weight:400}' +
+    '.sch-print-table tr.pt-station td{background:#ece3d3;font-weight:800;font-size:13px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.sch-print-table td.pt-today{background:#e8f5e9;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.sch-print-table td.pt-off{color:#999}' +
-    '.sch-print-table td.pt-leave{background:#fff9c4;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table td.pt-leave{background:#fff9c4;font-weight:700;font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table tr{page-break-inside:avoid}' +
     '</style></head><body>' + html + '</body></html>';
   var w = window.open('', '_blank');
   if (!w) {
