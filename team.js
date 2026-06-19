@@ -1197,6 +1197,7 @@ function teamChairmanHTML(){
   h+='<div class="cd-toggle">';
   h+='<button class="cd-tg'+(teamChairView==='aggregate'?' on':'')+'" onclick="teamChairSet(\'aggregate\')">Whole organisation</button>';
   h+='<button class="cd-tg'+(teamChairView==='byarea'?' on':'')+'" onclick="teamChairSet(\'byarea\')">By area</button>';
+  h+='<button class="cd-tg'+(teamChairView==='full'?' on':'')+'" onclick="teamChairSet(\'full\')">Full report</button>';
   h+='</div>';
   h+='<button class="cd-print" onclick="teamPrintDash()">Print / Export PDF</button>';
   h+='</div>';
@@ -1212,7 +1213,7 @@ function teamChairmanHTML(){
 
   if(!st.responded){ h+='<div class="team-empty">No responses yet.</div></div></div>'; return h; }
 
-  if(teamChairView==='aggregate'){
+  if(teamChairView==='aggregate' || teamChairView==='full'){
     // ── headline donuts ──
     h+='<div class="cd-section-title">Organisation health</div>';
     h+='<div class="cd-donuts">';
@@ -1240,8 +1241,10 @@ function teamChairmanHTML(){
       h+='<div class="cd-note">Number of people citing each issue. Higher = more widely felt.</div>';
     }
 
-  } else {
+  }
+  if(teamChairView==='byarea' || teamChairView==='full'){
     // ── BY AREA ──
+    if(teamChairView==='full'){ h+='<div class="cd-section-title" style="page-break-before:always">By-area breakdown</div>'; }
     h+='<div class="cd-section-title">Health by area</div>';
     h+='<div class="cd-area-grid"><div class="cd-area-head"><span>Area</span><span>Team</span><span>Reliability</span><span>Integrity</span><span>Loyalty</span><span>Engagement</span></div>';
     st.sections.forEach(function(s){
