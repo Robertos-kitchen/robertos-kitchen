@@ -1260,6 +1260,10 @@ if ('serviceWorker' in navigator) {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') reg.update();
     });
+    // Heartbeat: an always-on screen (kitchen wall display) never fires the
+    // focus/visibility events above, so it would otherwise never look for a new
+    // service worker. Poll every 5 min so it self-updates with no manual refresh.
+    setInterval(() => { reg.update(); }, 5 * 60 * 1000);
     // When a new service worker is installed, activate it immediately
     // (no "Update now" tap needed) — controllerchange below then reloads once.
     reg.addEventListener('updatefound', () => {
@@ -1335,6 +1339,11 @@ function showUpdateBanner(newSW) {
   });
   window.addEventListener('focus', check);
   window.addEventListener('pageshow', check);   // fires when iOS restores the app from its back/forward cache
+  // Heartbeat for the always-on kitchen wall display: it never fires the focus /
+  // visibility / pageshow events above, so without a timer it would only check
+  // once at boot and stay stale all day. Poll every 5 min — check() only reloads
+  // when the server's ETag actually changed (new deploy) and never mid-typing.
+  setInterval(check, 5 * 60 * 1000);
 })();
 </script>
 <script>
