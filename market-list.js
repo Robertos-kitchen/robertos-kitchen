@@ -12,7 +12,8 @@ const ML_CAT_ORDER = ['BEEF','POULTRY','LAMB','VEAL','SEAFOOD','CHARCUTIERE','DA
 let mlItems = [];            // [{id,name,category,unit,sort_order,active}]
 let mlQty = {};              // key `${item_id}|${weekday}` -> qty (number)
 let mlQtyMeta = {};          // same key -> {custom_name}
-let mlWeekStart = null;      // 'YYYY-MM-DD' Monday of current week
+let mlWeekStart = null;      // 'YYYY-MM-DD' Monday of the currently-viewed week
+let mlWeekOffset = 0;        // weeks ahead of the current service week (0 = this week, 1 = next week…)
 let mlChannel = null;
 let mlOrderedOnly = false;
 let mlActiveDay = null;      // mobile day-switcher (1..6); null = full grid (tablet)
@@ -28,16 +29,26 @@ function mlComputeWeekStart(){
   // Map to Monday-start. If Sunday(0), treat as the upcoming Monday (venue closed Sun).
   let diff = (dow === 0) ? 1 : (1 - dow);
   const mon = new Date(d);
-  mon.setDate(d.getDate() + diff);
+  mon.setDate(d.getDate() + diff + (mlWeekOffset * 7));   // shift by the chosen week offset
   // format from LOCAL parts — .toISOString() would convert to UTC and, east of GMT
   // (Dubai UTC+4), roll the date back a day, shifting every weekday label by one.
   const pad = n => String(n).padStart(2,'0');
   return mon.getFullYear() + '-' + pad(mon.getMonth()+1) + '-' + pad(mon.getDate());
 }
 function mlWeekdayToday(){
+  if(mlWeekOffset !== 0) return null;  // "today" only exists when viewing the current week
   const d = new Date(TODAY + 'T00:00:00');
   const dow = d.getDay();            // 0..6
   return dow === 0 ? null : dow;     // Sun -> null (closed); else 1..6 == Mon..Sat
+}
+// Navigate between weeks (this week .. 6 weeks ahead). Lets the team pre-order the
+// new week before the service date rolls into it (e.g. order Mon 22nd on Fri 19th).
+function mlChangeWeek(delta){
+  mlWeekOffset = Math.max(0, Math.min(6, mlWeekOffset + Number(delta)));
+  loadMarketList().then(function(){
+    subscribeMarketList();                       // re-bind realtime to the new week
+    if(activeStation === ORDER_KEY) renderMarketList();
+  });
 }
 function mlWeekLabel(){
   const mon = new Date(mlWeekStart + 'T00:00:00');
@@ -198,7 +209,13 @@ function renderMarketList(){
 
   document.getElementById('order-view').innerHTML = `
     <div class="ops-title">Market List</div>
-    <div class="ops-subtitle">Week ${mlWeekLabel()} · shared live · tap an item to set quantities</div>
+    <div class="ops-subtitle" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <button onclick="mlChangeWeek(-1)" ${mlWeekOffset<=0?'disabled':''} style="border:1px solid #c9a84c;background:#fff;color:#410207;border-radius:6px;min-width:28px;height:26px;font-size:16px;line-height:1;cursor:pointer;${mlWeekOffset<=0?'opacity:.3;cursor:default;':''}" aria-label="Previous week">&lsaquo;</button>
+      <b>Week ${mlWeekLabel()}</b>
+      <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:9px;${mlWeekOffset===0?'background:#ece3d3;color:#7a6a45;':'background:#410207;color:#fff;'}">${mlWeekOffset===0?'this week':(mlWeekOffset===1?'next week':'+'+mlWeekOffset+' weeks')}</span>
+      <button onclick="mlChangeWeek(1)" style="border:1px solid #c9a84c;background:#fff;color:#410207;border-radius:6px;min-width:28px;height:26px;font-size:16px;line-height:1;cursor:pointer;" aria-label="Next week">&rsaquo;</button>
+      <span style="color:#8a7a55;font-size:12px;">· shared live · tap an item to set quantities</span>
+    </div>
 
     <div class="ml-toolbar">
       <div class="ml-search-wrap">
@@ -518,6 +535,7 @@ function mlEmailPrompt(){
 // ── open / entry point ──
 async function openMarketList(){
   activeStation = ORDER_KEY;
+  mlWeekOffset = 0;           // always open on the current week
   hideAllPages();
   document.getElementById('order-view').style.display='block';
   document.querySelector('.footer-bar').style.display='flex';
