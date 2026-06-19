@@ -77,7 +77,7 @@ serve(async (req) => {
     const coversActual = reqUrl.searchParams.get("covers_actual");
     if (coversActual) {
       const rows = await fetchReservations(token, venueGroupId, coversActual, coversActual);
-      let covers = 0;
+      let covers = 0, restaurant = 0, lounge = 0;
       let completed = 0;
       for (const r of rows) {
         if (String(r.status || "").toUpperCase() !== "COMPLETE") continue;
@@ -87,9 +87,16 @@ serve(async (req) => {
           ? Number(arrived)
           : (Number(r.max_guests) || 0);
         covers += pax;
+        // Venue split: the "PIEMONTE" seating area is the Restaurant; every other
+        // area (and anything unassigned) is Scala Lounge & Bar.
+        const area = String(r.venue_seating_area_name || "").toUpperCase();
+        if (area.includes("PIEMONTE")) restaurant += pax;
+        else lounge += pax;
       }
       return new Response(JSON.stringify({
-        ok: true, date: coversActual, covers, completed_bookings: completed,
+        ok: true, date: coversActual, covers,
+        restaurant_covers: restaurant, lounge_covers: lounge,
+        completed_bookings: completed,
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
