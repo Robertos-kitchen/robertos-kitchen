@@ -1107,7 +1107,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <script src="recipes.js?v=1781722142"></script>
 <script src="closing-report.js?v=1781722142"></script>
 <script src="team.js?v=1781872166"></script>
-<script src="app.js?v=1781900000"></script>
+<script src="app.js?v=1781920000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1291,6 +1291,51 @@ function showUpdateBanner(newSW) {
   b.appendChild(btn);
   document.body.appendChild(b);
 }
+</script>
+<script>
+/* ── Auto-update guard ───────────────────────────────────────────────
+   THE PROBLEM THIS SOLVES: an installed phone app (PWA) usually RESUMES
+   the old page from memory instead of re-downloading it. So a fix can be
+   live on the server for hours while the phone keeps showing old code —
+   exactly what happened with the vanishing clock-ins on 19 Jun 2026.
+
+   HOW IT WORKS: GitHub stamps every file with an "ETag" that changes
+   automatically each time we deploy. Whenever the app opens or comes back
+   to the foreground, we ask the server (a tiny HEAD request, no download)
+   for the current ETag of index.html and app.js. If it differs from the
+   one we started with, newer code is live → reload once to pull it in.
+   Nothing to bump by hand — the ETag changes on its own every deploy. */
+(function(){
+  var WATCH = ['index.html', 'app.js'];
+  var boot = {}, reloading = false;
+  function tagOf(res){ return res.headers.get('ETag') || res.headers.get('Last-Modified') || ''; }
+  function busy(){
+    var el = document.activeElement;
+    return !!(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));   // don't nuke someone mid-typing
+  }
+  function check(){
+    if (reloading) return;
+    WATCH.forEach(function(f){
+      fetch(f + '?_=' + Date.now(), { method:'HEAD', cache:'no-store' })
+        .then(function(res){
+          var tag = tagOf(res);
+          if (!tag) return;
+          if (!(f in boot)) { boot[f] = tag; return; }      // first run: remember what we booted with
+          if (tag !== boot[f] && !reloading && !busy()) {    // newer version is live → refresh
+            reloading = true;
+            location.reload();
+          }
+        })
+        .catch(function(){ /* offline — try again next time the app is opened */ });
+    });
+  }
+  check();
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') check();
+  });
+  window.addEventListener('focus', check);
+  window.addEventListener('pageshow', check);   // fires when iOS restores the app from its back/forward cache
+})();
 </script>
 <script>
 /* ── Scroll-to-top button (all pages) ── */

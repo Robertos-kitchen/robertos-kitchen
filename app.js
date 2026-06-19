@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781722142;
+const APP_VERSION = 1781920000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1910,7 +1910,7 @@ function renderSchedWeek() {
           html += '</td>';
         }
 
-        html += '<td class="sch-td-hours">' + (wHours > 0 ? wHours + 'h' : '—') + '</td>';
+        html += '<td class="sch-td-hours">' + (wHours > 0 ? (Math.round(wHours * 10) / 10) + 'h' : '—') + '</td>';
         html += '<td class="sch-td-days">' + (wDays > 0 ? wDays : '—') + '</td>';
 
         var stOpts = '';
@@ -2392,7 +2392,7 @@ function schedPrint() {
           html += '<td class="pt-off pt-leave">' + meta.label + '</td>';
         }
       });
-      html += '<td><strong>' + (wh > 0 ? wh + 'h' : '—') + '</strong></td><td>' + (wd||'—') + '</td></tr>';
+      html += '<td><strong>' + (wh > 0 ? (Math.round(wh * 10) / 10) + 'h' : '—') + '</strong></td><td>' + (wd||'—') + '</td></tr>';
     });
   });
   html += '</tbody></table>';
@@ -2548,7 +2548,7 @@ async function schedSendToHR() {
             cellStatuses.push(entry.status);
           }
         }
-        rowData.push(wHours > 0 ? wHours + 'h' : '');
+        rowData.push(wHours > 0 ? (Math.round(wHours * 10) / 10) + 'h' : '');
         rowData.push(wDays || '');
 
         var dataRow = sheet.addRow(rowData);
