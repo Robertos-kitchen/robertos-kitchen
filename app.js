@@ -1623,7 +1623,15 @@ async function loadSchedData() {
 async function loadAttendance() {
   var from = formatDate(addDays(schedWeekStart, -1));
   var to = formatDate(addDays(schedWeekStart, 8));
-  var res = await sb.from('attendance').select('*').gte('att_date', from).lte('att_date', to).limit(2000);
+  // Only load the kitchen team's IDs. The attendance table holds the WHOLE
+  // company (~350 punch rows/day), so a multi-day window exceeds the server's
+  // 1000-row response cap and silently truncates the newest rows (today's) —
+  // which made fresh clock-ins vanish. Filtering to our staff keeps the result
+  // small (~80 rows) and always complete. Requires schedStaff loaded first.
+  var ids = schedStaff.map(function(s){ return s.emp_id; }).filter(Boolean);
+  if (!ids.length) { schedAttendance = {}; return; }
+  var res = await sb.from('attendance').select('*')
+    .in('emp_id', ids).gte('att_date', from).lte('att_date', to).limit(2000);
   schedAttendance = {};
   (res.data || []).forEach(function(a) { schedAttendance[schedAttKey(a.emp_id, a.att_date)] = a; });
 }
@@ -1773,7 +1781,8 @@ async function openScheduling() {
   document.getElementById('foot-label').textContent = 'Scheduling';
   if (!schedWeekStart) schedWeekStart = getMonday(new Date());
   schedUpdateLockBtn();
-  await Promise.all([loadSchedData(), loadAttendance()]);
+  await loadSchedData();            // must load staff (emp_ids) BEFORE attendance,
+  await loadAttendance();           // which now filters by those ids
   subscribeSchedRealtime();
   renderSchedView();
   triggerCosecSync(false);
