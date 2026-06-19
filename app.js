@@ -1504,6 +1504,11 @@ let schedStaff       = [];
 let schedView        = 'week';
 let schedEditTarget  = null;
 let schedRTChannel   = null;
+let schedEvents      = {};    // date(YYYY-MM-DD) -> [{slot,name}] (max 2 per day)
+let schedEventDate   = null;  // day being edited in the events modal
+let schedEventSel    = [];    // names currently selected in the events modal (max 2)
+const KITCHEN_EVENT_PRESETS = ['Private Event','Brunch','Breakfast','Buffet','Set Menu','Wine Dinner','Large Booking','Catering'];
+function schEvEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ── Edit lock ──
 const SCHED_PIN = '2468'; // schedule edit passcode
@@ -1610,13 +1615,25 @@ async function loadSchedData() {
   var weekFrom = formatDate(addDays(schedWeekStart, -7));
   var res = await Promise.all([
     sb.from('staff').select('*').eq('active', true).order('sort_order'),
-    sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd)
+    sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd),
+    sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd)
   ]);
   schedStaff = res[0].data || [];
   schedRoster = {};
   (res[1].data || []).forEach(function(r) {
     schedRoster[schedRosterKey(r.staff_id, r.work_date)] = r;
   });
+  // Events (table is optional — if it isn't created yet, res[2].error is set and we just show none)
+  schedEvents = {};
+  if (res[2] && !res[2].error) {
+    (res[2].data || []).forEach(function(e) {
+      var d = String(e.event_date).substring(0,10);
+      (schedEvents[d] = schedEvents[d] || []).push({ slot: e.slot || 1, name: e.name });
+    });
+    Object.keys(schedEvents).forEach(function(d) {
+      schedEvents[d].sort(function(a,b){ return a.slot - b.slot; });
+    });
+  }
 }
 
 // ── COSEC attendance loading & sync ──
@@ -1842,6 +1859,21 @@ function renderSchedWeek() {
       days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</span></th>';
   }
   html += '<th>Hrs</th><th>Days</th><th></th></tr></thead><tbody>';
+
+  // Events strip — one cell per day, up to 2 events each
+  html += '<tr class="sch-events-row"><td class="sch-events-label" colspan="2">Events</td>';
+  for (var ei = 0; ei < days.length; ei++) {
+    var eds = formatDate(days[ei]);
+    var evs = schedEvents[eds] || [];
+    html += '<td class="sch-events-cell' + (eds === today ? ' sch-cell-today' : '') + '" onclick="schedOpenEvents(\'' + eds + '\')">';
+    if (evs.length) {
+      for (var evi = 0; evi < evs.length; evi++) html += '<div class="sch-event-chip">' + schEvEsc(evs[evi].name) + '</div>';
+    } else {
+      html += '<div class="sch-event-add">+</div>';
+    }
+    html += '</td>';
+  }
+  html += '<td colspan="3"></td></tr>';
 
   for (var si = 0; si < STATIONS_SCH.length; si++) {
     var st = STATIONS_SCH[si];
@@ -2129,6 +2161,84 @@ async function schedSaveShift() {
   schedEditTarget = null;
 }
 
+// ── Day events (up to 2 per day, shown at the top of the schedule) ──
+function schedOpenEvents(date) {
+  if (!schedGuard(function(){ schedOpenEvents(date); })) return;
+  schedEventDate = date;
+  var evs = schedEvents[date] || [];
+  schedEventSel = evs.map(function(e){ return e.name; }).slice(0,2);
+  var d = new Date(date + 'T12:00:00');
+  document.getElementById('sch-ev-title').textContent =
+    d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'}) + ' · events';
+  document.getElementById('sch-ev-custom').value = '';
+  schedRenderEventPicker();
+  document.getElementById('sch-ev-modal').style.display = 'flex';
+}
+function schedRenderEventPicker() {
+  document.getElementById('sch-ev-presets').innerHTML = KITCHEN_EVENT_PRESETS.map(function(p) {
+    var on = schedEventSel.indexOf(p) >= 0;
+    return '<button type="button" class="sch-ev-preset' + (on?' on':'') + '" onclick="schedToggleEvent(\'' + p + '\')">' + p + '</button>';
+  }).join('');
+  var sel = document.getElementById('sch-ev-selected');
+  if (schedEventSel.length) {
+    sel.innerHTML = schedEventSel.map(function(n,i) {
+      return '<span class="sch-ev-selchip">' + schEvEsc(n) + '<span class="sch-ev-x" onclick="schedRemoveEvent(' + i + ')">&times;</span></span>';
+    }).join('');
+  } else {
+    sel.innerHTML = '<span style="font-size:11px;color:var(--vino-light);font-family:var(--font-sans)">No events yet — tap up to 2.</span>';
+  }
+}
+function schedToggleEvent(name) {
+  var i = schedEventSel.indexOf(name);
+  if (i >= 0) { schedEventSel.splice(i,1); }
+  else {
+    if (schedEventSel.length >= 2) { alert('Up to 2 events per day — remove one first.'); return; }
+    schedEventSel.push(name);
+  }
+  schedRenderEventPicker();
+}
+function schedRemoveEvent(i) { schedEventSel.splice(i,1); schedRenderEventPicker(); }
+function schedAddCustomEvent() {
+  var inp = document.getElementById('sch-ev-custom');
+  var v = inp.value.trim();
+  if (!v) return;
+  if (schedEventSel.length >= 2) { alert('Up to 2 events per day — remove one first.'); return; }
+  if (schedEventSel.indexOf(v) < 0) schedEventSel.push(v);
+  inp.value = '';
+  schedRenderEventPicker();
+}
+function schedEventCustomKey(e) { if (e && e.key === 'Enter') { e.preventDefault(); schedAddCustomEvent(); } }
+function schedCloseEvents(e) {
+  if (e && e.target !== document.getElementById('sch-ev-modal')) return;
+  document.getElementById('sch-ev-modal').style.display = 'none';
+  schedEventDate = null;
+}
+function schedClearDayEvents() { schedEventSel = []; schedSaveEvents(); }
+async function schedSaveEvents() {
+  if (!schedEventDate) return;
+  var date = schedEventDate;
+  var inp = document.getElementById('sch-ev-custom');
+  if (inp) { var pend = inp.value.trim(); if (pend && schedEventSel.length < 2 && schedEventSel.indexOf(pend) < 0) schedEventSel.push(pend); }
+  var names = schedEventSel.slice(0,2);
+  if (names.length) schedEvents[date] = names.map(function(n,i){ return {slot:i+1, name:n}; });
+  else delete schedEvents[date];
+  document.getElementById('sch-ev-modal').style.display = 'none';
+  schedEventDate = null;
+  renderSchedWeek();
+  if (DEV_READ_ONLY) return;
+  var del = await sb.from('sched_events').delete().eq('event_date', date);
+  if (del.error) {
+    console.error('Events clear error:', del.error);
+    alert('Could not save events: ' + del.error.message + (del.error.code === '42P01' ? '\n\nCreate the sched_events table in Supabase first (run kitchen-events-schema.sql).' : ''));
+    return;
+  }
+  if (names.length) {
+    var rows = names.map(function(n,i){ return {event_date:date, slot:i+1, name:n, updated_at:new Date().toISOString()}; });
+    var ins = await sb.from('sched_events').insert(rows);
+    if (ins.error) { console.error('Events save error:', ins.error); alert('Could not save events: ' + ins.error.message); }
+  }
+}
+
 // ── Move panel ──
 function schedShowMove(mpid) {
   if (!schedGuard(function(){ schedShowMove(mpid); })) return;
@@ -2347,6 +2457,21 @@ async function schedConfirmDuplicate() {
     var res = await sb.from('roster').upsert(upserts, { onConflict: 'staff_id,work_date', ignoreDuplicates: !overwrite });
     if (res.error) console.error('Duplicate error:', res.error);
   }
+  // Duplicate the day-events to the target week (best-effort; table is optional)
+  if (!DEV_READ_ONLY) {
+    try {
+      var evRows = [];
+      for (var ek = 0; ek < 7; ek++) {
+        var esd = formatDate(addDays(schedWeekStart, ek));
+        var etgt = formatDate(addDays(new Date(esd + 'T12:00:00'), offsetDays));
+        (schedEvents[esd] || []).forEach(function(ev) {
+          evRows.push({ event_date: etgt, slot: ev.slot, name: ev.name, updated_at: new Date().toISOString() });
+        });
+      }
+      if (overwrite) await sb.from('sched_events').delete().gte('event_date', tFrom).lte('event_date', tTo);
+      if (evRows.length) await sb.from('sched_events').upsert(evRows, { onConflict: 'event_date,slot', ignoreDuplicates: !overwrite });
+    } catch (err) { console.error('Event duplicate error:', err); }
+  }
   // Jump to the target week to review
   schedWeekStart = target;
   await loadSchedData();
@@ -2369,6 +2494,14 @@ function schedPrint() {
       dayNames[di2] + ' ' + days[di2].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</th>';
   }
   html += '<th>Hours</th><th>Days</th></tr></thead><tbody>';
+  // Events strip — one row across the top, up to 2 events per day
+  html += '<tr class="pt-events"><td colspan="2" class="pt-events-label">Events</td>';
+  for (var pev = 0; pev < days.length; pev++) {
+    var pevDs = formatDate(days[pev]);
+    var pevList = schedEvents[pevDs] || [];
+    html += '<td class="pt-events-cell">' + (pevList.length ? pevList.map(function(e){ return schEvEsc(e.name); }).join('<br>') : '') + '</td>';
+  }
+  html += '<td colspan="2" class="pt-events-cell"></td></tr>';
   STATIONS_SCH.forEach(function(st) {
     var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
     if (!stStaff.length) return;
@@ -2418,6 +2551,8 @@ function schedPrint() {
     '.sch-print-table td.pt-today{background:#e8f5e9;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.sch-print-table td.pt-off{color:#999}' +
     '.sch-print-table td.pt-leave{background:#fff9c4;font-weight:700;font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table td.pt-events-label{background:#5e0a10;color:#fff;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;text-align:left;padding:3px 7px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table td.pt-events-cell{background:#f6eedd;color:#410207;font-weight:700;font-size:12px;white-space:normal;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.sch-print-table tr{page-break-inside:avoid}' +
     '</style></head><body>' + html + '</body></html>';
   var w = window.open('', '_blank');
