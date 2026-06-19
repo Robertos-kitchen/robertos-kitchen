@@ -912,6 +912,19 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   body.pmode-team .cd-section-title{margin-top:16px}
   body.pmode-team .footer-bar{display:none !important}
   @page{margin:14mm}
+  /* full-colour printing (independent of the "Background graphics" checkbox) */
+  body.pmode-team #team-view *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  /* clean pagination — keep blocks whole, don't orphan section titles */
+  body.pmode-team .cd-section-title{ page-break-after:avoid; break-after:avoid; }
+  body.pmode-team .cd-donuts,
+  body.pmode-team .cd-stats,
+  body.pmode-team .cd-area-grid,
+  body.pmode-team .cd-narr,
+  body.pmode-team .cd-stat,
+  body.pmode-team .cd-donut,
+  body.pmode-team .cd-area-row,
+  body.pmode-team .cd-overall,
+  body.pmode-team .cd-sum-final{ page-break-inside:avoid; break-inside:avoid; }
 }
 
 /* AI chat upgrades */
