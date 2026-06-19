@@ -470,13 +470,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 /* Print styles */
 @media print {
-  body > * { display: none !important; }
-  #scheduling-view {
+  body:not(.pmode-team) > * { display: none !important; }
+  body:not(.pmode-team) #scheduling-view {
     display: block !important;
     overflow: visible !important;
   }
-  #scheduling-view > *:not(#sch-print-area) { display: none !important; }
-  #sch-print-area {
+  body:not(.pmode-team) #scheduling-view > *:not(#sch-print-area) { display: none !important; }
+  body:not(.pmode-team) #sch-print-area {
     display: block !important;
     position: static !important;
   }
@@ -903,14 +903,14 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 /* print: clean one-pager */
 @media print{
-  body * { visibility:hidden !important; }
-  #team-view, #team-view * { visibility:visible !important; }
-  #team-view{position:absolute;left:0;top:0;width:100%;overflow:visible !important}
-  .no-print{display:none !important}
-  .cd-wrap{background:#fff}
-  .cd-page{max-width:100%;padding:0 12px}
-  .cd-section-title{margin-top:16px}
-  .footer-bar{display:none !important}
+  body.pmode-team * { visibility:hidden !important; }
+  body.pmode-team #team-view, body.pmode-team #team-view * { visibility:visible !important; }
+  body.pmode-team #team-view{position:absolute;left:0;top:0;width:100%;overflow:visible !important}
+  body.pmode-team .no-print{display:none !important}
+  body.pmode-team .cd-wrap{background:#fff}
+  body.pmode-team .cd-page{max-width:100%;padding:0 12px}
+  body.pmode-team .cd-section-title{margin-top:16px}
+  body.pmode-team .footer-bar{display:none !important}
   @page{margin:14mm}
 }
 
@@ -1093,8 +1093,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <script src="market-list.js?v=1781722142"></script>
 <script src="recipes.js?v=1781722142"></script>
 <script src="closing-report.js?v=1781722142"></script>
-<script src="team.js?v=1781722142"></script>
-<script src="app.js?v=1781722142"></script>
+<script src="team.js?v=1781870818"></script>
+<script src="app.js?v=1781870818"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

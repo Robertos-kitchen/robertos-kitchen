@@ -1198,7 +1198,7 @@ function teamChairmanHTML(){
   h+='<button class="cd-tg'+(teamChairView==='aggregate'?' on':'')+'" onclick="teamChairSet(\'aggregate\')">Whole organisation</button>';
   h+='<button class="cd-tg'+(teamChairView==='byarea'?' on':'')+'" onclick="teamChairSet(\'byarea\')">By area</button>';
   h+='</div>';
-  h+='<button class="cd-print" onclick="window.print()">Print / Export PDF</button>';
+  h+='<button class="cd-print" onclick="teamPrintDash()">Print / Export PDF</button>';
   h+='</div>';
 
   // ── title block ──
@@ -1307,6 +1307,10 @@ function teamChairNarrative(st){
 
 function teamChairSet(v){ teamChairView=v; teamRender(); }
 function openTeamChairman(){ teamMode='chairman'; teamRender(); }
+// Print the chairman dashboard only: tag the body so the team print rules apply
+// (not the schedule print rules), then clean up after printing.
+function teamPrintDash(){ document.body.classList.add('pmode-team'); window.print(); }
+window.addEventListener('afterprint', function(){ document.body.classList.remove('pmode-team'); });
 
 // ════════════════════════════════════════════════════════════
 //  AI SUMMARY → DASHBOARD (draft → approve → save)
