@@ -215,6 +215,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 /* â”€â”€ FOOTER â”€â”€ */
 .footer-bar{background:var(--cream);border-top:1px solid var(--sabbia-dark);padding:10px 18px;display:flex;align-items:center;justify-content:space-between}
 .foot-label{font-size:11px;color:var(--vino-light);font-style:italic;font-family:var(--font-serif)}
+.foot-build{font-size:10px;color:var(--vino-light);opacity:.45;letter-spacing:.5px;font-variant-numeric:tabular-nums}
 .reset-btn{font-size:11px;color:#cc0000;background:none;border:1px solid #cc0000;border-radius:3px;padding:5px 12px;cursor:pointer;opacity:.55;transition:opacity .2s}
 .reset-btn:hover{opacity:1;background:#cc0000;color:#fff}
 
@@ -1107,6 +1108,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div class="footer-bar">
   <span class="foot-label" id="foot-label">Evening service</span>
+  <span class="foot-build" id="foot-build">build 2026-06-20.1</span>
 </div>
 
 <div class="undo-toast" id="undo-toast">
@@ -1115,9 +1117,26 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </div>
 
 <script src="market-list.js?v=1781921000"></script>
-<script src="recipes.js?v=1781722142"></script>
-<script src="closing-report.js?v=1781722142"></script>
-<script src="team.js?v=1781872166"></script>
+<!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
+     on demand to keep cold-boot light on the always-on screens. -->
+<script>
+  window._lazyLoaded = window._lazyLoaded || {};
+  window.lazyLoad = function(src){
+    if(window._lazyLoaded[src]) return window._lazyLoaded[src];
+    window._lazyLoaded[src] = new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src=src; s.onload=resolve; s.onerror=function(e){ delete window._lazyLoaded[src]; reject(e); };
+      document.body.appendChild(s);
+    });
+    return window._lazyLoaded[src];
+  };
+  // Recipe data needed by app.js's renderRecipes(); fetched on demand.
+  window.LAZY_RECIPES = 'recipes.js?v=1781722142';
+  // These two define their own open* function; the shim loads the file then the
+  // real definition replaces this shim and the .then() call runs it.
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1781722142').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1781872166').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+</script>
 <script src="app.js?v=1781920000"></script>
 
 

@@ -434,15 +434,17 @@ async function crSubmit() {
     if (res.error) throw res.error;
     crReportId = res.data.id;
 
-    // Insert new entries only; delete only the ones the user removed
-    var newEntries = crEntries.filter(function(e){ return !e.id; }).map(function(e){
-      return { service_date: sd, entry_type: e.entry_type, category: e.category, item_name: e.item_name, detail: e.detail, action_taken: e.action_taken };
-    });
-    if (newEntries.length) {
-      var ins = await sb.from('closing_report_entries').insert(newEntries).select();
+    // Insert new entries one-by-one so each returned id maps back to the exact
+    // entry it belongs to. A bulk insert's returned rows are NOT guaranteed to
+    // come back in input order, which previously attached ids to the wrong line
+    // item (so a later edit/delete could hit a different dish).
+    var newOnes = crEntries.filter(function(e){ return !e.id; });
+    for (var i = 0; i < newOnes.length; i++) {
+      var ne = newOnes[i];
+      var insRow = { service_date: sd, entry_type: ne.entry_type, category: ne.category, item_name: ne.item_name, detail: ne.detail, action_taken: ne.action_taken };
+      var ins = await sb.from('closing_report_entries').insert(insRow).select().single();
       if (ins.error) throw ins.error;
-      var k = 0;
-      crEntries.forEach(function(e){ if (!e.id) { e.id = ins.data[k] ? ins.data[k].id : null; k++; } });
+      ne.id = ins.data.id;   // same object reference as in crEntries → updates it in place
     }
     if (crRemovedIds.length) {
       await sb.from('closing_report_entries').delete().in('id', crRemovedIds);
@@ -525,8 +527,8 @@ async function crLoadHistory() {
     var since = new Date(); since.setDate(since.getDate() - 90);
     var sinceStr = formatDate(since);
     var res = await Promise.all([
-      sb.from('closing_reports').select('*').gte('service_date', sinceStr).order('service_date', { ascending: false }),
-      sb.from('closing_report_entries').select('*').gte('service_date', sinceStr)
+      sb.from('closing_reports').select('*').gte('service_date', sinceStr).order('service_date', { ascending: false }).limit(120),
+      sb.from('closing_report_entries').select('*').gte('service_date', sinceStr).limit(5000)
     ]);
     var reports = res[0].data || [];
     var entries = res[1].data || [];

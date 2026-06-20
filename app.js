@@ -605,7 +605,11 @@ function statusLabel(s){return {none:'Pending',sos:'SOS',bu:'Backup',ok:'OK',rev
 let dashCovers = {};
 
 async function loadCovers() {
-  const { data } = await sb.from('covers').select('*').gte('service_date', TODAY).order('service_date');
+  // Only the next ~3 weeks are ever shown. An unbounded .gte(TODAY) keeps every
+  // future row forever and would eventually hit the 1000-row default cap (and
+  // truncate the wrong end). Window it and cap it.
+  var coversTo = formatDate(addDays(new Date(TODAY + 'T12:00:00'), 21));
+  const { data } = await sb.from('covers').select('*').gte('service_date', TODAY).lte('service_date', coversTo).order('service_date').limit(60);
   dashCovers = {};
   if (data) data.forEach(function(r){ dashCovers[r.service_date] = r; });
 }
@@ -1395,7 +1399,13 @@ function openRecipes(){
   document.getElementById('recipes-view').style.display='block';
   document.querySelector('.footer-bar').style.display='flex';
   document.getElementById('foot-label').textContent='Recipes';
-  renderRecipes();
+  if(Array.isArray(window.RECIPES)){ renderRecipes(); return; }
+  // First open: pull the recipe data on demand, then render.
+  var rv=document.getElementById('recipes-view');
+  if(rv) rv.innerHTML='<div style="padding:40px;text-align:center;opacity:.6">Loading recipes…</div>';
+  lazyLoad(window.LAZY_RECIPES||'recipes.js')
+    .then(function(){ renderRecipes(); })
+    .catch(function(){ if(rv) rv.innerHTML='<div style="padding:40px;text-align:center;opacity:.6">Could not load recipes. Check the connection and try again.</div>'; });
 }
 
 // â”€â”€ SWITCH STATION â”€â”€
