@@ -155,7 +155,11 @@ Deno.serve(async (req) => {
     // dateStr is YYYY-MM-DD; COSEC often wants DD/MM/YYYY
     const [y, m, d] = dateStr.split("-");
     const dmy = d + "/" + m + "/" + y;
+    const ddmmyyyy = d + m + y;  // COSEC date-range wants DDMMYYYY, no slashes
     switch (variant) {
+      // Confirmed working format for this CENTRA server (per Matrix/Niyaz 18Jun26):
+      //   ?action=get;date-range=DDMMYYYY-DDMMYYYY;   (semicolons, no slashes)
+      case "date-range": return base.split("?")[0] + "?action=get;date-range=" + ddmmyyyy + "-" + ddmmyyyy + ";";
       case "date-dmy":   return base + sep + "date=" + encodeURIComponent(dmy);
       case "date-ymd":   return base + sep + "date=" + dateStr;
       case "from-to-dmy":return base + sep + "from-date=" + encodeURIComponent(dmy) + "&to-date=" + encodeURIComponent(dmy);
@@ -208,7 +212,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const targetUrl = reqDate ? urlForDate(cosecUrl, reqDate, reqVariant || Deno.env.get("COSEC_DATE_VARIANT") || "date-dmy") : cosecUrl;
+    const targetUrl = reqDate ? urlForDate(cosecUrl, reqDate, reqVariant || Deno.env.get("COSEC_DATE_VARIANT") || "date-range") : cosecUrl;
 
     const res = await fetch(targetUrl, {
       headers: auth,
