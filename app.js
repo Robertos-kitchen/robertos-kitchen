@@ -2533,6 +2533,7 @@ async function schedDeleteWeek() {
     var res = await sb.from('roster').delete().gte('work_date', from).lte('work_date', to);
     if (res.error) {
       console.error('Delete week error:', res.error);
+      kToast('Could not delete the week — restoring.', true);
       loadSchedData().then(renderSchedView);
     }
   }
