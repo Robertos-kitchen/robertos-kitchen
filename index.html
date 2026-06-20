@@ -1108,7 +1108,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div class="footer-bar">
   <span class="foot-label" id="foot-label">Evening service</span>
-  <span class="foot-build" id="foot-build">build 2026-06-20.1</span>
+  <span class="foot-build" id="foot-build">build 2026-06-20.2</span>
 </div>
 
 <div class="undo-toast" id="undo-toast">
@@ -1136,6 +1136,19 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   // real definition replaces this shim and the .then() call runs it.
   function openClosingReport(){ lazyLoad('closing-report.js?v=1781722142').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
   function openTeam(){ lazyLoad('team.js?v=1781872166').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
+  // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
+  // team.js only loads after a panel is already open (chicken-and-egg).
+  function toggleHomePanel(which){
+    var panel = document.getElementById(which + '-panel');
+    var chev  = document.getElementById(which + '-chev');
+    var sect  = document.getElementById(which + '-section');
+    if (!panel) return;
+    var isOpen = panel.style.display !== 'none' && panel.style.display !== '';
+    panel.style.display = isOpen ? 'none' : 'grid';
+    if (chev) chev.classList.toggle('open', !isOpen);
+    if (sect) sect.classList.toggle('open', !isOpen);
+  }
 </script>
 <script src="app.js?v=1781920000"></script>
 

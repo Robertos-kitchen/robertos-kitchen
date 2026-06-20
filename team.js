@@ -842,16 +842,9 @@ function teamCornerTap() {
 }
 
 // ── Home screen collapsible panels (Daily Operations / Management) ──
-function toggleHomePanel(which){
-  var panel = document.getElementById(which + '-panel');
-  var chev  = document.getElementById(which + '-chev');
-  var sect  = document.getElementById(which + '-section');
-  if (!panel) return;
-  var isOpen = panel.style.display !== 'none' && panel.style.display !== '';
-  panel.style.display = isOpen ? 'none' : 'grid';
-  if (chev) chev.classList.toggle('open', !isOpen);
-  if (sect) sect.classList.toggle('open', !isOpen);
-}
+// toggleHomePanel moved to the eager inline <script> in index.html — it must exist
+// at page load, but team.js is now lazy-loaded (only after a panel opens), so it
+// can't live here anymore.
 
 // ── Inject survey completion card into the Dashboard (non-invasive wrapper) ──
 (function(){
