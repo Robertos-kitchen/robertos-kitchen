@@ -1504,6 +1504,8 @@ let schedStaff       = [];
 let schedView        = 'week';
 let schedEditTarget  = null;
 let schedRTChannel   = null;
+let schedClipboard   = null;  // copied shift {status,times…,srcStaff,srcDate,label}
+let schedPasteMode   = false; // while true, tapping a cell pastes instead of opening the editor
 let schedEvents      = {};    // date(YYYY-MM-DD) -> [{slot,name}] (max 2 per day)
 let schedEventDate   = null;  // day being edited in the events modal
 let schedEventSel    = [];    // names currently selected in the events modal (max 2)
@@ -1789,6 +1791,7 @@ function subscribeSchedRealtime() {
 
 // ── Open page ──
 async function openScheduling() {
+  schedEndPaste();   // clear any leftover paste mode from a previous visit
   activeStation = SCHED_KEY;
   hideAllPages();
   var el = document.getElementById('scheduling-view');
@@ -1913,26 +1916,26 @@ function renderSchedWeek() {
 
             if (att.kind === 'done') {
               wHours += att.hours; wDays++;
-              html += '<div class="sch-shift actual">' + att.in + '<br>' + att.out +
+              html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
                 (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
             } else if (att.kind === 'in') {
               wDays++;
-              html += '<div class="sch-shift actual-live">' + att.in + '<br>' +
+              html += '<div class="sch-shift actual-live"><span>' + att.in + '</span>' +
                 '<span class="sch-actual-open">working</span></div>';
             } else if (att.kind === 'open') {
               wDays++;
               html += '<div class="sch-shift actual-open-flag" onclick="schedCloseShift(event,\'' + sid + '\',\'' + ds2 + '\')">' +
-                att.in + '<br><span class="sch-actual-close">tap to close</span></div>';
+                '<span>' + att.in + '</span><span class="sch-actual-close">tap to close</span></div>';
             } else if (att.kind === 'absent') {
               wDays++;
               html += '<div class="sch-shift actual-absent">' +
-                (ts && te ? ts + '<br>' + te : '') +
+                (ts && te ? '<span>' + ts + '</span><span>' + te + '</span>' : '') +
                 '<span class="sch-actual-tag">no clock-in</span></div>';
             } else {
               if (ts && te) { wHours += plannedH; wDays++; }
-              var splitLabel = (ts2 && te2) ? '<br><span style="opacity:.6;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
+              var splitLabel = (ts2 && te2) ? '<span style="opacity:.8;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
               html += '<div class="sch-shift working">' +
-                (ts && te ? ts + '<br>' + te + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
+                (ts && te ? '<span>' + ts + '–' + te + '</span>' + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
             }
           } else {
             var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
@@ -2053,6 +2056,7 @@ function renderSchedDay() {
 // ── Edit modal ──
 function schedOpenEdit(staffId, date) {
   if (!schedGuard(function(){ schedOpenEdit(staffId, date); })) return;
+  if (schedPasteMode) { schedPasteToCell(staffId, date); return; }   // paste mode: tap = paste
   schedEditTarget = { staffId: staffId, date: date };
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   var row = schedRoster[schedRosterKey(staffId, date)];
@@ -2238,6 +2242,85 @@ async function schedSaveEvents() {
     if (ins.error) { console.error('Events save error:', ins.error); alert('Could not save events: ' + ins.error.message); }
   }
 }
+
+// ── Copy / paste shifts (Excel-style: copy a cell, then tap others to paste) ──
+function schedCopyShift() {
+  if (!schedEditTarget) return;
+  var status = document.getElementById('sch-status-sel').value;
+  var start  = document.getElementById('sch-start-h').value + ':' + document.getElementById('sch-start-m').value;
+  var end    = document.getElementById('sch-end-h').value   + ':' + document.getElementById('sch-end-m').value;
+  var hasSplit2 = document.getElementById('sch-split-fields').style.display !== 'none';
+  var start2 = hasSplit2 ? (document.getElementById('sch-start2-h').value + ':' + document.getElementById('sch-start2-m').value) : null;
+  var end2   = hasSplit2 ? (document.getElementById('sch-end2-h').value   + ':' + document.getElementById('sch-end2-m').value)   : null;
+  var working = status === 'working';
+  schedClipboard = {
+    status: status,
+    shift_start:  working ? start  : null, shift_end:  working ? end  : null,
+    shift_start2: working ? start2 : null, shift_end2: working ? end2 : null,
+    srcStaff: schedEditTarget.staffId, srcDate: schedEditTarget.date,
+    label: working ? (start + '–' + end + (start2 && end2 ? (' + ' + start2 + '–' + end2) : ''))
+                   : ((STATUS_META[status] || {label:status}).label || status)
+  };
+  document.getElementById('sch-modal').style.display = 'none';
+  schedEditTarget = null;
+  schedPasteMode = true;
+  schedWriteClipboard([{ staffId: schedClipboard.srcStaff, date: schedClipboard.srcDate }]); // keep the source cell
+  schedShowPasteBar();
+}
+async function schedWriteClipboard(targets) {
+  if (!schedClipboard || !targets.length) return 0;
+  var c = schedClipboard, now = new Date().toISOString(), payloads = [];
+  targets.forEach(function(t) {
+    var key = schedRosterKey(t.staffId, t.date);
+    var payload = Object.assign({}, schedRoster[key] || {}, {
+      staff_id: t.staffId, work_date: t.date, status: c.status,
+      shift_start: c.shift_start, shift_end: c.shift_end,
+      shift_start2: c.shift_start2, shift_end2: c.shift_end2, updated_at: now
+    });
+    schedRoster[key] = payload; payloads.push(payload);
+  });
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('roster').upsert(payloads, { onConflict: 'staff_id,work_date' });
+    if (res.error) { console.error('Paste error:', res.error); alert('Could not paste the shift: ' + res.error.message); return 0; }
+  }
+  return payloads.length;
+}
+function schedPasteToCell(staffId, date) {
+  schedWriteClipboard([{ staffId: staffId, date: date }]).then(function(n){ if (n) schedShowPasteBar(n); });
+}
+function schedFillWeek() {
+  if (!schedClipboard) return;
+  var t = []; for (var i = 0; i < 7; i++) t.push({ staffId: schedClipboard.srcStaff, date: formatDate(addDays(schedWeekStart, i)) });
+  schedWriteClipboard(t).then(function(n){ if (n) schedShowPasteBar(n); });
+}
+function schedFillDay() {
+  if (!schedClipboard) return;
+  var t = schedStaff.map(function(s){ return { staffId: s.id, date: schedClipboard.srcDate }; });
+  schedWriteClipboard(t).then(function(n){ if (n) schedShowPasteBar(n); });
+}
+function schedShowPasteBar(pastedCount) {
+  var host = document.getElementById('scheduling-view') || document.body;
+  var bar = document.getElementById('sch-paste-bar');
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'sch-paste-bar';
+    bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9500;background:var(--vino,#410207);color:#fff;padding:9px 12px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;align-items:center;gap:8px;font-family:var(--font-sans),sans-serif;font-size:13px;max-width:94vw;flex-wrap:wrap;justify-content:center';
+    host.appendChild(bar);
+  }
+  var bs = 'padding:6px 11px;border:1px solid rgba(255,255,255,.55);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-weight:600';
+  var msg = pastedCount ? ('&#9989; Pasted to ' + pastedCount + ' cell' + (pastedCount === 1 ? '' : 's') + ' &middot; keep tapping or Done')
+                        : ('&#128203; Copied <b>' + (schedClipboard ? schedClipboard.label : '') + '</b> &middot; tap cells to paste');
+  bar.innerHTML = '<span style="margin-right:2px">' + msg + '</span>' +
+    '<button onclick="schedFillWeek()" style="' + bs + '">Fill person’s week</button>' +
+    '<button onclick="schedFillDay()" style="' + bs + '">Fill whole day</button>' +
+    '<button onclick="schedEndPaste()" style="' + bs + ';background:#fff;color:var(--vino,#410207)">Done</button>';
+  bar.style.display = 'flex';
+}
+function schedEndPaste() {
+  schedPasteMode = false; schedClipboard = null;
+  var bar = document.getElementById('sch-paste-bar'); if (bar) bar.style.display = 'none';
+}
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && schedPasteMode) schedEndPaste(); });
 
 // ── Move panel ──
 function schedShowMove(mpid) {

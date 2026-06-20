@@ -416,7 +416,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 /* Shift cell */
 .sch-cell{cursor:pointer;min-width:88px;padding:3px 2px}
 .sch-cell:hover .sch-shift{box-shadow:0 0 0 2px var(--vino)}
-.sch-shift{border-radius:3px;padding:3px 5px;font-size:11px;line-height:1.3;transition:box-shadow .1s}
+.sch-shift{border-radius:3px;padding:3px 5px;font-size:11px;line-height:1.3;transition:box-shadow .1s;min-height:42px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .sch-shift.working{background:#f0ebe3;color:var(--ink);border:1px solid var(--sabbia-dark)}
 /* COSEC attendance (face recognition) */
 .sch-emp-id{display:block;font-size:9px;color:#b9ab9c;cursor:pointer;margin-top:2px;letter-spacing:1.2px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
@@ -1257,6 +1257,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
       <label class="sch-modal-label">Notes</label>
       <input type="text" id="sch-notes-inp" class="sch-modal-inp" placeholder="Optional note..."/>
     </div>
+    <button type="button" onclick="schedCopyShift()" style="width:100%;box-sizing:border-box;margin-top:14px;padding:9px;background:transparent;border:1px dashed var(--vino);border-radius:4px;cursor:pointer;font-family:var(--font-sans);color:var(--vino);font-weight:600;font-size:12px">&#128203; Copy shift — then tap cells to paste</button>
     <div class="sch-modal-actions">
       <button class="sch-modal-cancel" onclick="schedCloseModal()">Cancel</button>
       <button class="sch-modal-save" onclick="schedSaveShift()">Save</button>
