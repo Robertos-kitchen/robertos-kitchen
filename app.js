@@ -305,6 +305,23 @@ function flashSync() {
   el.classList.add('active');
   setTimeout(() => el.classList.remove('active'), 500);
 }
+// Lightweight non-blocking toast for save failures. supabase-js returns {error}
+// instead of throwing, so without an explicit check a failed write looks like a
+// success on screen — this is how the user finds out a tap didn't reach the server.
+function kToast(msg, isError) {
+  var t = document.getElementById('k-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'k-toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:99999;max-width:90%;padding:12px 18px;border-radius:10px;font:600 14px/1.35 system-ui,-apple-system,sans-serif;color:#fff;box-shadow:0 6px 24px rgba(0,0,0,.32);text-align:center;display:none';
+    document.body.appendChild(t);
+  }
+  t.style.background = isError ? '#b00020' : '#2e7d32';
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(window._kToastTimer);
+  window._kToastTimer = setTimeout(function () { t.style.display = 'none'; }, 4500);
+}
 
 // â”€â”€ CHEF CHECKLIST STORAGE â”€â”€
 function chefCheckFromRow(row){
@@ -349,15 +366,18 @@ async function loadChefChecks(){
 async function upsertChefCheck(check){
   saveChefChecks();
   if(DEV_READ_ONLY)return;
-  try{await sb.from('chef_checks').upsert(chefCheckToRow(check),{onConflict:'service_date,check_id'});}
-  catch(e){console.warn('Chef checklist Supabase sync failed',e);}
+  // supabase-js resolves with {error} on a DB/RLS failure — it does NOT throw —
+  // so the old try/catch never fired and the local cache silently diverged from
+  // the server. Check the result explicitly and warn the user instead.
+  const res=await sb.from('chef_checks').upsert(chefCheckToRow(check),{onConflict:'service_date,check_id'});
+  if(res.error){console.warn('Chef checklist sync failed',res.error);kToast('Checklist not saved — check connection.',true);}
 }
 async function deleteChefCheck(id){
   chefChecks=chefChecks.filter(c=>c.id!==id);
   saveChefChecks();
   if(DEV_READ_ONLY)return;
-  try{await sb.from('chef_checks').delete().eq('service_date',TODAY).eq('check_id',id);}
-  catch(e){console.warn('Chef checklist delete sync failed',e);}
+  const res=await sb.from('chef_checks').delete().eq('service_date',TODAY).eq('check_id',id);
+  if(res.error){console.warn('Chef checklist delete sync failed',res.error);kToast('Checklist change not saved — check connection.',true);}
 }
 function renderAfterChefCheckSync(){
   renderTabs();
@@ -369,10 +389,16 @@ function renderAfterChefCheckSync(){
 
 // â”€â”€ SAVE STATUS TO SUPABASE â”€â”€
 async function saveStatus(stKey, ssKey, dishName, component, newStatus, prevStatus) {
-  if (DEV_READ_ONLY) return;
+  if (DEV_READ_ONLY) return { error: null };
   const row = { service_date: TODAY, station_key: stKey, subsection_key: ssKey, dish_name: dishName, component_name: component, status: newStatus, updated_at: new Date().toISOString() };
-  await sb.from('prep_status').upsert(row, { onConflict: 'service_date,station_key,subsection_key,dish_name,component_name' });
-  await sb.from('prep_status_log').insert({ service_date: TODAY, station_key: stKey, subsection_key: ssKey, dish_name: dishName, component_name: component, status: newStatus, previous_status: prevStatus });
+  // The upsert is the source of truth — return its result so the caller can
+  // detect a silent failure and revert. The log insert is secondary audit data;
+  // only write it once the status itself actually saved.
+  const up = await sb.from('prep_status').upsert(row, { onConflict: 'service_date,station_key,subsection_key,dish_name,component_name' });
+  if (!up.error) {
+    await sb.from('prep_status_log').insert({ service_date: TODAY, station_key: stKey, subsection_key: ssKey, dish_name: dishName, component_name: component, status: newStatus, previous_status: prevStatus });
+  }
+  return up;
 }
 
 function mkId(stk, ssk, dn, item) { return `${stk}||${ssk}||${dn}||${item}`; }
@@ -1149,7 +1175,16 @@ async function setS(id, val) {
   updateRowUI(id, newVal);
   renderTabs();renderCounter();applyFilter();
   const {stk,ssk,dn,item}=parseId(id);
-  await saveStatus(stk,ssk,dn,item,newVal,prev);
+  const res = await saveStatus(stk,ssk,dn,item,newVal,prev);
+  if (res && res.error) {
+    // Save didn't reach the server — revert the optimistic change so the board
+    // never shows a status the database doesn't have, and tell the chef.
+    state[id]=prev;
+    updateRowUI(id, prev);
+    renderTabs();renderCounter();applyFilter();
+    console.warn('prep_status save failed', res.error);
+    kToast('Not saved — check connection and tap again.', true);
+  }
 }
 
 // â”€â”€ MOVE DISH â”€â”€
@@ -1627,12 +1662,16 @@ async function loadSchedData() {
   var weekFrom = formatDate(addDays(schedWeekStart, -7));
   var res = await Promise.all([
     sb.from('staff').select('*').eq('active', true).order('sort_order'),
-    sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd),
-    sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd)
+    sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd).limit(3000),
+    sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000)
   ]);
   schedStaff = res[0].data || [];
   schedRoster = {};
-  (res[1].data || []).forEach(function(r) {
+  var rosterRows = res[1].data || [];
+  // Guard against the 1000-row API cap silently truncating the window as staff
+  // grow (the same class of bug that hid clock-ins). Warn if we hit the limit.
+  if (rosterRows.length >= 3000) console.warn('roster load hit the row cap — some shifts may be missing; raise .limit().');
+  rosterRows.forEach(function(r) {
     schedRoster[schedRosterKey(r.staff_id, r.work_date)] = r;
   });
   // Events (table is optional — if it isn't created yet, res[2].error is set and we just show none)
@@ -1818,7 +1857,11 @@ async function openScheduling() {
   triggerCosecSync(false);
   if (!window.schedAttTimer) {
     window.schedAttTimer = setInterval(function() {
+      // Stop the always-on COSEC poll once the user leaves the schedule, instead
+      // of letting a no-op interval live for the rest of the day. openScheduling
+      // recreates it on next entry (guarded above).
       if (activeStation === SCHED_KEY) triggerCosecSync(false);
+      else { clearInterval(window.schedAttTimer); window.schedAttTimer = null; }
     }, 5 * 60 * 1000);
   }
 }
