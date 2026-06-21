@@ -1738,10 +1738,13 @@ function schedAttState(staff, dateStr) {
   var isPast = dateStr < schedTodayStr();
 
   if (a && a.first_in) {
-    var effOut = a.last_out || a.manual_out || null;
+    // manual override wins over the machine punch — matches FOH, so a manager's
+    // correction of a wrong/missing clock-out actually takes effect (previously
+    // the machine last_out won and a manual fix on the kitchen schedule did nothing).
+    var effOut = a.manual_out || a.last_out || null;
     if (effOut) {
       return { kind: 'done', in: a.first_in, out: effOut,
-               manual: !a.last_out && !!a.manual_out, hours: calcHours(a.first_in, effOut) };
+               manual: !!a.manual_out, hours: calcHours(a.first_in, effOut) };
     }
     if (isToday) return { kind: 'in', in: a.first_in };
     var pe = rrow ? formatTime(rrow.shift_end) : '';
