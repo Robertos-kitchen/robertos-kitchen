@@ -204,6 +204,8 @@ function mlOrderedCount(){
 
 // ── render ──
 function renderMarketList(){
+  const ov = document.getElementById('order-view');
+  const savedScroll = ov ? ov.scrollTop : 0;
   const days = mlVisibleDays();
   const cats = ['<option value="">All categories</option>',
     ...mlCatsPresent().map(c=>`<option value="${c}"${c===mlCatFilter?' selected':''}>${c}</option>`)].join('');
@@ -253,9 +255,12 @@ function renderMarketList(){
     <button class="ml-top" id="ml-top" onclick="document.getElementById('order-view').scrollTo({top:0,behavior:'smooth'})" aria-label="Scroll to top">↑</button>
   `;
 
-  // wire scroll-to-top visibility
-  const ov = document.getElementById('order-view');
-  ov.onscroll = ()=>{ const b=document.getElementById('ml-top'); if(b) b.style.display = ov.scrollTop>200?'flex':'none'; };
+  // wire scroll-to-top visibility and restore scroll position
+  const ovAfter = document.getElementById('order-view');
+  if(ovAfter){
+    ovAfter.onscroll = ()=>{ const b=document.getElementById('ml-top'); if(b) b.style.display = ovAfter.scrollTop>200?'flex':'none'; };
+    ovAfter.scrollTop = savedScroll;
+  }
 
   mlRenderRows(days);
   mlRenderSummary();
