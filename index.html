@@ -1021,10 +1021,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span></span>
+    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Stock Take</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
+    <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
     <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
@@ -1084,6 +1085,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="dashboard-view" class="ops-view" style="display:none"></div>
 <div id="reports-view" class="ops-view" style="display:none"></div>
 <div id="order-view" class="ops-view" style="display:none"></div>
+<div id="stocktake-view" class="ops-view" style="display:none"></div>
 <div id="recipes-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
@@ -1136,6 +1138,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   // real definition replaces this shim and the .then() call runs it.
   function openClosingReport(){ lazyLoad('closing-report.js?v=1782117013').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
   function openTeam(){ lazyLoad('team.js?v=1781872166').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1782131000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1151,7 +1154,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1782123000"></script>
-<script src="app.js?v=1782122618"></script>
+<script src="app.js?v=1782131000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
