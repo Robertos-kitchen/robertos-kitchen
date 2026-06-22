@@ -251,10 +251,14 @@ Deno.serve(async (req) => {
       const exMap: Record<string, { first_in: string | null; last_out: string | null; punches: string[] }> = {};
       (existing || []).forEach((e) => { exMap[e.emp_id + "|" + e.att_date] = e as any; });
 
+      // Compare on the 05:00→05:00 operational clock, NOT as text. As strings
+      // "23:50" > "02:00", so a real post-midnight clock-out ("02:00") would lose
+      // to an earlier punch and the late out would silently disappear/regress.
+      // rankTime() pushes 00:00–04:59 after the evening, so latest-out is correct.
       const minT = (a: string | null, b: string | null) =>
-        a && b ? (a < b ? a : b) : (a || b);
+        a && b ? (rankTime(a) <= rankTime(b) ? a : b) : (a || b);
       const maxT = (a: string | null, b: string | null) =>
-        a && b ? (a > b ? a : b) : (a || b);
+        a && b ? (rankTime(a) >= rankTime(b) ? a : b) : (a || b);
 
       const rows = punchRecs.map((r) => {
         const ex = exMap[r.emp_id + "|" + r.att_date];
@@ -262,7 +266,7 @@ Deno.serve(async (req) => {
         const last_out = maxT(ex?.last_out ?? null, r.last_out);
         // Union of all punch times we've ever seen for this day, sorted.
         const punchSet = new Set<string>([...(ex?.punches || []), ...r.punches]);
-        const punches = Array.from(punchSet).sort();
+        const punches = Array.from(punchSet).sort((x, y) => rankTime(x) - rankTime(y));
         return {
           emp_id: r.emp_id,
           att_date: r.att_date,
