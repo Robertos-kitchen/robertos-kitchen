@@ -4,42 +4,12 @@
 // Dubai date math (the source of the closing-report + checklist "wrong night"
 // bugs) and hours-worked (overnight shifts). Run with:  node tests.js
 //
-// These are CANONICAL reference implementations that mirror the live code
-// (clToday/chkToday/getServiceDate/calcHours). Step #3 (shared common.js) will
-// make the apps import these very functions so the tests cover the real code.
-// Until then, if you change the logic in an app, change it here too — a failing
-// test means the two have drifted.
+// As of #3, these test the REAL shared file (common.js) that both apps load —
+// not a copy. If you change common.js, run `node tests.js`.
 // ──────────────────────────────────────────────────────────────────────────
 
-// --- functions under test (mirror the live apps) ---
-
-// Calendar date from local parts — NEVER toISOString() (that returns UTC and
-// rolls the date back a day east of GMT). Matches kitchen formatDate / FOH localISO.
-function localDateISO(d){
-  return d.getFullYear() + '-' +
-    String(d.getMonth()+1).padStart(2,'0') + '-' +
-    String(d.getDate()).padStart(2,'0');
-}
-
-// Operational/business night. Service runs past midnight, so work logged before
-// 06:00 Dubai belongs to the night that just ended (the previous calendar day).
-// `now` is a real Date; we shift to Dubai wall-clock then back 6h. Matches
-// foh-closing clToday and the fixed FOH chkToday.
-function dubaiBusinessDate(now){
-  const dubai = new Date(now.getTime() + now.getTimezoneOffset()*60000 + 4*3600000);
-  const biz   = new Date(dubai.getTime() - 6*3600000);
-  return localDateISO(biz);
-}
-
-// Hours between two "HH:MM" strings; end <= start is treated as overnight (+24h).
-// Matches kitchen/FOH calcHours.
-function calcHours(start, end){
-  const [sh,sm] = start.split(':').map(Number);
-  const [eh,em] = end.split(':').map(Number);
-  let mins = (eh*60+em) - (sh*60+sm);
-  if (mins <= 0) mins += 1440;
-  return mins/60;
-}
+const RC = require('./common.js');
+const { localDateISO, dubaiBusinessDate, calcHours } = RC;
 
 // --- tiny test harness ---
 let pass=0, fail=0;

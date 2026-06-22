@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 
 # Front-end files the screens actually load. supabase/ is deliberately EXCLUDED
 # (LIVE holds COSEC fixes that DEV is behind on — never overwrite it from here).
-FILES="index.html app.js market-list.js recipes.js team.js closing-report.js sw.js manifest.json"
+FILES="index.html common.js app.js market-list.js recipes.js team.js closing-report.js sw.js manifest.json"
 EXIST=""
 for f in $FILES; do [ -f "$f" ] && EXIST="$EXIST $f"; done
 
