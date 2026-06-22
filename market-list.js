@@ -127,10 +127,13 @@ function subscribeMarketList(){
 // ── write a single cell (upsert / delete on empty) ──
 async function mlSetQty(itemId, weekday, value){
   const k = itemId + '|' + weekday;
+  const had = (mlQty[k] != null);
+  const prev = mlQty[k];
   const qty = value === '' ? null : Number(value);
+  let res;
   if(qty === null || isNaN(qty) || qty <= 0){
     delete mlQty[k];
-    await sb.from('order_quantities').delete()
+    res = await sb.from('order_quantities').delete()
       .eq('item_id', itemId).eq('week_start', mlWeekStart).eq('weekday', weekday);
   } else {
     mlQty[k] = qty;
@@ -138,9 +141,16 @@ async function mlSetQty(itemId, weekday, value){
                   updated_by:(window.CURRENT_USER||null), updated_at:new Date().toISOString() };
     const meta = mlQtyMeta[k];
     if(meta && meta.custom_name) row.custom_name = meta.custom_name;
-    await sb.from('order_quantities').upsert(row, { onConflict:'item_id,week_start,weekday' });
+    res = await sb.from('order_quantities').upsert(row, { onConflict:'item_id,week_start,weekday' });
+  }
+  if(res && res.error){
+    // Write didn't reach the server — put the cell back to what it was so the
+    // grid never shows an order the database doesn't actually have.
+    if(had) mlQty[k] = prev; else delete mlQty[k];
+    console.warn('order_quantities save failed', res.error);
   }
   mlRenderSummary();
+  return res || {};
 }
 
 // ── add a custom item (not on master list) ──
@@ -400,7 +410,17 @@ async function mlSaveEditor(){
     const oldVal = mlQty[id+'|'+wd]!=null ? String(mlQty[id+'|'+wd]) : '';
     if(newVal !== oldVal){ writes.push(mlSetQty(id, Number(wd), mlEditBuf[wd])); }
   });
-  await Promise.all(writes);
+  const results = await Promise.all(writes);
+  const failed = results.filter(r=>r && r.error).length;
+  if(failed){
+    // Some quantities didn't save — mlSetQty already put those cells back to
+    // their old value. Keep the editor open so the chef can just tap Save again.
+    mlRenderSummary();
+    const msg = failed===1 ? 'One quantity did NOT save — check the connection and tap Save again.'
+                           : failed+' quantities did NOT save — check the connection and tap Save again.';
+    if(typeof kToast==='function') kToast(msg, true); else alert(msg);
+    return;
+  }
   mlCloseEditor();
   mlRenderRows(mlVisibleDays());   // refresh grid cells with new values
   mlRenderSummary();

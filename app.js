@@ -1249,13 +1249,16 @@ function updateMoveSubsections(mid){
   select.innerHTML=st.subsections.map(ss=>`<option value="${ss.key}">${ss.label}</option>`).join('');
 }
 async function persistMoveDish(dish, fromStKey, fromSsKey, toStKey, toSsKey, savedState){
-  if(DEV_READ_ONLY)return;
-  if(dish.id)await sb.from('dishes').update({station_key:toStKey,subsection_key:toSsKey}).eq('id',dish.id);
+  if(DEV_READ_ONLY)return {};
+  let err=null;
+  if(dish.id){const r=await sb.from('dishes').update({station_key:toStKey,subsection_key:toSsKey}).eq('id',dish.id);if(r&&r.error)err=r.error;}
   const oldRows=Object.entries(savedState).map(([component,status])=>({
     service_date:TODAY,station_key:toStKey,subsection_key:toSsKey,dish_name:dish.name,component_name:component,status,updated_at:new Date().toISOString()
   }));
-  if(oldRows.length)await sb.from('prep_status').upsert(oldRows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
-  await sb.from('prep_status').delete().eq('service_date',TODAY).eq('station_key',fromStKey).eq('subsection_key',fromSsKey).eq('dish_name',dish.name);
+  if(oldRows.length){const r=await sb.from('prep_status').upsert(oldRows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});if(r&&r.error)err=r.error;}
+  const r2=await sb.from('prep_status').delete().eq('service_date',TODAY).eq('station_key',fromStKey).eq('subsection_key',fromSsKey).eq('dish_name',dish.name);if(r2&&r2.error)err=r2.error;
+  if(err){console.warn('move dish save failed',err);kToast('Move may not have fully saved — check connection and refresh.', true);}
+  return err?{error:err}:{};
 }
 async function moveDish(fromStKey,fromSsKey,dishName,mid){
   const toStKey=document.getElementById(mid+'-station').value;
@@ -1348,37 +1351,62 @@ async function addPrepItem(stKey,ssKey,dishName,apid){
 // â”€â”€ DELETE DISH â”€â”€
 function showDishConfirm(did,stKey,ssKey,dishName){document.getElementById(did+'-btn').style.display='none';document.getElementById(did+'-confirm').classList.add('visible');}
 function cancelDishConfirm(did){document.getElementById(did+'-btn').style.display='';document.getElementById(did+'-confirm').classList.remove('visible');}
-function deleteDish(stKey,ssKey,dishName,did){
+async function deleteDish(stKey,ssKey,dishName,did){
   const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);
   const di=ss.dishes.findIndex(d=>d.name===dishName);if(di===-1)return;
   const removed=ss.dishes.splice(di,1)[0];
   const savedState={};removed.items.forEach(item=>{const id=mkId(stKey,ssKey,dishName,item);savedState[item]=state[id]||'none';delete state[id];});
   undoStack={type:'dish',stKey,ssKey,dish:removed,idx:di,savedState};
-  // Sync to Supabase so all screens reflect the removal
-  if(!DEV_READ_ONLY && removed.id){
-    sb.from('dishes').delete().eq('id',removed.id).then(()=>{});
-  }
   showUndo(`"${dishName}" removed`);renderTabs();renderCounter();renderContent();
+  // Sync to Supabase. If the delete fails, put the dish back so the board never
+  // shows it gone while the database still has it.
+  if(!DEV_READ_ONLY && removed.id){
+    const res=await sb.from('dishes').delete().eq('id',removed.id);
+    if(res && res.error){
+      ss.dishes.splice(di,0,removed);
+      removed.items.forEach(item=>{state[mkId(stKey,ssKey,dishName,item)]=savedState[item]||'none';});
+      undoStack=null;hideUndoToast();
+      console.warn('dish delete failed',res.error);
+      renderTabs();renderCounter();renderContent();
+      kToast('Not removed — check connection and tap again.', true);
+    }
+  }
 }
 
 // â”€â”€ DELETE ITEM â”€â”€
 function showItemConfirm(ikey,encId){document.getElementById(ikey).classList.add('visible');document.getElementById('sb-'+encId).style.display='none';document.getElementById('idb-'+encId).style.display='none';}
 function cancelItemConfirm(ikey,encId){document.getElementById(ikey).classList.remove('visible');document.getElementById('sb-'+encId).style.display='';document.getElementById('idb-'+encId).style.display='';}
-function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
+async function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
   const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);const dish=ss.dishes.find(d=>d.name===dishName);
   if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];
   const removedComp=dish.components?dish.components[idx]:null;
   dish.items.splice(idx,1);
   if(dish.components)dish.components.splice(idx,1);
-  // Sync to Supabase so all screens reflect the removal
-  if(!DEV_READ_ONLY && removedComp && removedComp.id){
-    sb.from('dish_components').delete().eq('id',removedComp.id).then(()=>{});
-  }
-  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};
-    if(!DEV_READ_ONLY && rd.id)sb.from('dishes').delete().eq('id',rd.id).then(()=>{});
-  }
+  let emptied=false, di=-1, rd=null;
+  if(dish.items.length===0){di=ss.dishes.findIndex(d=>d.name===dishName);rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};emptied=true;}
   else undoStack={type:'item',stKey,ssKey,dishName,itemName,idx,savedStatus};
   showUndo(`"${itemName}" removed`);renderTabs();renderCounter();renderContent();
+  // Sync to Supabase. If the item delete fails, put it back so the board never
+  // shows it gone while the database still has it.
+  if(!DEV_READ_ONLY && removedComp && removedComp.id){
+    const res=await sb.from('dish_components').delete().eq('id',removedComp.id);
+    if(res && res.error){
+      if(emptied && rd){ss.dishes.splice(di,0,rd);}
+      dish.items.splice(idx,0,itemName);
+      if(dish.components)dish.components.splice(idx,0,removedComp);
+      state[id]=savedStatus;
+      undoStack=null;hideUndoToast();
+      console.warn('item delete failed',res.error);
+      renderTabs();renderCounter();renderContent();
+      kToast('Not removed — check connection and tap again.', true);
+      return;
+    }
+  }
+  // Item delete reached the server; if that emptied the dish, remove the now-empty dish row too.
+  if(emptied && !DEV_READ_ONLY && rd && rd.id){
+    const res2=await sb.from('dishes').delete().eq('id',rd.id);
+    if(res2 && res2.error){ console.warn('empty-dish delete failed (item already removed)',res2.error); }
+  }
 }
 
 // â”€â”€ UNDO â”€â”€
@@ -1388,6 +1416,7 @@ function showUndo(msg){
   document.getElementById('undo-toast').classList.add('visible');
   undoTimer=setTimeout(()=>{document.getElementById('undo-toast').classList.remove('visible');undoStack=null;},6000);
 }
+function hideUndoToast(){ if(undoTimer)clearTimeout(undoTimer); const t=document.getElementById('undo-toast'); if(t)t.classList.remove('visible'); }
 async function undoDelete(){
   if(!undoStack)return;clearTimeout(undoTimer);document.getElementById('undo-toast').classList.remove('visible');
   const u=undoStack;undoStack=null;
