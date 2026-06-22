@@ -850,15 +850,50 @@ function dateInReportRange(date,single,from,to){
   if(to&&date>to)return false;
   return true;
 }
-function applyReports(){
+// Load saved prep results for past dates from the change-log (prep_status_log).
+// Returns rows in the same shape as prepRows(); null on a failed load so the
+// caller can show "couldn't load" instead of a misleading "no records".
+async function loadPrepHistoryRows(single,from,to){
+  let q=sb.from('prep_status_log').select('service_date,station_key,subsection_key,dish_name,component_name,status,logged_at');
+  if(from||to){ if(from)q=q.gte('service_date',from); if(to)q=q.lte('service_date',to); }
+  else { q=q.eq('service_date',single); }
+  const {data:logs,error}=await q.order('logged_at',{ascending:true});
+  if(error){ console.warn('report history load failed',error); return null; }
+  if(!logs) return [];
+  // Latest log entry per item per day wins (ascending order → last write).
+  const finalByKey={};
+  logs.forEach(l=>{ finalByKey[l.service_date+'||'+l.station_key+'||'+l.subsection_key+'||'+l.dish_name+'||'+l.component_name]=l; });
+  return Object.values(finalByKey).map(l=>({
+    type:'Prep',date:l.service_date,stationKey:l.station_key,
+    station:stationLabel(l.station_key),subsection:subsectionLabel(l.station_key,l.subsection_key),
+    dish:l.dish_name,item:l.component_name,status:l.status,note:''
+  }));
+}
+async function applyReports(){
   const single=document.getElementById('report-single-date')?.value||TODAY;
   const from=document.getElementById('report-from-date')?.value||'';
   const to=document.getElementById('report-to-date')?.value||'';
   const station=document.getElementById('report-station')?.value||'';
   const status=document.getElementById('report-status')?.value||'';
   const search=(document.getElementById('report-search')?.value||'').toLowerCase();
-  const rows=currentReportRows().filter(r=>{
-    const dateOk=dateInReportRange(r.date,from||to?'':single,from,to);
+  // Today (the default) uses the live in-memory board, which includes chef
+  // checks. Any past date / range loads saved prep history from the database.
+  const useRange=!!(from||to);
+  const isLiveToday=!useRange && single===TODAY;
+  let sourceRows;
+  if(isLiveToday){
+    sourceRows=currentReportRows();
+  } else {
+    const content=document.getElementById('reports-content');
+    if(content)content.innerHTML='<div class="report-no-data">Loading saved history…</div>';
+    sourceRows=await loadPrepHistoryRows(single,from,to);
+    if(sourceRows===null){
+      if(content)content.innerHTML='<div class="report-no-data">Couldn’t load history — check the connection and tap Apply filters again.</div>';
+      return;
+    }
+  }
+  const rows=sourceRows.filter(r=>{
+    const dateOk=dateInReportRange(r.date,useRange?'':single,from,to);
     const stationOk=!station||r.stationKey===station;
     const statusOk=!status||r.status===status;
     const text=(r.station+' '+r.subsection+' '+r.dish+' '+r.item+' '+r.note).toLowerCase();
@@ -866,6 +901,7 @@ function applyReports(){
   });
   const prepCount=rows.filter(r=>r.type==='Prep').length;
   const checkCount=rows.filter(r=>r.type==='Chef check').length;
+  const histNote=isLiveToday?'':'<div class="ops-subtitle" style="margin:2px 0 10px">Saved prep history · chef-checks are only kept for today</div>';
   const table=rows.length?`<div class="report-table">
     <div class="report-row head"><div>Type</div><div>Station</div><div>Item</div><div>Status</div><div>Date</div></div>
     ${rows.map(r=>`<div class="report-row">
@@ -883,6 +919,7 @@ function applyReports(){
       <div class="ops-card"><div class="ops-num">${checkCount}</div><div class="ops-label">Chef checks</div></div>
       <div class="ops-card"><div class="ops-num">${rows.filter(r=>['sos','review','discard'].includes(r.status)).length}</div><div class="ops-label">Needs attention</div></div>
     </div>
+    ${histNote}
     ${table}`;
 }
 
@@ -2710,6 +2747,9 @@ function schedPrint() {
 
 // ── Send to HR (email-ready roster, no manual attachment) ──
 async function schedSendToHR() {
+  var _wkEnd = addDays(schedWeekStart, 6);
+  var _wkStr = schedWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' + _wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
   var btn = document.getElementById('svt-hr');
   if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
   try {

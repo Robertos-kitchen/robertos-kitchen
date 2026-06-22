@@ -387,6 +387,8 @@ function crSaveEntry(type) {
 function crRemoveEntry(idx) {
   var e = crEntries[idx];
   if (!e) return;
+  var what = e.item_name || e.category || 'this entry';
+  if (!confirm('Remove "' + what + '"? It will be deleted when you submit.')) return;
   if (e.id) crRemovedIds.push(e.id);
   crEntries.splice(idx, 1);
   crSaveDraftLocal();
