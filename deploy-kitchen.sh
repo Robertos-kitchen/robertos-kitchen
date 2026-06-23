@@ -15,6 +15,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Self-clean: each git push here spawns a throwaway "auto-deploy-<id>/" folder
+# (a git-credential-manager / dotnet-suggest sentinel). Sweep any such stray
+# folders on exit — whether this script succeeds OR fails — so they never pile
+# up. Nothing real is ever named this; the temp git branch of the same name is
+# deleted separately below, and this only ever touches directories on disk.
+trap 'rm -rf auto-deploy-*/ 2>/dev/null || true' EXIT
+
 # Front-end files the screens actually load. supabase/ is deliberately EXCLUDED
 # (LIVE holds COSEC fixes that DEV is behind on — never overwrite it from here).
 FILES="index.html common.js app.js market-list.js stock-take.js recipes.js team.js closing-report.js sw.js manifest.json"
