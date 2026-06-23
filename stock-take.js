@@ -19,6 +19,21 @@ var STOCK_DEPT  = 'kitchen';
 var STOCK_EMAIL_TO = 'ahtwe@robertos.ae';
 var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@robertos.ae','francescoguarracino@hotmail.com'];
 
+// ── yield: premium items are weighed CLEANED, but valued at the ORIGINAL purchase
+// weight (the money actually spent). e.g. 8 kg cleaned ÷ (1-0.30) = 11.43 kg bought.
+// Applies to wild seafood (Seafood group + "wild" in the name) and tenderloin.
+var STOCK_YIELD = 0.30;
+function stIsYield(it){
+  var n=(it.name||'').toLowerCase(), g=(it.item_group||'').toLowerCase();
+  if(g==='seafood' && n.indexOf('wild')>-1) return true;
+  if(n.indexOf('tenderloin')>-1) return true;
+  return false;
+}
+function stYieldFactor(it){ return stIsYield(it)?STOCK_YIELD:0; }
+// effective (originally-purchased) quantity used for all valuation
+function stEffQty(it, qty){ var f=stYieldFactor(it); var q=Number(qty)||0; return f? q/(1-f) : q; }
+function stEffQtyRound(it, qty){ return Math.round(stEffQty(it,qty)*1000)/1000; }
+
 // ── state ──
 var stSheet   = null;        // { month, status, ... }
 var stMonth   = null;        // 'YYYY-MM'
@@ -27,6 +42,7 @@ var stCounts  = {};          // item_id -> { qty, unit, counted_by, counted_by_n
 var stUser    = null;        // { emp_id, name }  (null until signed in)
 var stSearch  = '';
 var stCatFilter = '';
+var stOnlyCounted = false;   // "Counted only" tickbox
 var stUnitSel = {};          // item_id -> chosen unit (for 2-unit items)
 var stChannel = null;
 
@@ -85,7 +101,7 @@ function stSubscribe(){
         if(typeof flashSync==='function') flashSync();
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'stock_take_items', filter:'month=eq.'+stMonth },
-      function(){ if(activeStation===STOCK_KEY){ stLoadItems().then(function(){ if(activeStation===STOCK_KEY) stRenderRows(); }); } })
+      function(){ if(activeStation===STOCK_KEY){ stLoadItems().then(function(){ if(activeStation===STOCK_KEY) stSafeRenderRows(); }); } })
     .subscribe(function(status){
       var dot=document.getElementById('realtime-dot');
       if(dot) dot.classList.toggle('live', status==='SUBSCRIBED');
@@ -142,12 +158,15 @@ function stFilteredItems(){
   var q = stSearch.toLowerCase();
   return stItems.filter(function(it){
     if(stCatFilter && it.item_group !== stCatFilter) return false;
+    if(stOnlyCounted){ var c=stCounts[it.id]; if(!c||c.qty==null) return false; }
     if(q && it.name.toLowerCase().indexOf(q)===-1 && String(it.code||'').indexOf(q)===-1) return false;
     return true;
   });
 }
 function stCats(){ return Array.from(new Set(stItems.map(function(i){ return i.item_group||'Other'; }))); }
-function stLineValue(it){ var c = stCounts[it.id]; if(!c||c.qty==null) return 0; return stItemPrice(it)*Number(c.qty); }
+// quantity shown in reports/Excel — grossed up to purchase weight for yield items
+function stDisplayQty(it){ var c=stCounts[it.id]; if(!c||c.qty==null) return null; return stIsYield(it)? stEffQtyRound(it,c.qty) : Number(c.qty); }
+function stLineValue(it){ var c = stCounts[it.id]; if(!c||c.qty==null) return 0; return stItemPrice(it)*stEffQty(it, c.qty); }
 function stGrandTotal(){ var t=0; stItems.forEach(function(it){ t+=stLineValue(it); }); return t; }
 function stCountedCount(){ var n=0; stItems.forEach(function(it){ var c=stCounts[it.id]; if(c&&c.qty!=null) n++; }); return n; }
 function stCategoryTotal(){ var t=0; stItems.forEach(function(it){ if(!stCatFilter||it.item_group===stCatFilter) t+=stLineValue(it); }); return t; }
@@ -175,6 +194,9 @@ function stInjectCss(){
     '.st-namecol{min-width:0}'+
     '.st-name{font-size:14px;font-weight:600;color:#2a1a10;line-height:1.25}'+
     '.st-tag{font-size:10px;font-weight:700;color:#7a4a00;background:#f6d79a;border-radius:5px;padding:1px 6px;margin-left:6px}'+
+    '.st-eff{display:inline-block;font-size:11px;font-weight:600;color:#7a4a00;background:#f6e3c0;border-radius:5px;padding:1px 6px;margin-top:4px}'+
+    '.st-onlycount{display:flex;align-items:center;gap:6px;font-size:13px;color:#7a6a55;white-space:nowrap}'+
+    '.st-danger{color:#7a1218!important;border-color:#d98a8a!important}'+
     '.st-meta{margin-top:4px}'+
     '.st-muted{font-size:12px;color:#8a7a55}'+
     '.st-qty{justify-self:center;width:72px;height:38px;text-align:center;border:1px solid #c9a84c;border-radius:8px;font-size:16px;background:#fff}'+
@@ -216,6 +238,7 @@ function stRender(){
     '<div class="st-toolbar">'+
       '<input class="check-input" id="st-search" placeholder="Search items…" value="'+stEsc(stSearch)+'" oninput="stOnSearch(this.value)" style="flex:1;min-width:140px">'+
       '<select class="check-select" id="st-cat" onchange="stOnCat(this.value)">'+cats+'</select>'+
+      '<label class="st-onlycount"><input type="checkbox" id="st-onlycount" '+(stOnlyCounted?'checked':'')+' onchange="stToggleOnlyCounted(this.checked)"> Counted only</label>'+
       (stUser?'<button class="report-btn" onclick="stShowUpload()">Upload month</button>':'')+
     '</div>'+
     '<div class="st-catbar"><span id="st-catlabel">'+(stCatFilter?stEsc(stCatFilter):'All categories')+'</span>'+
@@ -224,6 +247,7 @@ function stRender(){
         '<button class="report-btn" onclick="stReviewSend()">Email to Aung</button>'+
         '<button class="report-btn" onclick="stExportExcel()">Download Excel</button>'+
         '<button class="report-btn" onclick="stPrint()">Print</button>'+
+        '<button class="report-btn st-danger" onclick="stClearAllCounts()">Clear all counts</button>'+
       '</div>' : '')+
     '<div id="st-rows"></div>'+
     '<button class="report-btn st-addbtn" onclick="stShowAdd()">+ Add missing item</button>';
@@ -253,7 +277,7 @@ function stRenderRows(){
         '<div class="st-main">'+
           '<div class="st-namecol">'+
             '<div class="st-name">'+stEsc(it.name)+(it.is_added?'<span class="st-tag">added</span>':'')+'</div>'+
-            '<div class="st-meta">'+unitCtl+'</div>'+
+            '<div class="st-meta">'+unitCtl+'<span id="st-eff-'+it.id+'">'+stEffText(it)+'</span></div>'+
           '</div>'+
           '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(locked?'disabled':'')+
             ' onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stSetQty(\''+it.id+'\',this.value)">'+
@@ -264,11 +288,35 @@ function stRenderRows(){
   c.innerHTML = html;
 }
 
+// A remote item-add rebuilds every row. Count edits only commit on blur, so defer
+// the rebuild while a quantity field is focused — then refresh once they move on —
+// to avoid clearing a number someone is mid-typing. (stUpdateRowUI already guards
+// the per-count path the same way via document.activeElement.)
+var stRowsTimer = null;
+function stSafeRenderRows(){
+  var ae = document.activeElement;
+  if(ae && ae.classList && ae.classList.contains('st-qty')){
+    clearTimeout(stRowsTimer);
+    stRowsTimer = setTimeout(function(){ if(activeStation===STOCK_KEY) stSafeRenderRows(); }, 400);
+    return;
+  }
+  stRenderRows();
+}
+
+// yield badge under the name: shows the grossed-up purchase weight once counted
+function stEffText(it){
+  if(!stIsYield(it)) return '';
+  var c=stCounts[it.id];
+  if(!c||c.qty==null) return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield</span>';
+  return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield · '+stEffQtyRound(it,c.qty)+' '+stEsc(stItemUnit(it))+' purchased</span>';
+}
 function stUpdateRowUI(itemId){
   var it = stItems.find(function(x){ return x.id===itemId; });
   if(!it) return;
   var line = document.getElementById('st-line-'+itemId);
   if(line) line.textContent = stMoney(stLineValue(it));
+  var eff = document.getElementById('st-eff-'+itemId);
+  if(eff) eff.innerHTML = stEffText(it);
   var row = document.getElementById('st-row-'+itemId);
   if(row){ var inp = row.querySelector('.st-qty'); var c=stCounts[itemId];
     if(inp && document.activeElement!==inp){ inp.value = (c&&c.qty!=null)?c.qty:''; } }
@@ -284,6 +332,18 @@ function stRenderTotals(){
 var stSearchTimer=null;
 function stOnSearch(v){ stSearch=v; clearTimeout(stSearchTimer); stSearchTimer=setTimeout(stRenderRows,120); }
 function stOnCat(v){ stCatFilter=v; stRenderRows(); stRenderTotals(); }
+function stToggleOnlyCounted(v){ stOnlyCounted=!!v; stRenderRows(); }
+// wipe EVERY quantity entered for this month (all counters) — confirmed first
+async function stClearAllCounts(){
+  if(!stUser){ if(typeof kToast==='function') kToast('Enter your employee ID first.', true); return; }
+  if(!stCountedCount()){ if(typeof kToast==='function') kToast('Nothing counted yet.'); return; }
+  if(!confirm('Clear ALL counts for '+stMonth+'?\n\nThis erases every quantity entered this month — by everyone — and cannot be undone. The item list stays.')) return;
+  var res=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth);
+  if(res && res.error){ if(typeof kToast==='function') kToast('Could not clear counts: '+res.error.message, true); return; }
+  stCounts={};
+  stRender();
+  if(typeof kToast==='function') kToast('✓ All counts cleared for '+stMonth+'.');
+}
 function stFocusRow(itemId, on){ var r=document.getElementById('st-row-'+itemId); if(r) r.classList.toggle('active', on); }
 function stPickUnit(itemId, unit){ stUnitSel[itemId]=unit; stUpdateRowUI(itemId); stRenderTotals(); if(stCounts[itemId]&&stCounts[itemId].qty!=null) stSetQty(itemId, stCounts[itemId].qty); }
 
@@ -335,8 +395,9 @@ function stReportHtml(){
   var body = cats.length ? cats.map(function(cat){
     var rows = byCat[cat].map(function(it){
       var c=stCounts[it.id];
-      return '<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd">'+stEsc(it.name)+'</td>'+
-        '<td style="padding:5px 8px;border-bottom:1px solid #ddd;text-align:right">'+c.qty+' '+stEsc(stItemUnit(it))+'</td>'+
+      var yld = stIsYield(it) ? ' <span style="color:#7a4a00;font-size:11px">('+Math.round(STOCK_YIELD*100)+'% yield)</span>' : '';
+      return '<tr><td style="padding:5px 8px;border-bottom:1px solid #ddd">'+stEsc(it.name)+yld+'</td>'+
+        '<td style="padding:5px 8px;border-bottom:1px solid #ddd;text-align:right">'+stDisplayQty(it)+' '+stEsc(stItemUnit(it))+'</td>'+
         '<td style="padding:5px 8px;border-bottom:1px solid #ddd;text-align:right">'+stMoney(stItemPrice(it))+'</td>'+
         '<td style="padding:5px 8px;border-bottom:1px solid #ddd;text-align:right;font-weight:bold">'+stMoney(stLineValue(it))+'</td></tr>';
     }).join('');
@@ -367,7 +428,8 @@ function stExcelAoa(){
   var grand = 0;
   stItems.forEach(function(it){
     var c = stCounts[it.id];
-    var qty = (c && c.qty!=null) ? Number(c.qty) : '';
+    // Qty = originally-purchased weight (grossed up for yield items) so Qty×Price = Value
+    var qty = (c && c.qty!=null) ? stDisplayQty(it) : '';
     var price = stItemPrice(it);
     var val = qty==='' ? 0 : Math.round(qty*price*100)/100;
     grand += val;

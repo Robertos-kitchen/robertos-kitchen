@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782161376;
+const APP_VERSION = 1782200000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1896,15 +1896,37 @@ function subscribeSchedRealtime() {
         var normalised = Object.assign({}, payload.new, { work_date: workDate });
         schedRoster[k] = normalised;
       }
-      if (activeStation === SCHED_KEY) {
-        if (schedView === 'week') renderSchedWeek();
-        else renderSchedDay();
-      }
+      if (activeStation === SCHED_KEY) schedRealtimeRerender();
     })
     .subscribe(function(status) {
       // Log realtime status for debugging
       console.log('Roster realtime:', status);
     });
+}
+
+// Re-render the schedule after a realtime roster change WITHOUT wiping a manager
+// who is mid-typing — e.g. entering a new staff name/role in the inline add panel,
+// or choosing a station in the move panel. The roster state above is already
+// updated; we only defer the visual rebuild (which replaces the whole grid) until
+// the field is no longer focused. Mirrors the FOH hub's safeToRefresh() pattern.
+var schedRerenderTimer = null;
+function schedSafeToRerender() {
+  var ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT')) {
+    var wv = document.getElementById('sch-week-view');
+    var dv = document.getElementById('sch-day-view');
+    if ((wv && wv.contains(ae)) || (dv && dv.contains(ae))) return false;
+  }
+  return true;
+}
+function schedRealtimeRerender() {
+  clearTimeout(schedRerenderTimer);
+  schedRerenderTimer = setTimeout(function() {
+    if (activeStation !== SCHED_KEY) return;
+    if (!schedSafeToRerender()) { schedRealtimeRerender(); return; }  // retry once idle
+    if (schedView === 'week') renderSchedWeek();
+    else renderSchedDay();
+  }, 250);
 }
 
 // ── Open page ──
