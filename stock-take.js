@@ -25,6 +25,12 @@ var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@ro
 // deferred, so this lives client-side. Counts are attributed to this label.
 var STOCK_SUPER = { '1212': 'Stock Take Admin' };
 
+// Previous-month reference (the grey "Last month: …" line + last-month closing
+// total) is BUILT but hidden for now. Flip to true to switch it back on — planned
+// for July once June's inventory is done. When false, no prior-month data is even
+// loaded, so the display naturally shows nothing.
+var STOCK_SHOW_PREV = false;
+
 // ── yield: premium items are weighed CLEANED, but valued at the ORIGINAL purchase
 // weight (the money actually spent). e.g. 8 kg cleaned ÷ (1-0.30) = 11.43 kg bought.
 // Applies to wild seafood (Seafood group + "wild" in the name) and tenderloin.
@@ -151,6 +157,7 @@ async function stLoadCounts(){
 // gross-up in qty + value as they did in the report. Read-only — no realtime. ──
 async function stLoadPrevMonth(){
   stPrevRef = {}; stPrevTotal = 0; stPrevMonth = null; stPrevLabel = '';
+  if(!STOCK_SHOW_PREV) return;   // feature built but hidden — flip STOCK_SHOW_PREV to re-enable
   if(!stMonth) return;
   var sres = await sb.from('stock_take_sheets').select('month')
     .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).lt('month',stMonth)
