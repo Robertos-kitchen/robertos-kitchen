@@ -234,6 +234,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .top-left{display:flex;align-items:center;gap:12px}
 .home-btn{font-size:10px;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:3px;padding:6px 10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans)}
 .home-view{min-height:calc(100vh - 95px);padding:26px 20px 40px;background:var(--sabbia)}
+.switch-app-wrap{margin-top:26px;display:flex;justify-content:center}
+.switch-app-btn{display:flex;align-items:center;justify-content:center;gap:14px;text-decoration:none;background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:8px;padding:14px 22px;font-family:var(--font-sans);box-shadow:0 1px 3px rgba(65,2,7,.18);transition:background .14s ease,transform .14s ease}
+.switch-app-btn:hover{background:var(--vino-mid)}
+.switch-app-btn:active{transform:translateY(1px)}
+.switch-app-label{font-size:14px;letter-spacing:1.5px;text-transform:uppercase}
+.switch-app-arrow{font-size:13px;font-weight:600;letter-spacing:1px;color:var(--oro);background:rgba(245,237,224,.1);border:1px solid var(--oro);border-radius:5px;padding:5px 10px}
 .home-title{font-family:var(--font-serif);font-size:40px;color:var(--vino);line-height:1;font-weight:600}
 .home-subtitle{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--vino-light);margin:8px 0 24px;opacity:.8}
 .home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -1042,6 +1048,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
   </div>
   </div>
+  </div>
+
+  <div class="switch-app-wrap">
+    <a class="switch-app-btn" href="https://robertos-leadership.github.io/robertos-foh/">
+      <span class="switch-app-label">Front of House</span>
+      <span class="switch-app-arrow">FOH &rarr;</span>
+    </a>
   </div>
 </div>
 
