@@ -75,18 +75,43 @@ async function stLoadSheet(){
   stSheet = (res.data && res.data[0]) || null;
   stMonth = stSheet ? stSheet.month : null;
 }
+// Page through PostgREST's 1000-rows-per-request cap. WITHOUT this, a month with
+// more than 1000 items (or counts) silently loads only the first 1000 — no error —
+// and the rest vanish from the totals, Excel and email. Each page rebuilds the
+// query (a range can't be reused across awaits); we stop on the first short page.
+// A stable secondary sort on id keeps pages from overlapping/skipping rows.
+async function stFetchAllPaged(makeQuery){
+  var out=[], from=0, PAGE=1000;
+  for(;;){
+    var res = await makeQuery().range(from, from+PAGE-1);
+    if(res && res.error) return { data:out, error:res.error };
+    var batch = (res && res.data) || [];
+    out = out.concat(batch);
+    if(batch.length < PAGE) break;
+    from += PAGE;
+  }
+  return { data:out, error:null };
+}
 async function stLoadItems(){
   if(!stMonth){ stItems = []; return; }
-  var res = await sb.from('stock_take_items').select('*')
-    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth)
-    .eq('active',true).order('sort_order');
+  var res = await stFetchAllPaged(function(){
+    return sb.from('stock_take_items').select('*')
+      .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth)
+      .eq('active',true).order('sort_order').order('id');
+  });
   stItems = res.data || [];
+  if(res.error && typeof kToast==='function')
+    kToast('Not all items loaded ('+stItems.length+' so far) — the total may be incomplete. Reopen Stock Take.', true);
 }
 async function stLoadCounts(){
   stCounts = {};
   if(!stMonth) return;
-  var res = await sb.from('stock_take_counts').select('*')
-    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth);
+  var res = await stFetchAllPaged(function(){
+    return sb.from('stock_take_counts').select('*')
+      .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth).order('id');
+  });
+  if(res.error && typeof kToast==='function')
+    kToast('Not all counts loaded — reopen Stock Take to be sure the total is right.', true);
   (res.data||[]).forEach(function(r){
     stCounts[r.item_id] = { qty:r.qty, unit:r.unit, counted_by:r.counted_by, counted_by_name:r.counted_by_name };
     if(r.unit) stUnitSel[r.item_id] = r.unit;
@@ -161,6 +186,41 @@ async function stSetQty(itemId, value){
   return res || {};
 }
 
+// ── ADD to a count (the "+ add" box): sum what you just found onto the running
+// total. The add happens ATOMICALLY on the server (stock_take_add RPC) so two
+// people adding at the same moment never lose stock. The delta is the CLEANED
+// counted weight; the yield gross-up is applied on top by stLineValue/stEffText.
+// We show the change optimistically, then trust the server's returned total. ──
+async function stAddQty(itemId, value){
+  if(!stUser) return;
+  var addBox = document.getElementById('st-add-'+itemId);
+  var delta = Number(value);
+  if(value==='' || isNaN(delta) || delta===0){ if(addBox) addBox.value=''; return; }
+  var it = stItems.find(function(x){ return x.id===itemId; });
+  var unit = it ? stItemUnit(it) : null;
+  var prev = stCounts[itemId] ? Object.assign({}, stCounts[itemId]) : null;
+  // optimistic: bump the local running total straight away
+  var base = (prev && prev.qty!=null) ? Number(prev.qty) : 0;
+  stCounts[itemId] = { qty:base+delta, unit:unit, counted_by:stUser.emp_id, counted_by_name:stUser.name };
+  stUpdateRowUI(itemId); stRenderTotals();
+  var res = await sb.rpc('stock_take_add', {
+    p_item_id:itemId, p_venue_id:STOCK_VENUE, p_dept:STOCK_DEPT, p_month:stMonth,
+    p_delta:delta, p_unit:unit, p_counted_by:stUser.emp_id, p_counted_by_name:stUser.name });
+  if(res && res.error){
+    if(prev) stCounts[itemId]=prev; else delete stCounts[itemId];
+    stUpdateRowUI(itemId); stRenderTotals();
+    if(typeof kToast==='function') kToast('That add did NOT save — check the connection and try again.', true);
+    console.warn('stock_take_add failed', res.error);
+    return;
+  }
+  // server is the source of truth for the running total
+  if(res && res.data!=null){
+    stCounts[itemId].qty = Number(res.data);
+    stUpdateRowUI(itemId); stRenderTotals();
+  }
+  if(addBox){ addBox.value=''; }   // clear, ready for the next person
+}
+
 // ── derived ──
 function stFilteredItems(){
   var q = stSearch.toLowerCase();
@@ -207,7 +267,10 @@ function stInjectCss(){
     '.st-danger{color:#7a1218!important;border-color:#d98a8a!important}'+
     '.st-meta{margin-top:4px}'+
     '.st-muted{font-size:12px;color:#8a7a55}'+
-    '.st-qty{justify-self:center;width:72px;height:38px;text-align:center;border:1px solid #c9a84c;border-radius:8px;font-size:16px;background:#fff}'+
+    '.st-qtywrap{justify-self:center;display:flex;flex-direction:column;align-items:center;gap:4px}'+
+    '.st-qty{width:72px;height:38px;text-align:center;border:1px solid #c9a84c;border-radius:8px;font-size:16px;background:#fff}'+
+    '.st-add{width:72px;height:30px;text-align:center;border:1px dashed #1d7a4a;border-radius:8px;font-size:13px;color:#1d7a4a;background:#f3faf5}'+
+    '.st-add::placeholder{color:#69a883}'+
     '.st-unit{height:30px;background:#e1d3c2;border:1px solid #cbb892;border-radius:6px;font-size:12px;color:#8a7a55;max-width:160px;padding:0 4px}'+
     '.st-line{justify-self:end;min-width:90px;text-align:right;font-weight:700;color:#410207;font-size:13px;font-variant-numeric:tabular-nums}'+
     '.st-actions{display:flex;gap:8px;padding:6px 14px 10px;flex-wrap:wrap}'+
@@ -287,8 +350,12 @@ function stRenderRows(){
             '<div class="st-name">'+stEsc(it.name)+(it.is_added?'<span class="st-tag">added</span>':'')+'</div>'+
             '<div class="st-meta">'+unitCtl+'<span id="st-eff-'+it.id+'">'+stEffText(it)+'</span></div>'+
           '</div>'+
-          '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(locked?'disabled':'')+
-            ' onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stSetQty(\''+it.id+'\',this.value)">'+
+          '<div class="st-qtywrap">'+
+            '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(locked?'disabled':'')+
+              ' onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stSetQty(\''+it.id+'\',this.value)">'+
+            '<input class="st-add" id="st-add-'+it.id+'" inputmode="decimal" placeholder="+ add" '+(locked?'disabled':'')+
+              ' title="Add what you just found — it sums onto the count" onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stAddQty(\''+it.id+'\',this.value)">'+
+          '</div>'+
           '<span class="st-line" id="st-line-'+it.id+'">'+stMoney(stLineValue(it))+'</span>'+
         '</div>'+
       '</div>';
@@ -303,7 +370,7 @@ function stRenderRows(){
 var stRowsTimer = null;
 function stSafeRenderRows(){
   var ae = document.activeElement;
-  if(ae && ae.classList && ae.classList.contains('st-qty')){
+  if(ae && ae.classList && (ae.classList.contains('st-qty') || ae.classList.contains('st-add'))){
     clearTimeout(stRowsTimer);
     stRowsTimer = setTimeout(function(){ if(activeStation===STOCK_KEY) stSafeRenderRows(); }, 400);
     return;
