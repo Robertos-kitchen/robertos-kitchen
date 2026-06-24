@@ -54,7 +54,7 @@ DEV=$(git rev-parse HEAD)
 
 # Cache-bust guard: warn if a JS file shipped without bumping index.html's ?v=.
 CHANGED=$(git diff --name-only HEAD~1 HEAD || true)
-for js in app.js market-list.js closing-report.js team.js recipes.js; do
+for js in app.js market-list.js closing-report.js team.js recipes.js stock-take.js; do
   if echo "$CHANGED" | grep -qx "$js"; then
     if ! echo "$CHANGED" | grep -qx "index.html"; then
       echo "⚠️  $js changed but index.html (?v= cache-bust) was NOT in the same commit — screens may keep running stale code."
