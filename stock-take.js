@@ -52,6 +52,12 @@ var stOnlyCounted = false;   // "Counted only" tickbox
 var stUnitSel = {};          // item_id -> chosen unit (for 2-unit items)
 var stChannel = null;
 
+// ── previous-month reference (read-only): what each item closed at last month ──
+var stPrevRef   = {};        // ref-key -> { qty, unit, value }
+var stPrevTotal = 0;         // previous month's closing total value
+var stPrevMonth = null;      // 'YYYY-MM' of the previous sheet (null if none)
+var stPrevLabel = '';        // e.g. 'May 2026'
+
 function stMoney(n){ return 'AED ' + (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function stEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function stJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
@@ -66,6 +72,28 @@ function stItemPrice(it){
   return Number(it.price)||0;
 }
 function stItemUnit(it){ return stUnitSel[it.id] || it.unit || ''; }
+
+// price for a given item + a specific unit (used for previous-month history,
+// independent of the current session's unit picks)
+function stPriceForUnit(it, unit){
+  if(unit && Array.isArray(it.units)){
+    var hit = it.units.find(function(x){ return x.unit===unit; });
+    if(hit) return Number(hit.price)||0;
+  }
+  return Number(it.price)||0;
+}
+// stable identity across monthly re-uploads: article code if present, else name
+function stRefKey(it){
+  var c = (it.code==null?'':String(it.code)).trim();
+  if(c) return 'c:'+c.toLowerCase();
+  return 'n:'+String(it.name||'').trim().toLowerCase();
+}
+// the small grey "Last month: …" line under an item (empty if no prior count)
+function stPrevText(it){
+  var r = stPrevRef[stRefKey(it)];
+  if(!r) return '';
+  return '<div class="st-prev">Last month: '+stEsc(String(r.qty))+(r.unit?' '+stEsc(r.unit):'')+' · '+stMoney(r.value)+'</div>';
+}
 
 // ── data load ──
 async function stLoadSheet(){
@@ -115,6 +143,39 @@ async function stLoadCounts(){
   (res.data||[]).forEach(function(r){
     stCounts[r.item_id] = { qty:r.qty, unit:r.unit, counted_by:r.counted_by, counted_by_name:r.counted_by_name };
     if(r.unit) stUnitSel[r.item_id] = r.unit;
+  });
+}
+
+// ── previous-month reference: load the most recent EARLIER sheet (same dept) and
+// build a per-item lookup of what it closed at. Yield items carry the same 30%
+// gross-up in qty + value as they did in the report. Read-only — no realtime. ──
+async function stLoadPrevMonth(){
+  stPrevRef = {}; stPrevTotal = 0; stPrevMonth = null; stPrevLabel = '';
+  if(!stMonth) return;
+  var sres = await sb.from('stock_take_sheets').select('month')
+    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).lt('month',stMonth)
+    .order('month',{ascending:false}).limit(1);
+  var prev = sres.data && sres.data[0];
+  if(!prev) return;
+  stPrevMonth = prev.month;
+  stPrevLabel = new Date(stPrevMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var ires = await stFetchAllPaged(function(){
+    return sb.from('stock_take_items').select('id,code,name,item_group,unit,price,units')
+      .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stPrevMonth).eq('active',true);
+  });
+  var cres = await stFetchAllPaged(function(){
+    return sb.from('stock_take_counts').select('item_id,qty,unit')
+      .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stPrevMonth);
+  });
+  var countByItem = {};
+  (cres.data||[]).forEach(function(c){ if(c.qty!=null) countByItem[c.item_id] = c; });
+  (ires.data||[]).forEach(function(it){
+    var c = countByItem[it.id]; if(!c) return;
+    var price = stPriceForUnit(it, c.unit);
+    var qtyShown = stIsYield(it) ? stEffQtyRound(it, c.qty) : Number(c.qty);   // grossed-up purchase weight
+    var val = price * stEffQty(it, c.qty);
+    stPrevRef[stRefKey(it)] = { qty:qtyShown, unit:c.unit||it.unit||'', value:val };
+    stPrevTotal += val;
   });
 }
 
@@ -266,6 +327,9 @@ function stInjectCss(){
     '.st-onlycount{display:flex;align-items:center;gap:6px;font-size:13px;color:#7a6a55;white-space:nowrap}'+
     '.st-danger{color:#7a1218!important;border-color:#d98a8a!important}'+
     '.st-meta{margin-top:4px}'+
+    '.st-prev{margin-top:3px;font-size:11px;color:#9a8a6a;font-style:italic}'+
+    '.st-prevtotal{padding:6px 14px 0;font-size:12px;color:#8a7a55}'+
+    '.st-prevtotal b{color:#410207}'+
     '.st-muted{font-size:12px;color:#8a7a55}'+
     '.st-qtywrap{justify-self:center;display:flex;flex-direction:column;align-items:center;gap:4px}'+
     '.st-qty{width:72px;height:38px;text-align:center;border:1px solid #c9a84c;border-radius:8px;font-size:16px;background:#fff}'+
@@ -306,6 +370,7 @@ function stRender(){
       '<div class="ops-card dark"><div class="ops-num" id="st-grand">'+stMoney(stGrandTotal())+'</div><div class="ops-label">Counted value (all)</div></div>'+
       '<div class="ops-card"><div class="ops-num"><span id="st-counted">'+stCountedCount()+'</span> / '+stItems.length+'</div><div class="ops-label">Items counted</div></div>'+
     '</div>'+
+    (stPrevTotal>0 ? '<div class="st-prevtotal">Last month ('+stEsc(stPrevLabel)+') closing value: <b>'+stMoney(stPrevTotal)+'</b> · shown per item below for reference</div>' : '')+
     '<div class="st-toolbar">'+
       '<input class="check-input" id="st-search" placeholder="Search items…" value="'+stEsc(stSearch)+'" oninput="stOnSearch(this.value)" style="flex:1;min-width:140px">'+
       '<select class="check-select" id="st-cat" onchange="stOnCat(this.value)">'+cats+'</select>'+
@@ -349,6 +414,7 @@ function stRenderRows(){
           '<div class="st-namecol">'+
             '<div class="st-name">'+stEsc(it.name)+(it.is_added?'<span class="st-tag">added</span>':'')+'</div>'+
             '<div class="st-meta">'+unitCtl+'<span id="st-eff-'+it.id+'">'+stEffText(it)+'</span></div>'+
+            stPrevText(it)+
           '</div>'+
           '<div class="st-qtywrap">'+
             '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(locked?'disabled':'')+
@@ -694,7 +760,7 @@ async function stApplyUpload(month, items, filename){
     if(res.error) throw new Error(res.error.message);
   }
   stMonth=month; stUnitSel={};
-  await stLoadItems(); await stLoadCounts();
+  await stLoadItems(); await stLoadCounts(); await stLoadPrevMonth();
   stSubscribe(); stRender();
 }
 
@@ -710,6 +776,7 @@ async function openStockTake(){
   await stLoadSheet();
   await stLoadItems();
   await stLoadCounts();
+  await stLoadPrevMonth();
   stSubscribe();
   stRender();
 }
