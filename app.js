@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782200000;
+const APP_VERSION = 1782460000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1629,6 +1629,23 @@ const SCHED_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // auto-relock after 5 min idle
 let schedUnlocked      = false;
 let schedLockTimer     = null;
 let schedPendingAction = null;
+
+// Auto-update guard hook: the ETag watcher and the service-worker reload (in
+// index.html) must NOT reload the whole page while a manager is editing the
+// schedule. Editing happens by tapping cells/buttons/native prompts, so the
+// focus-based busy() check misses it and a mid-edit deploy would wipe the work.
+// Expose an "editing now" signal: unlocked for edits, paste mode armed, or a
+// schedule modal open. The reload is deferred until this returns false.
+window.__schedEditing = function(){
+  try {
+    if (schedUnlocked || schedPasteMode) return true;
+    var modals = document.querySelectorAll('.sch-modal-overlay');
+    for (var i = 0; i < modals.length; i++){
+      if (modals[i].style.display !== 'none' && modals[i].offsetParent !== null) return true;
+    }
+  } catch(e){}
+  return false;
+};
 
 // ── COSEC attendance (face recognition) ──
 var schedAttendance = {};      // "emp_id|date" -> attendance row

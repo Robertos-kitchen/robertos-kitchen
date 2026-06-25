@@ -1167,7 +1167,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1782123000"></script>
-<script src="app.js?v=1782200000"></script>
+<script src="app.js?v=1782460000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1353,11 +1353,14 @@ if ('serviceWorker' in navigator) {
       });
     });
   });
-  // If controller changed (new SW took over), reload
+  // If controller changed (new SW took over), reload — but wait out a schedule edit
   var refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!refreshing) { refreshing = true; window.location.reload(); }
-  });
+  function swReload(){
+    if (refreshing) return;
+    if (window.__schedEditing && window.__schedEditing()) { setTimeout(swReload, 5000); return; }
+    refreshing = true; window.location.reload();
+  }
+  navigator.serviceWorker.addEventListener('controllerchange', swReload);
 }
 
 function showUpdateBanner(newSW) {
@@ -1393,7 +1396,9 @@ function showUpdateBanner(newSW) {
   function tagOf(res){ return res.headers.get('ETag') || res.headers.get('Last-Modified') || ''; }
   function busy(){
     var el = document.activeElement;
-    return !!(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));   // don't nuke someone mid-typing
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // don't nuke someone mid-typing
+    if (window.__schedEditing && window.__schedEditing()) return true;     // don't nuke a mid-edit schedule
+    return false;
   }
   function check(){
     if (reloading) return;
