@@ -416,6 +416,24 @@ async function crSubmit() {
   btn.disabled = true; btn.textContent = 'Saving…';
   var sd = getServiceDate();
   var crChecks = await crFetchChecklistCounts(sd);
+  // Block blank submits: chefs-on-duty and covers are auto-filled, so a report
+  // with no human input would still send a near-empty email to Francesco/HR
+  // (the 25 Jun blank double-send). Require at least one real field before sending.
+  var crHasContent =
+    crRating ||
+    (crDraft.revenue !== '' && crDraft.revenue != null) ||
+    (crDraft.submitted_by && crDraft.submitted_by.trim()) ||
+    (crDraft.briefing_foh && crDraft.briefing_foh.trim()) ||
+    (crDraft.briefing_boh && crDraft.briefing_boh.trim()) ||
+    (crDraft.feedback && crDraft.feedback.trim()) ||
+    (crEntries && crEntries.length > 0) ||
+    (crChecks && crChecks.done > 0);
+  if (!crHasContent) {
+    btn.disabled = false;
+    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → Francesco';
+    alert('This closing report is empty.\n\nAdd at least the service rating, revenue, or run the checklist before sending it to Francesco.');
+    return;
+  }
   try {
     var row = {
       service_date: sd,
