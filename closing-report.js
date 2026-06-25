@@ -434,6 +434,16 @@ async function crSubmit() {
     alert('This closing report is empty.\n\nAdd at least the service rating, revenue, or run the checklist before sending it to Francesco.');
     return;
   }
+  // Traceable send: require a validated Employee ID, and stamp that name as the
+  // report's "Report by" so every email carries who sent it (reuses the same
+  // staff-validated gate as the reset-all actions; resetIdentity lives in app.js).
+  var crWho = (typeof resetIdentity === 'function') ? await resetIdentity('send the closing report to Francesco') : { emp_id:'', name:(crDraft.submitted_by||'') };
+  if (!crWho) {
+    btn.disabled = false;
+    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → Francesco';
+    return;
+  }
+  crDraft.submitted_by = crWho.name;
   try {
     var row = {
       service_date: sd,
@@ -484,6 +494,8 @@ async function crSubmit() {
       });
       emailOk = er.ok;
     } catch(e) { console.warn('[closing] email failed', e); }
+
+    if (typeof logReset === 'function') logReset(crWho, 'closing_report_send', sd, null);
 
     btn.textContent = emailOk ? '✓ Saved & emailed to Francesco' : '✓ Saved (email not sent)';
     btn.style.background = 'var(--oliva)';
