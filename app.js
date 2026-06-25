@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782700000;
+const APP_VERSION = 1782760000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -606,13 +606,96 @@ async function removeChefCheck(id){
   await deleteChefCheck(id);
   renderAfterChefCheckSync();
 }
-// ── Reset-all identity gate (validated against the staff list) ──────────────
-// "Reset all" actions wipe shared data for everyone, so they must not be
-// anonymous or accidental (the 25 Jun crudo reset was an untracked tap).
-// Prompt for an Employee ID, validate it against the active staff list
-// (super-user passcodes allowed, same as stock-take), return {emp_id,name} or null.
+// ── Tap-your-name identity picker (kitchen) ─────────────────────────────────
+// Accountable actions (checklist / station reset, closing report, Send-to-HR,
+// stock-take sign-in) used to ask the user to TYPE an Employee ID. Instead, the
+// team taps their name from the active kitchen `staff` list; an on-brand keypad
+// fallback ("I'm someone else") still accepts a typed Employee ID or a super-
+// user passcode (1212). Resolves to the SAME {emp_id,name} shape the old
+// resetIdentity() returned, so logging / accountability is unchanged.
+//   opts: { superMap, superOnly, codeOnly, title }
 const RESET_SUPER = { '1212': 'Admin' };
-async function resetIdentity(actionLabel){
+function kPickPerson(actionLabel, opts){
+  opts = opts || {};
+  var superMap = opts.superMap || RESET_SUPER;
+  return new Promise(function(resolve){
+    var done=false, people=[], code='';
+    function onKey(e){ if(e.key==='Escape') finish(null); }
+    function finish(v){ if(done) return; done=true; var o=document.getElementById('kpk-ovl'); if(o) o.remove(); document.removeEventListener('keydown',onKey); resolve(v); }
+    function box(){ return document.getElementById('kpk-box'); }
+    function initials(n){ var p=(n||'').trim().split(/\s+/); return (((p[0]||'')[0]||'')+((p[1]||'')[0]||'')).toUpperCase(); }
+    var ov=document.createElement('div'); ov.id='kpk-ovl';
+    ov.setAttribute('style','position:fixed;inset:0;z-index:100050;background:rgba(65,2,7,.55);display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow:auto;');
+    ov.onclick=function(e){ if(e.target===ov) finish(null); };
+    ov.innerHTML='<div id="kpk-box" style="background:var(--cream,#f5ede0);border-radius:14px;max-width:520px;width:100%;padding:18px 18px 16px;box-shadow:0 14px 50px rgba(65,2,7,.35);"><div style="color:#9c8a72;font-size:13px;padding:8px;">Loading…</div></div>';
+    document.body.appendChild(ov);
+    document.addEventListener('keydown',onKey);
+
+    function showNames(filter){
+      var b=box(); if(!b) return;
+      var q=(filter||'').trim().toLowerCase();
+      var useSearch=people.length>8;
+      var html=people.filter(function(p){ return !q || (p.name||'').toLowerCase().indexOf(q)!==-1 || (p.designation||'').toLowerCase().indexOf(q)!==-1; })
+        .map(function(p){ var idx=people.indexOf(p);
+          return '<button class="kpk-name" data-i="'+idx+'" style="display:flex;align-items:center;gap:9px;text-align:left;padding:9px 10px;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">'
+            +'<span style="width:32px;height:32px;border-radius:50%;background:var(--sabbia,#e1d3c2);color:var(--vino,#410207);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;">'+escHtml(initials(p.name))+'</span>'
+            +'<span style="min-width:0;"><span style="display:block;font-size:14px;font-weight:600;color:var(--ink,#2a1a10);">'+escHtml(p.name||'')+'</span><span style="display:block;font-size:11.5px;color:#8a7a62;">'+escHtml(p.designation||'')+'</span></span></button>';
+        }).join('');
+      b.innerHTML='<div style="font-family:var(--font-serif,Georgia,serif);color:var(--vino,#410207);font-size:22px;">Who’s doing this?</div>'
+        +'<div style="font-size:12.5px;color:#8a7a62;margin:2px 0 12px;">Tap your name to '+escHtml(actionLabel)+'. It’s recorded.</div>'
+        +(useSearch?'<input id="kpk-search" placeholder="Search your name…" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;font-size:15px;margin-bottom:12px;font-family:inherit;">':'')
+        +'<div id="kpk-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;max-height:44vh;overflow:auto;">'+(html||'<div style="color:#9c8a72;font-size:13px;padding:8px;">No match.</div>')+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;border-top:1px solid var(--sabbia-dark,#cfc0ad);padding-top:12px;">'
+          +'<button id="kpk-other" style="font-size:13px;color:var(--vino,#410207);border:1px solid var(--vino,#410207);background:transparent;border-radius:9px;padding:9px 13px;cursor:pointer;">I’m someone else — use my ID</button>'
+          +'<button id="kpk-cancel" style="font-size:13px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer;">Cancel</button></div>';
+      var s=document.getElementById('kpk-search'); if(s){ s.value=filter||''; s.oninput=function(){ showNames(s.value); }; setTimeout(function(){ try{s.focus();}catch(e){} },20); }
+      var btns=b.querySelectorAll('.kpk-name'); for(var j=0;j<btns.length;j++){ btns[j].onclick=function(){ var pp=people[+this.getAttribute('data-i')]; finish({emp_id: pp.emp_id?String(pp.emp_id):null, name: pp.name}); }; }
+      document.getElementById('kpk-other').onclick=function(){ code=''; showKeypad(); };
+      document.getElementById('kpk-cancel').onclick=function(){ finish(null); };
+    }
+    function showKeypad(){
+      var b=box(); if(!b) return;
+      var cells='';
+      for(var i=0;i<6;i++){ var ch=code[i]; var active=(i===code.length);
+        cells+='<span style="width:34px;height:42px;border:'+(active?'2px solid var(--vino,#410207)':'1px solid '+(ch?'var(--sabbia-dark,#cfc0ad)':'#e4dccd'))+';border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--ink,#2a1a10);">'+(ch||(active?'<span style=\"color:#bbab92\">_</span>':''))+'</span>'; }
+      function k(d){ return '<button class="kpk-k" data-d="'+d+'" style="padding:13px 0;font-size:18px;color:var(--ink,#2a1a10);border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">'+d+'</button>'; }
+      var pad=''; ['1','2','3','4','5','6','7','8','9'].forEach(function(d){ pad+=k(d); });
+      pad+='<button id="kpk-bk" style="padding:13px 0;font-size:20px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">⌫</button>';
+      pad+=k('0');
+      pad+='<button id="kpk-ok" style="padding:13px 0;font-size:18px;color:#fff;background:var(--vino,#410207);border:1px solid var(--vino,#410207);border-radius:9px;cursor:pointer;">✓</button>';
+      var ktitle=opts.title||'Enter your employee ID';
+      b.innerHTML='<div style="font-family:var(--font-serif,Georgia,serif);color:var(--vino,#410207);font-size:22px;">'+escHtml(ktitle)+'</div>'
+        +'<div style="font-size:12.5px;color:#8a7a62;margin:2px 0 12px;">'+(opts.superOnly?'Manager / super-user code, to ':'Your ID or manager code, to ')+escHtml(actionLabel)+'.</div>'
+        +'<div style="display:flex;gap:7px;justify-content:center;margin-bottom:12px;">'+cells+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">'+pad+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;border-top:1px solid var(--sabbia-dark,#cfc0ad);padding-top:12px;">'
+          +(opts.codeOnly?'<span></span>':'<button id="kpk-back" style="font-size:13px;color:var(--vino,#410207);background:none;border:none;cursor:pointer;padding:0;">← Back to names</button>')
+          +'<button id="kpk-cancel2" style="font-size:13px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer;">Cancel</button></div>';
+      var ks=b.querySelectorAll('.kpk-k'); for(var j=0;j<ks.length;j++){ ks[j].onclick=function(){ if(code.length<6){ code+=this.getAttribute('data-d'); showKeypad(); } }; }
+      document.getElementById('kpk-bk').onclick=function(){ code=code.slice(0,-1); showKeypad(); };
+      document.getElementById('kpk-ok').onclick=submitCode;
+      var bk2=document.getElementById('kpk-back'); if(bk2) bk2.onclick=function(){ showNames(''); };
+      document.getElementById('kpk-cancel2').onclick=function(){ finish(null); };
+    }
+    function submitCode(){
+      var id=(code||'').trim(); if(!id) return;
+      if(superMap[id]){ finish({emp_id:id,name:superMap[id]}); return; }
+      if(opts.superOnly){ alert('That isn’t a manager / super-user code.'); code=''; showKeypad(); return; }
+      sb.from('staff').select('name,emp_id').eq('emp_id',id).eq('active',true).limit(1).then(function(r){
+        var s=r.data&&r.data[0]; if(s) finish({emp_id:id,name:s.name}); else { alert('ID "'+id+'" was not found. Try again or tap Cancel.'); code=''; showKeypad(); }
+      });
+    }
+    if(opts.codeOnly){ showKeypad(); return; }   // skip names, go straight to the keypad
+    sb.from('staff').select('id,name,emp_id,designation,station_key,sort_order').eq('active',true).order('sort_order').then(function(res){
+      people=(res&&res.error)?[]:((res&&res.data)||[]);
+      people.sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order))||(a.name||'').localeCompare(b.name||''); });
+      showNames('');
+    });
+  });
+}
+async function resetIdentity(actionLabel, opts){
+  if(typeof kPickPerson==='function') return await kPickPerson(actionLabel, opts);
+  // Fallback: typed Employee ID (kept in case app.js's picker fails to load).
   var id = (prompt('Enter your Employee ID to '+actionLabel+'.\n\nThis is recorded.')||'').trim();
   if(!id) return null;
   if(RESET_SUPER[id]) return { emp_id:id, name:RESET_SUPER[id] };

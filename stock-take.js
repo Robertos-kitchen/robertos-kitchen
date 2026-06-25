@@ -207,21 +207,31 @@ function stSubscribe(){
     });
 }
 
-// ── employee-ID gate (validated against the clock-in/out staff list) ──
+// ── tap-your-name gate (validated against the clock-in/out staff list) ──
+// Uses the shared kitchen picker (kPickPerson, in app.js): tap a name, or use
+// the keypad fallback for a typed ID / super-user passcode (1212). Falls back
+// to a typed prompt only if the picker failed to load.
 async function stSignIn(){
-  var inp = document.getElementById('st-empid');
-  var id = inp ? (inp.value||'').trim() : '';
-  if(!id){ if(inp) inp.focus(); return; }
-  // super-user passcode (e.g. 1212) — access without any staff/roster record
-  if(STOCK_SUPER[id]){ stUser = { emp_id:id, name:STOCK_SUPER[id] }; stRender(); return; }
-  var res = await sb.from('staff').select('id,name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
-  var staff = res.data && res.data[0];
-  if(!staff){
-    if(typeof kToast==='function') kToast('Employee ID '+id+' not recognised — check and try again.', true);
-    else alert('Employee ID not recognised.');
-    return;
+  var who = null;
+  if(typeof kPickPerson==='function'){
+    who = await kPickPerson('count the stock take', { superMap: STOCK_SUPER });
+  } else {
+    var id=(prompt('Enter your Employee ID to count the stock take.')||'').trim();
+    if(!id) return;
+    if(STOCK_SUPER[id]){ who={emp_id:id,name:STOCK_SUPER[id]}; }
+    else {
+      var res=await sb.from('staff').select('id,name,emp_id').eq('emp_id',id).eq('active',true).limit(1);
+      var staff=res.data&&res.data[0];
+      if(!staff){
+        if(typeof kToast==='function') kToast('Employee ID '+id+' not recognised — check and try again.', true);
+        else alert('Employee ID not recognised.');
+        return;
+      }
+      who={emp_id:id,name:staff.name};
+    }
   }
-  stUser = { emp_id:id, name:staff.name };
+  if(!who) return;
+  stUser = { emp_id:who.emp_id, name:who.name };
   stRender();
 }
 function stSignOut(){ stUser = null; stRender(); }
@@ -653,9 +663,8 @@ function stGateHtml(){
   return stUser
     ? '<div class="st-who"><span><span style="color:#1d7a4a">●</span> Counting as <b>'+stEsc(stUser.name)+'</b> · #'+stEsc(stUser.emp_id)+'</span>'+
       '<button class="report-btn" onclick="stSignOut()">Switch</button></div>'
-    : '<div class="st-gate"><div><b>Enter your employee ID to count</b></div>'+
-      '<div style="display:flex;gap:8px;margin-top:8px"><input class="check-input" id="st-empid" inputmode="numeric" placeholder="e.g. 1042" style="flex:1" onkeydown="if(event.key===\'Enter\')stSignIn()">'+
-      '<button class="report-btn" onclick="stSignIn()">Start</button></div></div>';
+    : '<div class="st-gate"><div><b>Tap your name to count</b></div>'+
+      '<div style="margin-top:8px"><button class="report-btn" onclick="stSignIn()">Tap your name to start</button></div></div>';
 }
 
 // ══ Excel upload — anyone with a valid employee ID loads the new month's list ══
