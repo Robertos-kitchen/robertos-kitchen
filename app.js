@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782460000;
+const APP_VERSION = 1782470000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -598,14 +598,38 @@ async function removeChefCheck(id){
   await deleteChefCheck(id);
   renderAfterChefCheckSync();
 }
+// ── Reset-all identity gate (validated against the staff list) ──────────────
+// "Reset all" actions wipe shared data for everyone, so they must not be
+// anonymous or accidental (the 25 Jun crudo reset was an untracked tap).
+// Prompt for an Employee ID, validate it against the active staff list
+// (super-user passcodes allowed, same as stock-take), return {emp_id,name} or null.
+const RESET_SUPER = { '1212': 'Admin' };
+async function resetIdentity(actionLabel){
+  var id = (prompt('Enter your Employee ID to '+actionLabel+'.\n\nThis is recorded.')||'').trim();
+  if(!id) return null;
+  if(RESET_SUPER[id]) return { emp_id:id, name:RESET_SUPER[id] };
+  var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
+  var s = res.data && res.data[0];
+  if(!s){ alert('Employee ID "'+id+'" was not found in the staff list.\nReset cancelled.'); return null; }
+  return { emp_id:id, name:s.name };
+}
+// Best-effort audit — if the reset_log table isn't created yet the insert just
+// fails silently; the ID gate above is the real protection either way.
+async function logReset(who, action, scope, count){
+  try{ await sb.from('reset_log').insert({ app:'kitchen', action:action, scope:scope||null, item_count:(count==null?null:count), emp_id:who.emp_id, emp_name:who.name }); }
+  catch(e){ console.warn('[logReset] not recorded', e); }
+}
+
 async function resetChefChecklist(){
-  if(!confirm('Reset all chef checklist checks for today?'))return;
+  var who = await resetIdentity('reset all chef checklist checks for today');
+  if(!who) return;
   chefChecks=[];
   saveChefChecks();
   if(!DEV_READ_ONLY){
     try{await sb.from('chef_checks').delete().eq('service_date',TODAY);}
     catch(e){console.warn('Chef checklist reset sync failed',e);}
   }
+  logReset(who, 'chef_checklist_reset', TODAY, null);
   renderAfterChefCheckSync();
 }
 function renderStationChecks(stKey){
@@ -1104,6 +1128,8 @@ function cancelResetConfirm(){
 }
 async function resetActiveStation(){
   const st=STATIONS.find(s=>s.key===activeStation); if(!st){cancelResetConfirm();return;}
+  const who = await resetIdentity('reset all of '+st.label);
+  if(!who){ cancelResetConfirm(); return; }
   const changed=[];
   st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(item=>{
     const id=mkId(st.key,ss.key,d.name,item);
@@ -1120,6 +1146,7 @@ async function resetActiveStation(){
     await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
     await sb.from('prep_status_log').insert(logs);
   }catch(e){console.error('[resetActiveStation] save failed',e);}
+  logReset(who, 'prep_reset_station', st.label, changed.length);
 }
 
 // â”€â”€ CONTENT â”€â”€

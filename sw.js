@@ -1,4 +1,4 @@
-const CACHE = 'robertos-kitchen-v1782460000';
+const CACHE = 'robertos-kitchen-v1782470000';
 const ASSETS = [
   './',
   './index.html',
