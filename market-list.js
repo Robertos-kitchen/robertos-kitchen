@@ -81,17 +81,27 @@ function mlVisibleDays(){
 }
 
 // ── data load ──
+// Page a select so the 1000-row PostgREST cap can't silently drop items or a
+// busy week's quantity cells (438 items x 6 days can exceed 1000 filled rows).
+async function mlFetchAllPaged(build){
+  var all=[], from=0, size=1000;
+  for(;;){
+    var r=await build().range(from, from+size-1);
+    if(r.error){ if(typeof kToast==='function') kToast('Could not load the full list — check connection.', true); return all; }
+    var rows=r.data||[]; all=all.concat(rows);
+    if(rows.length<size) break;
+    from+=size;
+  }
+  return all;
+}
 async function loadMarketList(){
   mlWeekStart = mlComputeWeekStart();
-  const { data: items } = await sb.from('order_items')
-    .select('*').eq('active', true).order('sort_order');
-  mlItems = items || [];
+  mlItems = await mlFetchAllPaged(function(){ return sb.from('order_items').select('*').eq('active', true).order('sort_order'); });
   await loadMarketQuantities();
 }
 async function loadMarketQuantities(){
   mlQty = {}; mlQtyMeta = {};
-  const { data } = await sb.from('order_quantities')
-    .select('*').eq('week_start', mlWeekStart);
+  const data = await mlFetchAllPaged(function(){ return sb.from('order_quantities').select('*').eq('week_start', mlWeekStart); });
   (data||[]).forEach(r=>{
     const k = r.item_id + '|' + r.weekday;
     mlQty[k] = r.qty;

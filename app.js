@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782470000;
+const APP_VERSION = 1782700000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -202,9 +202,17 @@ async function loadTodayStatus() {
       updated_at: new Date().toISOString()
     }));
 
-    await sb.from('prep_status').upsert(newRows, {
+    const up = await sb.from('prep_status').upsert(newRows, {
       onConflict: 'service_date,station_key,subsection_key,dish_name,component_name'
     });
+    if (up.error) {
+      // The carry-forward write didn't reach the server. Don't paint items as
+      // "carried" — the DB has nothing for today, so other screens would diverge.
+      // Leave the board accurate (empty) and let the next load retry.
+      console.warn('[loadTodayStatus] carry-forward upsert failed', up.error);
+      if (typeof kToast === 'function') kToast('Could not carry forward yesterday — reopen to retry.', true);
+      return;
+    }
 
     newRows.forEach(row => {
       state[mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name)] = row.status;
@@ -1142,10 +1150,20 @@ async function resetActiveStation(){
   if(DEV_READ_ONLY)return;
   const rows=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',updated_at:new Date().toISOString()}));
   const logs=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',previous_status:ch.prev}));
-  try{
-    await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
-    await sb.from('prep_status_log').insert(logs);
-  }catch(e){console.error('[resetActiveStation] save failed',e);}
+  // supabase-js resolves with {error} and never throws, so a try/catch can't see
+  // a failed write. Check .error explicitly and, on failure, put every item back
+  // to what it was so the board never shows a reset the database didn't accept.
+  const up = await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
+  if (up.error) {
+    changed.forEach(ch=>{ state[mkId(st.key,ch.ss,ch.dn,ch.item)]=ch.prev; });
+    renderTabs();renderCounter();renderContent();applyFilter();
+    console.warn('[resetActiveStation] prep_status save failed', up.error);
+    kToast('Reset NOT saved — check connection and try again.', true);
+    return;
+  }
+  // Audit log is secondary — record it, but don't fail the reset if only it errors.
+  const lg = await sb.from('prep_status_log').insert(logs);
+  if (lg.error) console.warn('[resetActiveStation] prep_status_log insert failed', lg.error);
   logReset(who, 'prep_reset_station', st.label, changed.length);
 }
 
@@ -2844,6 +2862,8 @@ function schedPrint() {
 async function schedSendToHR() {
   var _wkEnd = addDays(schedWeekStart, 6);
   var _wkStr = schedWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' + _wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  var who = await resetIdentity('email the roster to HR');
+  if (!who) return;
   if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
   var btn = document.getElementById('svt-hr');
   if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
@@ -3023,6 +3043,8 @@ async function schedSendToHR() {
 
     var emailData = await emailRes.json();
     if (!emailRes.ok) throw new Error(emailData.message || 'Email failed: ' + emailRes.status);
+
+    if (typeof logReset === 'function') logReset(who, 'roster_send', _wkStr, null);
 
     if (btn) {
       btn.textContent = '✓ Sent to HR';

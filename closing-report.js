@@ -477,29 +477,43 @@ async function crSubmit() {
       ne.id = ins.data.id;   // same object reference as in crEntries → updates it in place
     }
     if (crRemovedIds.length) {
-      await sb.from('closing_report_entries').delete().in('id', crRemovedIds);
+      var del = await sb.from('closing_report_entries').delete().in('id', crRemovedIds);
+      if (del.error) throw del.error;   // surface a blocked delete instead of silently keeping removed entries
       crRemovedIds = [];
     }
 
     try { localStorage.removeItem(CR_DRAFT_KEY + sd); } catch(e){}
 
-    // Email Francesco (best effort)
+    // Email Francesco. The report is already SAVED at this point — only the
+    // email send can still fail, and it must NOT be reported as success.
     btn.textContent = 'Sending email…';
-    var emailOk = false;
+    var emailOk = false, emailErr = '';
     try {
       var er = await fetch(SUPABASE_URL + '/functions/v1/send-closing-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_KEY },
         body: JSON.stringify({ subject: 'Closing Report — ' + new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'}), html: crBuildEmailHtml(sd, crChecks) })
       });
-      emailOk = er.ok;
-    } catch(e) { console.warn('[closing] email failed', e); }
+      var ed = {}; try { ed = await er.json(); } catch(_){}
+      // Success only if the transport AND the function's own body agree.
+      emailOk = er.ok && ed && ed.ok !== false;
+      if (!emailOk) emailErr = (ed && ed.error) || ('HTTP ' + er.status);
+    } catch(e) { emailErr = (e && e.message) || 'network error'; console.warn('[closing] email failed', e); }
 
-    if (typeof logReset === 'function') logReset(crWho, 'closing_report_send', sd, null);
+    // Log the truth: a real send vs a failed send, so the audit never lies.
+    if (typeof logReset === 'function') logReset(crWho, emailOk ? 'closing_report_send' : 'closing_report_send_failed', sd, null);
 
-    btn.textContent = emailOk ? '✓ Saved & emailed to Francesco' : '✓ Saved (email not sent)';
-    btn.style.background = 'var(--oliva)';
-    setTimeout(function(){ crRender(); }, 2500);
+    if (emailOk) {
+      btn.textContent = '✓ Saved & emailed to Francesco';
+      btn.style.background = 'var(--oliva)';
+      setTimeout(function(){ crRender(); }, 2500);
+    } else {
+      // Report IS saved; the email is not. Keep a loud, persistent, re-tappable state.
+      btn.textContent = '⚠ Saved — EMAIL FAILED, tap to resend';
+      btn.style.background = 'var(--campari, #BA0000)';
+      btn.disabled = false;
+      alert('The report was SAVED, but the email did NOT send (' + emailErr + ').\n\nTap the button again to resend.');
+    }
   } catch (err) {
     console.error('[closing] submit error', err);
     alert('Could not save: ' + (err.message || err));

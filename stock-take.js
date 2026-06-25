@@ -757,10 +757,17 @@ async function stApplyUpload(month, items, filename){
   if(existing.data && existing.data.length){
     if(!confirm('A stock take for '+month+' already exists. Replacing it clears any counts already entered for that month. Continue?')) throw new Error('cancelled');
   }
-  await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
-  await sb.from('stock_take_items').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
-  await sb.from('stock_take_sheets').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
-  await sb.from('stock_take_sheets').insert({ venue_id:STOCK_VENUE, dept:STOCK_DEPT, month:month, status:'counting', source_filename:filename, item_count:items.length, uploaded_by:stUser.emp_id, uploaded_by_name:stUser.name });
+  // supabase-js never throws — check each destructive step's .error and abort
+  // BEFORE the next one, so a blocked delete can't leave the month half-wiped
+  // (new items against stale counts = wrong totals shown as real).
+  var dC=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
+  if(dC.error) throw new Error('Could not clear old counts: '+dC.error.message);
+  var dI=await sb.from('stock_take_items').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
+  if(dI.error) throw new Error('Could not clear old items: '+dI.error.message);
+  var dS=await sb.from('stock_take_sheets').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
+  if(dS.error) throw new Error('Could not clear old sheet: '+dS.error.message);
+  var iS=await sb.from('stock_take_sheets').insert({ venue_id:STOCK_VENUE, dept:STOCK_DEPT, month:month, status:'counting', source_filename:filename, item_count:items.length, uploaded_by:stUser.emp_id, uploaded_by_name:stUser.name });
+  if(iS.error) throw new Error('Could not create the sheet: '+iS.error.message);
   var rowsToInsert=items.map(function(it){ return { venue_id:STOCK_VENUE, dept:STOCK_DEPT, month:month, item_group:it.item_group, code:it.code, name:it.name, unit:it.unit, price:it.price, units:it.units, sort_order:it.sort_order, active:true }; });
   for(var i=0;i<rowsToInsert.length;i+=500){
     var res=await sb.from('stock_take_items').insert(rowsToInsert.slice(i,i+500));
