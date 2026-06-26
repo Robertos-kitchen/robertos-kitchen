@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782760000;
+const APP_VERSION = 1782840000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1876,7 +1876,7 @@ async function loadSchedData() {
     sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd).limit(3000),
     sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000)
   ]);
-  schedStaff = res[0].data || [];
+  schedStaff = (res[0].data || []).filter(function(s){ return s.in_schedule!==false; });   // FOH Admin "show in schedule" toggle (staff.in_schedule); null/absent = shown
   schedRoster = {};
   var rosterRows = res[1].data || [];
   // Guard against the 1000-row API cap silently truncating the window as staff
