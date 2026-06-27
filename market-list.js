@@ -223,7 +223,7 @@ function renderMarketList(){
   // day chips (hide/show) — only meaningful on full grid
   const dayChips = [1,2,3,4,5,6].map(wd=>{
     const hidden = mlHiddenDays.includes(wd);
-    return `<button class="ml-daychip${hidden?' off':''}" onclick="mlToggleDayHidden(${wd})">${ML_DAYS[wd-1]}</button>`;
+    return `<button class="ml-daychip${hidden?' off':''}" onclick="mlToggleDayHidden(${wd})">${ML_DAYS[wd-1]}<span class="ml-daychip-date">${mlDateForWeekday(wd).split(' ').slice(1).join(' ')}</span></button>`;
   }).join('');
 
   const todayWd = mlWeekdayToday();
@@ -295,7 +295,7 @@ function mlRenderRows(days){
   const todayWd = mlWeekdayToday();
   let html = `<div class="ml-table" style="--ml-cols:${cols}">`;
   // header
-  html += `<div class="ml-row ml-head"><div class="ml-cell-name">Item</div>${days.map(wd=>`<div class="ml-cell-day${wd===todayWd?' today':''}">${ML_DAYS[wd-1]}</div>`).join('')}</div>`;
+  html += `<div class="ml-row ml-head"><div class="ml-cell-name">Item</div>${days.map(wd=>`<div class="ml-cell-day${wd===todayWd?' today':''}">${ML_DAYS[wd-1]}<span class="ml-cell-day-date">${mlDateForWeekday(wd).split(' ').slice(1).join(' ')}</span></div>`).join('')}</div>`;
 
   // group items by category, preserving ML_CAT_ORDER
   const present = mlCatsPresent();
