@@ -17,7 +17,7 @@ var STOCK_DEPT  = 'kitchen';
 
 // Review & send recipients (Kitchen). Beverage/FOH build uses its own list.
 var STOCK_EMAIL_TO = 'ahtwe@robertos.ae';
-var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@robertos.ae','francescoguarracino@hotmail.com'];
+var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@robertos.ae','fguarracino@robertos.ae'];
 
 // Super-user passcodes — grant stock-take access on their own, NOT linked to any
 // staff/roster record (so the holder never appears on the kitchen schedule). Used
