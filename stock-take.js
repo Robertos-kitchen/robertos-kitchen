@@ -333,7 +333,11 @@ function stFilteredItems(){
 function stCats(){ return Array.from(new Set(stItems.map(function(i){ return i.item_group||'Other'; }))); }
 // quantity shown in reports/Excel — grossed up to purchase weight for yield items
 function stDisplayQty(it){ var c=stCounts[it.id]; if(!c||c.qty==null) return null; return stIsYield(it)? stEffQtyRound(it,c.qty) : Number(c.qty); }
-function stLineValue(it){ var c = stCounts[it.id]; if(!c||c.qty==null) return 0; return stItemPrice(it)*stEffQty(it, c.qty); }
+// Line value = EXACTLY the Excel line (display qty × price, rounded to fils per
+// line), so the screen, the email and the Excel TOTAL always agree to the fil.
+// (Was unrounded yield math summed then rounded once — drifted a few fils vs the
+// Excel on yield items, which a cost controller comparing totals will notice.)
+function stLineValue(it){ var c = stCounts[it.id]; if(!c||c.qty==null) return 0; return Math.round(stDisplayQty(it)*stItemPrice(it)*100)/100; }
 function stGrandTotal(){ var t=0; stItems.forEach(function(it){ t+=stLineValue(it); }); return t; }
 function stCountedCount(){ var n=0; stItems.forEach(function(it){ var c=stCounts[it.id]; if(c&&c.qty!=null) n++; }); return n; }
 function stCategoryTotal(){ var t=0; stItems.forEach(function(it){ if(!stCatFilters.length||stCatFilters.indexOf(it.item_group||'Other')>-1) t+=stLineValue(it); }); return t; }
