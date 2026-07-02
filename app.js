@@ -1,7 +1,52 @@
 const SUPABASE_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+// ── DEV-site write protection ──
+// The SAME files serve DEV (robertos-kitchen.github.io) and LIVE
+// (guarracinofamily.github.io) against ONE production database, so testing on
+// the dev site was silently writing to the real roster. On the dev host every
+// database write is blocked in the browser (403 before it leaves the device)
+// unless deliberately unlocked via the DEV badge (schedule PIN). This guards
+// ALL modules, including ones that never check DEV_READ_ONLY. localhost (the
+// local preview) stays writable. Must run BEFORE createClient — supabase-js
+// captures window.fetch when the client is created.
+const IS_DEV_HOST = location.hostname === 'robertos-kitchen.github.io';
+const DEV_READ_ONLY = IS_DEV_HOST && localStorage.getItem('kitchen-dev-writes') !== '1';
+if (DEV_READ_ONLY) {
+  const _realFetch = window.fetch.bind(window);
+  window.fetch = function(url, opts) {
+    const method = ((opts && opts.method) || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD' && String(url).indexOf('/rest/v1/') !== -1) {
+      console.warn('[DEV read-only] blocked ' + method + ' ' + url);
+      return Promise.resolve(new Response(
+        JSON.stringify({ message: 'DEV site is read-only — tap the DEV badge (bottom-left) to enable test writes.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return _realFetch(url, opts);
+  };
+}
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const DEV_READ_ONLY = false;
+
+// DEV badge: shows on the dev site only. Tap it to unlock test writes
+// (schedule PIN) or to lock them again; the choice sticks per browser.
+if (IS_DEV_HOST) {
+  const devBadge = document.createElement('div');
+  devBadge.textContent = DEV_READ_ONLY ? 'DEV · read-only' : 'DEV · WRITES ON';
+  devBadge.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;padding:5px 12px;border-radius:14px;' +
+    'font:700 11px/1.3 Inter,system-ui,sans-serif;letter-spacing:.4px;cursor:pointer;color:#fff;' +
+    'box-shadow:0 2px 8px rgba(0,0,0,.25);background:' + (DEV_READ_ONLY ? '#6B1F2A' : '#B00020');
+  devBadge.onclick = function() {
+    if (DEV_READ_ONLY) {
+      const p = prompt('DEV site is read-only.\nEnter the schedule PIN to enable TEST WRITES to the production database:');
+      if (p === null) return;
+      if (p.trim() !== SCHED_PIN) { alert('Wrong PIN.'); return; }
+      localStorage.setItem('kitchen-dev-writes', '1');
+    } else {
+      localStorage.removeItem('kitchen-dev-writes');
+    }
+    location.reload();
+  };
+  document.body.appendChild(devBadge);
+}
 
 const PASS_KEY = 'pass';
 const REPORT_KEY = 'reports';
@@ -46,7 +91,7 @@ async function kFetchAllPaged(buildQuery, pageSize){
 }
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1783000000;
+const APP_VERSION = 1783100000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){

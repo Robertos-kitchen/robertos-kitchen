@@ -1,12 +1,11 @@
-const CACHE = 'robertos-kitchen-v1783000000';
+const CACHE = 'robertos-kitchen-v1783100000';
+// Pre-cache only the shell. The JS files are always requested with a
+// ?v=<stamp> query, so unversioned './app.js' etc. would sit in the cache
+// unused forever — the fetch handler below runtime-caches the real versioned
+// URLs on first load, and those are what the offline fallback serves.
 const ASSETS = [
   './',
   './index.html',
-  './app.js',
-  './market-list.js',
-  './recipes.js',
-  './closing-report.js',
-  './team.js',
   './manifest.json'
 ];
 
