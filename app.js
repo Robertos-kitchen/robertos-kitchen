@@ -16,7 +16,10 @@ function formatDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padSta
 
 // Service date: before 06:00 still belongs to the previous night's service.
 // Team marks statuses at 23:45 -> saved as Tuesday. Morning team at 07:00 -> reads Tuesday. Clean handover.
+// Uses DUBAI wall-clock (common.js), not the device clock — a tablet with a
+// wrong timezone must not file prep/checklist writes under the wrong night.
 function getServiceDate(){
+  if (typeof RC !== 'undefined' && RC.dubaiBusinessDate) return RC.dubaiBusinessDate(new Date());
   var d = new Date();
   if(d.getHours() < 6){ d.setDate(d.getDate() - 1); }
   return formatDate(d);
@@ -24,8 +27,26 @@ function getServiceDate(){
 function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
+// Fetch EVERY row of a query in 1000-row pages. PostgREST caps one response at
+// 1000 rows and silently truncates past it — the bug class that hid clock-ins.
+// Same pattern as stFetchAllPaged in stock-take.js. buildQuery must return a
+// fresh filtered+ordered query each call (a stable order keeps pages aligned).
+async function kFetchAllPaged(buildQuery, pageSize){
+  pageSize = pageSize || 1000;
+  var all = [], from = 0, error = null;
+  for(;;){
+    var res = await buildQuery().range(from, from + pageSize - 1);
+    if (res.error) { error = res.error; break; }
+    var rows = res.data || [];
+    all = all.concat(rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: error };
+}
+
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782840000;
+const APP_VERSION = 1783000000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -86,16 +107,20 @@ function loadPrepListCache() {
 
 async function loadPrepList() {
   try {
+    // Paged loads: dish_components already runs in the hundreds — the moment it
+    // passes 1000 a plain select would silently drop dishes from the prep list.
     const [r1, r2, r3, r4] = await Promise.all([
-      sb.from('stations').select('*').eq('active', true).order('sort_order'),
-      sb.from('subsections').select('*').eq('active', true).order('sort_order'),
-      sb.from('dishes').select('*').eq('active', true).order('sort_order'),
-      sb.from('dish_components').select('*').eq('active', true).order('sort_order')
+      kFetchAllPaged(() => sb.from('stations').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('subsections').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('dishes').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('dish_components').select('*').eq('active', true).order('sort_order').order('id'))
     ]);
-    const stationsData   = r1.data;
-    const subsectionsData = r2.data;
-    const dishesData     = r3.data;
-    const componentsData = r4.data;
+    // A load that errored is treated as missing (falls into the keep-cache path
+    // below) — never build the prep list from a partially fetched table.
+    const stationsData   = r1.error ? null : r1.data;
+    const subsectionsData = r2.error ? null : r2.data;
+    const dishesData     = r3.error ? null : r3.data;
+    const componentsData = r4.error ? null : r4.data;
 
     // If any query came back null/empty, do NOT wipe STATIONS — keep whatever we have
     if (!stationsData || !subsectionsData || !dishesData || !componentsData) {
@@ -170,7 +195,8 @@ function hidePrepError() {
 // â”€â”€ LOAD TODAY'S STATUS â”€â”€
 async function loadTodayStatus() {
   try {
-    const { data: todayRows } = await sb.from('prep_status').select('*').eq('service_date', TODAY);
+    const todayRes = await kFetchAllPaged(() => sb.from('prep_status').select('*').eq('service_date', TODAY).order('id'));
+    const todayRows = todayRes.data;
 
     if (todayRows && todayRows.length > 0) {
       todayRows.forEach(row => {
@@ -179,6 +205,9 @@ async function loadTodayStatus() {
       });
       return;
     }
+    // A FAILED load must not be mistaken for "day not started": the carryover
+    // below would upsert yesterday's statuses over today's real ones.
+    if (todayRes.error) { console.warn('[loadTodayStatus] load failed — skipping carryover', todayRes.error); return; }
 
     // Today is empty: carry forward OK, SOS and BU from previous service date so the morning % reflects real readiness
     const prevDate = getPreviousServiceDate();
@@ -969,10 +998,14 @@ function dateInReportRange(date,single,from,to){
 // Returns rows in the same shape as prepRows(); null on a failed load so the
 // caller can show "couldn't load" instead of a misleading "no records".
 async function loadPrepHistoryRows(single,from,to){
-  let q=sb.from('prep_status_log').select('service_date,station_key,subsection_key,dish_name,component_name,status,logged_at');
-  if(from||to){ if(from)q=q.gte('service_date',from); if(to)q=q.lte('service_date',to); }
-  else { q=q.eq('service_date',single); }
-  const {data:logs,error}=await q.order('logged_at',{ascending:true});
+  // Paged: the log grows with every status tap, so a date-range report passes
+  // the 1000-row response cap within days and would silently under-report.
+  const {data:logs,error}=await kFetchAllPaged(function(){
+    let q=sb.from('prep_status_log').select('service_date,station_key,subsection_key,dish_name,component_name,status,logged_at');
+    if(from||to){ if(from)q=q.gte('service_date',from); if(to)q=q.lte('service_date',to); }
+    else { q=q.eq('service_date',single); }
+    return q.order('logged_at',{ascending:true}).order('id',{ascending:true});
+  });
   if(error){ console.warn('report history load failed',error); return null; }
   if(!logs) return [];
   // Latest log entry per item per day wins (ascending order → last write).
@@ -1117,7 +1150,7 @@ async function loadReport() {
   if (!date) return;
   const el = document.getElementById('report-content');
   el.innerHTML = '<div class="report-no-data">Loading...</div>';
-  const { data: logs } = await sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false});
+  const { data: logs } = await kFetchAllPaged(() => sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false}).order('id', {ascending: false}));
   if (!logs || logs.length === 0) { el.innerHTML = `<div class="report-no-data">No data recorded for ${date}</div>`; return; }
 
   // Get final status per item (latest log entry wins)

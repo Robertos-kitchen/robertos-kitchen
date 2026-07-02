@@ -10,8 +10,12 @@ var teamLang = 'en';        // current display language
 
 // ── Survey round config (quarterly cycle) ──
 // Update these each round. teamDeadline = when Danilo must have the team finished.
+// `start` scopes the one-per-cycle gate: only submissions ON/AFTER this date
+// count as "done this round". Without it, everyone who did Round 1 would be
+// locked out of Round 2 forever ("you have already completed this survey").
 var TEAM_ROUND = {
   label: 'Round 1 · June 2026',
+  start: '2026-06-01',        // submissions before this belong to a previous round
   deadline: '2026-06-20',     // team must complete by this date
   nextTest: '2026-09-30'      // next quarterly test
 };
@@ -287,7 +291,11 @@ var teamDoneNames = {};
 var teamCompletionLoaded = false;
 async function teamLoadCompletion(){
   try {
-    var res = await sb.from('team_survey').select('staff_id,staff_name,submitted_at');
+    // Current round only (see TEAM_ROUND.start) — and capped: the table keeps
+    // every round forever, an unfiltered load would eventually hit the
+    // 1000-row response cap and mark people "not done" at random.
+    var res = await sb.from('team_survey').select('staff_id,staff_name,submitted_at')
+      .gte('submitted_at', TEAM_ROUND.start + 'T00:00:00Z').limit(2000);
     teamDoneNames = {};
     (res.data||[]).forEach(function(r){ teamDoneNames[r.staff_id||r.staff_name]=true; });
     teamCompletionLoaded = true;
