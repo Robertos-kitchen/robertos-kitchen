@@ -23,7 +23,13 @@ var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@ro
 // staff/roster record (so the holder never appears on the kitchen schedule). Used
 // by Francesco + shared with the cost controller as an admin code. Beta: security
 // deferred, so this lives client-side. Counts are attributed to this label.
-var STOCK_SUPER = { '1212': 'Stock Take Admin' };
+var STOCK_SUPER = { '1212': 'Stock Take Admin', '0000': 'Cost Controller', '2468': 'Stock Take Supervisor' };
+// Destructive actions (Clear all counts, Upload/replace the month's list) are
+// limited to these admin codes so a regular counter can't wipe a live count.
+function stIsSuper(){ return !!(stUser && STOCK_SUPER[stUser.emp_id]); }
+// Locking/unlocking a finalized month is Aung's call alone (his code, 0000) —
+// not shared with the other admin codes, so it can't be triggered by mistake.
+function stCanLock(){ return !!(stUser && stUser.emp_id==='0000'); }
 
 // Previous-month reference (the grey "Last month: …" line + last-month closing
 // total) is BUILT but hidden for now. Flip to true to switch it back on — planned
@@ -54,7 +60,8 @@ var stCounts  = {};          // item_id -> { qty, unit, counted_by, counted_by_n
 var stUser    = null;        // { emp_id, name }  (null until signed in)
 var stSearch  = '';
 var stCatFilters = [];       // [] = all categories, else list of item_group names to show
-var stOnlyCounted = false;   // "Counted only" tickbox
+var stCountFilter = '';      // '' | 'counted' | 'uncounted' — which items to show
+var stSortBy = '';           // '' | 'value' — highest value first, to spot mis-entries fast
 var stUnitSel = {};          // item_id -> chosen unit (for 2-unit items)
 var stChannel = null;
 
@@ -201,37 +208,35 @@ function stSubscribe(){
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'stock_take_items', filter:'month=eq.'+stMonth },
       function(){ if(activeStation===STOCK_KEY){ stLoadItems().then(function(){ if(activeStation===STOCK_KEY) stSafeRenderRows(); }); } })
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'stock_take_sheets', filter:'month=eq.'+stMonth },
+      function(payload){
+        // an admin locked/unlocked this sheet on another device — freeze/unfreeze here too, instantly
+        var r = payload.new; if(!r || !stSheet || r.id!==stSheet.id) return;
+        var wasLocked = !!stSheet.locked;
+        stSheet = r;
+        if(!!r.locked!==wasLocked && activeStation===STOCK_KEY) stRender();
+      })
     .subscribe(function(status){
       var dot=document.getElementById('realtime-dot');
       if(dot) dot.classList.toggle('live', status==='SUBSCRIBED');
     });
 }
 
-// ── tap-your-name gate (validated against the clock-in/out staff list) ──
-// Uses the shared kitchen picker (kPickPerson, in app.js): tap a name, or use
-// the keypad fallback for a typed ID / super-user passcode (1212). Falls back
-// to a typed prompt only if the picker failed to load.
+// ── employee-ID gate (validated against the clock-in/out staff list) ──
 async function stSignIn(){
-  var who = null;
-  if(typeof kPickPerson==='function'){
-    who = await kPickPerson('count the stock take', { superMap: STOCK_SUPER });
-  } else {
-    var id=(prompt('Enter your Employee ID to count the stock take.')||'').trim();
-    if(!id) return;
-    if(STOCK_SUPER[id]){ who={emp_id:id,name:STOCK_SUPER[id]}; }
-    else {
-      var res=await sb.from('staff').select('id,name,emp_id').eq('emp_id',id).eq('active',true).limit(1);
-      var staff=res.data&&res.data[0];
-      if(!staff){
-        if(typeof kToast==='function') kToast('Employee ID '+id+' not recognised — check and try again.', true);
-        else alert('Employee ID not recognised.');
-        return;
-      }
-      who={emp_id:id,name:staff.name};
-    }
+  var inp = document.getElementById('st-empid');
+  var id = inp ? (inp.value||'').trim() : '';
+  if(!id){ if(inp) inp.focus(); return; }
+  // super-user passcode (e.g. 1212) — access without any staff/roster record
+  if(STOCK_SUPER[id]){ stUser = { emp_id:id, name:STOCK_SUPER[id] }; stRender(); return; }
+  var res = await sb.from('staff').select('id,name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
+  var staff = res.data && res.data[0];
+  if(!staff){
+    if(typeof kToast==='function') kToast('Employee ID '+id+' not recognised — check and try again.', true);
+    else alert('Employee ID not recognised.');
+    return;
   }
-  if(!who) return;
-  stUser = { emp_id:who.emp_id, name:who.name };
+  stUser = { emp_id:id, name:staff.name };
   stRender();
 }
 function stSignOut(){ stUser = null; stRender(); }
@@ -239,15 +244,25 @@ function stSignOut(){ stUser = null; stRender(); }
 // ── write one item's count (upsert / delete on empty), optimistic + rollback ──
 async function stSetQty(itemId, value){
   if(!stUser) return;
+  if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — counts can no longer be changed.', true); stUpdateRowUI(itemId); return; }
   var prev = stCounts[itemId] ? Object.assign({}, stCounts[itemId]) : null;
-  var qty = value === '' ? null : Number(value);
   var it = stItems.find(function(x){ return x.id===itemId; });
   var unit = it ? stItemUnit(it) : null;
+  // normalise: trim + accept a decimal comma ("4,5" -> "4.5"). Only a BLANK box
+  // clears the count; garbage (letters, "4,5,6", negatives) is rejected WITHOUT
+  // touching the saved number — never silently delete a real count.
+  var raw = (value==null?'':String(value)).trim().replace(',', '.');
   var res;
-  if(qty===null || isNaN(qty) || qty < 0){
+  if(raw === ''){
     delete stCounts[itemId];
     res = await sb.from('stock_take_counts').delete().eq('item_id', itemId);
   } else {
+    var qty = Number(raw);
+    if(isNaN(qty) || qty < 0){
+      if(typeof kToast==='function') kToast('"'+value+'" is not a valid number — count left unchanged.', true);
+      stUpdateRowUI(itemId);   // put the saved value back in the box
+      return res || {};
+    }
     stCounts[itemId] = { qty:qty, unit:unit, counted_by:stUser.emp_id, counted_by_name:stUser.name };
     var row = { item_id:itemId, venue_id:STOCK_VENUE, dept:STOCK_DEPT, month:stMonth,
                 qty:qty, unit:unit, counted_by:stUser.emp_id, counted_by_name:stUser.name,
@@ -271,9 +286,11 @@ async function stSetQty(itemId, value){
 // We show the change optimistically, then trust the server's returned total. ──
 async function stAddQty(itemId, value){
   if(!stUser) return;
+  if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — counts can no longer be changed.', true); var b=document.getElementById('st-add-'+itemId); if(b) b.value=''; return; }
   var addBox = document.getElementById('st-add-'+itemId);
-  var delta = Number(value);
-  if(value==='' || isNaN(delta) || delta===0){ if(addBox) addBox.value=''; return; }
+  var raw = (value==null?'':String(value)).trim().replace(',', '.');   // accept "2,5"
+  var delta = Number(raw);
+  if(raw==='' || isNaN(delta) || delta===0){ if(addBox) addBox.value=''; return; }
   var it = stItems.find(function(x){ return x.id===itemId; });
   var unit = it ? stItemUnit(it) : null;
   var prev = stCounts[itemId] ? Object.assign({}, stCounts[itemId]) : null;
@@ -302,12 +319,16 @@ async function stAddQty(itemId, value){
 // ── derived ──
 function stFilteredItems(){
   var q = stSearch.toLowerCase();
-  return stItems.filter(function(it){
+  var out = stItems.filter(function(it){
     if(stCatFilters.length && stCatFilters.indexOf(it.item_group||'Other')===-1) return false;
-    if(stOnlyCounted){ var c=stCounts[it.id]; if(!c||c.qty==null) return false; }
+    var c=stCounts[it.id], counted = !!(c && c.qty!=null);
+    if(stCountFilter==='counted' && !counted) return false;
+    if(stCountFilter==='uncounted' && counted) return false;
     if(q && it.name.toLowerCase().indexOf(q)===-1 && String(it.code||'').indexOf(q)===-1) return false;
     return true;
   });
+  if(stSortBy==='value') out = out.slice().sort(function(a,b){ return stLineValue(b)-stLineValue(a); });
+  return out;
 }
 function stCats(){ return Array.from(new Set(stItems.map(function(i){ return i.item_group||'Other'; }))); }
 // quantity shown in reports/Excel — grossed up to purchase weight for yield items
@@ -322,6 +343,8 @@ function stCatLabelText(){
   if(stCatFilters.length===1) return stCatFilters[0];
   return stCatFilters.length+' categories';
 }
+// once the cost controller finalizes a month, it's locked — no more entering/adjusting/clearing counts
+function stIsLocked(){ return !!(stSheet && stSheet.locked); }
 
 // ── render ──
 function stInjectCss(){
@@ -347,12 +370,12 @@ function stInjectCss(){
     '.st-name{font-size:14px;font-weight:600;color:#2a1a10;line-height:1.25}'+
     '.st-tag{font-size:10px;font-weight:700;color:#7a4a00;background:#f6d79a;border-radius:5px;padding:1px 6px;margin-left:6px}'+
     '.st-eff{display:inline-block;font-size:11px;font-weight:600;color:#7a4a00;background:#f6e3c0;border-radius:5px;padding:1px 6px;margin-top:4px}'+
-    '.st-onlycount{display:flex;align-items:center;gap:6px;font-size:13px;color:#7a6a55;white-space:nowrap}'+
     '.st-danger{color:#7a1218!important;border-color:#d98a8a!important}'+
     '.st-meta{margin-top:4px}'+
     '.st-prev{margin-top:3px;font-size:11px;color:#9a8a6a;font-style:italic}'+
     '.st-prevtotal{padding:6px 14px 0;font-size:12px;color:#8a7a55}'+
     '.st-prevtotal b{color:#410207}'+
+    '.st-lockbanner{margin:10px 14px 0;padding:10px 12px;background:#f3eee6;border:1px solid #c9a84c;border-radius:10px;font-size:13px;color:#5a4a2a;line-height:1.4}'+
     '.st-muted{font-size:12px;color:#8a7a55}'+
     '.st-qtywrap{justify-self:center;display:flex;flex-direction:column;align-items:center;gap:4px}'+
     '.st-qty{width:72px;height:38px;text-align:center;border:1px solid #c9a84c;border-radius:8px;font-size:16px;background:#fff}'+
@@ -362,7 +385,13 @@ function stInjectCss(){
     '.st-line{justify-self:end;min-width:90px;text-align:right;font-weight:700;color:#410207;font-size:13px;font-variant-numeric:tabular-nums}'+
     '.st-actions{display:flex;gap:8px;padding:6px 14px 10px;flex-wrap:wrap}'+
     '.st-actions .report-btn{flex:1;min-width:108px}'+
-    '.st-addbtn{margin:14px;width:calc(100% - 28px)}';
+    '.st-addbtn{margin:14px;width:calc(100% - 28px)}'+
+    '.st-input,.st-select{height:38px;border:1px solid #c9a84c;border-radius:8px;padding:0 10px;font-size:14px;background:#fff}'+
+    '.st-btn{flex:1;min-width:108px;height:40px;border:1px solid #c9a84c;background:#fff;color:#410207;font-weight:700;font-size:13px;border-radius:9px;cursor:pointer;padding:0 12px}'+
+    '.st-btn:hover{background:#fbf4e6}'+
+    '.st-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999}'+
+    '.st-modal-box{background:#fff;border-radius:12px;padding:18px;width:90%;max-width:360px}'+
+    '.st-modal input{width:100%;height:38px;border:1px solid #c9a84c;border-radius:8px;padding:0 10px;font-size:14px;box-sizing:border-box}';
   document.head.appendChild(s);
 }
 
@@ -373,9 +402,11 @@ function stRender(){
     view.innerHTML = '<div class="ops-title" style="padding:14px 14px 0">Stock Take</div>'+
       '<div class="ops-subtitle" style="padding:0 14px;color:#8a7a55;font-size:12px">No month loaded yet</div>'+
       stGateHtml()+
-      (stUser
+      (stIsSuper()
         ? '<div style="padding:14px"><button class="report-btn" onclick="stShowUpload()">Upload this month\'s list (.xls)</button></div>'
-        : '<div class="report-no-data">Enter your employee ID, then upload this month\'s list from the cost controller.</div>');
+        : stUser
+          ? '<div class="report-no-data">No list for this month yet — ask the cost controller or an admin (code 1212 / 0000 / 2468) to upload it.</div>'
+          : '<div class="report-no-data">Enter your employee ID, then ask an admin to upload this month\'s list.</div>');
     return;
   }
   var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
@@ -385,6 +416,7 @@ function stRender(){
   view.innerHTML =
     '<div class="ops-title" style="padding:14px 14px 0">Stock Take · '+stEsc(monLabel)+'</div>'+
     '<div class="ops-subtitle" style="padding:0 14px;color:#8a7a55;font-size:12px">'+stItems.length+' items · shared live · tap a quantity to count</div>'+
+    (stIsLocked() ? '<div class="st-lockbanner">🔒 This month is <b>locked</b>'+(stSheet.locked_by_name?' by '+stEsc(stSheet.locked_by_name):'')+' — counts can no longer be entered, added to, or cleared. Email/Excel/Print still work.</div>' : '')+
     gate+
     '<div class="ops-grid" style="padding:0 14px">'+
       '<div class="ops-card dark"><div class="ops-num" id="st-grand">'+stMoney(stGrandTotal())+'</div><div class="ops-label">Counted value (all)</div></div>'+
@@ -394,8 +426,16 @@ function stRender(){
     '<div class="st-toolbar">'+
       '<input class="check-input" id="st-search" placeholder="Search items…" value="'+stEsc(stSearch)+'" oninput="stOnSearch(this.value)" style="flex:1;min-width:140px">'+
       '<button class="check-select" id="st-cat-btn" onclick="stShowCatFilter()" style="text-align:left;cursor:pointer">'+stEsc(stCatLabelText())+' ▾</button>'+
-      '<label class="st-onlycount"><input type="checkbox" id="st-onlycount" '+(stOnlyCounted?'checked':'')+' onchange="stToggleOnlyCounted(this.checked)"> Counted only</label>'+
-      (stUser?'<button class="report-btn" onclick="stShowUpload()">Upload month</button>':'')+
+      '<select class="check-select" id="st-countfilter" onchange="stOnCountFilter(this.value)">'+
+        '<option value=""'+(stCountFilter===''?' selected':'')+'>All items</option>'+
+        '<option value="counted"'+(stCountFilter==='counted'?' selected':'')+'>Counted only</option>'+
+        '<option value="uncounted"'+(stCountFilter==='uncounted'?' selected':'')+'>Not counted yet</option>'+
+      '</select>'+
+      '<select class="check-select" id="st-sortby" onchange="stOnSort(this.value)">'+
+        '<option value=""'+(stSortBy===''?' selected':'')+'>List order</option>'+
+        '<option value="value"'+(stSortBy==='value'?' selected':'')+'>Highest value first</option>'+
+      '</select>'+
+      (stIsSuper()?'<button class="report-btn" onclick="stShowUpload()">Upload month</button>':'')+
     '</div>'+
     '<div class="st-catbar"><span id="st-catlabel">'+stEsc(stCatLabelText())+'</span>'+
       '<span class="st-muted">category total <b id="st-catsub">'+stMoney(stCategoryTotal())+'</b></span></div>'+
@@ -403,8 +443,17 @@ function stRender(){
         '<button class="report-btn" onclick="stReviewSend()">Email to Aung</button>'+
         '<button class="report-btn" onclick="stExportExcel()">Download Excel</button>'+
         '<button class="report-btn" onclick="stPrint()">Print</button>'+
-        '<button class="report-btn st-danger" onclick="stClearAllCounts()">Clear all counts</button>'+
+        (stIsSuper() && !stIsLocked() ?'<button class="report-btn st-danger" onclick="stClearAllCounts()">Clear all counts</button>':'')+
+        (stCanLock() ? (stIsLocked()
+          ? '<button class="report-btn" onclick="stUnlockMonth()">🔓 Unlock this month</button>'
+          : '<button class="report-btn" onclick="stLockMonth()">🔒 Lock this month</button>') : '')+
       '</div>' : '')+
+    (stUser && !stIsLocked() && stVoiceSupported() ? '<div style="display:flex;gap:8px;margin:8px 14px 0">'+
+        '<button class="report-btn" style="flex:1;height:46px;font-size:15px" onclick="stVoiceStart()">🎤 Count by voice</button>'+
+        '<select class="check-select" style="flex:none;height:46px" title="Voice language — set it to the section you are counting" onchange="stVoiceLang=this.value">'+
+          ['en-GB','fr-FR','it-IT'].map(function(L){ var lbl={'en-GB':'EN','fr-FR':'FR','it-IT':'IT'}[L]; return '<option value="'+L+'"'+(stVoiceLang===L?' selected':'')+'>'+lbl+'</option>'; }).join('')+
+        '</select></div>' : '')+
+    (stUser && !stIsLocked() ?'<div style="padding:4px 14px 0;font-size:12px;color:#8a7a55;line-height:1.4">Type the <b>total</b> you counted in the white box. Use the green <b>+ add</b> box to add onto a count someone already started (e.g. a second person or the store-room).'+(stVoiceSupported()?' Or tap <b>🎤 Count by voice</b> and say the item and how many.':'')+'</div>':'')+
     '<div id="st-rows"></div>'+
     '<button class="report-btn st-addbtn" onclick="stShowAdd()">+ Add missing item</button>';
 
@@ -415,31 +464,33 @@ function stRenderRows(){
   var c = document.getElementById('st-rows'); if(!c) return;
   var items = stFilteredItems();
   if(!items.length){ c.innerHTML = '<div class="report-no-data">No items match your search.</div>'; return; }
-  var locked = !stUser;
+  var disabled = !stUser || stIsLocked();   // no user signed in, OR this month is finalized/locked
+  var flat = stSortBy==='value';   // sorted-by-value is a flat ranked list — category dividers would be meaningless, show the category inline instead
   var html = '';
   var lastCat = null;
   items.forEach(function(it){
     var cat = it.item_group||'Other';
-    if(cat!==lastCat){ html += '<div class="st-cat">'+stEsc(cat)+'</div>'; lastCat = cat; }
+    if(!flat && cat!==lastCat){ html += '<div class="st-cat">'+stEsc(cat)+'</div>'; lastCat = cat; }
     var c2 = stCounts[it.id];
     var qv = (c2&&c2.qty!=null) ? c2.qty : '';
     var multi = Array.isArray(it.units) && it.units.length>1;
     var unitCtl = multi
-      ? '<select class="st-unit" '+(locked?'disabled':'')+' onchange="stPickUnit(\''+it.id+'\',this.value)">'+
+      ? '<select class="st-unit" '+(disabled?'disabled':'')+' onchange="stPickUnit(\''+it.id+'\',this.value)">'+
         it.units.map(function(u){ return '<option value="'+stEsc(u.unit)+'"'+(stItemUnit(it)===u.unit?' selected':'')+'>'+stEsc(u.unit)+' · '+stMoney(u.price)+'</option>'; }).join('')+'</select>'
       : '<span class="st-muted">'+stEsc(it.unit||'')+' · '+stMoney(stItemPrice(it))+'</span>';
     html +=
-      '<div class="st-row'+(locked?' locked':'')+'" id="st-row-'+it.id+'">'+
+      '<div class="st-row'+(disabled?' locked':'')+'" id="st-row-'+it.id+'">'+
         '<div class="st-main">'+
           '<div class="st-namecol">'+
             '<div class="st-name">'+stEsc(it.name)+(it.is_added?'<span class="st-tag">added</span>':'')+'</div>'+
+            (flat?'<div class="st-muted" style="margin-top:1px">'+stEsc(cat)+'</div>':'')+
             '<div class="st-meta">'+unitCtl+'<span id="st-eff-'+it.id+'">'+stEffText(it)+'</span></div>'+
             stPrevText(it)+
           '</div>'+
           '<div class="st-qtywrap">'+
-            '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(locked?'disabled':'')+
+            '<input class="st-qty" inputmode="decimal" placeholder="0" value="'+qv+'" '+(disabled?'disabled':'')+
               ' onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stSetQty(\''+it.id+'\',this.value)">'+
-            '<input class="st-add" id="st-add-'+it.id+'" inputmode="decimal" placeholder="+ add" '+(locked?'disabled':'')+
+            '<input class="st-add" id="st-add-'+it.id+'" inputmode="decimal" placeholder="+ add" '+(disabled?'disabled':'')+
               ' title="Add what you just found — it sums onto the count" onfocus="stFocusRow(\''+it.id+'\',true)" onblur="stFocusRow(\''+it.id+'\',false)" onchange="stAddQty(\''+it.id+'\',this.value)">'+
           '</div>'+
           '<span class="st-line" id="st-line-'+it.id+'">'+stMoney(stLineValue(it))+'</span>'+
@@ -467,9 +518,10 @@ function stSafeRenderRows(){
 // yield badge under the name: shows the grossed-up purchase weight once counted
 function stEffText(it){
   if(!stIsYield(it)) return '';
-  var c=stCounts[it.id];
-  if(!c||c.qty==null) return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield</span>';
-  return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield · '+stEffQtyRound(it,c.qty)+' '+stEsc(stItemUnit(it))+' purchased</span>';
+  var c=stCounts[it.id], u=stEsc(stItemUnit(it)), p=Math.round(STOCK_YIELD*100);
+  if(!c||c.qty==null) return '<span class="st-eff">'+p+'% yield — count the cleaned weight; the system figure adds '+p+'%</span>';
+  // show BOTH numbers clearly: what was counted vs the number Aung enters
+  return '<span class="st-eff">You counted <b>'+c.qty+'</b> '+u+' · Aung enters <b>'+stEffQtyRound(it,c.qty)+'</b> '+u+' <span style="opacity:.8">(+'+p+'% yield)</span></span>';
 }
 function stUpdateRowUI(itemId){
   var it = stItems.find(function(x){ return x.id===itemId; });
@@ -529,10 +581,37 @@ function stApplyCatFilter(btn){
   box.remove();
   stRenderRows(); stRenderTotals();
 }
-function stToggleOnlyCounted(v){ stOnlyCounted=!!v; stRenderRows(); }
+function stOnCountFilter(v){ stCountFilter=v; stRenderRows(); }
+function stOnSort(v){ stSortBy=v; stRenderRows(); }
+// ── lock / unlock a finalized month: once locked, nobody can enter, add-to,
+// clear, add-missing-item, or re-upload over this month. Email/Excel/Print
+// still work so the cost controller can re-send the final numbers any time. ──
+async function stLockMonth(){
+  if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can lock a month.', true); return; }
+  if(!stSheet){ return; }
+  if(!confirm('Lock '+stMonth+'?\n\nNobody will be able to enter, add, or clear counts until an admin unlocks it again.')) return;
+  var res=await sb.from('stock_take_sheets').update({ locked:true, locked_by:stUser.emp_id, locked_by_name:stUser.name, locked_at:new Date().toISOString() }).eq('id', stSheet.id);
+  if(res.error){ if(typeof kToast==='function') kToast('Could not lock: '+res.error.message, true); return; }
+  stSheet.locked=true; stSheet.locked_by_name=stUser.name;
+  stRender();
+  if(typeof kToast==='function') kToast('🔒 '+stMonth+' is now locked.');
+}
+async function stUnlockMonth(){
+  if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can unlock a month.', true); return; }
+  if(!stSheet){ return; }
+  if(!confirm('Unlock '+stMonth+'?\n\nCounts can be entered, added to, or cleared again until it is re-locked.')) return;
+  var res=await sb.from('stock_take_sheets').update({ locked:false }).eq('id', stSheet.id);
+  if(res.error){ if(typeof kToast==='function') kToast('Could not unlock: '+res.error.message, true); return; }
+  stSheet.locked=false;
+  stRender();
+  if(typeof kToast==='function') kToast('🔓 '+stMonth+' unlocked.');
+}
+
 // wipe EVERY quantity entered for this month (all counters) — confirmed first
 async function stClearAllCounts(){
   if(!stUser){ if(typeof kToast==='function') kToast('Enter your employee ID first.', true); return; }
+  if(!stIsSuper()){ if(typeof kToast==='function') kToast('Only an admin code (1212 / 0000 / 2468) can clear all counts.', true); return; }
+  if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — unlock it first to clear counts.', true); return; }
   if(!stCountedCount()){ if(typeof kToast==='function') kToast('Nothing counted yet.'); return; }
   if(!confirm('Clear ALL counts for '+stMonth+'?\n\nThis erases every quantity entered this month — by everyone — and cannot be undone. The item list stays.')) return;
   var res=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth);
@@ -547,6 +626,7 @@ function stPickUnit(itemId, unit){ stUnitSel[itemId]=unit; stUpdateRowUI(itemId)
 // ── add a missing item (anyone signed in) ──
 function stShowAdd(){
   if(!stUser){ if(typeof kToast==='function') kToast('Enter your employee ID first.', true); return; }
+  if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — no items can be added.', true); return; }
   var old=document.getElementById('st-add-modal'); if(old) old.remove();
   var box=document.createElement('div');
   box.id='st-add-modal';
@@ -625,7 +705,10 @@ function stExcelAoa(){
   var grand = 0;
   stItems.forEach(function(it){
     var c = stCounts[it.id];
-    // Qty = originally-purchased weight (grossed up for yield items) so Qty×Price = Value
+    // Qty = originally-purchased weight (grossed up for yield items) so Qty×Price = Value.
+    // This IS the number Aung enters — already converted, no note or math needed from him.
+    // Article Name is left EXACTLY as supplied (no appended text) so it still matches
+    // his system's article lookup if he cross-references by name, not just by code.
     var qty = (c && c.qty!=null) ? stDisplayQty(it) : '';
     var price = stItemPrice(it);
     var val = qty==='' ? 0 : Math.round(qty*price*100)/100;
@@ -702,8 +785,9 @@ function stGateHtml(){
   return stUser
     ? '<div class="st-who"><span><span style="color:#1d7a4a">●</span> Counting as <b>'+stEsc(stUser.name)+'</b> · #'+stEsc(stUser.emp_id)+'</span>'+
       '<button class="report-btn" onclick="stSignOut()">Switch</button></div>'
-    : '<div class="st-gate"><div><b>Tap your name to count</b></div>'+
-      '<div style="margin-top:8px"><button class="report-btn" onclick="stSignIn()">Tap your name to start</button></div></div>';
+    : '<div class="st-gate"><div><b>Enter your employee ID to count</b></div>'+
+      '<div style="display:flex;gap:8px;margin-top:8px"><input class="check-input" id="st-empid" inputmode="numeric" placeholder="e.g. 1042" style="flex:1" onkeydown="if(event.key===\'Enter\')stSignIn()">'+
+      '<button class="report-btn" onclick="stSignIn()">Start</button></div></div>';
 }
 
 // ══ Excel upload — anyone with a valid employee ID loads the new month's list ══
@@ -724,6 +808,7 @@ function stGuessMonth(rows){
 }
 function stShowUpload(){
   if(!stUser){ if(typeof kToast==='function') kToast('Enter your employee ID first.', true); return; }
+  if(!stIsSuper()){ if(typeof kToast==='function') kToast('Only an admin code (1212 / 0000 / 2468) can upload/replace the month\'s list.', true); return; }
   var old=document.getElementById('st-up-modal'); if(old) old.remove();
   var box=document.createElement('div');
   box.id='st-up-modal';
@@ -801,13 +886,14 @@ async function stHandleUpload(){
   }
 }
 async function stApplyUpload(month, items, filename){
-  var existing=await sb.from('stock_take_sheets').select('id').eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month).limit(1);
+  var existing=await sb.from('stock_take_sheets').select('id,locked').eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month).limit(1);
   if(existing.data && existing.data.length){
+    if(existing.data[0].locked) throw new Error(month+' is LOCKED — an admin must unlock it before it can be replaced.');
     if(!confirm('A stock take for '+month+' already exists. Replacing it clears any counts already entered for that month. Continue?')) throw new Error('cancelled');
   }
   // supabase-js never throws — check each destructive step's .error and abort
   // BEFORE the next one, so a blocked delete can't leave the month half-wiped
-  // (new items against stale counts = wrong totals shown as real).
+  // (new items against stale counts = wrong totals shown as real). Mirrors FOH.
   var dC=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
   if(dC.error) throw new Error('Could not clear old counts: '+dC.error.message);
   var dI=await sb.from('stock_take_items').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
@@ -841,4 +927,204 @@ async function openStockTake(){
   await stLoadPrevMonth();
   stSubscribe();
   stRender();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VOICE COUNT (hands-free) — say "item + quantity", e.g. "Grey Goose four".
+// ANDROID-ONLY: uses the Web Speech API (webkitSpeechRecognition), which Apple
+// does NOT support in web apps — so the 🎤 button only renders where it works
+// (feature-detected in stRender). iPhone users keep the keyboard mic.
+// SAFETY: it NEVER saves on its own — it always shows a confirm card where the
+// person checks/edits the item + quantity first (a mishear can't silently log to
+// the wrong item). The quantity ADDS to the running count via the atomic +add.
+// Mirrored verbatim from foh-diagnostic/stock-take.js (FOH voice count).
+// ══════════════════════════════════════════════════════════════════════════
+function stVoiceSupported(){ return ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window); }
+
+var ST_ONES={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+var ST_TENS={twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+var ST_UNITS={bottles:1,bottle:1,btl:1,each:1,kg:1,kilo:1,kilos:1,piece:1,pieces:1,pcs:1,pc:1,unit:1,units:1,case:1,cases:1,box:1,boxes:1,can:1,cans:1,gram:1,grams:1,litre:1,litres:1,liter:1,liters:1,ltr:1,glass:1,glasses:1};
+function stIsNumWord(t){ return (t in ST_ONES) || (t in ST_TENS) || t==='point' || /^\d+(\.\d+)?$/.test(t); }
+function stIntWords(tokens){
+  if(!tokens.length) return null;
+  if(tokens.length===1 && /^\d+$/.test(tokens[0])) return parseInt(tokens[0],10);
+  var total=0, any=false;
+  for(var k=0;k<tokens.length;k++){ var w=tokens[k];
+    if(w in ST_TENS){ total+=ST_TENS[w]; any=true; }
+    else if(w in ST_ONES){ total+=ST_ONES[w]; any=true; }
+    else if(/^\d+$/.test(w)){ total+=parseInt(w,10); any=true; }
+    else if(w==='a'||w==='an'){ /* skip filler */ }
+    else return null;
+  }
+  return any?total:null;
+}
+function stPhraseToNumber(tokens){
+  if(!tokens || !tokens.length) return null;
+  var pIdx=tokens.indexOf('point');
+  if(pIdx>=0){
+    var iv=stIntWords(tokens.slice(0,pIdx));
+    var dec=tokens.slice(pIdx+1).map(function(x){ return (x in ST_ONES)?ST_ONES[x]:(/^\d$/.test(x)?+x:null); });
+    if(dec.some(function(x){return x===null;})) return null;
+    return (iv||0) + (dec.length?parseFloat('0.'+dec.join('')):0);
+  }
+  if(tokens.length===1 && /^\d+(\.\d+)?$/.test(tokens[0])) return parseFloat(tokens[0]);
+  return stIntWords(tokens);
+}
+// pull a quantity + an item-name out of a spoken phrase (handles either order)
+function stVoiceExtract(transcript){
+  var s=(transcript||'').toLowerCase();
+  s=s.replace(/\band a half\b/g,' point five').replace(/\band a quarter\b/g,' point two five').replace(/\band three quarters\b/g,' point seven five').replace(/\bhalf\b/g,' point five');
+  s=s.replace(/[,]/g,' ');
+  var toks=s.split(/\s+/).filter(Boolean).filter(function(t){ return !ST_UNITS[t]; });
+  var qty=null, name='';
+  // trailing number run
+  var st=toks.length; while(st>0 && stIsNumWord(toks[st-1])) st--;
+  var run=toks.slice(st);
+  if(run.length){
+    var hasPoint=run.indexOf('point')>=0 || run.some(function(x){return /\d\.\d/.test(x);});
+    var tensOnes=run.length===2 && (run[0] in ST_TENS) && (run[1] in ST_ONES);
+    if(run.length===1 || hasPoint || tensOnes){ qty=stPhraseToNumber(run); name=toks.slice(0,st).join(' '); }
+    else { qty=stPhraseToNumber([run[run.length-1]]); name=toks.slice(0,toks.length-1).join(' '); }  // protect names with numbers (e.g. "Macallan 12")
+  } else {
+    // maybe number-first ("four grey goose")
+    var ls=0; while(ls<toks.length && stIsNumWord(toks[ls])) ls++;
+    if(ls>0 && ls<toks.length){ qty=stPhraseToNumber(toks.slice(0,ls)); name=toks.slice(ls).join(' '); }
+    else name=toks.join(' ');
+  }
+  return { qty:qty, name:name.trim() };
+}
+// normalise an item name for matching (drop the trailing " -code", punctuation)
+// normalise + DROP ACCENTS so a French/Italian name spoken in English still
+// matches: château->chateau, gewürztraminer->gewurztraminer, espadón->espadon.
+function stVoiceNorm(s){
+  s=String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  return s.replace(/\s+-\s*\w+\s*$/,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+// tiny edit-distance (capped) so a near-mishear still matches (montalchino~montalcino)
+function stLev(a,b){ var m=a.length,n=b.length; if(Math.abs(m-n)>3) return 9; var d=[],i,j; for(i=0;i<=m;i++)d[i]=[i]; for(j=0;j<=n;j++)d[0][j]=j; for(i=1;i<=m;i++)for(j=1;j<=n;j++){ var c=a.charAt(i-1)===b.charAt(j-1)?0:1; d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+c);} return d[m][n]; }
+// loose phonetic key so a sound-alike transcription still matches:
+// "sassicaia" and "sasi kaya" both reduce to "sasikaia".
+function stPhon(s){
+  s=stVoiceNorm(s).replace(/[0-9]/g,'').replace(/\s+/g,'');
+  s=s.replace(/ck/g,'k').replace(/q/g,'k').replace(/c/g,'k').replace(/x/g,'ks').replace(/ph/g,'f').replace(/z/g,'s').replace(/y/g,'i').replace(/h/g,'');
+  return s.replace(/(.)\1+/g,'$1');
+}
+function stTokenHit(qt, nts, n){
+  if(n.indexOf(qt)>=0) return true;                                        // substring
+  var pq=stPhon(qt);
+  for(var i=0;i<nts.length;i++){ var w=nts[i];
+    if(w.length>=4 && qt.length>=4 && (w.indexOf(qt)===0||qt.indexOf(w)===0)) return true;   // prefix either way
+    if(qt.length>=4 && stLev(qt,w)<=Math.max(1,Math.floor(qt.length/4))) return true;        // close mishear
+    if(pq.length>=3){ var pw=stPhon(w);                                                       // sound-alike
+      if(pw.length>=3 && (pw.indexOf(pq)>=0 || pq.indexOf(pw)===0 || stLev(pq,pw)<=1)) return true; }
+  }
+  return false;
+}
+// best item candidates for a spoken name, within the current dept's list
+function stVoiceMatch(query){
+  var q=stVoiceNorm(query); if(!q) return [];
+  var qt=q.split(' ').filter(function(t){ return t.length>1; }); if(!qt.length) qt=[q];
+  var scored=[];
+  stItems.forEach(function(it){
+    var n=stVoiceNorm(it.name); if(!n) return; var nts=n.split(' ');
+    var hit=0; qt.forEach(function(t){ if(stTokenHit(t,nts,n)) hit++; });
+    var score=hit/qt.length;
+    if(n.indexOf(q)>=0) score+=0.5;
+    if(nts[0]===qt[0]) score+=0.15;
+    if(score>=0.5) scored.push({it:it,score:score});
+  });
+  scored.sort(function(a,b){ return b.score-a.score; });
+  return scored.slice(0,30).map(function(x){ return x.it; });   // show ALL matches (e.g. every "juice"), not just the top few
+}
+
+var stRec=null, stVFinal='', stVInterim='', stVDone=false, stVoiceMode='full', stVoiceLang='en-GB';
+var stVoiceCands=[];
+// mode 'full' = item + quantity in one go; mode 'qty' = just the number, into the
+// already-open confirm card (so you can say the product first, then the quantity).
+function stVoiceStart(mode){
+  if(!stUser){ kToast('Enter your employee ID first.', true); return; }
+  if(stIsLocked()){ kToast('This month is locked — counts can no longer be changed.', true); return; }
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ kToast('Voice needs Android Chrome. On iPhone, tap a box and use the keyboard mic.', true); return; }
+  stVoiceMode = (mode==='qty') ? 'qty' : 'full';
+  if(stVoiceMode!=='qty'){ var old=document.getElementById('st-voice-modal'); if(old) old.remove(); }  // qty mode keeps the confirm card open
+  try{ if(stRec) stRec.abort(); }catch(e){}
+  stVFinal=''; stVInterim=''; stVDone=false;
+  stVoiceShowListening(stVoiceMode);
+  // continuous + interim: don't rush the speaker; show live text; act only on Done
+  stRec=new SR(); stRec.lang=stVoiceLang; stRec.continuous=true; stRec.interimResults=true; stRec.maxAlternatives=1;
+  stRec.onresult=function(e){
+    stVFinal=''; stVInterim='';
+    for(var i=0;i<e.results.length;i++){ var r=e.results[i]; if(r.isFinal) stVFinal+=r[0].transcript+' '; else stVInterim+=r[0].transcript; }
+    var el=document.getElementById('st-listen-text'); if(el) el.textContent=(stVFinal+stVInterim).trim()||'…';
+  };
+  stRec.onerror=function(e){ if(e.error==='aborted') return; stVDone=true; stVoiceCloseListening();
+    if(e.error==='not-allowed'||e.error==='service-not-allowed') kToast('Allow microphone access to use voice.', true);
+    else if(e.error==='no-speech') kToast('Didn\'t catch anything — tap 🎤 and try again.', true);
+    else kToast('Voice error: '+e.error, true); };
+  stRec.onend=function(){ if(stVDone) return; stVDone=true; stVoiceCloseListening(); var t=(stVFinal+' '+stVInterim).trim(); if(t) stVoiceRoute(t); };
+  try{ stRec.start(); }catch(err){ stVoiceCloseListening(); kToast('Could not start voice — try again.', true); }
+}
+function stVoiceStop(){ if(stVDone) return; stVDone=true; var t=(stVFinal+' '+stVInterim).trim(); try{ if(stRec) stRec.stop(); }catch(e){} stVoiceCloseListening(); if(t) stVoiceRoute(t); else kToast('Didn\'t catch anything — tap 🎤 and try again.', true); }
+function stVoiceRoute(t){ if(stVoiceMode==='qty') stVoiceFillQty(t); else stVoiceHandle(t); }
+function stVoiceFillQty(transcript){
+  var ex=stVoiceExtract(transcript); var q=ex.qty;
+  if(q==null){ var n=parseFloat(String(transcript).replace(/[^0-9.]/g,'')); if(!isNaN(n)) q=n; }
+  if(q==null || isNaN(q)){ kToast('Didn\'t catch a number — say just the quantity, e.g. "twenty four".', true); return; }
+  var box=document.getElementById('st-voice-qty'); if(box) box.value=q;
+}
+function stVoiceCancel(){ stVDone=true; try{ if(stRec) stRec.abort(); }catch(e){} stVoiceCloseListening(); }
+function stVoiceShowListening(mode){
+  var old=document.getElementById('st-listen-modal'); if(old) old.remove();
+  var sub = (mode==='qty') ? 'Say just the quantity, e.g. "twenty four", then tap <b>Done</b>.' : 'Say the item and how many, then tap <b>Done</b>.';
+  var b=document.createElement('div'); b.id='st-listen-modal'; b.className='st-modal';
+  b.innerHTML='<div class="st-modal-box" style="text-align:center" onclick="event.stopPropagation()">'+
+    '<div style="font-size:42px;line-height:1">🎤</div>'+
+    '<div style="font-weight:700;color:#410207;margin:8px 0 4px">Listening… take your time</div>'+
+    '<div style="font-size:12px;color:#8a7a55;margin-bottom:8px">'+sub+'</div>'+
+    '<div id="st-listen-text" style="min-height:22px;font-size:15px;color:#2a1a10;background:#f7f1e6;border-radius:8px;padding:8px;margin-bottom:12px">…</div>'+
+    '<div style="display:flex;gap:8px;justify-content:center"><button class="st-btn" style="flex:none" onclick="stVoiceCancel()">Cancel</button>'+
+    '<button class="st-btn" style="flex:none;background:#410207;color:#f5ede0" onclick="stVoiceStop()">Done</button></div></div>';
+  document.body.appendChild(b);
+}
+function stVoiceCloseListening(){ var m=document.getElementById('st-listen-modal'); if(m) m.remove(); }
+function stVoiceHandle(transcript){
+  stVoiceCloseListening();
+  var ex=stVoiceExtract(transcript);
+  stVoiceCands=stVoiceMatch(ex.name);
+  stVoiceShowConfirm(transcript, ex.qty, stVoiceCands);
+}
+// the CONFIRM card — nothing saves until the person taps Add here
+function stVoiceShowConfirm(heard, qty, cands){
+  var old=document.getElementById('st-voice-modal'); if(old) old.remove();
+  var opts = cands.length
+    ? cands.map(function(it,i){ var c=stCounts[it.id]; var now=(c&&c.qty!=null)?(' — now '+c.qty):''; return '<option value="'+i+'">'+stEsc(it.name)+now+'</option>'; }).join('')
+    : '<option value="-1">No match — close and search by hand</option>';
+  var qv = (qty==null||isNaN(qty)) ? '' : qty;
+  var b=document.createElement('div'); b.id='st-voice-modal'; b.className='st-modal';
+  b.innerHTML='<div class="st-modal-box" onclick="event.stopPropagation()">'+
+    '<div style="font-weight:700;color:#410207;margin-bottom:4px">Check before saving</div>'+
+    '<div style="font-size:12px;color:#8a7a55;margin-bottom:12px">Heard: "'+stEsc(heard)+'"</div>'+
+    '<label style="font-size:12px;color:#8a7a55">Item'+(cands.length>1?' — '+cands.length+' matches, pick the right one':'')+'</label>'+
+    '<select id="st-voice-item" class="st-select" style="width:100%;height:40px;margin:4px 0 12px">'+opts+'</select>'+
+    '<label style="font-size:12px;color:#8a7a55">Add this many</label>'+
+    '<div style="display:flex;gap:8px;margin:4px 0 14px"><input id="st-voice-qty" class="st-input" inputmode="decimal" value="'+qv+'" placeholder="how many" style="flex:1;height:40px">'+
+      '<button class="st-btn" style="flex:none" onclick="stVoiceStart(\'qty\')">🎤 Say number</button></div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'+
+      '<button class="st-btn" style="flex:none" onclick="document.getElementById(\'st-voice-modal\').remove()">Cancel</button>'+
+      '<button class="st-btn" style="flex:none" onclick="stVoiceStart()">🎤 Try again</button>'+
+      '<button class="st-btn" style="flex:none;background:#410207;color:#f5ede0" onclick="stVoiceAdd()">Add</button>'+
+    '</div></div>';
+  document.body.appendChild(b);
+}
+function stVoiceAdd(){
+  var sel=document.getElementById('st-voice-item'); if(!sel) return;
+  var i=parseInt(sel.value,10);
+  if(isNaN(i) || i<0 || !stVoiceCands[i]){ kToast('No item picked — close and search by hand.', true); return; }
+  var qty=parseFloat(((document.getElementById('st-voice-qty').value||'').trim()).replace(',', '.'));
+  if(isNaN(qty) || qty<=0){ kToast('Enter how many to add.', true); return; }
+  var it=stVoiceCands[i];
+  var m=document.getElementById('st-voice-modal'); if(m) m.remove();
+  stAddQty(it.id, qty);                 // atomic +add path (server sums, realtime fans out)
+  kToast('✓ Added '+qty+' to '+it.name);
 }
