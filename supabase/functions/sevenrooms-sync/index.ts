@@ -109,14 +109,20 @@ serve(async (req) => {
     const upcoming = reqUrl.searchParams.get("upcoming");
     if (upcoming) {
       const rows = await fetchReservations(token, venueGroupId, upcoming, upcoming);
-      const HERE = new Set(["ARRIVED", "COMPLETE", "PAID"]);
+      // HERE    = has arrived at any point tonight (incl. already-departed) — the base
+      //           for average-spend maths.
+      // PRESENT = still physically in the venue right now: arrived/seated but NOT yet
+      //           completed or paid-out. This is the dashboard "In now" figure.
+      const HERE = new Set(["ARRIVED", "SEATED", "COMPLETE", "PAID"]);
+      const PRESENT = new Set(["ARRIVED", "SEATED"]);
       const nowMs = Date.now();
-      let booked = 0, here = 0, stillUpcoming = 0;
+      let booked = 0, here = 0, stillUpcoming = 0, seated = 0;
       for (const r of rows) {
         const st = String(r.status || "").toUpperCase();
         if (EXCLUDE.has(st)) continue;            // drop cancel / no-show
         const pax = Number(r.max_guests) || 0;
         booked += pax;
+        if (PRESENT.has(st)) seated += pax;       // in the room right now
         if (HERE.has(st)) { here += pax; continue; }
         // not yet arrived — count as upcoming only if the slot time is still ahead
         const slot = r.real_datetime_of_slot;     // "YYYY-MM-DD HH:MM:SS" (venue local)
@@ -125,7 +131,64 @@ serve(async (req) => {
         if (!isNaN(slotMs) && slotMs > nowMs) stillUpcoming += pax;
       }
       return new Response(JSON.stringify({
-        ok: true, date: upcoming, booked, here, upcoming: stillUpcoming,
+        ok: true, date: upcoming, booked, here, upcoming: stillUpcoming, seated,
+      }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
+    // ---- SPEND DIAGNOSTIC MODE (read-only): payment/POS fields for one date ----
+    // ?spend=YYYY-MM-DD → per-reservation payment fields + pos_tickets, plus night totals.
+    // Built 4 Jul 2026 to answer: is the SevenRooms "live spend" net or gross of the
+    // 10% service / 7% municipality / 5% VAT stack? Compare pos_tickets subtotal/total
+    // against a printed Simphony check.
+    const spend = reqUrl.searchParams.get("spend");
+    if (spend) {
+      const rows = await fetchReservations(token, venueGroupId, spend, spend);
+      const out: any[] = [];
+      let sumTotalPayment = 0, sumNet = 0, sumGross = 0;
+      let sumPosSubtotal = 0, sumPosTotal = 0, ticketCount = 0;
+      for (const r of rows) {
+        const st = String(r.status || "").toUpperCase();
+        if (EXCLUDE.has(st)) continue;
+        const tickets = Array.isArray(r.pos_tickets) ? r.pos_tickets : [];
+        const hasMoney = tickets.length || r.total_payment || r.onsite_payment_total;
+        if (!hasMoney) continue;
+        let posSub = 0, posTot = 0;
+        for (const t of tickets) {
+          posSub += Number(t.subtotal) || 0;
+          posTot += Number(t.total) || 0;
+          ticketCount++;
+        }
+        sumPosSubtotal += posSub; sumPosTotal += posTot;
+        sumTotalPayment += Number(r.total_payment) || 0;
+        sumNet += Number(r.total_net_payment) || 0;
+        sumGross += Number(r.total_gross_payment) || 0;
+        out.push({
+          name: `${r.first_name || ""} ${(r.last_name || "").slice(0, 1)}.`.trim(),
+          status: st, table: r.table_numbers, guests: r.max_guests,
+          arrived: r.arrived_guests, area: r.venue_seating_area_name,
+          check_numbers: r.check_numbers,
+          total_payment: r.total_payment,
+          total_net_payment: r.total_net_payment,
+          total_gross_payment: r.total_gross_payment,
+          onsite_payment_net: r.onsite_payment_net,
+          onsite_payment_tax: r.onsite_payment_tax,
+          onsite_payment_gratuity: r.onsite_payment_gratuity,
+          onsite_payment_total: r.onsite_payment_total,
+          pos_subtotal: posSub || null, pos_total: posTot || null,
+          // full ticket detail on the first 3 rows only, to keep the payload light
+          pos_tickets: out.length < 3 ? tickets : `(${tickets.length} tickets)`,
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true, date: spend,
+        reservations_with_money: out.length, tickets: ticketCount,
+        totals: {
+          pos_subtotal: sumPosSubtotal, pos_total: sumPosTotal,
+          total_payment: sumTotalPayment, total_net_payment: sumNet,
+          total_gross_payment: sumGross,
+          implied_multiplier: sumPosSubtotal > 0 ? +(sumPosTotal / sumPosSubtotal).toFixed(5) : null,
+        },
+        rows: out,
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
