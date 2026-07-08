@@ -164,6 +164,10 @@ serve(async (req) => {
         sumGross += Number(r.total_gross_payment) || 0;
         out.push({
           name: `${r.first_name || ""} ${(r.last_name || "").slice(0, 1)}.`.trim(),
+          // How the entry was created — WALK_IN vs booked etc. Proves whether
+          // host-logged walk-ins auto-link their Simphony check (7 Jul analysis).
+          reservation_type: r.reservation_type ?? null,
+          booked_by: r.booked_by ?? null,
           status: st, table: r.table_numbers, guests: r.max_guests,
           arrived: r.arrived_guests, area: r.venue_seating_area_name,
           check_numbers: r.check_numbers,
@@ -198,11 +202,28 @@ serve(async (req) => {
       const rows = await fetchReservations(token, venueGroupId, diag, diag);
       let sumMax = 0, sumArrived = 0;
       const statusCounts: Record<string, number> = {};
+      // Walk-in linkage analysis (7 Jul): per reservation_type, how many entries
+      // exist and how many carry a linked POS check — proves whether host-logged
+      // walk-ins auto-attach their Simphony check under the CURRENT config.
+      const typeCounts: Record<string, { total: number; with_check: number; tables: string[] }> = {};
       for (const r of rows) {
         const st = String(r.status || "").toUpperCase();
         statusCounts[st] = (statusCounts[st] || 0) + 1;
         if (st === "COMPLETE") sumMax += Number(r.max_guests) || 0;
         if (r.arrived_guests != null) sumArrived += Number(r.arrived_guests) || 0;
+        const rt = String(r.reservation_type || "UNKNOWN").toUpperCase();
+        const bucket = (typeCounts[rt] ||= { total: 0, with_check: 0, tables: [] });
+        bucket.total++;
+        // An empty check_numbers array ([]) is truthy in JS, so test its length
+        // when it's an array — otherwise a walk-in with NO check counts as linked
+        // and inflates with_check, corrupting the exact answer this probe seeks.
+        const checkCount = Array.isArray(r.check_numbers) ? r.check_numbers.length : (r.check_numbers ? 1 : 0);
+        const hasCheck = !!(checkCount || (Array.isArray(r.pos_tickets) && r.pos_tickets.length));
+        if (hasCheck) bucket.with_check++;
+        if (bucket.tables.length < 12) {
+          const t = Array.isArray(r.table_numbers) ? r.table_numbers.join("+") : String(r.table_numbers || "");
+          bucket.tables.push(`${t || "?"}${hasCheck ? "✓" : "✗"}`);
+        }
       }
       // Surface every time-like / status-like field name present on a sample row,
       // plus one full sample reservation, so we can build the "upcoming" filter.
@@ -215,6 +236,7 @@ serve(async (req) => {
         ok: true, diag_date: diag, total: rows.length,
         complete_max_guests: sumMax, sum_arrived_guests: sumArrived,
         status_breakdown: statusCounts,
+        reservation_type_breakdown: typeCounts,
         sample_time_status_fields: timeFields,
         sample_keys: Object.keys(sample),
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
