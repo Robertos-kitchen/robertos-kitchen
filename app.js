@@ -91,7 +91,7 @@ async function kFetchAllPaged(buildQuery, pageSize){
 }
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1783100000;
+const APP_VERSION = 1783495862;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1883,6 +1883,14 @@ function calcHours(start, end, start2, end2) {
   }
   return Math.round(mins/6)/10;
 }
+// Extract HH:MM from an attendance time value. The `attendance` table stores
+// first_in/last_out/manual_out/punches as "HH:MM" strings, but tolerate ISO too.
+// Mirrors FOH's attHHMM so both apps normalise punches identically.
+function attHHMM(t){
+  if (!t) return '';
+  var m = String(t).match(/(\d{2}):(\d{2})/);
+  return m ? m[1] + ':' + m[2] : String(t).slice(0,5);
+}
 function schedRosterKey(staffId, date) { return staffId + '|' + date; }
 
 // ── Edit lock: guard + PIN modal ──
@@ -2027,17 +2035,32 @@ function schedAttState(staff, dateStr) {
   var isPast = dateStr < schedTodayStr();
 
   if (a && a.first_in) {
-    // manual override wins over the machine punch — matches FOH, so a manager's
-    // correction of a wrong/missing clock-out actually takes effect (previously
-    // the machine last_out won and a manual fix on the kitchen schedule did nothing).
-    var effOut = a.manual_out || a.last_out || null;
-    if (effOut) {
-      return { kind: 'done', in: a.first_in, out: effOut,
-               manual: !!a.manual_out, hours: calcHours(a.first_in, effOut) };
+    // Build worked segments from the full punch list so a mid-shift break is NOT
+    // counted as worked. Split shifts carry >2 punches (1st=in,2nd=out,3rd=in,4th=out…);
+    // legacy rows with only first_in/last_out fall back to a single segment.
+    // manual_out closes the final segment (manual override wins over the machine
+    // punch, so a manager's correction of a wrong/missing clock-out takes effect).
+    // Mirrors FOH's fohSchedAttState so both apps report identical worked hours.
+    var rawP = (a.punches && a.punches.length >= 2) ? a.punches.map(attHHMM) : null;
+    if (!rawP) {
+      var effOut0 = a.manual_out || a.last_out || null;
+      rawP = effOut0 ? [attHHMM(a.first_in), attHHMM(effOut0)] : [attHHMM(a.first_in)];
     }
-    if (isToday) return { kind: 'in', in: a.first_in };
+    var segs = [];
+    for (var pi = 0; pi < rawP.length; pi += 2) {
+      segs.push({ in: rawP[pi], out: (pi + 1 < rawP.length) ? rawP[pi + 1] : null });
+    }
+    if (a.manual_out) segs[segs.length - 1].out = attHHMM(a.manual_out);
+    var lastSeg = segs[segs.length - 1];
+    var hrs = 0;
+    segs.forEach(function(s){ if (s.in && s.out) hrs += calcHours(s.in, s.out); });
+    hrs = Math.round(hrs * 10) / 10;
+    var isSplit = segs.length > 1;
+    if (lastSeg.out) return { kind: 'done', in: attHHMM(a.first_in), out: lastSeg.out,
+                              segs: segs, split: isSplit, manual: !!a.manual_out, hours: hrs };
+    if (isToday) return { kind: 'in', in: attHHMM(a.first_in), segs: segs, split: isSplit, hours: hrs };
     var pe = rrow ? formatTime(rrow.shift_end) : '';
-    return { kind: 'open', in: a.first_in, plannedEnd: pe };
+    return { kind: 'open', in: attHHMM(a.first_in), segs: segs, split: isSplit, hours: hrs, plannedEnd: pe };
   }
   if (scheduled && (isPast || isToday) && dateStr >= ATT_TRACKING_START) {
     if (isPast) return { kind: 'absent' };

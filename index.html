@@ -1133,7 +1133,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1782700000"></script>
+<script src="market-list.js?v=1783495862"></script>
 <!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
      on demand to keep cold-boot light on the always-on screens. -->
 <script>
@@ -1148,12 +1148,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     return window._lazyLoaded[src];
   };
   // Recipe data needed by app.js's renderRecipes(); fetched on demand.
-  window.LAZY_RECIPES = 'recipes.js?v=1781722142';
+  window.LAZY_RECIPES = 'recipes.js?v=1783495862';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1782700000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1783000000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1783200000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1783495862').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1783495862').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1783495862').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1168,8 +1168,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     if (sect) sect.classList.toggle('open', !isOpen);
   }
 </script>
-<script src="common.js?v=1782123000"></script>
-<script src="app.js?v=1783100000"></script>
+<script src="common.js?v=1783495862"></script>
+<script src="app.js?v=1783495862"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

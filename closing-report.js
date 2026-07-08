@@ -262,7 +262,7 @@ function crRenderTonight() {
     : '<span style="font-size:13px;font-weight:400;color:#7a1218">syncing…</span>';
   html += '<div class="cr-two-col"><div><div class="cr-field-label">Revenue (AED)</div>'
     + '<input class="cr-input" id="cr-f-revenue" type="number" inputmode="numeric" placeholder="e.g. 60000" value="' + crEsc(crDraft.revenue) + '" onchange="crSaveDraftLocal()"></div>'
-    + '<div><div class="cr-field-label">Covers served <span style="text-transform:none;font-weight:400">(SevenRooms)</span></div>'
+    + '<div><div class="cr-field-label">Covers booked <span style="text-transform:none;font-weight:400">(SevenRooms — excl. walk-ins)</span></div>'
     + '<div class="cr-input" style="background:#ede5d8;display:flex;align-items:center;font-family:Georgia,serif;font-size:20px;color:#410207">' + coversDisplay + '</div></div></div>';
   html += '<div class="cr-two-col" style="margin-top:10px"><div><div class="cr-field-label">Report by</div>'
     + '<input class="cr-input" id="cr-f-submitted_by" type="text" placeholder="Your name" value="' + crEsc(crDraft.submitted_by) + '" onchange="crSaveDraftLocal()"></div><div></div></div>';

@@ -1,4 +1,4 @@
-const CACHE = 'robertos-kitchen-v1783200000';
+const CACHE = 'robertos-kitchen-v1783495862';
 // Pre-cache only the shell. The JS files are always requested with a
 // ?v=<stamp> query, so unversioned './app.js' etc. would sit in the cache
 // unused forever — the fetch handler below runtime-caches the real versioned
@@ -30,9 +30,11 @@ self.addEventListener('activate', e => {
 // Network first means every load checks for fresh content
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Only intercept same-origin requests (not Supabase API calls)
+  // Only intercept same-origin requests (not Supabase API calls). Match on the
+  // actual serving origin — not a hardcoded 'github.io' — so caching keeps working
+  // if the app ever moves host (Cloudflare, a custom domain, the IT handover).
   const url = new URL(e.request.url);
-  if (!url.origin.includes('github.io')) return;
+  if (url.origin !== self.location.origin) return;
 
   e.respondWith(
     fetch(e.request, { cache: 'no-store' })
