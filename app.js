@@ -3042,14 +3042,41 @@ function schedPrint() {
   setTimeout(function(){ w.print(); }, 150);
 }
 
+// ── Download the roster as an Excel file (so the team can print from Excel, ──
+// not only the wall poster). Reuses the exact same branded workbook that
+// Send to HR builds — schedSendToHR(true) builds it and returns the file
+// instead of emailing it.
+async function schedDownloadXlsx(){
+  var dbtn = document.getElementById('svt-dl');
+  if(dbtn){ dbtn.textContent = '⏳ Building...'; dbtn.disabled = true; }
+  try {
+    var built = await schedSendToHR(true);
+    if(!built){ if(dbtn){ dbtn.innerHTML='&#11015; Excel'; dbtn.disabled=false; } return; }
+    var blob = new Blob([built.xlsxBuffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = built.fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
+    if(dbtn){ dbtn.textContent = '✓ Downloaded'; setTimeout(function(){ dbtn.innerHTML='&#11015; Excel'; dbtn.disabled=false; }, 2500); }
+  } catch(err){
+    console.error('Kitchen Download Excel error:', err);
+    alert('Could not build the Excel file: ' + (err.message||err));
+    if(dbtn){ dbtn.innerHTML='&#11015; Excel'; dbtn.disabled=false; }
+  }
+}
+
 // ── Send to HR (email-ready roster, no manual attachment) ──
-async function schedSendToHR() {
+// Pass _downloadOnly=true to build the workbook and return {xlsxBuffer,fileName,...}
+// without emailing — used by the Download Excel button above.
+async function schedSendToHR(_downloadOnly) {
   var _wkEnd = addDays(schedWeekStart, 6);
   var _wkStr = schedWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' + _wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-  var who = await resetIdentity('email the roster to HR');
-  if (!who) return;
-  if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
-  var btn = document.getElementById('svt-hr');
+  if(!_downloadOnly){
+    var who = await resetIdentity('email the roster to HR');
+    if (!who) return;
+    if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
+  }
+  var btn = _downloadOnly ? null : document.getElementById('svt-hr');
   if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
   try {
     var days = [];
@@ -3203,11 +3230,11 @@ async function schedSendToHR() {
       sheet.addRow([]);
     });
 
-    // Generate as base64
+    // Generate the file
     var xlsxBuffer = await workbook.xlsx.writeBuffer();
-    var xlsxBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(xlsxBuffer)));
-
     var fileName = 'Roster_' + formatDate(days[0]) + '_to_' + formatDate(days[6]) + '.xlsx';
+    if(_downloadOnly){ return { xlsxBuffer:xlsxBuffer, fileName:fileName, weekStr:weekStr, days:days }; }
+    var xlsxBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(xlsxBuffer)));
 
     if (btn) btn.textContent = '📧 Sending...';
 
