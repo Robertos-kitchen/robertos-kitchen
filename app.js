@@ -1677,7 +1677,7 @@ function openHome(){
 // date, time, area, guests, dietary, menu + quantities); never prices or client
 // data. Empty window → the strip renders nothing. Each event prints a menu sheet.
 const FOH_EVENTS_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co/functions/v1/kitchen-events';
-const KEV_DAYS = 7;
+const KEV_DAYS = 14;
 const KEV_ALG = {D:'dairy',E:'egg',H:'homemade',N:'nuts',R:'raw',S:'shellfish',V:'vegetarian'};
 let KEV_CACHE = {};
 function kevEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
