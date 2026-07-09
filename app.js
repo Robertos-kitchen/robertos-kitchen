@@ -1708,26 +1708,46 @@ function renderKitchenEvents(events, today){
   }
   box.innerHTML = h;
 }
-function kevTodayCard(e){
-  var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
+// Shared "to prepare" list (dishes + quantities + allergens + total + dietary).
+function kevPrepRows(e){
   var rows = (e.menu||[]).map(function(m){
     return '<div class="kev-prow"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+(m.comp?' <span class="kev-comp">on the house</span>':'')+
       (kevAlg(m.allergens)?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+(m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
       '</div><div class="kev-qty">'+(m.total!=null?m.total+' pcs':'—')+(m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+'</div></div>';
   }).join('');
+  if(!rows) return '';
+  return '<div class="kev-prep-h">To prepare</div>'+rows+
+    '<div class="kev-total"><span>Total</span><b>'+(e.total_pcs||0)+' pcs · '+(e.pcs_per_guest||0)+' / guest</b></div>'+
+    (e.dietary? '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>':'');
+}
+function kevTodayCard(e){
+  var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
+  var prep = kevPrepRows(e);
   return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
     '<div class="kev-name">'+kevEsc(e.name)+'</div><div class="kev-meta">'+meta+'</div></div>'+
     '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    (rows? '<div class="kev-prep"><div class="kev-prep-h">To prepare</div>'+rows+
-      '<div class="kev-total"><span>Total</span><b>'+(e.total_pcs||0)+' pcs · '+(e.pcs_per_guest||0)+' / guest</b></div></div>' : '')+
-    (e.dietary? '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>':'')+'</div>';
+    (prep? '<div class="kev-prep">'+prep+'</div>' : '')+'</div>';
 }
+// Upcoming rows are compact but TAP TO EXPAND — the chef taps the row to see the
+// dishes and quantities inline, without printing. The Print button still prints.
 function kevUpRow(e){
   var d = kevDate(e.date);
   var meta = [ (e.guests!=null?e.guests+' guests':''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
-  return '<div class="kev-up"><div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
-    '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+'</div><div class="kev-up-meta">'+meta+'</div></div>'+
-    '<button class="kev-print sm" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>';
+  var prep = kevPrepRows(e);
+  return '<div class="kev-up-wrap">'+
+    '<div class="kev-up'+(prep?' clickable':'')+'"'+(prep?' onclick="kevToggle(\''+e.id+'\',this)"':'')+'>'+
+      '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
+      '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+(prep?' <span class="kev-chev">&#9662;</span>':'')+'</div><div class="kev-up-meta">'+meta+'</div></div>'+
+      '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
+    (prep? '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none">'+prep+'</div>' : '')+
+  '</div>';
+}
+function kevToggle(id, rowEl){
+  var b = document.getElementById('kevb-'+id); if(!b) return;
+  var open = (b.style.display==='none' || !b.style.display);
+  b.style.display = open ? 'block' : 'none';
+  var wrap = rowEl && rowEl.parentNode; if(wrap) wrap.classList.toggle('open', open);
+  var c = rowEl && rowEl.querySelector('.kev-chev'); if(c) c.style.transform = open ? 'rotate(180deg)' : '';
 }
 function kevPrintMenu(id){
   var e = KEV_CACHE[id]; if(!e) return;

@@ -1044,6 +1044,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .kev-bd-mon{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light)}
 .kev-up-mid{flex:1;min-width:0}.kev-up-name{font-size:15px;color:var(--ink);font-weight:500}
 .kev-up-meta{font-size:11.5px;color:#7a6a58;margin-top:1px}
+.kev-up-wrap{margin-bottom:6px}
+.kev-up{margin-bottom:0}
+.kev-up.clickable{cursor:pointer}
+.kev-up.clickable:active{background:var(--sabbia-dark)}
+.kev-chev{font-size:10px;color:var(--vino-light);display:inline-block;transition:transform .15s;margin-left:3px}
+.kev-up-body{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-top:none;border-radius:0 0 8px 8px;padding:2px 13px 11px}
+.kev-up-wrap.open .kev-up{border-bottom-left-radius:0;border-bottom-right-radius:0}
 </style>
 <div id="home-view" class="home-view">
   <div class="home-title">Kitchen App</div>
@@ -1166,7 +1173,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1783610704"></script>
+<script src="market-list.js?v=1783611113"></script>
 <!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
      on demand to keep cold-boot light on the always-on screens. -->
 <script>
@@ -1181,12 +1188,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     return window._lazyLoaded[src];
   };
   // Recipe data needed by app.js's renderRecipes(); fetched on demand.
-  window.LAZY_RECIPES = 'recipes.js?v=1783610704';
+  window.LAZY_RECIPES = 'recipes.js?v=1783611113';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1783610704').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1783610704').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1783610704').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1783611113').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1783611113').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1783611113').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1201,8 +1208,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     if (sect) sect.classList.toggle('open', !isOpen);
   }
 </script>
-<script src="common.js?v=1783610704"></script>
-<script src="app.js?v=1783610704"></script>
+<script src="common.js?v=1783611113"></script>
+<script src="app.js?v=1783611113"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
