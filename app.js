@@ -1668,6 +1668,94 @@ function openHome(){
   hideAllPages();
   document.getElementById('home-view').style.display='block';
   document.getElementById('foot-label').textContent='Kitchen App';
+  loadKitchenEvents();
+}
+// ══ KITCHEN EVENTS STRIP ══════════════════════════════════════════════
+// Confirmed FOH events for today → +KEV_DAYS days, shown at the top of the home
+// screen so the team is notified the day they have an event. Reads a scoped,
+// read-only feed from the FOH project — kitchen-safe fields ONLY (event name,
+// date, time, area, guests, dietary, menu + quantities); never prices or client
+// data. Empty window → the strip renders nothing. Each event prints a menu sheet.
+const FOH_EVENTS_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co/functions/v1/kitchen-events';
+const KEV_DAYS = 7;
+const KEV_ALG = {D:'dairy',E:'egg',H:'homemade',N:'nuts',R:'raw',S:'shellfish',V:'vegetarian'};
+let KEV_CACHE = {};
+function kevEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function kevAlg(a){ return (a||[]).map(function(c){ return KEV_ALG[c]||String(c).toLowerCase(); }).join(', '); }
+function kevDate(ds){ if(!ds) return {day:'',mon:'',full:''}; var d=new Date(String(ds).slice(0,10)+'T12:00:00');
+  return { day:d.getDate(), mon:d.toLocaleDateString('en-GB',{weekday:'short',month:'short'}),
+           full:d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) }; }
+async function loadKitchenEvents(){
+  var box = document.getElementById('kev-strip'); if(!box) return;
+  try{
+    var res = await fetch(FOH_EVENTS_URL + '?days=' + KEV_DAYS, { headers:{ 'x-proxy-secret':'Kitchen' } });
+    var data = await res.json();
+    KEV_CACHE = {};
+    (data.events||[]).forEach(function(e){ KEV_CACHE[e.id]=e; });
+    renderKitchenEvents(data.events||[], data.today);
+  }catch(err){ console.warn('[kitchen-events] load failed', err); box.innerHTML=''; }
+}
+function renderKitchenEvents(events, today){
+  var box = document.getElementById('kev-strip'); if(!box) return;
+  if(!events.length){ box.innerHTML=''; return; }
+  var todayEv = events.filter(function(e){ return e.date===today; });
+  var upcoming = events.filter(function(e){ return e.date!==today; });
+  var h = '<div class="kev-band"><span class="kev-band-t">Events</span></div>';
+  todayEv.forEach(function(e){ h += kevTodayCard(e); });
+  if(upcoming.length){
+    h += '<div class="kev-up-h">'+(todayEv.length?'Also coming up':'Coming up')+' · next '+KEV_DAYS+' days</div>';
+    upcoming.forEach(function(e){ h += kevUpRow(e); });
+  }
+  box.innerHTML = h;
+}
+function kevTodayCard(e){
+  var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
+  var rows = (e.menu||[]).map(function(m){
+    return '<div class="kev-prow"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+(m.comp?' <span class="kev-comp">on the house</span>':'')+
+      (kevAlg(m.allergens)?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+(m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
+      '</div><div class="kev-qty">'+(m.total!=null?m.total+' pcs':'—')+(m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+'</div></div>';
+  }).join('');
+  return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
+    '<div class="kev-name">'+kevEsc(e.name)+'</div><div class="kev-meta">'+meta+'</div></div>'+
+    '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
+    (rows? '<div class="kev-prep"><div class="kev-prep-h">To prepare</div>'+rows+
+      '<div class="kev-total"><span>Total</span><b>'+(e.total_pcs||0)+' pcs · '+(e.pcs_per_guest||0)+' / guest</b></div></div>' : '')+
+    (e.dietary? '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>':'')+'</div>';
+}
+function kevUpRow(e){
+  var d = kevDate(e.date);
+  var meta = [ (e.guests!=null?e.guests+' guests':''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
+  return '<div class="kev-up"><div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
+    '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+'</div><div class="kev-up-meta">'+meta+'</div></div>'+
+    '<button class="kev-print sm" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>';
+}
+function kevPrintMenu(id){
+  var e = KEV_CACHE[id]; if(!e) return;
+  var d = kevDate(e.date);
+  var rows = (e.menu||[]).map(function(m){
+    return '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(kevAlg(m.allergens))+'</span></td>'+
+      '<td style="text-align:center">'+(m.pcs_per_guest||0)+' / guest</td>'+
+      '<td style="text-align:right"><b>'+(m.total!=null?m.total+' pcs':'—')+'</b>'+(m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
+  }).join('');
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Kitchen menu — '+kevEsc(e.name)+'</title>'+
+    '<style>@page{margin:16mm}body{font-family:Georgia,serif;color:#2C1810;max-width:640px;margin:0 auto;padding:20px}'+
+    '.b{font-size:22px;letter-spacing:7px;color:#400207;text-align:center;margin:4px 0}'+
+    '.r{width:66px;height:1px;background:#C9A84C;margin:9px auto}'+
+    '.h{background:#400207;color:#E8D9C7;text-align:center;padding:7px;font-size:13px;letter-spacing:2px;margin-top:12px}'+
+    '.meta{text-align:center;font-size:13px;color:#6B4A33;margin:8px 0 4px}'+
+    'table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}td{padding:6px 8px;border:1px solid #E3D5C2}'+
+    'th{background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8A6A4F;padding:6px 8px;border:1px solid #E3D5C2;text-align:left}'+
+    '.diet{color:#b00020;font-size:12px;margin-top:8px}.btn{position:fixed;top:10px;right:10px}@media print{.btn{display:none}}'+
+    '</style></head><body>'+
+    '<div class="btn"><button onclick="window.print()" style="background:#400207;color:#E8D9C7;border:none;border-radius:8px;padding:10px 18px;font-family:Georgia,serif;font-size:14px;cursor:pointer">Print</button></div>'+
+    '<div class="b">R O B E R T O &rsquo; S</div><div class="r"></div><div class="h">KITCHEN — MENU &amp; QUANTITIES</div>'+
+    '<div class="meta"><b>'+kevEsc(e.name)+'</b><br>'+d.full+(e.guests!=null?' · '+e.guests+' guests':'')+([e.time_from,e.time_to].filter(Boolean).length?' · '+[e.time_from,e.time_to].filter(Boolean).join('–'):'')+(e.area?' · '+kevEsc(e.area):'')+'</div>'+
+    '<table><tr><th>Dish</th><th style="text-align:center">Per guest</th><th style="text-align:right">Total to prepare</th></tr>'+rows+
+    '<tr><td style="text-align:right"><b>Total</b></td><td></td><td style="text-align:right"><b>'+(e.total_pcs||0)+' pcs</b></td></tr></table>'+
+    (e.dietary?'<div class="diet"><b>Dietary — read before prep:</b> '+kevEsc(e.dietary)+'</div>':'')+
+    '</body></html>';
+  var w = window.open('','_blank'); if(!w){ alert('Allow pop-ups to print the menu'); return; }
+  w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.print(); }catch(err){} }, 350);
 }
 function openPrep(key){
   document.getElementById('section-tabs').style.display='flex';
@@ -1799,9 +1887,15 @@ const STATIONS_SCH = [
   { key: 'raw_bar',      label: 'Raw Bar / Starter' },
   { key: 'pasta',        label: 'Pasta' },
   { key: 'main',         label: 'Main Course' },
+  { key: 'basement',     label: 'Basement (Prep)' },
   { key: 'pastry_pizza', label: 'Pastry & Pizza' },
   { key: 'stewarding',   label: 'Stewarding' },
 ];
+// Section band colours — taken from the chefs' Excel, toned down to a calm rail.
+const SEC_COLOR = {
+  pass:'#b98f3e', raw_bar:'#3f92a8', pasta:'#9a9088', main:'#9c2b2b',
+  basement:'#c98a63', pastry_pizza:'#a9861f', stewarding:'#a7962b', __other:'#8a7d70'
+};
 
 const STATUS_META = {
   working: { label: '',    bg: 'working' },
@@ -1812,6 +1906,7 @@ const STATUS_META = {
   ph:      { label: 'PH',  bg: 'ph' },
   em:      { label: 'EM',  bg: 'em' },
   tr:      { label: 'TR',  bg: 'tr' },
+  cdo:     { label: 'CDO', bg: 'cdo' },
   cat:     { label: 'CAT', bg: 'cat' },
 };
 
@@ -1954,6 +2049,18 @@ function schedSubmitPin() {
 }
 
 // ── Data loading ──
+// Sections used to be hardcoded (STATIONS_SCH). They now live in the `sched_sections`
+// table so a chef can add/rename them. If the table isn't there yet (SQL not run),
+// we keep the hardcoded list — nothing breaks before the migration.
+async function loadSchedSections() {
+  try {
+    var res = await sb.from('sched_sections').select('*').eq('active', true).order('sort_order');
+    if (res.error || !res.data || !res.data.length) return;   // table missing/empty → keep defaults
+    var loaded = res.data.map(function(r){ return { key: r.section_key, label: r.label }; });
+    STATIONS_SCH.length = 0; loaded.forEach(function(s){ STATIONS_SCH.push(s); });
+  } catch (e) { /* keep the hardcoded defaults */ }
+}
+
 async function loadSchedData() {
   var weekEnd = formatDate(addDays(schedWeekStart, 13));
   var weekFrom = formatDate(addDays(schedWeekStart, -7));
@@ -2091,6 +2198,7 @@ function schedEffHours(staff, dateStr) {
 // Close an open shift (past day, no clock-out) using planned end. Lock-gated.
 function schedCloseShift(event, staffId, dateStr) {
   event.stopPropagation();
+  if (schedPlanMode) return;   // closing a real clock-out is a live action, not planning
   if (!schedGuard(function(){ schedCloseShift(event, staffId, dateStr); })) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff || !staff.emp_id) return;
@@ -2113,6 +2221,7 @@ function schedCloseShift(event, staffId, dateStr) {
 // Inline edit of COSEC employee ID. Lock-gated.
 function schedEditEmpId(event, staffId) {
   event.stopPropagation();
+  if (schedPlanMode) return;   // employee IDs are managed on the live schedule, not in the plan
   if (!schedGuard(function(){ schedEditEmpId(event, staffId); })) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff) return;
@@ -2187,6 +2296,7 @@ async function openScheduling() {
   document.getElementById('foot-label').textContent = 'Scheduling';
   if (!schedWeekStart) schedWeekStart = getMonday(new Date());
   schedUpdateLockBtn();
+  await loadSchedSections();        // section list (add/rename) — before rendering
   await loadSchedData();            // must load staff (emp_ids) BEFORE attendance,
   await loadAttendance();           // which now filters by those ids
   subscribeSchedRealtime();
@@ -2201,6 +2311,1888 @@ async function openScheduling() {
       else { clearInterval(window.schedAttTimer); window.schedAttTimer = null; }
     }, 5 * 60 * 1000);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  KITCHEN PLANNER — multi-week draft canvas (Phase 1, full build)
+//  A separate draft workspace spanning many weeks. It NEVER touches the live
+//  roster until you Publish. Draft lives in localStorage (autosaved); Publish
+//  upserts the plan into the live `roster` for the chosen dates only, taking a
+//  snapshot first so it can be reverted. Reads: staff + roster (read-only until
+//  publish). Grounded in: STATIONS_SCH (1797), STATUS_META (1806), roster
+//  onConflict staff_id,work_date (2552), DEV_READ_ONLY (13).
+// ══════════════════════════════════════════════════════════════════════════
+
+var kplFrom       = null;    // Monday of first week in the span
+var kplNumWeeks   = 0;       // span length (1..8)
+var kplVisible    = '';      // weeks shown on screen at once: '1'|'2'|'4'|'6'|'fit'
+var kplFilterSec  = 'all';
+var kplFilterPer  = 'all';
+var kplStaff      = [];       // active + in_schedule staff (own copy)
+var kplLive       = {};       // 'staffId|date' -> live roster row (read-only)
+var kplDraft      = {};       // 'staffId|date' -> {status,shift_start,...,notes}
+var kplMode       = 'preview';// 'preview' (live, read-only) | 'draft' (editable)
+var kplDirty      = false;
+var kplEditKey    = null;     // cell being edited
+var kplPaint      = null;     // {status} while paint mode armed
+var kplPainting   = false;
+var kplMins       = {};       // sectionKey -> {wd,we} coverage minimums
+var kplEnt        = {};       // staffId -> {off,al,ph} entitlement targets over the span
+var kplWkClip     = null;     // copied week index for copy→paste
+var kplMoreOpen   = false;    // is the "More" tool group expanded
+
+var KPL_STATUSES  = ['working','off','wo','al','ph','tr','em','sl','cdo'];
+// Colours taken straight from the chefs' Excel legend so the tool speaks their colour language.
+// off=red, WO=grey, holiday(al)=pink, PH=green, training=blue, emergency=purple, sick=orange, cancel-day-off=yellow.
+var KPL_COLOR     = { off:'#d21f1f', wo:'#8a7d70', al:'#d63aa0', ph:'#1f9d4d', tr:'#0070C0', em:'#7030A0', sl:'#c05a1e', cdo:'#c9a400', cat:'#c2410c' };
+// Plain-English names a diploma chef reads in 2 seconds (Valentina Rule 5 — no jargon).
+// The short code (OFF/WO/AL…) still shows small so it ties to the printed roster.
+var KPL_FRIENDLY  = { working:'Working', off:'Day off', wo:'Weekly off', al:'Holiday', ph:'Public holiday', tr:'Training', em:'Emergency', sl:'Sick', cdo:'Cancel day off', cat:'Catering' };
+function kplFriendly(st){ return KPL_FRIENDLY[st] || (STATUS_META[st]?(STATUS_META[st].label||st.toUpperCase()):st.toUpperCase()); }
+function kplCode(st){ return st==='working'?'':((STATUS_META[st]&&STATUS_META[st].label)||st.toUpperCase()); }
+var KPL_DEF_START = '14:00', KPL_DEF_END = '00:00';
+var KPL_DRAFT_LS  = 'kitchenPlanDraft';
+var KPL_VIEW_LS   = 'kitchenPlanView';
+var KPL_SNAP_LS   = 'kitchenPlanSnapshot';
+
+function kplKey(sid, ds){ return sid + '|' + ds; }
+function kplDateISO(wk, d){ return formatDate(addDays(kplFrom, wk*7 + d)); }
+function kplToday(){ return formatDate(new Date()); }
+function kplEntry(sid, ds){ return kplMode==='draft' ? kplDraft[kplKey(sid,ds)] : kplLive[kplKey(sid,ds)]; }
+// ── Draft-only team changes (held in the plan, applied on Publish) ──
+var kplDraftSec = {};   // staffId -> overridden station_key (a move you haven't published yet)
+var kplDraftOrd = {};   // staffId -> order number within its section (a reorder you haven't published yet)
+var kplNewStaff = [];   // brand-new people you added: {id:'new-<n>', name, designation, station_key, _new:true}
+var kplNewSeq   = 0;
+function kplAllPeople(){ return kplStaff.concat(kplNewStaff); }              // everyone shown on the board
+function kplEffSec(s){ return (kplMode==='draft' && kplDraftSec[s.id]) ? kplDraftSec[s.id] : s.station_key; }  // section after any draft move
+function kplEffOrd(s){ return (kplDraftOrd[s.id]!=null) ? kplDraftOrd[s.id] : (s.sort_order!=null ? s.sort_order : 9999); }
+function kplSections(){
+  var list = STATIONS_SCH.slice();
+  var known = {}; list.forEach(function(s){ known[s.key]=1; });
+  var extra = false;
+  kplAllPeople().forEach(function(s){ var k=kplEffSec(s); if(k && !known[k]) extra = true; });
+  if(extra) list = list.concat([{ key:'__other', label:'Other / Unassigned' }]);
+  return list;
+}
+function kplStaffInSec(secKey){
+  return kplAllPeople().filter(function(s){
+    var sk = kplEffSec(s);
+    var inSec = secKey==='__other' ? (!sk || !STATIONS_SCH.some(function(x){return x.key===sk;})) : (sk===secKey);
+    if(!inSec) return false;
+    if(kplFilterPer!=='all' && s.id!==kplFilterPer) return false;
+    return true;
+  }).sort(function(a,b){ return (kplEffOrd(a)-kplEffOrd(b)) || (a.name||'').localeCompare(b.name||''); });
+}
+
+// ── Open / close (Roster tool = the SAME schedule grid) ──
+var krtWeeks = 1;    // how many weeks shown at once (1 = single, else several)
+var krtSpanN = 4;    // remembered "several weeks" count
+
+// ════════════════════════════════════════════════════════════════════════
+//  PLANNING SANDBOX
+//  The Roster tool is a private draft. Every edit made while it is open goes
+//  into a draft held in memory + saved on this device — the REAL schedule is
+//  never touched until the chef presses "Bring live" (which publishes the
+//  week(s) they pick, names what changes, and can be undone).
+//
+//  How it works with zero change to how editing FEELS:
+//   • The tool reuses the exact schedule grid + editors (schedOpenEdit,
+//     schedMoveStaff, fill-teams…). Those write to the in-memory globals
+//     (schedRoster / schedStaff) and, normally, to the database.
+//   • While schedPlanMode is true, every one of those DB writes is skipped
+//     (one guard added at each write site) — so the edits live only in memory.
+//   • renderSchedWeek() then CAPTURES the difference (globals vs the live copy
+//     kept in kplLive/kplStaff) into the draft stores and saves them.
+//   • "Bring live" reuses the proven publish/undo (kplOpenPublish/kplDoPublish/
+//     kplRevert) to write only the ticked weeks and snapshot for undo.
+// ════════════════════════════════════════════════════════════════════════
+var schedPlanMode = false;              // true only while the Roster tool is open
+var SCHED_PLAN_LS = 'kitchenRosterDraftV2';
+
+// ── Section (add / rename / reorder / delete) held in the plan until Bring live ──
+var kplSecLive   = null;   // snapshot of the live section list [{key,label}] (baseline)
+var kplSecRename = {};      // liveKey -> new label (a rename you haven't brought live)
+var kplSecNew    = [];      // [{key,label}] brand-new sections added in the plan
+var kplSecOrder  = [];      // desired order of section keys (empty = default). Deleted keys are simply absent.
+// What section changes are in the plan (used by the counter, publish and the confirm text).
+function schedPlanSectionDiff(){
+  var live = (kplSecLive||[]);
+  var liveKeys = live.map(function(s){ return s.key; });
+  var defaultOrder = liveKeys.concat((kplSecNew||[]).map(function(s){ return s.key; }));
+  var order = (kplSecOrder && kplSecOrder.length) ? kplSecOrder.slice() : defaultOrder;
+  var deletes = liveKeys.filter(function(k){ return order.indexOf(k) < 0; });
+  var orderChanged = order.join(',') !== defaultOrder.filter(function(k){ return order.indexOf(k) >= 0; }).join(',');
+  var renames = Object.keys(kplSecRename||{});
+  return { order:order, deletes:deletes, orderChanged:orderChanged, renames:renames, adds:(kplSecNew||[]),
+           total: renames.length + (kplSecNew||[]).length + deletes.length + (orderChanged ? 1 : 0) };
+}
+// Make a stable, unique key for a new section from its name.
+function krtSectionKey(label){
+  var base = (label||'sec').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24) || 'sec';
+  var exists = function(kk){ return STATIONS_SCH.some(function(s){return s.key===kk;}) || (kplSecLive||[]).some(function(s){return s.key===kk;}); };
+  var k = base, n = 2; while(exists(k)){ k = base+'_'+n; n++; }
+  return k;
+}
+// Show the plan's sections (live list + renames + new + reorder − deletes) in the grid.
+function schedPlanApplySections(){
+  if(!kplSecLive) return;
+  var liveByKey = {}; kplSecLive.forEach(function(s){ liveByKey[s.key]=s; });
+  var newByKey  = {}; (kplSecNew||[]).forEach(function(s){ newByKey[s.key]=s; });
+  var d = schedPlanSectionDiff();
+  STATIONS_SCH.length = 0;
+  d.order.forEach(function(key){
+    if(!liveByKey[key] && !newByKey[key]) return;                 // gone (deleted) — skip
+    var label = (kplSecRename[key]!=null) ? kplSecRename[key]
+              : (newByKey[key] ? newByKey[key].label : liveByKey[key].label);
+    STATIONS_SCH.push({ key:key, label:label });
+    if(!SEC_COLOR[key]) SEC_COLOR[key] = '#8a7d70';
+  });
+}
+// Put the section list back to exactly the live one (used when the tool closes).
+function schedPlanRestoreLiveSections(){
+  if(!kplSecLive) return;
+  STATIONS_SCH.length = 0; kplSecLive.forEach(function(s){ STATIONS_SCH.push({ key:s.key, label:s.label }); });
+}
+
+function schedPlanWeeksCount(){ return (typeof krtWeeks !== 'undefined' && krtWeeks > 0) ? krtWeeks : 1; }
+
+// A single canonical signature per cell, so an empty "working" cell and a blank
+// cell count as the SAME (no false "changed" mark), and only real differences show.
+function schedPlanSig(row){
+  if(!row) return 'EMPTY';
+  var st = row.status || 'working';
+  if(st === 'working'){
+    var s=(row.shift_start||''), e=(row.shift_end||''), s2=(row.shift_start2||''), e2=(row.shift_end2||''), n=(row.notes||'');
+    if(!s && !e && !s2 && !e2 && !n) return 'EMPTY';
+    return 'W|'+s+'|'+e+'|'+s2+'|'+e2+'|'+n;
+  }
+  return st + '|' + (row.notes||'');
+}
+function schedPlanEntry(row){
+  return { status: row.status || 'working',
+    shift_start: row.shift_start||null, shift_end: row.shift_end||null,
+    shift_start2: row.shift_start2||null, shift_end2: row.shift_end2||null, notes: row.notes||null };
+}
+function schedPlanRowFromEntry(sid, ds, e){
+  return Object.assign({ staff_id: sid, work_date: ds }, e);
+}
+
+// Save / load the draft on this device (survives closing the tool and reopening).
+function schedPlanSaveDraft(){
+  kplDirty = true;
+  try{
+    localStorage.setItem(SCHED_PLAN_LS, JSON.stringify({
+      entries: kplDraft, secMoves: kplDraftSec, order: kplDraftOrd,
+      newStaff: kplNewStaff, newSeq: kplNewSeq,
+      secRename: kplSecRename, secNew: kplSecNew, secOrder: kplSecOrder, updatedAt: new Date().toISOString()
+    }));
+  }catch(e){ console.warn('plan draft save failed', e); }
+  schedPlanUpdateBadge();
+}
+function schedPlanLoadDraft(){ try{ return JSON.parse(localStorage.getItem(SCHED_PLAN_LS)||'null'); }catch(e){ return null; } }
+
+// Take a clean copy of the live roster/team as the "before" the draft sits on top of.
+function schedPlanSnapshotLive(){
+  kplLive = {}; Object.keys(schedRoster).forEach(function(k){ kplLive[k] = Object.assign({}, schedRoster[k]); });
+  kplStaff = schedStaff.map(function(s){ return Object.assign({}, s); });
+}
+// Paint the draft on top of the freshly loaded live data so the grid shows the plan.
+function schedPlanOverlay(){
+  schedStaff = kplStaff.map(function(s){ return Object.assign({}, s); });
+  var byId = {}; schedStaff.forEach(function(s){ byId[s.id] = s; });
+  (kplNewStaff||[]).forEach(function(np){ if(!byId[np.id]){ var c = Object.assign({}, np); schedStaff.push(c); byId[np.id] = c; } });
+  Object.keys(kplDraftSec||{}).forEach(function(id){ if(byId[id]) byId[id].station_key = kplDraftSec[id]; });
+  Object.keys(kplDraftOrd||{}).forEach(function(id){ if(byId[id]) byId[id].sort_order = kplDraftOrd[id]; });
+  schedStaff.sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order) - (b.sort_order==null?9999:b.sort_order)); });
+  schedRoster = {}; Object.keys(kplLive).forEach(function(k){ schedRoster[k] = Object.assign({}, kplLive[k]); });
+  Object.keys(kplDraft||{}).forEach(function(k){ var p = k.split('|'); schedRoster[k] = schedPlanRowFromEntry(p[0], p[1], kplDraft[k]); });
+}
+// After loading live for a new week/range, keep the draft and re-apply it.
+function schedPlanReseedFromLive(){ schedPlanSnapshotLive(); schedPlanApplySections(); schedPlanOverlay(); }
+
+// Rebuild the draft from what's on screen vs the live copy. Only touches the
+// dates currently loaded, so edits made on weeks you've navigated away from stay.
+function schedPlanCapture(){
+  var liveById = {}; kplStaff.forEach(function(s){ liveById[s.id] = s; });
+  var newStaff = [], secMoves = {}, order = {};
+  schedStaff.forEach(function(s){
+    var live = liveById[s.id];
+    if(!live){ newStaff.push({ id:s.id, name:s.name, designation:s.designation, station_key:s.station_key, sort_order:s.sort_order, _new:true }); return; }
+    if(s.station_key !== live.station_key) secMoves[s.id] = s.station_key;
+    var so = (s.sort_order==null?null:s.sort_order), lso = (live.sort_order==null?null:live.sort_order);
+    if(so !== lso && so != null) order[s.id] = s.sort_order;
+  });
+  kplNewStaff = newStaff; kplDraftSec = secMoves; kplDraftOrd = order;
+  // roster diffs, windowed to the loaded span
+  var winStart = addDays(schedWeekStart, -7);
+  var winDays  = schedPlanWeeksCount()*7 + 14;
+  for(var i=0;i<schedStaff.length;i++){
+    var sid = schedStaff[i].id;
+    for(var d=0; d<winDays; d++){
+      var ds = formatDate(addDays(winStart, d)), k = schedRosterKey(sid, ds);
+      if(schedPlanSig(schedRoster[k]) !== schedPlanSig(kplLive[k])) kplDraft[k] = schedPlanEntry(schedRoster[k] || {});
+      else if(kplDraft[k]) delete kplDraft[k];
+    }
+  }
+  schedPlanSaveDraft();
+}
+function schedPlanCountChanges(){
+  return Object.keys(kplDraft||{}).length + (kplNewStaff||[]).length +
+         Object.keys(kplDraftSec||{}).length + Object.keys(kplDraftOrd||{}).length +
+         schedPlanSectionDiff().total;
+}
+function schedPlanUpdateBadge(){
+  var n = schedPlanCountChanges();
+  var chip = document.getElementById('krt-changecount');
+  if(chip){ chip.textContent = n ? (n + ' change' + (n>1?'s':'') + ' not live') : 'No changes yet'; }
+  var btn = document.getElementById('krt-bringlive'); if(btn){ btn.style.opacity = n ? '1' : '.5'; }
+}
+
+// Turn on the sandbox when the tool opens: load any saved draft, then show live+draft.
+function schedPlanEnter(){
+  schedPlanMode = true;
+  kplMode = 'draft';
+  var saved = schedPlanLoadDraft();
+  kplDraft    = (saved && saved.entries)  || {};
+  kplDraftSec = (saved && saved.secMoves) || {};
+  kplDraftOrd = (saved && saved.order)    || {};
+  kplNewStaff = (saved && saved.newStaff) || [];
+  kplNewSeq   = (saved && saved.newSeq)   || 0;
+  kplSecRename = (saved && saved.secRename) || {};
+  kplSecNew    = (saved && saved.secNew)    || [];
+  kplSecOrder  = (saved && saved.secOrder)  || [];
+  kplSecLive   = STATIONS_SCH.map(function(s){ return { key:s.key, label:s.label }; });  // live baseline
+  schedPlanReseedFromLive();
+  schedPlanUpdateBadge();
+}
+// ── Sections manager (in the tool): rename, add, reorder (▲▼), delete — held in the plan ──
+function krtSectionRowHtml(key, label, isNew){
+  return '<div class="krt-sec-row" data-key="'+String(key||'')+'">' +
+    '<span class="krt-sec-move"><button type="button" onclick="krtSecMove(this,-1)" title="Move up">&#9650;</button>' +
+    '<button type="button" onclick="krtSecMove(this,1)" title="Move down">&#9660;</button></span>' +
+    '<input type="text" class="krt-sec-inp" value="'+String(label||'').replace(/"/g,'&quot;')+'"'+(label?'':' placeholder="New section name (e.g. Grill)"')+' />' +
+    (isNew ? '<span class="krt-sec-tag">new</span>' : '') +
+    '<button type="button" class="krt-sec-del" onclick="krtSecDelete(this)" title="Delete this section">&times;</button>' +
+    '</div>';
+}
+function krtOpenSections(){
+  if(typeof krtCloseActions === 'function') krtCloseActions();
+  var rows = STATIONS_SCH.map(function(s){
+    return krtSectionRowHtml(s.key, s.label, kplSecNew.some(function(n){ return n.key===s.key; }));
+  }).join('');
+  document.getElementById('kpl-modalhost').innerHTML =
+    '<div class="kpl-ov" onclick="krtCloseModal(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>Sections</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:12px">Type over a name to rename it, use <b>&#9650;&#9660;</b> to reorder, <b>&times;</b> to delete, or add a new one below. Nothing changes on the real schedule until you press <b>Bring live</b>.</div>'
+    + '<div id="krt-sec-list">'+rows+'</div>'
+    + '<button class="kpl-btn" onclick="krtAddSectionRow()" style="margin-top:10px">+ Add a section</button>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="kpl-btn" onclick="krtCloseModal()">Cancel</button><button class="kpl-btn primary" onclick="krtSaveSections()">Save to plan</button></div>'
+    + '</div></div>';
+}
+function krtAddSectionRow(){
+  var list = document.getElementById('krt-sec-list'); if(!list) return;
+  list.insertAdjacentHTML('beforeend', krtSectionRowHtml('', '', true));
+  var inp = list.lastElementChild.querySelector('input'); if(inp) inp.focus();
+}
+function krtSecMove(btn, dir){
+  var row = btn.closest('.krt-sec-row'); if(!row) return; var list = row.parentElement;
+  if(dir < 0 && row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
+  else if(dir > 0 && row.nextElementSibling) list.insertBefore(row.nextElementSibling, row);
+}
+function krtSecDelete(btn){
+  var row = btn.closest('.krt-sec-row'); if(!row) return;
+  var key = row.getAttribute('data-key');
+  var name = (row.querySelector('input').value || '').trim() || 'this section';
+  // Don't orphan people — a section with anyone in it must be emptied first.
+  var count = key ? schedStaff.filter(function(s){ return s.station_key === key; }).length : 0;
+  if(count > 0){ alert('“'+name+'” has '+count+' '+(count===1?'person':'people')+' in it.\n\nMove them to another section first (the ↔ Move button on each person), then you can delete it.'); return; }
+  if(key && !confirm('Delete the section “'+name+'”? It goes when you press Bring live — and you can still undo it.')) return;
+  row.parentElement.removeChild(row);
+}
+function krtSaveSections(){
+  var liveByKey = {}; (kplSecLive||[]).forEach(function(s){ liveByKey[s.key]=s; });
+  var prevNewByKey = {}; (kplSecNew||[]).forEach(function(n){ prevNewByKey[n.key]=n; });
+  var rename = {}, adds = [], order = [];
+  Array.prototype.forEach.call(document.querySelectorAll('#krt-sec-list .krt-sec-row'), function(r){
+    var key = r.getAttribute('data-key');
+    var label = (r.querySelector('input').value || '').trim();
+    if(!label) return;                                   // blank row = skip
+    if(key && liveByKey[key]){                            // existing live section
+      if(label !== liveByKey[key].label) rename[key] = label;
+      order.push(key);
+    } else {                                              // a new section (added this plan)
+      var k = key || krtSectionKey(label);
+      adds.push({ key:k, label:label });
+      order.push(k);
+    }
+  });
+  kplSecRename = rename; kplSecNew = adds; kplSecOrder = order;
+  schedPlanApplySections();
+  schedPlanSaveDraft();
+  renderSchedWeek();
+  krtCloseModal();
+}
+
+// ── Copy a whole week → paste into another, right on the week header (several-weeks view) ──
+var krtWeekClip = null;   // Monday ISO of the week you've copied, ready to paste
+function krtWeekCopy(mon){ krtWeekClip = mon; krtRender(); }
+function krtWeekCancelCopy(){ krtWeekClip = null; krtRender(); }
+// The Copy / Paste / Clear tabs for ONE week — used by BOTH the one-week bar and the
+// several-weeks header so they can never drift apart.
+function krtWeekTabsHtml(wmon){
+  var tab;
+  if(!krtWeekClip){ tab = '<button class="krt-wk-btn" onclick="krtWeekCopy(\''+wmon+'\')" title="Copy this whole week">Copy</button>'; }
+  else if(krtWeekClip === wmon){ tab = '<span class="krt-wk-copied">Copied</span><button class="krt-wk-btn" onclick="krtWeekCancelCopy()">Cancel</button>'; }
+  else { tab = '<button class="krt-wk-btn paste" onclick="krtWeekPaste(\''+wmon+'\')" title="Replace this week with the copied one">Paste here</button>'; }
+  tab += '<button class="krt-wk-btn clear" onclick="krtClearWeek(\''+wmon+'\')" title="Clear this week — remove all shifts, keep the names">Clear</button>';
+  return tab;
+}
+function krtWeekPaste(tgtMon){
+  if(!krtWeekClip || krtWeekClip === tgtMon) return;
+  var srcMon = getMonday(new Date(krtWeekClip + 'T12:00:00'));
+  var tMon   = getMonday(new Date(tgtMon      + 'T12:00:00'));
+  var srcLabel = srcMon.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  var tLabel   = tMon.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  if(!confirm('Paste the week of '+srcLabel+' into the week of '+tLabel+'?\n\nIt replaces that week in your plan. (Nothing goes live until you Bring live.)')) return;
+  for(var d=0; d<7; d++){
+    var sds = formatDate(addDays(srcMon, d)), tds = formatDate(addDays(tMon, d));
+    schedStaff.forEach(function(s){
+      var sk = schedRosterKey(s.id, sds), tk = schedRosterKey(s.id, tds);
+      var src = schedRoster[sk] || null;   // effective plan for the source week (live + your draft)
+      var e = src ? { status:src.status||'working', shift_start:src.shift_start||null, shift_end:src.shift_end||null,
+                      shift_start2:src.shift_start2||null, shift_end2:src.shift_end2||null, notes:src.notes||null }
+                  : { status:'working', shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:null };
+      if(schedPlanSig(e) !== schedPlanSig(kplLive[tk] || null)){ kplDraft[tk] = e; }
+      else if(kplDraft[tk]){ delete kplDraft[tk]; }
+    });
+  }
+  krtWeekClip = null;
+  schedPlanSaveDraft(); schedPlanApplySections(); schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
+}
+// Clear a whole week back to empty — names stay, every shift removed. Draft only.
+function krtClearWeek(mon){
+  if(typeof krtCloseActions === 'function') krtCloseActions();
+  var m = getMonday(new Date(mon + 'T12:00:00'));
+  var mLabel = m.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  if(!confirm('Clear the whole week of '+mLabel+'?\n\nEvery shift that week is removed — the names stay, but the week is empty. This is in your plan; nothing goes live until Bring live, and you can undo.')) return;
+  for(var d=0; d<7; d++){
+    var ds = formatDate(addDays(m, d));
+    schedStaff.forEach(function(s){
+      var k = schedRosterKey(s.id, ds);
+      if(schedPlanSig(kplLive[k] || null) !== 'EMPTY'){ kplDraft[k] = { status:'working', shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:null }; }
+      else if(kplDraft[k]){ delete kplDraft[k]; }
+    });
+  }
+  krtWeekClip = null;
+  schedPlanSaveDraft(); schedPlanApplySections(); schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
+}
+
+// "Bring live" — reuse the proven publish dialog (week checkboxes + undo).
+function schedPlanOpenPublish(){
+  if(typeof krtCloseActions === 'function') krtCloseActions();
+  if(!schedPlanCountChanges()){ alert('There are no changes to bring live yet.\n\nPlan some shifts first — set times, days off, teams — then press Bring live.'); return; }
+  kplMode = 'draft';
+  kplFrom = schedWeekStart;
+  kplNumWeeks = schedPlanWeeksCount();
+  kplOpenPublish();
+}
+// After a publish or undo, reload clean live and re-derive the draft (published
+// weeks now match live, so their "changed" marks clear on their own).
+async function schedPlanAfterWrite(){
+  await loadSchedSections();                 // pick up any section add/rename that just went live
+  if(schedPlanWeeksCount() > 1){ await krtLoadRange(schedPlanWeeksCount()); } else { await loadSchedData(); }
+  kplSecLive = STATIONS_SCH.map(function(s){ return { key:s.key, label:s.label }; });   // new live baseline
+  kplSecRename = {}; kplSecNew = []; kplSecOrder = [];   // section draft is now live
+  schedPlanSnapshotLive();
+  schedPlanApplySections();
+  schedPlanOverlay();
+  schedPlanCapture();
+  if(typeof krtRender === 'function') krtRender();
+  schedPlanUpdateBadge();
+}
+function kplOpen(){
+  var sview = document.getElementById('scheduling-view'); if(sview) sview.style.display = 'none';
+  var fb = document.querySelector('.footer-bar'); if(fb) fb.style.display='none';
+  if(!schedWeekStart) schedWeekStart = getMonday(new Date());
+  var el = document.getElementById('kpl-full');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'kpl-full';
+    el.style.cssText = 'position:fixed;inset:0;z-index:4000;display:flex;flex-direction:column;background:var(--cream);overflow:hidden';
+    el.innerHTML = KRT_SHELL();
+    document.body.appendChild(el);
+    document.addEventListener('click', function(e){ var m=document.getElementById('krt-actmenu'); if(m&&m.classList.contains('open')&&!(e.target.closest&&e.target.closest('.krt-act-wrap'))) m.classList.remove('open'); });
+  } else { el.style.display='flex'; }
+  document.getElementById('krt-grid').innerHTML = '<div style="padding:40px;text-align:center;color:var(--vino-light);font-style:italic">Loading the schedule…</div>';
+  krtRender();
+  loadSchedSections().then(loadSchedData).then(function(){ schedPlanEnter(); krtRender(); });
+}
+function krtWeekLabel(){
+  var e = addDays(schedWeekStart,6);
+  return schedWeekStart.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + ' – ' + e.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+function krtRender(){
+  var lbl = document.getElementById('krt-weeklabel'); if(lbl) lbl.textContent = krtWeekLabel();
+  var s1=document.getElementById('krt-seg-1'), sn=document.getElementById('krt-seg-n');
+  if(s1&&sn){ s1.classList.toggle('on', krtWeeks===1); sn.classList.toggle('on', krtWeeks>1); }
+  var step=document.getElementById('krt-stepper'); if(step) step.style.display = krtWeeks>1 ? 'inline-flex' : 'none';
+  var wrap = document.getElementById('krt-grid'); if(!wrap) return;
+  if(krtWeeks===1){
+    var ws1=schedWeekStart, we1=addDays(ws1,6);
+    var lbl1='Week of '+ws1.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' &ndash; '+we1.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+    var bar='<div class="krt-oneweek-bar"><span>'+lbl1+'</span><span class="krt-wk-actions">'+krtWeekTabsHtml(formatDate(ws1))+'</span></div>';
+    wrap.innerHTML = bar + schedWeekTableHtml(schedWeekStart, {controls:true});   // the exact same grid the team uses, with the week bar on top
+    return;
+  }
+  // Several weeks side by side — one grid, weeks flow left→right (fully interactive).
+  wrap.innerHTML = schedMultiWeekTableHtml(schedWeekStart, krtWeeks);
+}
+function krtBusy(){ document.getElementById('krt-grid').innerHTML='<div style="padding:36px;text-align:center;color:var(--vino-light);font-style:italic">Loading…</div>'; }
+function krtLoad(){ return krtWeeks>1 ? krtLoadRange(krtWeeks) : loadSchedData(); }
+async function krtLoadRange(numWeeks){
+  var from = formatDate(addDays(schedWeekStart,-7));
+  var to   = formatDate(addDays(schedWeekStart, numWeeks*7+6));
+  var res = await Promise.all([
+    sb.from('staff').select('*').eq('active',true).order('sort_order'),
+    sb.from('roster').select('*').gte('work_date',from).lte('work_date',to).limit(8000),
+    sb.from('sched_events').select('*').gte('event_date',from).lte('event_date',to).limit(3000)
+  ]);
+  schedStaff = (res[0].data||[]).filter(function(s){ return s.in_schedule!==false; });
+  schedRoster = {}; (res[1].data||[]).forEach(function(r){ schedRoster[schedRosterKey(r.staff_id, String(r.work_date).slice(0,10))]=r; });
+  schedEvents = {}; if(res[2] && !res[2].error){ (res[2].data||[]).forEach(function(e){ var d=String(e.event_date).slice(0,10); (schedEvents[d]=schedEvents[d]||[]).push({slot:e.slot||1,name:e.name}); }); }
+}
+// After (re)loading live for a week/range: in planning mode keep the draft on top.
+function krtAfterLoad(){ if(schedPlanMode) schedPlanReseedFromLive(); krtRender(); schedPlanUpdateBadge(); }
+function krtSetWeeks(n){ n=parseInt(n,10)||1; krtWeeks=n; if(n>1) krtSpanN=n; krtBusy(); krtLoad().then(krtAfterLoad); }
+function krtShift(n){ schedWeekStart = addDays(schedWeekStart, n*7); krtBusy(); krtLoad().then(krtAfterLoad); }
+function krtToday(){ schedWeekStart = getMonday(new Date()); krtBusy(); krtLoad().then(krtAfterLoad); }
+// Read-only coverage check across the weeks on screen — flags any section that has
+// NOBODY on duty on a given day. Nothing else, nothing changes.
+function krtCoverage(){
+  var weeks = krtWeeks<1?1:krtWeeks;
+  var holes=[];
+  var isWorking=function(sid, ds){ var r=schedRoster[schedRosterKey(sid,ds)]; return r && r.status==='working' && r.shift_start && r.shift_end; };
+  for(var w=0; w<weeks; w++){
+    for(var d=0; d<7; d++){
+      var day=addDays(schedWeekStart, w*7+d), ds=formatDate(day);
+      // Closed day? If nobody is working anywhere in the kitchen, treat it as closed and
+      // skip it — no point flagging every section as empty when we're simply not open.
+      var kitchenOpen=schedStaff.some(function(s){ return isWorking(s.id, ds); });
+      if(!kitchenOpen) continue;
+      STATIONS_SCH.forEach(function(st){
+        var people=schedStaff.filter(function(s){ return s.station_key===st.key; });
+        var working=people.filter(function(s){ return isWorking(s.id, ds); });
+        if(people.length && working.length===0) holes.push({sec:st.label, day:day});
+      });
+    }
+  }
+  function dfmt(dt){ return dt.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}); }
+  var body = !holes.length
+    ? '<div style="background:#eef3ec;border:1px solid #a9d8bf;border-radius:8px;padding:10px 12px;color:#0f5132">Every section has someone on duty every day.</div>'
+    : '<div class="kpl-lbl" style="margin-bottom:5px">Sections with nobody on duty</div><ul style="margin:0;padding-left:18px;font-size:13px;color:#a8342a">'
+        + holes.slice(0,14).map(function(h){ return '<li>'+h.sec+' — '+dfmt(h.day)+'</li>'; }).join('')
+        + (holes.length>14?'<li>…and '+(holes.length-14)+' more</li>':'') + '</ul>';
+  document.getElementById('kpl-modalhost').innerHTML =
+    '<div class="kpl-ov" onclick="krtCloseModal(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>Coverage — '+(weeks===1?'this week':weeks+' weeks')+'</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:12px">A quick read of the weeks on screen. Nothing changes — this just points out gaps.</div>'
+    + body
+    + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="kpl-btn primary" onclick="krtCloseModal()">Close</button></div>'
+    + '</div></div>';
+}
+function krtCloseModal(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+
+// ── One-tap planning helpers (write LIVE, always after a clear confirm — Francesco's choice) ──
+function krtWeekDates(weekStart){ var a=[]; for(var d=0;d<7;d++) a.push(formatDate(addDays(weekStart,d))); return a; }
+function krtSectionPeople(stKey){ return schedStaff.filter(function(s){ return s.station_key===stKey; })
+  .sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order)) || (a.name||'').localeCompare(b.name||''); }); }
+function krtRosterPayload(sid, ds, status, s1, e1, s2, e2){
+  var working = status==='working';
+  return { staff_id:sid, work_date:ds, status:status,
+    shift_start:working?(s1||null):null, shift_end:working?(e1||null):null,
+    shift_start2:working?(s2||null):null, shift_end2:working?(e2||null):null,
+    updated_at:new Date().toISOString() };
+}
+// Pure builders (no writes) — easy to reason about and to check.
+function krtBuildFillTeams(weekStart){
+  var dates=krtWeekDates(weekStart), payloads=[];
+  STATIONS_SCH.forEach(function(st){
+    krtSectionPeople(st.key).forEach(function(s, idx){
+      dates.forEach(function(ds){
+        if(idx===0) payloads.push(krtRosterPayload(s.id, ds, 'working','10:00','15:00','19:00','00:00'));  // lunch split
+        else        payloads.push(krtRosterPayload(s.id, ds, 'working','15:00','03:00', null, null));       // dinner
+      });
+    });
+  });
+  return payloads;
+}
+// TOP UP each person to 2 days off — counting the days off / leave they ALREADY have
+// that week, so it never stacks extra on someone who already has one. Only the quiet
+// days (Mon/Tue/Wed/Sun) are used, never the busy nights (Thu–Sat), and only a plain
+// working day is turned into a day off (an existing shift-swap/training day is left alone).
+var KRT_DAYSOFF_TARGET = 2;   // max weekly days off per person
+function krtBuildDaysOff(weekStart){
+  var dates=krtWeekDates(weekStart), payloads=[];
+  var DAYOFF=['off','wo'];                   // ONLY genuine days off count toward the 2 — annual leave / PH are separate, not counted
+  var quiet=[0,1,2,6];                       // Mon, Tue, Wed, Sun (indexes) — never Thu(3)/Fri(4)/Sat(5)
+  var gi=0;
+  STATIONS_SCH.forEach(function(st){
+    krtSectionPeople(st.key).forEach(function(s){
+      var statusOn=function(di){ var r=schedRoster[schedRosterKey(s.id,dates[di])]; return (r&&r.status)||'working'; };
+      var have=0; for(var d=0; d<7; d++){ if(DAYOFF.indexOf(statusOn(d))>=0) have++; }
+      var need=KRT_DAYSOFF_TARGET - have;
+      if(need<=0){ gi++; return; }            // already has 2 days off — add nothing
+      // a day off can only replace a PLAIN WORKING quiet day — never a busy night, and never
+      // an annual-leave / PH / sick day the chef has already put in.
+      var eligible=quiet.filter(function(di){ return statusOn(di)==='working'; });
+      var start=gi % (eligible.length||1);    // stagger which quiet days each person gets
+      for(var k=0; k<eligible.length && need>0; k++){ payloads.push(krtRosterPayload(s.id, dates[eligible[(start+k)%eligible.length]], 'off')); need--; }
+      gi++;
+    });
+  });
+  return payloads;
+}
+// Give each person ONE full week off (Holiday), spread SECTION BY SECTION across the weeks
+// on screen — within a section people go on different weeks, and sections are offset so no
+// single week gets overloaded and no section is gutted in one week.
+function krtBuildWeekOff(){
+  var payloads=[];
+  var groups=[], known={};
+  STATIONS_SCH.forEach(function(st){ known[st.key]=1; groups.push(krtSectionPeople(st.key)); });
+  var others=schedStaff.filter(function(s){ return !known[s.station_key]; })
+    .sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order)); });
+  if(others.length) groups.push(others);
+  groups.forEach(function(people, si){
+    people.forEach(function(s, j){
+      var wk=(j + si) % krtWeeks;                          // rotate within the section, offset per section
+      var ws=addDays(schedWeekStart, wk*7);
+      krtWeekDates(ws).forEach(function(ds){ payloads.push(krtRosterPayload(s.id, ds, 'al')); });
+    });
+  });
+  return payloads;
+}
+async function krtWriteRoster(payloads){
+  if(!payloads.length) return 0;
+  payloads.forEach(function(p){ var k=schedRosterKey(p.staff_id,p.work_date); schedRoster[k]=Object.assign({}, schedRoster[k]||{}, p); });
+  if(schedPlanMode){ schedPlanCapture(); krtRender(); return payloads.length; }   // planning: into the draft, not the live DB
+  krtRender();
+  if(!DEV_READ_ONLY){
+    var res = await sb.from('roster').upsert(payloads,{onConflict:'staff_id,work_date'});
+    if(res.error){ alert('Could not save: '+res.error.message+(String(res.error.message).indexOf('read-only')>=0?' (unlock the DEV badge on the dev site).':'')); return -1; }
+  }
+  return payloads.length;
+}
+async function krtFillTeams(){
+  krtCloseActions();
+  if(!schedStaff.length) return;
+  if(!confirm('Set lunch & dinner teams for '+krtWeekLabel()+'?\n\nThis REPLACES everyone’s shifts that week — 1 person per section on the lunch split (10:00–15:00 / 19:00–00:00), the rest on dinner (15:00–03:00), for '+schedStaff.length+' people. Set days off afterwards with “Give everyone their days off”.')) return;
+  await krtWriteRoster(krtBuildFillTeams(schedWeekStart));
+}
+async function krtGiveDaysOff(){
+  krtCloseActions();
+  if(!schedStaff.length) return;
+  var payloads = krtBuildDaysOff(schedWeekStart);
+  if(!payloads.length){ alert('Everyone already has their 2 days off in '+krtWeekLabel()+' — nothing to add.'); return; }
+  if(!confirm('Top everyone up to 2 days off in '+krtWeekLabel()+'?\n\nOnly real days off count toward the 2 — annual leave and public holidays are left as they are. Anyone already on 2 gets nothing more. New days off land on the quiet days, never Thu–Sat. This adds '+payloads.length+' day(s) off across the team.')) return;
+  await krtWriteRoster(payloads);
+}
+async function krtGiveWeekOff(){
+  krtCloseActions();
+  if(krtWeeks<2){ alert('Switch to “Several weeks” first — then everyone gets a staggered week off spread across those weeks.'); return; }
+  if(!schedStaff.length) return;
+  if(!confirm('Give everyone a staggered week off across the '+krtWeeks+' weeks on screen?\n\nEach person gets one full week marked as Holiday, spread section by section so no section is left short in the same week. This replaces those days for '+schedStaff.length+' people.')) return;
+  await krtWriteRoster(krtBuildWeekOff());
+}
+function krtToggleActions(ev){
+  if(ev) ev.stopPropagation();
+  var m=document.getElementById('krt-actmenu'); if(!m) return;
+  m.classList.toggle('open');
+  // Keep the menu on screen: on a narrow view the button can sit near the left edge,
+  // and a right-aligned menu would run off the left. Flip it left when that happens.
+  if(m.classList.contains('open')){
+    m.style.left=''; m.style.right='0';
+    var r=m.getBoundingClientRect();
+    if(r.left < 8){
+      var wrap=m.parentElement.getBoundingClientRect();
+      m.style.right='auto';
+      m.style.left=(8 - wrap.left)+'px';
+    }
+  }
+}
+function krtCloseActions(){ var m=document.getElementById('krt-actmenu'); if(m) m.classList.remove('open'); }
+function krtClose(){
+  schedPlanMode = false;                 // back to live editing on the real schedule
+  schedPlanRestoreLiveSections();        // drop any draft section add/rename from the live list
+  var el=document.getElementById('kpl-full'); if(el) el.style.display='none';
+  var sview=document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
+  var fb=document.querySelector('.footer-bar'); if(fb) fb.style.display='flex';
+  // Reload the untouched live data so the real schedule never shows the draft.
+  if(typeof loadSchedData==='function' && schedWeekStart) loadSchedData().then(renderSchedView);
+  else if(typeof renderSchedView==='function') renderSchedView();
+}
+function KRT_SHELL(){
+  return `
+  <style>
+  #kpl-full *{box-sizing:border-box}
+  #kpl-full{font-family:var(--font-sans)}
+  #kpl-full .krt-top{background:var(--vino);color:#f6ece0;display:flex;align-items:center;gap:16px;padding:11px 18px;flex-shrink:0;border-bottom:3px solid var(--sabbia);flex-wrap:wrap}
+  #kpl-full .krt-back{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);color:#f6ece0;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:11px;letter-spacing:1px;text-transform:uppercase}
+  #kpl-full .krt-brand{display:flex;flex-direction:column;line-height:1.05}
+  #kpl-full .krt-brand .n{font-family:var(--font-serif);font-size:20px;letter-spacing:2px}
+  #kpl-full .krt-brand .s{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#d9c3ad;margin-top:2px}
+  #kpl-full .krt-nav{display:flex;align-items:center;gap:8px}
+  #kpl-full .krt-nav button{background:transparent;border:1px solid rgba(255,255,255,.28);color:#f6ece0;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:15px;line-height:1}
+  #kpl-full .krt-nav button:hover{background:rgba(255,255,255,.12)}
+  #kpl-full .krt-nav .today{width:auto;padding:0 10px;font-size:11px}
+  #kpl-full .krt-lbl{font-family:var(--font-serif);font-size:15px;min-width:220px;text-align:center}
+  #kpl-full .krt-seg{display:inline-flex;background:rgba(0,0,0,.16);border-radius:9px;padding:3px}
+  #kpl-full .krt-seg button{background:transparent;border:0;color:#e7d3bf;padding:6px 13px;border-radius:7px;cursor:pointer;font-size:12.5px}
+  #kpl-full .krt-seg button.on{background:var(--sabbia);color:var(--vino);font-weight:600}
+  #kpl-full .krt-stepper{display:none;align-items:center;gap:6px;color:#e7d3bf;font-size:12px}
+  #kpl-full .krt-stepper select{font-size:12.5px;padding:5px 7px;border:1px solid rgba(255,255,255,.3);border-radius:7px;color:var(--vino);background:var(--sabbia)}
+  #kpl-full .krt-weekband{background:var(--vino);color:#f6ece0;font-family:var(--font-serif);font-size:15px;padding:8px 14px;border-radius:10px 10px 0 0;margin-top:20px;letter-spacing:.4px}
+  #kpl-full .krt-weekband .sub{font-family:var(--font-sans);font-size:11px;color:#d9c3ad;letter-spacing:.3px;margin-left:8px;text-transform:none}
+  #kpl-full .krt-act-wrap{position:relative}
+  #kpl-full .krt-act-btn{background:var(--sabbia);color:var(--vino);border:0;border-radius:8px;padding:8px 15px;font-size:13.5px;font-weight:600;cursor:pointer}
+  #kpl-full .krt-changed-chip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:rgba(0,0,0,.16);color:#f6ece0;font-size:11.5px;padding:6px 11px;border-radius:20px;white-space:nowrap}
+  #kpl-full .krt-changed-chip::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--oro)}
+  #kpl-full .krt-bring{background:var(--oro);color:#2a1a10;border:0;border-radius:8px;padding:9px 17px;font-size:13.5px;font-weight:700;cursor:pointer;letter-spacing:.3px}
+  #kpl-full .krt-bring:hover{filter:brightness(1.06)}
+  #kpl-full .sch-plan-changed{position:relative}
+  #kpl-full .sch-plan-changed .sch-shift{box-shadow:0 0 0 2px var(--oro)}
+  #kpl-full .sch-plan-changed::after{content:'';position:absolute;top:3px;right:3px;width:9px;height:9px;background:var(--oro);border-radius:50%;border:2px solid var(--cream);z-index:2}
+  #kpl-full .sch-plan-newbadge{font-size:9px;background:var(--vino);color:#f6ece0;padding:1px 6px;border-radius:10px;margin-left:6px;vertical-align:middle;letter-spacing:.5px}
+  #kpl-full .sch-multi thead th{position:static}
+  #kpl-full .sch-multi thead th.sch-th-name{position:sticky;left:0;z-index:6;min-width:190px}
+  #kpl-full .sch-multi td.sch-td-name{z-index:3;min-width:190px;max-width:190px}
+  #kpl-full .sch-multi .sch-events-label{z-index:3}
+  #kpl-full .sch-multi .sch-td-namemulti{display:flex;align-items:center;gap:3px}
+  #kpl-full .sch-multi .sch-multi-info{display:flex;flex-direction:column;line-height:1.15;min-width:0;overflow:hidden}
+  #kpl-full .sch-multi .sch-multi-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #kpl-full .sch-multi .sch-multi-role{font-size:10px;color:var(--vino-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+  #kpl-full .sch-multi .sch-weekgroup{background:var(--vino);color:var(--cream);font-family:var(--font-serif);font-size:13px;letter-spacing:.4px;border-left:3px solid var(--sabbia)}
+  #kpl-full .sch-multi .sch-weekstart{border-left:3px solid var(--vino-light)}
+  #kpl-full .krt-sec-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  #kpl-full .krt-sec-row .krt-sec-inp{flex:1;font-size:14px;padding:8px 10px;border:1px solid rgba(65,2,7,.25);border-radius:8px;background:var(--cream);color:var(--ink);font-family:var(--font-sans)}
+  #kpl-full .krt-sec-tag{font-size:10px;background:var(--oro);color:#2a1a10;padding:2px 7px;border-radius:10px;font-weight:700;letter-spacing:.5px}
+  #kpl-full .krt-sec-move{display:inline-flex;flex-direction:column;line-height:.7}
+  #kpl-full .krt-sec-move button{background:transparent;border:0;color:var(--vino-light);cursor:pointer;font-size:11px;padding:1px 3px;border-radius:3px}
+  #kpl-full .krt-sec-move button:hover{color:#fff;background:var(--vino)}
+  #kpl-full .krt-sec-del{background:transparent;border:1px solid rgba(65,2,7,.2);color:var(--vino);cursor:pointer;font-size:16px;line-height:1;width:30px;height:32px;border-radius:8px;flex-shrink:0}
+  #kpl-full .krt-sec-del:hover{background:#7f1d1d;color:#fff;border-color:#7f1d1d}
+  #kpl-full .krt-oneweek-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--vino);color:#f6ece0;font-family:var(--font-serif);font-size:15px;padding:8px 14px;border-radius:10px 10px 0 0;margin-bottom:0}
+  #kpl-full .krt-wk-hd{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+  #kpl-full .krt-wk-actions{display:inline-flex;align-items:center;gap:6px}
+  #kpl-full .krt-wk-btn{background:var(--sabbia);color:var(--vino);border:0;border-radius:6px;padding:3px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font-sans);text-transform:none;letter-spacing:0}
+  #kpl-full .krt-wk-btn:hover{filter:brightness(1.05)}
+  #kpl-full .krt-wk-btn.paste{background:var(--oro);color:#2a1a10}
+  #kpl-full .krt-wk-btn.clear{background:transparent;color:var(--sabbia);border:1px solid rgba(255,255,255,.4)}
+  #kpl-full .krt-wk-btn.clear:hover{background:#7f1d1d;color:#fff;border-color:#7f1d1d;filter:none}
+  #kpl-full .krt-wk-copied{font-size:11px;color:var(--sabbia);font-style:italic;text-transform:none;letter-spacing:0}
+  #kpl-full .krt-act-menu{position:absolute;right:0;top:calc(100% + 8px);width:250px;max-width:calc(100vw - 24px);background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:12px;box-shadow:0 14px 40px rgba(65,2,7,.22);padding:8px;z-index:4300;display:none}
+  #kpl-full .krt-act-menu.open{display:block}
+  #kpl-full .krt-act-menu .grp{font-family:var(--font-serif);font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--vino);padding:9px 12px 5px}
+  #kpl-full .krt-act-menu .item{padding:9px 12px;border-radius:8px;font-size:13.5px;color:var(--ink);cursor:pointer}
+  #kpl-full .krt-act-menu .item:hover{background:var(--sabbia-light)}
+  #kpl-full .krt-hint{font-size:12px;color:var(--vino-light);padding:9px 18px 0}
+  #kpl-full .krt-grid-wrap{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px 16px 30px}
+  #kpl-full .kpl-ov{position:fixed;inset:0;z-index:4400;background:rgba(30,10,10,.42);display:flex;align-items:center;justify-content:center;padding:16px}
+  #kpl-full .kpl-modal{background:var(--cream);border-radius:14px;max-width:520px;width:100%;max-height:88vh;overflow:auto;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+  #kpl-full .kpl-modal h3{margin:0 0 10px;font-family:var(--font-serif);color:var(--vino);font-size:19px}
+  #kpl-full .kpl-btn{border:1px solid rgba(65,2,7,.28);background:var(--cream);color:var(--vino);border-radius:7px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-weight:600}
+  #kpl-full .kpl-btn.primary{background:var(--vino);color:#fff;border-color:var(--vino)}
+  #kpl-full .kpl-lbl{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--vino-light)}
+  #kpl-full .kpl-qbtn{border:1px solid rgba(65,2,7,.2);background:var(--cream);border-radius:9px;padding:9px 10px;font-size:12.5px;cursor:pointer;font-weight:600;text-align:center}
+  #kpl-full .kpl-sel{font-family:var(--font-sans);font-size:12px;padding:5px 7px;border:1px solid rgba(65,2,7,.25);border-radius:6px;color:var(--vino);background:var(--cream)}
+  #kpl-full input[type=time],#kpl-full input[type=text],#kpl-full input[type=number]{font-family:var(--font-sans);font-size:14px;padding:8px 9px;border:1px solid rgba(65,2,7,.25);border-radius:8px;background:var(--cream);color:var(--ink)}
+  </style>
+  <div class="krt-top">
+    <button class="krt-back" onclick="krtClose()">&#8592; Schedule</button>
+    <div class="krt-brand"><span class="n">ROBERTO'S</span><span class="s">Kitchen Roster &mdash; Planning</span></div>
+    <div class="krt-nav">
+      <button onclick="krtShift(-1)" title="Previous week">&#8249;</button>
+      <span class="krt-lbl" id="krt-weeklabel"></span>
+      <button onclick="krtShift(1)" title="Next week">&#8250;</button>
+      <button class="today" onclick="krtToday()">This week</button>
+    </div>
+    <div class="krt-seg">
+      <button id="krt-seg-1" class="on" onclick="krtSetWeeks(1)">One week</button>
+      <button id="krt-seg-n" onclick="krtSetWeeks(krtSpanN)">Several weeks</button>
+    </div>
+    <span class="krt-stepper" id="krt-stepper">weeks&nbsp;<select onchange="krtSetWeeks(this.value)"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></span>
+    <span class="krt-changed-chip" id="krt-changecount">No changes yet</span>
+    <button class="krt-bring" id="krt-bringlive" onclick="schedPlanOpenPublish()" title="Put the week(s) you pick onto the real schedule the team sees">Bring live</button>
+    <div class="krt-act-wrap">
+      <button class="krt-act-btn" onclick="krtToggleActions(event)">Actions &#9660;</button>
+      <div class="krt-act-menu" id="krt-actmenu">
+        <div class="grp">Build</div>
+        <div class="item" onclick="krtFillTeams()">Fill lunch &amp; dinner teams</div>
+        <div class="item" onclick="krtGiveDaysOff()">Give everyone their days off</div>
+        <div class="item" onclick="krtGiveWeekOff()">Give everyone a week off</div>
+        <div class="grp">Check</div>
+        <div class="item" onclick="krtCoverage();krtCloseActions()">Coverage check</div>
+        <div class="item" onclick="kplOpenCalc();krtCloseActions()">How many people do I need?</div>
+        <div class="grp">Sections</div>
+        <div class="item" onclick="krtOpenSections()">Add, rename or delete a section</div>
+      </div>
+    </div>
+  </div>
+  <div class="krt-hint">You're planning &mdash; the live schedule is untouched. Change anything you like (tap a day, <b>+ Add staff</b>, <b>&#8596; Move</b>, the arrows to plan weeks ahead). Nothing reaches the team until you press <b>Bring live</b>. Gold marks a change that isn't live yet.</div>
+  <div class="krt-grid-wrap"><div id="krt-grid"></div><div id="kpl-modalhost"></div></div>`;
+}
+// First-time welcome + on-demand help (a top-market app explains itself once).
+function kplShowHelp(force){
+  if(!force){ try{ if(localStorage.getItem('kitchenPlanSeen')==='1') return; }catch(e){} }
+  var host=document.getElementById('kpl-modalhost'); if(!host) return;
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseHelp(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>Welcome to the Roster tool</h3>'
+    + '<div style="font-size:13.5px;line-height:1.7;color:var(--ink)">'
+    +   '<p style="margin:0 0 12px;background:#e9f6ef;border:1px solid #a9d8bf;border-radius:8px;padding:9px 11px">It opens on the real schedule, ready to change. Edit freely — <b>nothing reaches the team</b> until you choose <b>Put on the live schedule</b>, and you can always undo it.</p>'
+    +   '<ol style="margin:0 0 12px;padding-left:20px">'
+    +     '<li><b>Tap any day</b> to set the hours, a day off, holiday, and so on. Hours and days add up on their own.</li>'
+    +     '<li>Tap the <b>&#8942;</b> next to a name to move that person, reorder them, or remove them; use <b>+ Add person</b> to add someone to a section.</li>'
+    +     '<li>Switch <b>One week</b> and <b>Several weeks</b> at the top to plan further ahead.</li>'
+    +     '<li>Everything else lives in one <b>Actions</b> menu — grouped Build, Check, Finish.</li>'
+    +     '<li>Happy with it? <b>Actions &rarr; Put on the live schedule</b> — and undo is right there if you need it.</li>'
+    +   '</ol>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="kpl-btn primary" onclick="kplCloseHelp()">Got it</button></div>'
+    + '</div></div>';
+}
+function kplCloseHelp(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; try{ localStorage.setItem('kitchenPlanSeen','1'); }catch(e){} var h=document.getElementById('kpl-modalhost'); if(h) h.innerHTML=''; }
+function kplClose(){
+  if(kplDirty){ if(!confirm('You have unsaved planning in this draft.\n\nIt is saved on this device and will still be here next time — close the Roster tool?')) return; }
+  kplEndPaste();
+  var el = document.getElementById('kpl-full'); if(el) el.style.display='none';
+  var sview = document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
+  var fb = document.querySelector('.footer-bar'); if(fb) fb.style.display='flex';
+  // the live schedule state was never touched; re-render it as-is
+  if(typeof renderSchedView==='function' && schedWeekStart) renderSchedView();
+}
+
+// ── Data ──
+async function kplLoad(){
+  var fromISO = formatDate(kplFrom);
+  var toISO   = formatDate(addDays(kplFrom, kplNumWeeks*7 - 1));
+  try{
+    var res = await Promise.all([
+      sb.from('staff').select('*').eq('active', true).order('sort_order'),
+      sb.from('roster').select('*').gte('work_date', fromISO).lte('work_date', toISO).limit(8000)
+    ]);
+    kplStaff = (res[0].data||[]).filter(function(s){ return s.in_schedule!==false; });
+    kplLive = {};
+    (res[1].data||[]).forEach(function(r){ kplLive[kplKey(r.staff_id, String(r.work_date).slice(0,10))] = r; });
+  }catch(err){ console.error('Planner load error', err); kplStaff=[]; kplLive={}; }
+  kplRenderControls();
+}
+
+// ── Draft store ──
+function kplSaveDraft(){
+  kplDirty = true;
+  try{
+    localStorage.setItem(KPL_DRAFT_LS, JSON.stringify({
+      from: formatDate(kplFrom), numWeeks: kplNumWeeks,
+      entries: kplDraft, mins: kplMins, ent: kplEnt,
+      secOverrides: kplDraftSec, order: kplDraftOrd, newStaff: kplNewStaff, newSeq: kplNewSeq,
+      updatedAt: new Date().toISOString()
+    }));
+  }catch(e){ console.warn('draft save failed', e); }
+  var s = document.getElementById('kpl-saved'); if(s){ s.textContent='✓ Saved'; s.style.opacity='1'; setTimeout(function(){ if(s) s.style.opacity='.45'; }, 1200); }
+}
+function kplReadDraft(){ try{ return JSON.parse(localStorage.getItem(KPL_DRAFT_LS)||'null'); }catch(e){ return null; } }
+function kplPullFromLive(){
+  kplDraft = {};
+  Object.keys(kplLive).forEach(function(k){
+    var r = kplLive[k];
+    kplDraft[k] = { status:r.status||'working', shift_start:r.shift_start||null, shift_end:r.shift_end||null,
+                    shift_start2:r.shift_start2||null, shift_end2:r.shift_end2||null, notes:r.notes||null };
+  });
+  kplDraftSec = {}; kplDraftOrd = {}; kplNewStaff = []; kplNewSeq = 0;
+}
+function kplEnterDraft(fresh){
+  var saved = kplReadDraft();
+  if(fresh || !saved || saved.from!==formatDate(kplFrom) || saved.numWeeks!==kplNumWeeks){
+    kplPullFromLive(); kplMins = {}; kplEnt = {};
+  } else {
+    kplDraft = saved.entries||{}; kplMins = saved.mins||{}; kplEnt = saved.ent||{};
+    kplDraftSec = saved.secOverrides||{}; kplDraftOrd = saved.order||{}; kplNewStaff = saved.newStaff||[]; kplNewSeq = saved.newSeq||0;
+  }
+  kplMode = 'draft';
+  kplSaveDraft();
+  kplRenderControls(); kplRender();
+}
+function kplMaybeOfferResume(){
+  var saved = kplReadDraft();
+  var banner = document.getElementById('kpl-resume');
+  if(!banner) return;
+  if(saved && saved.from===formatDate(kplFrom) && saved.numWeeks===kplNumWeeks && saved.entries && Object.keys(saved.entries).length){
+    var when = ''; try{ when = new Date(saved.updatedAt).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }catch(e){}
+    banner.style.display='flex';
+    banner.querySelector('#kpl-resume-txt').textContent = 'You have a saved draft for these weeks (last edited '+when+').';
+  } else { banner.style.display='none'; }
+}
+function kplResumeYes(){ document.getElementById('kpl-resume').style.display='none'; kplEnterDraft(false); }
+function kplResumeFresh(){ if(!confirm('Discard the saved draft for these weeks and start again from the live roster?')) return; document.getElementById('kpl-resume').style.display='none'; kplEnterDraft(true); }
+function kplExitDraft(){ if(!confirm('Switch back to the read-only preview? Your draft stays saved on this device.')) return; kplMode='preview'; kplPaintOff(); kplEndPaste(); kplRenderControls(); kplRender(); }
+
+// ── Shell / CSS ──
+function KPL_SHELL(){
+  return `
+  <style>
+  #kpl-full *{box-sizing:border-box}
+  #kpl-full{font-family:var(--font-sans)}
+  #kpl-full .kpl-scroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px 18px 30px}
+  /* ── board ── */
+  #kpl-full table.kpl{border-collapse:separate;border-spacing:0;background:var(--cream);width:100%;
+    border:1px solid var(--sabbia-dark);border-radius:12px;overflow:hidden}
+  #kpl-full .kpl th,#kpl-full .kpl td{border-bottom:1px solid #ece2d0;border-right:1px solid #efe7d7;padding:0;text-align:center;vertical-align:middle}
+  #kpl-full .kpl-name{position:sticky;left:0;z-index:3;background:var(--cream);text-align:left;padding:7px 10px;box-shadow:2px 0 0 rgba(65,2,7,.06);min-width:186px;max-width:186px}
+  #kpl-full .kpl-name.narrow{min-width:128px;max-width:128px}
+  #kpl-full thead .kpl-name{z-index:6;background:var(--sabbia)}
+  #kpl-full .kpl-wkhdr{background:var(--sabbia);color:var(--vino);font-family:var(--font-serif);font-size:14px;letter-spacing:.4px;padding:8px 6px;font-weight:600;border-left:2px solid var(--sabbia-dark)}
+  #kpl-full .kpl-wkhdr button{background:rgba(65,2,7,.10);border:none;color:var(--vino);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 7px;margin-left:5px;font-weight:600}
+  #kpl-full .kpl-dhdr{background:var(--sabbia);font-family:var(--font-serif);font-size:12.5px;color:var(--vino);padding:6px 2px;line-height:1.15;font-weight:600}
+  #kpl-full .kpl-dhdr .dt{display:block;font-family:var(--font-sans);font-weight:400;font-size:10.5px;color:var(--vino-light);margin-top:1px}
+  #kpl-full .kpl-dhdr.busy .dt{color:#8a1414;font-weight:700}
+  #kpl-full .kpl-dhdr.wk{border-left:2px solid var(--sabbia-dark)}
+  #kpl-full .kpl-sec td{background:var(--sabbia-light);text-align:left;padding:0;position:sticky;left:0}
+  #kpl-full .kpl-secinner{display:flex;align-items:center;gap:10px;padding:7px 12px}
+  #kpl-full .kpl-secinner .rail{width:11px;height:16px;border-radius:3px;flex:none}
+  #kpl-full .kpl-secinner .nm{font-family:var(--font-serif);font-size:13.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink)}
+  #kpl-full .kpl-secinner .need{margin-left:auto;font-size:11px;color:var(--vino-light)}
+  #kpl-full .kpl-secinner .addp{margin-left:12px;border:1px dashed var(--sabbia-dark);background:transparent;color:var(--vino);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:600}
+  #kpl-full .kpl-secinner .addp:hover{background:var(--cream)}
+  #kpl-full .kpl-namewrap{display:flex;align-items:center;gap:6px}
+  #kpl-full .kpl-nameblock{flex:1;min-width:0}
+  #kpl-full .kpl-nm{font-size:13px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #kpl-full .kpl-role{font-size:11px;color:var(--vino-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #kpl-full .kpl-eid{font-size:10px;color:var(--vino-light);font-weight:400}
+  #kpl-full .kpl-rowopt{flex:none;border:1px solid var(--sabbia-dark);background:var(--cream);color:var(--vino);border-radius:6px;width:26px;height:26px;line-height:1;cursor:pointer;font-size:16px;font-weight:700;padding:0}
+  #kpl-full .kpl-rowopt:hover{background:var(--sabbia-light)}
+  #kpl-full .kpl-newbadge{display:inline-block;font-size:8.5px;letter-spacing:.5px;text-transform:uppercase;background:var(--sabbia);color:var(--vino);border-radius:8px;padding:1px 6px;margin-left:5px;vertical-align:middle}
+  #kpl-full .kpl-ordbtn{border:1px solid var(--sabbia-dark);background:var(--cream);color:var(--vino);border-radius:7px;padding:8px 12px;font-size:14px;cursor:pointer;font-weight:600}
+  #kpl-full .kpl-ordbtn:hover{background:var(--sabbia-light)}
+  #kpl-full .kpl-ordbtn:disabled{opacity:.4;cursor:not-allowed}
+  #kpl-full .kpl-cell{font-size:12px;line-height:1.05;overflow:hidden;white-space:nowrap;cursor:default}
+  #kpl-full.draft .kpl-cell{cursor:pointer}
+  #kpl-full.paint .kpl-cell{cursor:crosshair}
+  #kpl-full .kpl-cell.we{background:rgba(120,90,40,.03)}
+  #kpl-full .kpl-cell.today{outline:2px solid var(--oro);outline-offset:-2px}
+  #kpl-full .kpl-cell.wk{border-left:2px solid var(--sabbia-dark)}
+  #kpl-full.draft .kpl-cell:hover{outline:2px solid var(--sabbia-dark);outline-offset:-2px}
+  #kpl-full .kpl-pill{width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px;position:relative;padding:4px 2px}
+  #kpl-full .kpl-t{color:var(--ink);font-variant-numeric:tabular-nums}
+  #kpl-full .kpl-t2{font-size:10px;color:var(--vino-light);font-variant-numeric:tabular-nums}
+  #kpl-full .kpl-split{font-size:8.5px;letter-spacing:.4px;color:#b4703f;text-transform:uppercase}
+  #kpl-full .kpl-chip{font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:3px 9px;border-radius:20px;text-transform:uppercase}
+  #kpl-full .kpl-add{color:#c9b7a4;font-weight:400;font-size:13px}
+  #kpl-full .kpl-chg{position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#c9a84c;box-shadow:0 0 0 1px var(--cream)}
+  #kpl-full .kpl-tot{font-size:12px;color:var(--ink);background:var(--sabbia-light);padding:4px 8px;min-width:52px;position:sticky;right:0;box-shadow:-2px 0 0 rgba(65,2,7,.05);font-variant-numeric:tabular-nums}
+  #kpl-full .kpl-tot.hrs{font-weight:600}
+  #kpl-full .kpl-tot.warn{background:#fbe4e1;color:#a8342a}
+  #kpl-full thead .kpl-tot{background:var(--sabbia);z-index:6;font-family:var(--font-serif);font-weight:600;font-size:12px}
+  #kpl-full .kpl-cov td{font-size:9px;font-weight:700;color:#5a4a33;background:#faf6ee;padding:1px 0}
+  #kpl-full .kpl-cov td.low{background:#fbe4e1;color:#a8342a}
+  #kpl-full .kpl-cov .kpl-name{background:#faf6ee;font-weight:700;color:#7a6a4a;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+  #kpl-full .kpl-grand td{background:var(--sabbia);border-bottom:0;padding:8px 4px;font-size:12px}
+  #kpl-full .kpl-grand .lbl{position:sticky;left:0;z-index:3;text-align:left;font-family:var(--font-serif);letter-spacing:.5px;color:var(--vino);padding-left:12px;background:var(--sabbia)}
+  #kpl-full .kpl-grand .cnt{font-variant-numeric:tabular-nums;color:var(--ink)}
+  #kpl-full .kpl-grand .cnt.short{color:#a8342a;font-weight:700}
+  #kpl-full .kpl-grand .cnt .req{display:block;font-size:9.5px;color:var(--vino-light);font-weight:400}
+  /* ── header controls ── */
+  #kpl-full .kpl-btn{border:1px solid rgba(65,2,7,.28);background:var(--cream);color:var(--vino);border-radius:7px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-weight:600}
+  #kpl-full .kpl-btn:hover{background:var(--sabbia-light)}
+  #kpl-full .kpl-btn.primary{background:var(--vino);color:#fff;border-color:var(--vino)}
+  #kpl-full .kpl-btn.go{background:#0f766e;color:#fff;border-color:#0f766e}
+  #kpl-full .kpl-btn:disabled{opacity:.45;cursor:not-allowed}
+  #kpl-full .knav button{background:transparent;border:1px solid rgba(255,255,255,.28);color:#f6ece0;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:15px;line-height:1}
+  #kpl-full .knav button:hover{background:rgba(255,255,255,.12)}
+  #kpl-full .knav .lbl{font-family:var(--font-serif);font-size:15px;color:#f6ece0;min-width:190px;text-align:center}
+  #kpl-full .kseg{display:inline-flex;background:rgba(0,0,0,.16);border-radius:9px;padding:3px}
+  #kpl-full .kseg button{background:transparent;border:0;color:#e7d3bf;padding:6px 13px;border-radius:7px;cursor:pointer;font-size:12.5px}
+  #kpl-full .kseg button.on{background:var(--sabbia);color:var(--vino);font-weight:600}
+  #kpl-full .kstep{display:inline-flex;align-items:center;gap:6px;color:#e7d3bf;font-size:12px}
+  #kpl-full .kstep select{font-family:var(--font-sans);font-size:12.5px;padding:5px 7px;border:1px solid rgba(255,255,255,.3);border-radius:7px;color:var(--vino);background:var(--sabbia)}
+  #kpl-full .kact-wrap{position:relative}
+  #kpl-full .kact-btn{background:var(--sabbia);color:var(--vino);border:0;border-radius:8px;padding:8px 15px;font-size:13.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px}
+  #kpl-full .kact-btn .car{font-size:9px;opacity:.7}
+  #kpl-full .kact-menu{position:absolute;right:0;top:calc(100% + 8px);width:260px;background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:12px;box-shadow:0 14px 40px rgba(65,2,7,.22);padding:8px;z-index:4300;display:none}
+  #kpl-full .kact-menu.open{display:block}
+  #kpl-full .kact-menu .grp{font-family:var(--font-serif);font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--vino);padding:9px 12px 5px}
+  #kpl-full .kact-menu .item{padding:9px 12px;border-radius:8px;font-size:13.5px;color:var(--ink);cursor:pointer}
+  #kpl-full .kact-menu .item:hover{background:var(--sabbia-light)}
+  #kpl-full .kact-menu .item.dim{color:#b3a595;cursor:default}
+  #kpl-full .kact-menu .item.dim:hover{background:transparent}
+  #kpl-full .kact-menu .rule{height:1px;background:var(--sabbia-dark);opacity:.5;margin:6px 6px}
+  /* ── legend + modals ── */
+  #kpl-full .kpl-legendbar{display:flex;flex-wrap:wrap;gap:7px 16px;align-items:center;margin:16px 2px 0;padding:12px 16px;background:var(--sabbia-light);border:1px solid #ece2d0;border-radius:12px}
+  #kpl-full .kpl-legendbar .lg{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--vino-light)}
+  #kpl-full .kpl-legendbar .sw{width:12px;height:12px;border-radius:4px;flex:none}
+  #kpl-full .kpl-legendbar .ttl{font-family:var(--font-serif);font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--vino)}
+  #kpl-full .kpl-lbl{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--vino-light)}
+  #kpl-full select.kpl-sel{font-family:var(--font-sans);font-size:12px;padding:5px 7px;border:1px solid rgba(65,2,7,.25);border-radius:6px;color:var(--vino);background:var(--cream)}
+  #kpl-full .kpl-ov{position:fixed;inset:0;z-index:4400;background:rgba(30,10,10,.42);display:flex;align-items:center;justify-content:center;padding:16px}
+  #kpl-full .kpl-modal{background:var(--cream);border-radius:14px;max-width:520px;width:100%;max-height:88vh;overflow:auto;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+  #kpl-full .kpl-modal h3{margin:0 0 10px;font-family:var(--font-serif);color:var(--vino);font-size:19px}
+  #kpl-full .kpl-qbtn{border:1px solid rgba(65,2,7,.2);background:var(--cream);border-radius:9px;padding:9px 10px;font-size:12.5px;cursor:pointer;font-weight:600;text-align:center}
+  #kpl-full .kpl-qbtn.on{outline:3px solid rgba(65,2,7,.25)}
+  #kpl-full input[type=time],#kpl-full input[type=text],#kpl-full input[type=number]{font-family:var(--font-sans);font-size:14px;padding:8px 9px;border:1px solid rgba(65,2,7,.25);border-radius:8px;background:var(--cream);color:var(--ink)}
+  @media (max-width:760px){ #kpl-full .kpl-scroll{padding:12px 8px 24px} #kpl-full .kpl-qbtn{font-size:13px;padding:11px 12px} #kpl-full .kpl-btn{padding:9px 12px} #kpl-full input[type=time]{font-size:16px} #kpl-full .kpl-modal{padding:16px 14px} #kpl-full .knav .lbl{min-width:130px;font-size:13px} }
+  </style>
+  <div class="kpl-top" style="background:var(--vino);color:#f6ece0;display:flex;align-items:center;gap:18px;padding:11px 18px;flex-shrink:0;border-bottom:3px solid var(--sabbia)">
+    <button onclick="kplClose()" title="Back to the live schedule" style="background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);color:#f6ece0;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:11px;letter-spacing:1px;text-transform:uppercase">&#8592; Schedule</button>
+    <div style="display:flex;flex-direction:column;line-height:1.05">
+      <span style="font-family:var(--font-serif);font-size:20px;letter-spacing:2px">ROBERTO'S</span>
+      <span style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#d9c3ad;margin-top:2px">Kitchen Roster</span>
+    </div>
+    <span id="kpl-modebadge" style="font-size:10px;padding:3px 9px;border-radius:10px;background:rgba(255,255,255,.16)"></span>
+    <div id="kpl-controls" style="display:flex;align-items:center;gap:14px;flex:1;justify-content:flex-end;flex-wrap:wrap"></div>
+    <span id="kpl-saved" style="font-size:11px;opacity:.45;min-width:52px">&nbsp;</span>
+  </div>
+  <div id="kpl-resume" style="display:none;align-items:center;gap:12px;background:#fff7e6;border-bottom:1px solid #f0d98a;padding:8px 16px;flex-shrink:0">
+    <span id="kpl-resume-txt" style="font-size:12px;color:#7a5a12"></span>
+    <button class="kpl-btn primary" onclick="kplResumeYes()">Resume draft</button>
+    <button class="kpl-btn" onclick="kplResumeFresh()">Start fresh from live</button>
+  </div>
+  <div class="kpl-scroll"><div id="kpl-wrap" style="min-width:100%"></div><div id="kpl-legend"></div></div>
+  <div id="kpl-modalhost"></div>`;
+}
+
+// ── Controls (calm: week nav · One-week/Several-weeks toggle · single Actions menu) ──
+var kplLastMulti = 4;   // remembers how many weeks "Several weeks" showed last
+function kplRenderControls(){
+  var box = document.getElementById('kpl-controls'); if(!box) return;
+  var badge = document.getElementById('kpl-modebadge');
+  if(badge) badge.textContent = 'Tap a day to edit';
+  var several = kplNumWeeks>1;
+  var wkEnd = addDays(kplFrom, kplNumWeeks*7-1);
+  var span = several
+    ? kplFrom.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' – ' + wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})
+    : kplFrom.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + ' – ' + wkEnd.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+  var nav = '<div class="knav" style="display:flex;align-items:center;gap:8px">'
+    + '<button onclick="kplShift(-1)" title="Previous week">&#8249;</button>'
+    + '<span class="lbl">'+span+'</span>'
+    + '<button onclick="kplShift(1)" title="Next week">&#8250;</button>'
+    + '<button onclick="kplGoToday()" title="Jump to this week" style="width:auto;padding:0 10px;font-size:11px">This week</button>'
+    + '</div>';
+  var toggle = '<div class="kseg">'
+    + '<button class="'+(several?'':'on')+'" onclick="kplSetView(\'week\')">One week</button>'
+    + '<button class="'+(several?'on':'')+'" onclick="kplSetView(\'multi\')">Several weeks</button>'
+    + '</div>';
+  var stepper = several ? '<span class="kstep">weeks&nbsp;<select onchange="kplSetSpan(this.value)">'
+    + [2,3,4,6,8].map(function(n){ return '<option value="'+n+'"'+(kplNumWeeks===n?' selected':'')+'>'+n+'</option>'; }).join('')
+    + '</select></span>' : '';
+  box.innerHTML = nav + toggle + stepper + kplActionsMenu();
+  document.getElementById('kpl-full').classList.add('draft');
+}
+// The one tidy Actions menu — grouped Build → Check → Finish (design direction §4).
+function kplActionsMenu(){
+  function item(label, fn){ return '<div class="item" onclick="'+fn+';kplCloseActions()">'+label+'</div>'; }
+  var build = item('Fill lunch &amp; dinner teams','kplOpenOpeners()')
+      + item('Give everyone their days off','kplGiveEveryoneDaysOff()')
+      + item('Give everyone a week off','kplGiveEveryoneWeekOff()')
+      + item('Fill many days at once','kplOpenBulk()')
+      + item('Start fresh from the live schedule','kplResetToLive()');
+  var check = item('Coverage &amp; problems','kplOpenRisk()')
+    + item('How many people do I need?','kplOpenCalc()');
+  var finish = item('Print / Save as PDF','kplPrintPlan()') + item('Put on the live schedule…','kplOpenPublish()');
+  return '<div class="kact-wrap">'
+    + '<button class="kact-btn" onclick="kplToggleActions(event)">Actions <span class="car">&#9660;</span></button>'
+    + '<div class="kact-menu" id="kpl-actmenu">'
+    +   '<div class="grp">Build</div>'+build
+    +   '<div class="rule"></div><div class="grp">Check</div>'+check
+    +   '<div class="rule"></div><div class="grp">Finish</div>'+finish
+    + '</div></div>';
+}
+function kplToggleActions(ev){ if(ev) ev.stopPropagation(); var m=document.getElementById('kpl-actmenu'); if(m) m.classList.toggle('open'); }
+function kplCloseActions(){ var m=document.getElementById('kpl-actmenu'); if(m) m.classList.remove('open'); }
+function kplSetView(v){ if(v==='week') kplSetSpan('1'); else kplSetSpan(String(kplLastMulti||4)); }
+// Discard the working plan and start again from what's really on the schedule.
+function kplResetToLive(){
+  if(!confirm('Start again from the live schedule?\n\nThis clears the changes in your plan. Nothing on the real schedule changes.')) return;
+  kplEndPaste(); kplPullFromLive(); kplMins={}; kplEnt={}; kplSaveDraft(); kplRender();
+}
+
+function kplShift(n){ kplFrom = addDays(kplFrom, n*7); kplRenderControls(); kplLoad().then(function(){ kplSeedFromLive(); kplRender(); }); }
+function kplGoToday(){ kplFrom = getMonday(new Date()); kplRenderControls(); kplLoad().then(function(){ kplSeedFromLive(); kplRender(); }); }
+function kplSetSpan(v){ kplNumWeeks = parseInt(v,10)||4; if(kplNumWeeks>1) kplLastMulti=kplNumWeeks; kplVisible='fit'; kplPersistView(); kplRenderControls(); kplLoad().then(function(){ kplSeedFromLive(); kplRender(); }); }
+function kplSetVisible(v){ kplVisible = v; kplPersistView(); kplRenderControls(); kplRender(); }
+function kplSetSec(v){ kplFilterSec = v; kplRender(); }
+function kplSetPer(v){ kplFilterPer = v; kplRender(); }
+function kplPersistView(){ try{ localStorage.setItem(KPL_VIEW_LS, JSON.stringify({visible:kplVisible, numWeeks:kplNumWeeks})); }catch(e){} }
+function kplSyncDraftKeys(){ /* when span changes in draft, keep existing entries; new dates just start empty */ }
+
+// ── Render canvas (the Excel-familiar board, made calm) ──
+var KPL_DAY3 = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var KPL_DAY1 = ['M','T','W','T','F','S','S'];
+var KPL_BUSY_NEED = 18;   // Francesco's stated manning on the busy nights Thu–Sat (§3)
+function kplBusyDow(dow){ return dow===4 || dow===5 || dow===6; }  // Thu/Fri/Sat
+function kplRender(){
+  var wrap = document.getElementById('kpl-wrap'); if(!wrap) return;
+  if(!kplStaff.length){ wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--vino-light);font-style:italic">No staff to show yet.</div>'; return; }
+  var narrow = (window.innerWidth||1000) < 760;
+  var nameW = narrow?128:186;
+  var avail = Math.max(320, (wrap.clientWidth||(window.innerWidth||1000)) - nameW - 120);
+  var dayW = Math.max(30, Math.min(Math.floor(avail/(kplNumWeeks*7)), kplNumWeeks===1?128:78));
+  var detail = dayW >= 62;
+  var today = kplToday();
+  var nDays = kplNumWeeks*7;
+  var grand = []; for(var g=0; g<nDays; g++) grand.push(0);
+
+  // ── header ──
+  var h = '<thead><tr>';
+  h += '<th class="kpl-name'+(narrow?' narrow':'')+'" rowspan="2" style="vertical-align:bottom;padding-bottom:6px">Name &amp; role</th>';
+  for(var w=0; w<kplNumWeeks; w++){
+    var ws=addDays(kplFrom,w*7), we=addDays(kplFrom,w*7+6);
+    var tools = kplMode==='draft' ? ' <button onclick="kplCopyWeek('+w+')" title="Copy this week">Copy</button>'+(kplWkClip!==null?'<button onclick="kplPasteWeek('+w+')" title="Paste the copied week here">Paste</button>':'') : '';
+    var wlab = kplNumWeeks===1 ? ws.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' – '+we.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})
+                               : 'Week '+(w+1)+' &middot; '+ws.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+    h += '<th class="kpl-wkhdr" colspan="7">'+wlab+tools+'</th>';
+  }
+  h += '<th class="kpl-tot" rowspan="2" style="vertical-align:bottom">Hours</th><th class="kpl-tot" rowspan="2" style="vertical-align:bottom">Days</th>';
+  h += '</tr><tr>';
+  for(var w2=0; w2<kplNumWeeks; w2++){ for(var d=0; d<7; d++){
+    var dd=addDays(kplFrom,w2*7+d); var busy=kplBusyDow(dd.getDay());
+    var dl = detail ? KPL_DAY3[d] : KPL_DAY1[d];
+    h += '<th class="kpl-dhdr'+(busy?' busy':'')+(d===0?' wk':'')+'" style="min-width:'+dayW+'px;max-width:'+dayW+'px">'+dl+'<span class="dt">'+dd.getDate()+' '+dd.toLocaleDateString('en-GB',{month:'short'})+'</span></th>';
+  } }
+  h += '</tr></thead>';
+
+  // ── body ──
+  var body='<tbody>';
+  var totalCols = nDays + 3;
+  kplSections().forEach(function(sec){
+    if(kplFilterSec!=='all' && kplFilterSec!==sec.key) return;
+    var people = kplStaffInSec(sec.key);
+    if(!people.length) return;
+    var rail = SEC_COLOR[sec.key]||'#8a7d70';
+    var addBtn = (kplMode==='draft' && sec.key!=='__other') ? '<button class="addp" onclick="kplOpenAddPerson(\''+sec.key+'\')">+ Add person</button>' : '';
+    body += '<tr class="kpl-sec"><td colspan="'+totalCols+'"><div class="kpl-secinner"><span class="rail" style="background:'+rail+'"></span><span class="nm">'+sec.label+'</span><span class="need">'+people.length+' '+(people.length===1?'person':'people')+'</span>'+addBtn+'</div></td></tr>';
+    people.forEach(function(s){
+      var tot = { days:0, off:0, hrs:0, al:0, ph:0 };
+      var isNew = !!s._new;
+      var optBtn = (kplMode==='draft') ? '<button class="kpl-rowopt" title="Move, reorder or remove this person" onclick="kplOpenPerson(\''+s.id+'\')">&#8942;</button>' : '';
+      body += '<tr>';
+      body += '<td class="kpl-name'+(narrow?' narrow':'')+'"><div class="kpl-namewrap"><div class="kpl-nameblock">'
+        + '<div class="kpl-nm">'+schEvEsc(s.name)+(isNew?'<span class="kpl-newbadge">new</span>':'')+(s.emp_id?' <span class="kpl-eid">#'+schEvEsc(String(s.emp_id))+'</span>':'')+'</div>'
+        + (s.designation?'<div class="kpl-role">'+schEvEsc(s.designation)+'</div>':'')
+        + '</div>'+optBtn+'</div></td>';
+      for(var w3=0; w3<kplNumWeeks; w3++){ for(var d2=0; d2<7; d2++){
+        var ds = kplDateISO(w3,d2); var col=w3*7+d2;
+        var wk = kplEntry(s.id, ds);
+        if(wk && wk.status==='working' && wk.shift_start && wk.shift_end) grand[col]++;
+        var dow = addDays(kplFrom,col).getDay();
+        body += kplCellHtml(s, ds, dayW, detail, d2===0, kplBusyDow(dow), today, tot);
+      }}
+      var offWarn = tot.off===0;
+      body += '<td class="kpl-tot hrs">'+(tot.hrs?Math.round(tot.hrs):'')+'</td>';
+      body += '<td class="kpl-tot'+(offWarn?' warn':'')+'">'+(tot.days||'')+'</td>';
+      body += '</tr>';
+    });
+  });
+  // ── grand headcount row (like the Excel's bottom totals) ──
+  body += '<tr class="kpl-grand"><td class="lbl">On the floor</td>';
+  for(var gc=0; gc<nDays; gc++){
+    var gdow = addDays(kplFrom,gc).getDay(); var busy2 = kplBusyDow(gdow);
+    var need = busy2 ? '<span class="req">need '+KPL_BUSY_NEED+'</span>' : '';
+    var shortCls = (busy2 && grand[gc]<KPL_BUSY_NEED) ? ' short' : '';
+    body += '<td class="cnt'+shortCls+'">'+grand[gc]+need+'</td>';
+  }
+  body += '<td class="kpl-tot" style="background:var(--sabbia)"></td><td class="kpl-tot" style="background:var(--sabbia)"></td></tr>';
+  body += '</tbody>';
+  wrap.innerHTML = '<table class="kpl">'+h+body+'</table>';
+
+  kplRenderLegend();
+}
+
+// Their colour language, quietly stated at the foot.
+function kplRenderLegend(){
+  var leg = document.getElementById('kpl-legend'); if(!leg) return;
+  function lg(lbl,col){ return '<span class="lg"><span class="sw" style="background:'+col+'"></span>'+lbl+'</span>'; }
+  var secs = kplSections().filter(function(s){ return s.key!=='__other'; })
+     .map(function(s){ return lg(s.label, SEC_COLOR[s.key]||'#8a7d70'); }).join('');
+  var away = lg('Day off',KPL_COLOR.off)+lg('Weekly off',KPL_COLOR.wo)+lg('Holiday',KPL_COLOR.al)
+     +lg('Training',KPL_COLOR.tr)+lg('Emergency',KPL_COLOR.em)+lg('Public holiday',KPL_COLOR.ph)
+     +lg('Sick',KPL_COLOR.sl)+lg('Cancel day off',KPL_COLOR.cdo);
+  leg.className='kpl-legendbar';
+  leg.innerHTML = '<span class="ttl">Sections</span>'+secs
+    + '<span class="ttl" style="margin-left:6px">Away</span>'+away
+    + (kplMode==='draft' ? '<span class="lg" style="margin-left:auto"><span class="sw" style="background:#c9a84c;border-radius:50%"></span>you changed it</span>' : '');
+}
+
+function kplCellHtml(s, ds, dayW, detail, isWk, isWe, today, tot){
+  var e = kplEntry(s.id, ds);
+  var cls = 'kpl-cell'+(isWk?' wk':'')+(isWe?' we':'')+(ds===today?' today':'');
+  var hgt = dayW>=62?46:38;
+  var chg = '';
+  if(kplMode==='draft'){
+    var live = kplLive[kplKey(s.id,ds)];
+    if(kplCellDiff(e, live)) chg = '<span class="kpl-chg"></span>';
+  }
+  var inner;
+  if(!e || (!e.status)){
+    inner = '<div class="kpl-pill"><span class="kpl-add">'+(kplMode==='draft'?'+':'&middot;')+'</span>'+chg+'</div>';
+  } else if(e.status==='working'){
+    var st=formatTime(e.shift_start), et=formatTime(e.shift_end), split=e.shift_start2&&e.shift_end2;
+    var hh = calcHours(st, et, formatTime(e.shift_start2), formatTime(e.shift_end2));
+    if(st&&et){ tot.days++; tot.hrs+=hh; }
+    if(detail){
+      var line1 = st ? st+(et?' &ndash; '+et:'') : 'On';
+      var line2 = split ? '<span class="kpl-t2">'+formatTime(e.shift_start2)+' &ndash; '+formatTime(e.shift_end2)+'</span><span class="kpl-split">split</span>' : '';
+      inner = '<div class="kpl-pill"><span class="kpl-t">'+line1+'</span>'+line2+chg+'</div>';
+    } else {
+      var compact = st ? (st.split(':')[0]+'-'+(et?et.split(':')[0]:'')+(split?' L':'')) : '&bull;';
+      inner = '<div class="kpl-pill"><span class="kpl-t" style="font-size:10px">'+compact+'</span>'+chg+'</div>';
+    }
+  } else {
+    var col = KPL_COLOR[e.status]||'#8a7d70';
+    var txt = e.status==='cdo' ? '#7a6400' : col;
+    if(e.status!=='off') tot.days++;
+    if(e.status==='off'||e.status==='wo') tot.off++;
+    if(e.status==='al') tot.al++;
+    if(e.status==='ph') tot.ph++;
+    var label = detail ? kplFriendly(e.status) : (kplCode(e.status)||'&bull;');
+    inner = '<div class="kpl-pill"><span class="kpl-chip" style="background:'+col+'22;color:'+txt+'">'+label+'</span>'+chg+'</div>';
+  }
+  var handler = kplMode==='draft' ? ' onpointerdown="kplCellDown(event,\''+s.id+'\',\''+ds+'\')" onpointerenter="kplCellEnter(\''+s.id+'\',\''+ds+'\')" onclick="kplCellClick(\''+s.id+'\',\''+ds+'\')"' : '';
+  return '<td class="'+cls+'" data-k="'+kplKey(s.id,ds)+'" style="height:'+hgt+'px;min-width:'+dayW+'px;max-width:'+dayW+'px"'+handler+'>'+inner+'</td>';
+}
+function kplCellDiff(e, live){
+  var a = e||{}; var b = live||{};
+  if((a.status||'')!==(b.status||'')) return true;
+  if(a.status==='working'){
+    return formatTime(a.shift_start)!==formatTime(b.shift_start) || formatTime(a.shift_end)!==formatTime(b.shift_end)
+      || formatTime(a.shift_start2)!==formatTime(b.shift_start2) || formatTime(a.shift_end2)!==formatTime(b.shift_end2);
+  }
+  return false;
+}
+
+// ── Person options: reorder within section · move section · remove (draft-only until Publish) ──
+function kplFindPerson(id){ return kplAllPeople().find(function(s){ return s.id===id; }); }
+function kplOpenPerson(id){
+  var s = kplFindPerson(id); if(!s) return;
+  var secKey = kplEffSec(s);
+  var mates = kplStaffInSec(secKey);
+  var idx = mates.findIndex(function(x){ return x.id===id; });
+  var canUp = idx>0, canDown = idx>=0 && idx<mates.length-1;
+  var secLabel = (STATIONS_SCH.find(function(x){return x.key===secKey;})||{label:'Other / Unassigned'}).label;
+  var secOpts = STATIONS_SCH.map(function(sec){
+    var on = sec.key===secKey;
+    return '<button class="kpl-qbtn'+(on?' on':'')+'" style="text-align:left" onclick="kplMoveTo(\''+id+'\',\''+sec.key+'\')">'+sec.label+(on?' <span style="opacity:.55;font-size:10px">(now)</span>':'')+'</button>';
+  }).join('');
+  var removeBtn = s._new ? '<button class="kpl-btn" style="border-color:#a8342a;color:#a8342a" onclick="kplRemoveNew(\''+id+'\')">Remove this person</button>' : '';
+  var host = document.getElementById('kpl-modalhost');
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseMove(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>'+schEvEsc(s.name)+'</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:14px">In <b>'+schEvEsc(secLabel)+'</b>. These changes stay in your plan until you press <b>Put on the live schedule</b>.</div>'
+    + '<div class="kpl-lbl" style="margin-bottom:6px">Order in this section</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:16px">'
+    +   '<button class="kpl-ordbtn" '+(canUp?'':'disabled')+' onclick="kplMoveUp(\''+id+'\')">&#8593;&nbsp; Move up</button>'
+    +   '<button class="kpl-ordbtn" '+(canDown?'':'disabled')+' onclick="kplMoveDown(\''+id+'\')">&#8595;&nbsp; Move down</button>'
+    + '</div>'
+    + '<div class="kpl-lbl" style="margin-bottom:6px">Put in another section</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">'+secOpts+'</div>'
+    + '<div style="display:flex;justify-content:space-between;gap:8px">'+removeBtn+'<button class="kpl-btn primary" style="margin-left:auto" onclick="kplCloseMove()">Done</button></div>'
+    + '</div></div>';
+}
+function kplMoveUp(id){ kplReorder(id,-1); }
+function kplMoveDown(id){ kplReorder(id,1); }
+function kplReorder(id, dir){
+  var s = kplFindPerson(id); if(!s) return;
+  var secKey = kplEffSec(s);
+  var mates = kplStaffInSec(secKey);
+  var idx = mates.findIndex(function(x){ return x.id===id; });
+  var j = idx+dir; if(idx<0 || j<0 || j>=mates.length) return;
+  var tmp = mates[idx]; mates[idx]=mates[j]; mates[j]=tmp;
+  mates.forEach(function(m,i){ kplDraftOrd[m.id]=i; });   // re-number this section cleanly
+  kplSaveDraft(); kplRender(); kplOpenPerson(id);          // keep the panel open so you can keep nudging
+}
+function kplMoveTo(id, secKey){
+  var s = kplFindPerson(id); if(!s) return;
+  if(secKey===kplEffSec(s)){ kplCloseMove(); return; }
+  if(s._new){ s.station_key = secKey; }               // a brand-new person just changes its own section
+  else if(secKey===s.station_key){ delete kplDraftSec[id]; }  // back to where they started = no override
+  else { kplDraftSec[id] = secKey; }
+  // drop them at the bottom of the section they land in
+  var maxOrd=-1; kplStaffInSec(secKey).forEach(function(m){ if(m.id!==id){ var o=kplEffOrd(m); if(o>maxOrd) maxOrd=o; } });
+  kplDraftOrd[id] = maxOrd+1;
+  kplCloseMove(); kplSaveDraft(); kplRender();
+}
+function kplRemoveNew(id){
+  var s = kplFindPerson(id); if(!s || !s._new) return;
+  if(!confirm('Remove '+schEvEsc(s.name)+' from the plan? (They were only ever in this draft — nothing on the live schedule changes.)')) return;
+  kplNewStaff = kplNewStaff.filter(function(x){ return x.id!==id; });
+  // drop any shifts drafted for them
+  Object.keys(kplDraft).forEach(function(k){ if(k.indexOf(id+'|')===0) delete kplDraft[k]; });
+  kplCloseMove(); kplSaveDraft(); kplRender();
+}
+function kplCloseMove(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+
+// ── Add a brand-new person to a section (draft-only until Publish) ──
+function kplOpenAddPerson(secKey){
+  var sec = STATIONS_SCH.find(function(x){return x.key===secKey;}) || {label:secKey};
+  var host = document.getElementById('kpl-modalhost');
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseAddPerson(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>Add a person to '+schEvEsc(sec.label)+'</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:12px">They join your plan now. They only appear on the live schedule once you press <b>Put on the live schedule</b>.</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span class="kpl-lbl" style="width:52px">Name</span><input type="text" id="kpl-ap-name" placeholder="e.g. Marco Rossi — or “new” for an open role" style="flex:1"></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><span class="kpl-lbl" style="width:52px">Role</span><input type="text" id="kpl-ap-role" placeholder="e.g. CDP, DCDP, Commis" style="flex:1"></div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="kpl-btn" onclick="kplCloseAddPerson()">Cancel</button><button class="kpl-btn primary" onclick="kplAddPerson(\''+secKey+'\')">Add to plan</button></div>'
+    + '</div></div>';
+  setTimeout(function(){ var n=document.getElementById('kpl-ap-name'); if(n) n.focus(); }, 30);
+}
+function kplAddPerson(secKey){
+  var name = (document.getElementById('kpl-ap-name').value||'').trim();
+  var role = (document.getElementById('kpl-ap-role').value||'').trim();
+  if(!name){ alert('Please type a name (or “new” for an open role to hire into).'); return; }
+  kplNewSeq++;
+  kplNewStaff.push({ id:'new-'+kplNewSeq, name:name, designation:role||null, station_key:secKey, _new:true });
+  kplCloseAddPerson(); kplSaveDraft(); kplRender();
+}
+function kplCloseAddPerson(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplCoverageRow(sec, people, dayW, totalCols){
+  var row = '<tr class="kpl-cov"><td class="kpl-name">How many on <span style="cursor:pointer;opacity:.75;text-decoration:underline" onclick="kplEditMin(\''+sec.key+'\')" title="Set how many you need each day">need '+kplMinFor(sec.key,false)+' &#9998;</span></td>';
+  for(var w=0; w<kplNumWeeks; w++){ for(var d=0; d<7; d++){
+    var ds = kplDateISO(w,d);
+    var c = kplSecDay(people, ds);
+    var min = kplMinFor(sec.key, d>=5);
+    if(c.any===0){ row += '<td style="color:#c9b89c">·</td>'; }   // nothing planned yet — not flagged
+    else { row += '<td class="'+(c.work<min?'low':'')+'">'+c.work+'</td>'; }
+  }}
+  row += '<td class="kpl-tot" style="background:#faf6ee"></td></tr>';
+  return row;
+}
+function kplMinFor(secKey, weekend){ var m=kplMins[secKey]||{}; return weekend ? (m.we!=null?m.we:1) : (m.wd!=null?m.wd:1); }
+function kplEditMin(secKey){
+  var m = kplMins[secKey]||{wd:1,we:1};
+  var wd = prompt('Minimum people working on a WEEKDAY for '+ (kplSections().find(function(x){return x.key===secKey;})||{label:secKey}).label +':', m.wd!=null?m.wd:1);
+  if(wd===null) return;
+  var we = prompt('Minimum on a WEEKEND (Sat/Sun):', m.we!=null?m.we:1);
+  if(we===null) return;
+  kplMins[secKey] = { wd: Math.max(0,parseInt(wd,10)||0), we: Math.max(0,parseInt(we,10)||0) };
+  kplSaveDraft(); kplRender();
+}
+
+// ── Cell editing (draft) ──
+var kplDownAt = 0;
+function kplCellDown(ev, sid, ds){ if(!kplPaint) return; kplPainting=true; kplApplyPaint(sid, ds); ev.preventDefault(); }
+function kplCellEnter(sid, ds){ if(kplPaint && kplPainting){ kplApplyPaint(sid, ds); } }
+function kplWirePaint(el){
+  document.addEventListener('pointerup', function(){ if(kplPainting){ kplPainting=false; kplSaveDraft(); kplRender(); } });
+}
+function kplApplyPaint(sid, ds){
+  var k = kplKey(sid,ds);
+  if(kplPaint.status==='working') kplDraft[k]={status:'working', shift_start:KPL_DEF_START, shift_end:KPL_DEF_END, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
+  else if(kplPaint.status==='__clear') delete kplDraft[k];
+  else kplDraft[k]={status:kplPaint.status, shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
+  var td = document.querySelector('#kpl-wrap td[data-k="'+k+'"]');
+  if(td){ // lightweight in-place repaint of just this cell for snappy drag
+    var s = kplStaff.find(function(x){return x.id===sid;});
+    if(s){ var tmp={days:0,off:0,hrs:0,al:0,ph:0}; td.outerHTML = kplCellHtml(s, ds, td.offsetWidth||30, (td.offsetWidth||30)>=46, td.classList.contains('wk'), td.classList.contains('we'), kplToday(), tmp); }
+  }
+}
+var kplPaintCurrent='off';
+function kplTogglePaint(){ if(kplPaint) kplPaintOff(); else { kplPaint={status:(kplPaintCurrent||'off')}; var f=document.getElementById('kpl-full'); if(f) f.classList.add('paint'); kplRenderControls(); kplRender(); } }
+function kplPaintPick(v){ kplPaintCurrent=v; if(kplPaint){ kplPaint={status:v}; } document.getElementById('kpl-full').classList.toggle('paint', !!kplPaint); }
+function kplPaintOff(){ kplPaint=null; var f=document.getElementById('kpl-full'); if(f) f.classList.remove('paint'); kplRenderControls(); }
+function kplCellClick(sid, ds){ if(kplPasteOn){ kplPasteInto(sid, ds); return; } if(kplPaint) return; if(Date.now()-kplDownAt<0) return; kplOpenCellEditor(sid, ds); }
+
+function kplOpenCellEditor(sid, ds){
+  kplEditKey = kplKey(sid,ds);
+  var s = kplStaff.find(function(x){return x.id===sid;});
+  var e = kplDraft[kplEditKey] || {};
+  var d = new Date(ds+'T12:00:00');
+  var statusBtns = KPL_STATUSES.map(function(st){
+    var code = kplCode(st);
+    var lbl = kplFriendly(st) + (code?' <span style="opacity:.55;font-size:9px;font-weight:600">'+code+'</span>':'');
+    var col = KPL_COLOR[st]||'#8a7d70';
+    var bg = st==='working'?'#e9f1ea':(col+'22'); var fg = st==='working'?'#2f5233':(st==='cdo'?'#7a6400':col);
+    return '<button class="kpl-qbtn'+((e.status||'working')===st?' on':'')+'" style="background:'+bg+';color:'+fg+'" onclick="kplPickStatus(\''+st+'\')">'+lbl+'</button>';
+  }).join(' ');
+  var st0=formatTime(e.shift_start)||KPL_DEF_START, et0=formatTime(e.shift_end)||KPL_DEF_END;
+  var hasSplit = e.shift_start2&&e.shift_end2;
+  var host = document.getElementById('kpl-modalhost');
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseCell(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>'+(s?schEvEsc(s.name):'')+' &middot; '+d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</h3>'
+    + '<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);margin-bottom:4px">Quick set — one tap</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">'
+    +   '<button class="kpl-qbtn" style="background:#f4e7c4;color:#77560f;text-align:center" onclick="kplApplyPreset(\'lunch\')">Lunch team<br><span style="font-size:9px;opacity:.75">10–15 · 19–00</span></button>'
+    +   '<button class="kpl-qbtn" style="background:#e9f1ea;color:#2f5233;text-align:center" onclick="kplApplyPreset(\'dinner\')">Dinner team<br><span style="font-size:9px;opacity:.75">15–03</span></button>'
+    +   '<button class="kpl-qbtn" style="background:#dbecea;color:#0f5b54;text-align:center" onclick="kplApplyPreset(\'evening\')">Evening<br><span style="font-size:9px;opacity:.75">14–00</span></button>'
+    +   '<button class="kpl-qbtn" style="background:#f6dcd9;color:#8f2d24" onclick="kplApplyPreset(\'off\')">Day off</button>'
+    + '</div>'
+    + '<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);margin-bottom:4px">Or set it yourself</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px" id="kpl-statusbtns">'+statusBtns+'</div>'
+    + '<div id="kpl-timefields" style="display:'+((e.status||'working')==='working'?'block':'none')+'">'
+    +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="kpl-lbl" style="width:52px">Shift</span>'
+    +     '<input type="time" id="kpl-st" value="'+st0+'"> <span>–</span> <input type="time" id="kpl-et" value="'+et0+'"></div>'
+    +   '<div id="kpl-split2" style="display:'+(hasSplit?'flex':'none')+';align-items:center;gap:8px;margin-bottom:8px"><span class="kpl-lbl" style="width:52px">Split</span>'
+    +     '<input type="time" id="kpl-st2" value="'+(hasSplit?formatTime(e.shift_start2):'18:00')+'"> <span>–</span> <input type="time" id="kpl-et2" value="'+(hasSplit?formatTime(e.shift_end2):'00:00')+'"></div>'
+    +   '<button class="kpl-btn" id="kpl-splitbtn" onclick="kplToggleSplit2()">'+(hasSplit?'− Remove split':'+ Add split shift')+'</button>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin:12px 0"><span class="kpl-lbl" style="width:52px">Note</span><input type="text" id="kpl-note" value="'+schEvEsc(e.notes||'')+'" placeholder="optional" style="flex:1"></div>'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap">'
+    +   '<div style="display:flex;gap:8px"><button class="kpl-btn" onclick="kplClearCell()">Clear day</button><button class="kpl-btn" onclick="kplCopyShiftFromEditor()" title="Copy this shift, then tap other days to paste it">Copy to other days</button></div>'
+    +   '<div style="display:flex;gap:8px"><button class="kpl-btn" onclick="kplCloseCell()">Cancel</button><button class="kpl-btn primary" onclick="kplSaveCell()">Save</button></div>'
+    + '</div></div></div>';
+  kplPickStatus._cur = e.status||'working';
+}
+function kplPickStatus(st){
+  kplPickStatus._cur = st;
+  var host=document.getElementById('kpl-statusbtns');
+  Array.prototype.forEach.call(host.querySelectorAll('.kpl-qbtn'), function(b){ b.classList.remove('on'); });
+  var idx = KPL_STATUSES.indexOf(st); if(idx>=0) host.children[idx].classList.add('on');
+  document.getElementById('kpl-timefields').style.display = st==='working'?'block':'none';
+}
+function kplToggleSplit2(){ var f=document.getElementById('kpl-split2'), b=document.getElementById('kpl-splitbtn'); var open=f.style.display!=='none'; f.style.display=open?'none':'flex'; b.textContent=open?'+ Add split shift':'− Remove split'; }
+function kplClearCell(){ if(kplEditKey) delete kplDraft[kplEditKey]; kplCloseCell(); kplSaveDraft(); kplRender(); }
+function kplApplyPreset(kind){
+  if(!kplEditKey) return;
+  var prev=kplDraft[kplEditKey]||{}; var e;
+  if(kind==='lunch')        e={status:'working',shift_start:'10:00',shift_end:'15:00',shift_start2:'19:00',shift_end2:'00:00'};
+  else if(kind==='dinner')  e={status:'working',shift_start:'15:00',shift_end:'03:00',shift_start2:null,shift_end2:null};
+  else if(kind==='evening') e={status:'working',shift_start:'14:00',shift_end:'00:00',shift_start2:null,shift_end2:null};
+  else                      e={status:'off',shift_start:null,shift_end:null,shift_start2:null,shift_end2:null};
+  e.notes=prev.notes||null;
+  kplDraft[kplEditKey]=e; kplCloseCell(); kplSaveDraft(); kplRender();
+}
+function kplReadEditorEntry(){
+  var st = kplPickStatus._cur||'working';
+  var e = { status:st, shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:(document.getElementById('kpl-note').value.trim()||null) };
+  if(st==='working'){
+    e.shift_start = document.getElementById('kpl-st').value||null;
+    e.shift_end   = document.getElementById('kpl-et').value||null;
+    if(document.getElementById('kpl-split2').style.display!=='none'){ e.shift_start2=document.getElementById('kpl-st2').value||null; e.shift_end2=document.getElementById('kpl-et2').value||null; }
+  }
+  return e;
+}
+function kplSaveCell(){
+  if(!kplEditKey) return;
+  kplDraft[kplEditKey] = kplReadEditorEntry();
+  kplCloseCell(); kplSaveDraft(); kplRender();
+}
+function kplCloseCell(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; kplEditKey=null; }
+
+// ── Copy one shift, then tap other cells to paste it (Excel-style fill) ──
+var kplShiftClip = null;    // { status, shift_start…, srcStaff, srcDate, label }
+var kplPasteOn   = false;
+var kplPasteCount= 0;
+function kplShiftLabel(e){
+  if(e.status==='working') return (e.shift_start||'')+(e.shift_end?'–'+e.shift_end:'')+(e.shift_start2&&e.shift_end2?' + '+e.shift_start2+'–'+e.shift_end2:'');
+  return kplFriendly(e.status);
+}
+function kplCopyShiftFromEditor(){
+  if(!kplEditKey) return;
+  var e = kplReadEditorEntry();
+  kplDraft[kplEditKey] = e;                 // keep the cell you copied from set too
+  var parts = kplEditKey.split('|');
+  kplShiftClip = Object.assign({}, e, { srcStaff:parts[0], srcDate:parts[1], label:kplShiftLabel(e) });
+  kplCloseCell(); kplSaveDraft(); kplRender();
+  kplPasteOn = true; kplPasteCount = 0; kplShowPasteBar();
+}
+function kplPasteInto(sid, ds){
+  if(!kplShiftClip) return;
+  kplDraft[kplKey(sid,ds)] = { status:kplShiftClip.status, shift_start:kplShiftClip.shift_start, shift_end:kplShiftClip.shift_end,
+    shift_start2:kplShiftClip.shift_start2, shift_end2:kplShiftClip.shift_end2, notes:kplShiftClip.notes||null };
+  kplPasteCount++; kplSaveDraft(); kplRender(); kplShowPasteBar();
+}
+function kplFillPersonWeek(){
+  if(!kplShiftClip) return;
+  var mon = getMonday(new Date(kplShiftClip.srcDate+'T12:00:00'));
+  for(var d=0; d<7; d++){ kplPasteInto(kplShiftClip.srcStaff, formatDate(addDays(mon,d))); }
+}
+function kplFillDay(){
+  if(!kplShiftClip) return;
+  kplAllPeople().forEach(function(s){ kplPasteInto(s.id, kplShiftClip.srcDate); });
+}
+function kplShowPasteBar(){
+  var host = document.getElementById('kpl-full') || document.body;
+  var bar = document.getElementById('kpl-paste-bar');
+  if(!bar){
+    bar = document.createElement('div'); bar.id='kpl-paste-bar';
+    bar.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:4350;background:var(--vino);color:#f6ece0;padding:10px 14px;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:9px;font-family:var(--font-sans);font-size:13px;max-width:94vw;flex-wrap:wrap;justify-content:center';
+    host.appendChild(bar);
+  }
+  var bs='padding:7px 12px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.12);color:#f6ece0;border-radius:7px;cursor:pointer;font:inherit;font-weight:600';
+  var msg = kplPasteCount
+    ? ('Pasted to '+kplPasteCount+' '+(kplPasteCount===1?'day':'days')+' &middot; keep tapping cells, or Done')
+    : ('Copied <b>'+(kplShiftClip?kplShiftClip.label:'')+'</b> &middot; tap any day to paste it');
+  bar.innerHTML = '<span>'+msg+'</span>'
+    + '<button style="'+bs+'" onclick="kplFillPersonWeek()">Fill this person’s week</button>'
+    + '<button style="'+bs+'" onclick="kplFillDay()">Fill this whole day</button>'
+    + '<button style="'+bs+';background:var(--sabbia);color:var(--vino)" onclick="kplEndPaste()">Done</button>';
+  bar.style.display='flex';
+}
+function kplEndPaste(){ kplPasteOn=false; kplShiftClip=null; kplPasteCount=0; var b=document.getElementById('kpl-paste-bar'); if(b) b.style.display='none'; }
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && kplPasteOn) kplEndPaste(); });
+
+// ── Copy / paste week ──
+function kplCopyWeek(w){ kplWkClip=w; kplRender(); var s=document.getElementById('kpl-saved'); if(s){ s.textContent='Week '+(w+1)+' copied'; s.style.opacity='1'; } }
+function kplPasteWeek(w){
+  if(kplWkClip===null || kplWkClip===w) return;
+  if(!confirm('Paste week '+(kplWkClip+1)+' onto week '+(w+1)+'? This overwrites week '+(w+1)+' in the draft (all people shown or hidden).')) return;
+  var affected = kplFilterPer==='all' ? kplStaff : kplStaff.filter(function(s){return s.id===kplFilterPer;});
+  affected.forEach(function(s){ for(var d=0; d<7; d++){ var src=kplDraft[kplKey(s.id,kplDateISO(kplWkClip,d))]; var dk=kplKey(s.id,kplDateISO(w,d)); if(src) kplDraft[dk]=Object.assign({},src); else delete kplDraft[dk]; } });
+  kplSaveDraft(); kplRender();
+}
+
+// ── Bulk fill / patterns ──
+function kplOpenBulk(){
+  var host=document.getElementById('kpl-modalhost');
+  var wkChecks=''; for(var w=0; w<kplNumWeeks; w++) wkChecks+='<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:12px"><input type="checkbox" class="kpl-wkchk" value="'+w+'" checked> W'+(w+1)+'</label>';
+  var secOpts = kplSections().map(function(s){return '<option value="'+s.key+'">'+s.label+'</option>';}).join('');
+  var perOpts = kplStaff.map(function(s){return '<option value="'+s.id+'">'+schEvEsc(s.name)+'</option>';}).join('');
+  var days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  function patRow(prefix,label){
+    var cells=days.map(function(dn,i){
+      var opts=['','working','off','wo','al','ph','tr'].map(function(o){ var t=o===''?'leave as is':kplFriendly(o); return '<option value="'+o+'">'+t+'</option>'; }).join('');
+      return '<td style="padding:2px"><div style="font-size:9px;color:var(--vino-light)">'+dn+'</div><select class="kpl-sel '+prefix+'" data-d="'+i+'" style="padding:2px 3px;font-size:11px">'+opts+'</select></td>';
+    }).join('');
+    return '<div style="margin:6px 0"><div class="kpl-lbl" style="margin-bottom:2px">'+label+'</div><table><tr>'+cells+'</tr></table></div>';
+  }
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseBulk(event)"><div class="kpl-modal" style="max-width:640px" onclick="event.stopPropagation()">'
+    + '<h3>&#9776; Fill many days at once</h3>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">'
+    +   '<span class="kpl-lbl">Who</span>'
+    +   '<select class="kpl-sel" id="kpl-bulk-who" onchange="kplBulkWhoChange()"><option value="all">Everyone shown</option><option value="section">A section…</option><option value="person">One person…</option></select>'
+    +   '<select class="kpl-sel" id="kpl-bulk-sec" style="display:none">'+secOpts+'</select>'
+    +   '<select class="kpl-sel" id="kpl-bulk-per" style="display:none">'+perOpts+'</select>'
+    + '</div>'
+    + '<div style="margin-bottom:8px"><span class="kpl-lbl">Weeks</span><br>'+wkChecks+'</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+    +   '<span class="kpl-lbl">Working time</span><input type="time" id="kpl-bulk-st" value="'+KPL_DEF_START+'"> – <input type="time" id="kpl-bulk-et" value="'+KPL_DEF_END+'">'
+    +   '<label style="font-size:12px;margin-left:auto;display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="kpl-bulk-alt" onchange="document.getElementById(\'kpl-patB\').style.display=this.checked?\'block\':\'none\'"> Make every other week different</label>'
+    + '</div>'
+    + '<div style="border:1px solid var(--sabbia-dark);border-radius:8px;padding:6px 8px">'
+    +   patRow('kpl-patA','Set each day')
+    +   '<div id="kpl-patB" style="display:none">'+patRow('kpl-patB','Every other week (different)')+'</div>'
+    +   '<div style="font-size:11px;color:var(--vino-light);margin-top:4px">Leave a day on “leave as is” to keep what’s already there.</div>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button class="kpl-btn" onclick="kplCloseBulk()">Cancel</button><button class="kpl-btn primary" onclick="kplApplyBulk()">Apply to draft</button></div>'
+    + '</div></div>';
+}
+function kplBulkWhoChange(){ var v=document.getElementById('kpl-bulk-who').value; document.getElementById('kpl-bulk-sec').style.display=v==='section'?'inline-block':'none'; document.getElementById('kpl-bulk-per').style.display=v==='person'?'inline-block':'none'; }
+function kplCloseBulk(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplReadPattern(prefix){ var p={}; Array.prototype.forEach.call(document.querySelectorAll('.'+prefix), function(sel){ p[parseInt(sel.getAttribute('data-d'),10)] = sel.value; }); return p; }
+function kplApplyBulk(){
+  var who=document.getElementById('kpl-bulk-who').value;
+  var people;
+  if(who==='section'){ var sk=document.getElementById('kpl-bulk-sec').value; people=kplStaffInSecAll(sk); }
+  else if(who==='person'){ var pid=document.getElementById('kpl-bulk-per').value; people=kplStaff.filter(function(s){return s.id===pid;}); }
+  else { people = kplFilterPer==='all' ? (kplFilterSec==='all'?kplStaff:kplStaffInSecAll(kplFilterSec)) : kplStaff.filter(function(s){return s.id===kplFilterPer;}); }
+  var weeks=[]; Array.prototype.forEach.call(document.querySelectorAll('.kpl-wkchk'), function(c){ if(c.checked) weeks.push(parseInt(c.value,10)); });
+  if(!weeks.length){ alert('Pick at least one week.'); return; }
+  var st=document.getElementById('kpl-bulk-st').value||KPL_DEF_START, et=document.getElementById('kpl-bulk-et').value||KPL_DEF_END;
+  var alt=document.getElementById('kpl-bulk-alt').checked;
+  var patA=kplReadPattern('kpl-patA'), patB=alt?kplReadPattern('kpl-patB'):patA;
+  var n=0;
+  people.forEach(function(s){ weeks.forEach(function(w){ var pat=(alt && (w%2===1))?patB:patA; for(var d=0; d<7; d++){ var v=pat[d]; if(v===undefined||v==='') continue; var k=kplKey(s.id,kplDateISO(w,d)); if(v==='working') kplDraft[k]={status:'working',shift_start:st,shift_end:et,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; else kplDraft[k]={status:v,shift_start:null,shift_end:null,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; n++; } }); });
+  kplCloseBulk(); kplSaveDraft(); kplRender();
+  var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Applied '+n+' cells'; sv.style.opacity='1'; }
+}
+function kplStaffInSecAll(secKey){ return kplAllPeople().filter(function(s){ var sk=kplEffSec(s); return secKey==='__other' ? (!sk||!STATIONS_SCH.some(function(x){return x.key===sk;})) : sk===secKey; }); }
+// Working vs any-entry count for a section on a day (used so a totally-blank day
+// reads as "not planned yet", not "short-staffed").
+function kplSecDay(people, ds){ var work=0, any=0; people.forEach(function(s){ var e=kplEntry(s.id,ds); if(e&&e.status){ any++; if(e.status==='working'&&e.shift_start&&e.shift_end) work++; } }); return {work:work, any:any}; }
+
+// ── One-tap: give everyone a week off, spread out (app does the math — rule-based, no guessing) ──
+function kplAutoWeekOff(){
+  var weeks=[]; for(var w=0; w<kplNumWeeks; w++) weeks.push(w);
+  var assigned=0, maxPerSecWeek=1;
+  kplSections().forEach(function(sec){
+    var people=kplStaffInSecAll(sec.key); if(!people.length) return;
+    var load={}; weeks.forEach(function(w){ load[w]=0; });
+    var already={};
+    // respect any full-week vacation the planner already set
+    people.forEach(function(s){ for(var w=0; w<kplNumWeeks; w++){ var full=true; for(var d=0;d<7;d++){ if((kplDraft[kplKey(s.id,kplDateISO(w,d))]||{}).status!=='al'){ full=false; break; } } if(full){ already[s.id]=w; load[w]++; break; } } });
+    people.forEach(function(s){
+      if(already[s.id]!=null) return;
+      var best=weeks[0]; weeks.forEach(function(w){ if(load[w]<load[best]) best=w; });   // least-loaded week
+      for(var d=0; d<7; d++) kplDraft[kplKey(s.id,kplDateISO(best,d))]={status:'al',shift_start:null,shift_end:null,shift_start2:null,shift_end2:null,notes:null};
+      load[best]++; assigned++;
+    });
+    weeks.forEach(function(w){ if(load[w]>maxPerSecWeek) maxPerSecWeek=load[w]; });
+  });
+  return { assigned:assigned, maxPerSecWeek:maxPerSecWeek };
+}
+function kplGiveEveryoneWeekOff(){
+  if(kplMode!=='draft'){ alert('Press “Start planning” first, then try again.'); return; }
+  var n=kplStaff.length;
+  if(!confirm('Give each of the '+n+' people ONE week off (Vacation), spread across the '+kplNumWeeks+' weeks so as few as possible are off together?\n\nThis only changes your draft — nothing goes to the team until you press “Put on schedule”. You can adjust anyone afterwards.')) return;
+  var r=kplAutoWeekOff();
+  kplSaveDraft(); kplRender();
+  var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Everyone has a week off'; sv.style.opacity='1'; }
+  setTimeout(function(){ alert('Done ✓\n\nEveryone now has one week off (Vacation), spread out.\nAt most '+r.maxPerSecWeek+' person from the same section is off in any single week.\n\nTip: tap “Check for problems” to see coverage, or tap any week to fine-tune.'); }, 60);
+}
+
+// ── One-tap: give everyone their 2 days off a week, staggered off the busy days ──
+function kplAutoDaysOff(){
+  var quiet=[0,1,2,6];   // Mon,Tue,Wed,Sun preferred (keep Thu–Sat busy fully staffed)
+  var assigned=0;
+  kplSections().forEach(function(sec){
+    var ppl=kplStaffInSecAll(sec.key);
+    ppl.forEach(function(s, idx){
+      var a=quiet[(idx*2)%quiet.length], b=quiet[(idx*2+1)%quiet.length];
+      for(var w=0; w<kplNumWeeks; w++){
+        [a,b].forEach(function(d){ var k=kplKey(s.id,kplDateISO(w,d)); var cur=kplDraft[k]||{}; if(cur.status==='al') return; kplDraft[k]={status:'off',shift_start:null,shift_end:null,shift_start2:null,shift_end2:null,notes:cur.notes||null}; assigned++; });
+      }
+    });
+  });
+  return {assigned:assigned};
+}
+function kplGiveEveryoneDaysOff(){
+  if(kplMode!=='draft'){ alert('Press “Start planning” first, then try again.'); return; }
+  if(!confirm('Give everyone 2 days off each week, spread out so the busy days (Thu–Sat) stay covered?\n\nThis marks the days off in your draft — you can move anyone’s days after. Vacation weeks are left alone.')) return;
+  kplAutoDaysOff();
+  kplSaveDraft(); kplRender();
+  var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Days off added'; sv.style.opacity='1'; }
+  setTimeout(function(){ alert('Done ✓  Everyone now has 2 days off a week, kept off the busy Thu–Sat where possible.\n\nCheck the bottom row (or “Check for problems”) for coverage, and tap any day to move a day off.'); },60);
+}
+
+// ── Print / Save-PDF the plan straight from the tool (the Excel-killer) ──
+function kplPrintPlan(){
+  var dl=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var dates=[]; for(var i=0;i<kplNumWeeks*7;i++) dates.push(kplDateISO(Math.floor(i/7),i%7));
+  var draft = (kplMode==='draft');
+  function cell(e){
+    if(!e||!e.status) return {t:'', c:'#fff', x:'#bbb'};
+    if(e.status==='al') return {t:'VAC', c:'#cfe8d6', x:'#0d5030'};
+    if(e.status==='off'||e.status==='wo') return {t:'OFF', c:'#f6dcd9', x:'#8f2d24'};
+    if(e.status==='working'){
+      var a=(formatTime(e.shift_start)||'').replace(':00',''), b=(formatTime(e.shift_end)||'').replace(':00','');
+      var split=e.shift_start2&&e.shift_end2;
+      if(split){ var a2=(formatTime(e.shift_start2)||'').replace(':00',''), b2=(formatTime(e.shift_end2)||'').replace(':00',''); return {t:a+'–'+b+' / '+a2+'–'+b2, c:'#f4e7c4', x:'#77560f'}; }
+      return {t:(a?a+'–'+b:'ON'), c:'#e9f1ea', x:'#2f5233'};
+    }
+    return {t:e.status.toUpperCase(), c:'#eee', x:'#555'};
+  }
+  var head='<tr><th class="nm">Chef</th>';
+  for(var w=0;w<kplNumWeeks;w++) head+='<th class="wk" colspan="7">Week '+(w+1)+' · '+new Date(dates[w*7]+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</th>';
+  head+='</tr><tr><th class="nm"></th>';
+  for(var i=0;i<dates.length;i++){ var g=new Date(dates[i]+'T12:00:00').getDay(); head+='<th class="dh">'+['S','M','T','W','T','F','S'][g]+'<br>'+new Date(dates[i]+'T12:00:00').getDate()+'</th>'; }
+  head+='</tr>';
+  var body='';
+  kplSections().forEach(function(sec){
+    var ppl=kplStaffInSecAll(sec.key); if(!ppl.length) return;
+    body+='<tr class="sec"><td colspan="'+(dates.length+1)+'">'+sec.label+'</td></tr>';
+    ppl.forEach(function(s){
+      body+='<tr><td class="nm">'+s.name+'</td>';
+      for(var i=0;i<dates.length;i++){ var c=cell(kplDraft[kplKey(s.id,dates[i])]||kplLive[kplKey(s.id,dates[i])]); body+='<td style="background:'+c.c+';color:'+c.x+'">'+(c.t||'·')+'</td>'; }
+      body+='</tr>';
+    });
+  });
+  var span=new Date(dates[0]+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' – '+new Date(dates[dates.length-1]+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  var doc='<!doctype html><html><head><meta charset="utf-8"><title>Kitchen roster '+span+'</title><style>'
+    +'@page{size:A3 landscape;margin:9mm}body{font-family:Arial,Helvetica,sans-serif;color:#2b2320;margin:16px}'
+    +'h1{font-family:Georgia,serif;color:#400207;margin:0 0 2px;font-size:20px}.s{color:#8c7d6d;font-style:italic;margin:0 0 12px;font-size:13px}'
+    +'table{border-collapse:collapse;font-size:9.5px;width:100%}th,td{border:1px solid #e7dccb;padding:2px 3px;text-align:center;white-space:nowrap}'
+    +'.nm{text-align:left;font-weight:bold;min-width:120px;font-size:11px}.wk{background:#400207;color:#fff;font-size:10px}.dh{background:#FBF8F2;color:#400207;font-size:9px}'
+    +'.sec td{background:#E8D9C7;color:#400207;text-align:left;font-weight:bold;letter-spacing:1px;text-transform:uppercase;font-size:9px}'
+    +'.legend{margin-top:10px;font-size:11px;color:#555}.legend span{display:inline-block;padding:1px 6px;border-radius:3px;margin-right:8px}'
+    +'</style></head><body>'
+    +'<h1>Roberto’s Kitchen — Roster'+(draft?' (DRAFT)':'')+'</h1><p class="s">'+span+' · '+(draft?'Draft plan — not on the live schedule':'From the live schedule')+'</p>'
+    +'<table>'+head+body+'</table>'
+    +'<div class="legend"><span style="background:#f4e7c4;color:#77560f">10–15 / 19–00 Lunch (split)</span><span style="background:#e9f1ea;color:#2f5233">Dinner</span><span style="background:#cfe8d6;color:#0d5030">VAC</span><span style="background:#f6dcd9;color:#8f2d24">OFF</span></div>'
+    +'</body></html>';
+  var wpop=window.open('','_blank');
+  if(!wpop){ alert('Please allow pop-ups so the roster can open for printing — or use your browser’s Print (Ctrl/Cmd + P).'); return; }
+  wpop.document.write(doc); wpop.document.close(); wpop.focus();
+  setTimeout(function(){ try{ wpop.print(); }catch(e){} }, 400);
+}
+function kplV(id){ var el=document.getElementById(id); return el?el.value:''; }
+
+// ── Openers: 1 per section starts early, everyone else the normal shift (two shift-tiers on a day) ──
+function kplOpenOpeners(){
+  if(kplMode!=='draft'){ alert('Press “Start planning” first, then try again.'); return; }
+  var days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var dayChecks=days.map(function(dn,i){ return '<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:12px"><input type="checkbox" class="kpl-opday" value="'+i+'"'+(i<6?' checked':'')+'> '+dn+'</label>'; }).join('');
+  var host=document.getElementById('kpl-modalhost');
+  host.innerHTML='<div class="kpl-ov" onclick="kplCloseOpeners(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>Set lunch &amp; dinner teams</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:10px">On the days you pick, <b>1 person per section</b> is on the <b>lunch team</b> (early, split shift) and <b>everyone else</b> is on the <b>dinner team</b>. People already on a day off or vacation are left alone.</div>'
+    + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap"><span class="kpl-lbl" style="width:150px">Lunch team (1 per section)</span><input type="time" id="kpl-lun-s" value="10:00"> – <input type="time" id="kpl-lun-e" value="15:00"> <span style="color:var(--vino-light);font-size:11px">break, then</span> <input type="time" id="kpl-lun2-s" value="19:00"> – <input type="time" id="kpl-lun2-e" value="00:00"></div>'
+    + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><span class="kpl-lbl" style="width:150px">Dinner team (the rest)</span><input type="time" id="kpl-din-s" value="15:00"> – <input type="time" id="kpl-din-e" value="03:00"></div>'
+    + '<div style="margin-bottom:6px"><span class="kpl-lbl">On these days</span><br>'+dayChecks+'</div>'
+    + '<div style="font-size:11px;color:var(--vino-light)">Applies to all '+kplNumWeeks+' weeks. This puts everyone shown in on those days — add days off after (or use “Give everyone their days off”). Leave a day unticked to plan it yourself.</div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button class="kpl-btn" onclick="kplCloseOpeners()">Cancel</button><button class="kpl-btn primary" onclick="kplApplyOpeners()">Apply to draft</button></div>'
+    + '</div></div>';
+}
+function kplCloseOpeners(ev){ if(ev&&ev.target&&!ev.target.classList.contains('kpl-ov'))return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplApplyOpeners(){
+  var ls=kplV('kpl-lun-s')||'10:00', le=kplV('kpl-lun-e')||'15:00', ls2=kplV('kpl-lun2-s')||'19:00', le2=kplV('kpl-lun2-e')||'00:00';
+  var ds=kplV('kpl-din-s')||'15:00', de=kplV('kpl-din-e')||'03:00';
+  var days=[]; document.querySelectorAll('.kpl-opday').forEach(function(c){ if(c.checked) days.push(parseInt(c.value,10)); });
+  if(!days.length){ alert('Pick at least one day.'); return; }
+  var leave={off:1,wo:1,al:1,ph:1,sl:1,em:1};   // don't drag people off leave into work
+  var lunch=0, dinner=0;
+  kplSections().forEach(function(sec){
+    var people=kplStaffInSecAll(sec.key); if(!people.length) return;
+    for(var w=0; w<kplNumWeeks; w++){ days.forEach(function(d){ var dd=kplDateISO(w,d); var firstDone=false;
+      people.forEach(function(s){ var k=kplKey(s.id,dd); var cur=kplDraft[k]||{}; if(cur.status && leave[cur.status]) return;
+        if(!firstDone){ kplDraft[k]={status:'working',shift_start:ls,shift_end:le,shift_start2:ls2,shift_end2:le2,notes:cur.notes||null}; firstDone=true; lunch++; }
+        else { kplDraft[k]={status:'working',shift_start:ds,shift_end:de,shift_start2:null,shift_end2:null,notes:cur.notes||null}; dinner++; }
+      });
+    }); }
+  });
+  kplCloseOpeners(); kplSaveDraft(); kplRender();
+  var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Teams set ('+lunch+' lunch, '+dinner+' dinner)'; sv.style.opacity='1'; }
+}
+
+// ── Staffing calculator: how many people to run this operating model (pure math, no guessing) ──
+function kplOpenCalc(){
+  var secN=STATIONS_SCH.length;
+  var host=document.getElementById('kpl-modalhost');
+  function num(lbl,id,val,hint){ return '<div style="display:flex;align-items:center;gap:8px;margin:5px 0"><span class="kpl-lbl" style="width:210px">'+lbl+'</span><input type="number" min="0" id="'+id+'" value="'+val+'" style="width:70px">'+(hint?'<span style="font-size:11px;color:var(--vino-light)">'+hint+'</span>':'')+'</div>'; }
+  host.innerHTML='<div class="kpl-ov" onclick="kplCloseCalc(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>How many people do we need?</h3>'
+    + '<div style="font-size:12px;color:var(--vino-light);margin-bottom:10px">A quick estimate for an operating plan (e.g. open 7 days, lunch & dinner, everyone gets days off). Change the numbers to match what the head chef wants.</div>'
+    + num('Open days per week','kc-days','7','')
+    + num('Services per day','kc-serv','2','lunch + dinner = 2')
+    + num('People needed per section, each service','kc-min','1','')
+    + num('Days off per person, per week','kc-off','2','')
+    + num('How many sections','kc-sec',String(secN),'')
+    + '<div style="display:flex;align-items:center;gap:8px;margin:8px 0"><input type="checkbox" id="kc-double" style="width:16px;height:16px"><span style="font-size:12px">One person can cover <b>both</b> lunch &amp; dinner the same day (double shift)</span></div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin:6px 0"><button class="kpl-btn primary" onclick="kplRunCalc()">Calculate</button></div>'
+    + '<div id="kc-result" style="margin-top:8px"></div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="kpl-btn" onclick="kplCloseCalc()">Close</button></div>'
+    + '</div></div>';
+  kplRunCalc();
+}
+function kplCloseCalc(ev){ if(ev&&ev.target&&!ev.target.classList.contains('kpl-ov'))return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplRunCalc(){
+  var days=Math.max(1,parseInt(kplV('kc-days'),10)||7), serv=Math.max(1,parseInt(kplV('kc-serv'),10)||2), min=Math.max(1,parseInt(kplV('kc-min'),10)||1), off=Math.min(6,Math.max(0,parseInt(kplV('kc-off'),10)||2)), sec=Math.max(1,parseInt(kplV('kc-sec'),10)||1);
+  var dbl=document.getElementById('kc-double') && document.getElementById('kc-double').checked;
+  var workDays=Math.max(1, 7-off);
+  var shiftsPerSection = days*serv*min;                 // service-slots to cover per section per week
+  var perPerson = workDays*(dbl?serv:1);                // service-slots one person can cover per week
+  var perSection = Math.ceil(shiftsPerSection/perPerson);
+  var total = perSection*sec;
+  var have = schedStaff.length;
+  var gap = total-have;
+  var box=document.getElementById('kc-result'); if(!box) return;
+  box.innerHTML='<div style="background:#eef3ec;border:1px solid #a9d8bf;border-radius:8px;padding:10px 12px">'
+    + '<div style="font-size:15px;color:#0f5132;font-weight:700">≈ '+perSection+' people per section &times; '+sec+' sections = '+total+' people</div>'
+    + '<div style="font-size:12px;color:#356;margin-top:6px">Each person works '+workDays+' days/week and covers '+(dbl?'both services':'one service')+' a day. To open '+days+' days with '+min+' per section per service, that’s '+shiftsPerSection+' service-slots each week per section.</div>'
+    + '<div style="font-size:12px;margin-top:6px;color:'+(gap>0?'#a8342a':'#0f5132')+'">You have '+have+' people now — '+(gap>0?('you’d need about '+gap+' more.'):(gap===0?'that’s exactly enough.':('that’s '+(-gap)+' to spare.')))+'</div>'
+    + '</div>';
+}
+
+// ── Risks & totals ──
+function kplOpenRisk(){
+  var issues = kplComputeRisks();
+  var host=document.getElementById('kpl-modalhost');
+  var rows = issues.length ? issues.map(function(i){ return '<li style="margin:4px 0;color:'+(i.sev==='high'?'#a8342a':'#7a5a12')+'"><b>'+i.tag+'</b> — '+i.msg+'</li>'; }).join('') : '<li style="color:#0f766e">No problems found across these weeks. ✓</li>';
+  // per-person totals table
+  var trs = kplStaff.filter(function(s){ return kplFilterSec==='all' || (s.station_key===kplFilterSec) || (kplFilterSec==='__other' && !STATIONS_SCH.some(function(x){return x.key===s.station_key;})); }).map(function(s){
+    var t=kplPersonTotals(s.id); var ent=kplEnt[s.id]||{};
+    var offTgt = ent.off!=null?ent.off:'';
+    return '<tr><td style="text-align:left;padding:2px 6px">'+schEvEsc(s.name)+'</td><td>'+t.days+'</td><td'+(t.off===0?' style="color:#a8342a;font-weight:700"':'')+'>'+t.off+'</td><td>'+(Math.round(t.hrs*10)/10)+'</td><td>'+t.al+'</td><td>'+t.ph+'</td>'
+      + '<td><input type="number" min="0" style="width:44px;padding:2px" value="'+offTgt+'" onchange="kplSetEnt(\''+s.id+'\',\'off\',this.value)" title="target off-days"></td></tr>';
+  }).join('');
+  host.innerHTML = '<div class="kpl-ov" onclick="kplCloseRisk(event)"><div class="kpl-modal" style="max-width:640px" onclick="event.stopPropagation()">'
+    + '<h3>&#9888; Risks &amp; totals <span style="font-size:12px;color:var(--vino-light)">('+kplNumWeeks+' weeks)</span></h3>'
+    + '<ul style="margin:0 0 14px;padding-left:18px;font-size:13px">'+rows+'</ul>'
+    + '<div class="kpl-lbl" style="margin-bottom:4px">Per person over the span</div>'
+    + '<div style="max-height:44vh;overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">'
+    +   '<thead><tr style="color:var(--vino-light);font-size:10px;text-transform:uppercase"><th style="text-align:left;padding:2px 6px">Name</th><th>Days</th><th>Off</th><th>Hrs</th><th>AL</th><th>PH</th><th>Off target</th></tr></thead>'
+    +   '<tbody>'+trs+'</tbody></table></div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="kpl-btn primary" onclick="kplCloseRisk()">Close</button></div>'
+    + '</div></div>';
+}
+function kplCloseRisk(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplSetEnt(sid, field, val){ kplEnt[sid]=kplEnt[sid]||{}; kplEnt[sid][field]= val===''?null:(parseInt(val,10)||0); kplSaveDraft(); }
+function kplPersonTotals(sid){
+  var t={days:0,work:0,off:0,hrs:0,al:0,ph:0};
+  for(var w=0; w<kplNumWeeks; w++) for(var d=0; d<7; d++){ var e=kplEntry(sid,kplDateISO(w,d)); if(!e||!e.status) continue;
+    if(e.status==='working'){ if(e.shift_start&&e.shift_end){ t.days++; t.work++; t.hrs+=calcHours(formatTime(e.shift_start),formatTime(e.shift_end),formatTime(e.shift_start2),formatTime(e.shift_end2)); } }
+    else { if(e.status!=='off') t.days++; if(e.status==='off'||e.status==='wo') t.off++; if(e.status==='al') t.al++; if(e.status==='ph') t.ph++; }
+  }
+  return t;
+}
+function kplComputeRisks(){
+  var out=[];
+  // understaffed section-days
+  kplSections().forEach(function(sec){
+    var people=kplStaffInSecAll(sec.key); if(!people.length) return;
+    for(var w=0; w<kplNumWeeks; w++) for(var d=0; d<7; d++){ var ds=kplDateISO(w,d); var c=kplSecDay(people, ds); var min=kplMinFor(sec.key,d>=5); if(c.any>0 && c.work<min){ out.push({sev:'high',tag:sec.label,msg:'only '+c.work+' working on '+new Date(ds+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+' (need '+min+')'}); } }
+  });
+  // people who work with no rest day at all in the span (vacation & PH count as rest)
+  kplStaff.forEach(function(s){ var t=kplPersonTotals(s.id); if(t.work>0 && (t.off+t.al+t.ph)===0){ out.push({sev:'high',tag:s.name,msg:'works with no day off, vacation or holiday in the whole span'}); }
+    // >6 consecutive working days
+    var streak=0, maxStreak=0; for(var w=0; w<kplNumWeeks; w++) for(var d=0; d<7; d++){ var e=kplEntry(s.id,kplDateISO(w,d)); var working=e&&e.status==='working'&&e.shift_start; if(working){ streak++; maxStreak=Math.max(maxStreak,streak); } else streak=0; }
+    if(maxStreak>=7) out.push({sev:'high',tag:s.name,msg:maxStreak+' days in a row without a break'});
+    // entitlement gap
+    var ent=kplEnt[s.id]||{}; if(ent.off!=null && t.off<ent.off) out.push({sev:'low',tag:s.name,msg:'off-days '+t.off+' below target '+ent.off}); });
+  // collapse understaffed to a count if too many
+  if(out.length>40){ var high=out.filter(function(o){return o.sev==='high';}).slice(0,30); out=high.concat([{sev:'low',tag:'…',msg:(out.length-high.length)+' more issues not shown'}]); }
+  return out;
+}
+
+// ── Publish / revert ──
+function kplOpenPublish(){
+  var host=document.getElementById('kpl-modalhost');
+  var wkChecks=''; for(var w=0; w<kplNumWeeks; w++){ var ws=addDays(kplFrom,w*7),we=addDays(kplFrom,w*7+6); wkChecks+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0"><input type="checkbox" class="kpl-pubwk" value="'+w+'" checked onchange="kplPubRecalc()"> W'+(w+1)+' &middot; '+ws.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' – '+we.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</label>'; }
+  var snap=kplReadSnap();
+  var revertBtn = snap ? '<button class="kpl-btn" onclick="kplRevert()" style="border-color:#a8342a;color:#a8342a">&#8630; Undo the last send ('+snap.label+')</button>' : '';
+  host.innerHTML = '<div class="kpl-ov" onclick="kplClosePublish(event)"><div class="kpl-modal" onclick="event.stopPropagation()">'
+    + '<h3>&#10003; Put your plan on the real schedule</h3>'
+    + '<div style="background:#fff7e6;border:1px solid #f0d98a;border-radius:8px;padding:8px 10px;font-size:12px;color:#7a5a12;margin-bottom:10px">This puts the weeks you tick onto the <b>real schedule</b> — the kitchen team and HR will see them. It saves a copy of what was there first, so you can <b>undo</b> right after. Clock-ins are never overwritten.</div>'
+    + '<div class="kpl-lbl" style="margin-bottom:2px">Weeks to publish</div>'+wkChecks
+    + '<div id="kpl-pub-short" style="margin-top:8px"></div>'
+    + '<div id="kpl-pub-status" style="font-size:12px;color:var(--vino-light);margin-top:8px"></div>'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px">'+revertBtn+'<div style="display:flex;gap:8px;margin-left:auto"><button class="kpl-btn" onclick="kplClosePublish()">Cancel</button><button class="kpl-btn go" id="kpl-pub-go" onclick="kplDoPublish()">Put these weeks on the schedule</button></div></div>'
+    + '</div></div>';
+  kplPubRecalc();
+}
+// Short-night warning shown right in the Publish dialog (mockup screen 5).
+function kplPubSelectedWeeks(){ var weeks=[]; Array.prototype.forEach.call(document.querySelectorAll('.kpl-pubwk'), function(c){ if(c.checked) weeks.push(parseInt(c.value,10)); }); return weeks; }
+function kplShortNights(weeks){
+  var out=[];
+  kplSections().forEach(function(sec){
+    var people=kplStaffInSecAll(sec.key); if(!people.length) return;
+    weeks.forEach(function(w){ for(var d=0; d<7; d++){ var ds=kplDateISO(w,d); var c=kplSecDay(people, ds); var min=kplMinFor(sec.key,d>=5); if(c.any>0 && c.work<min) out.push({ds:ds, sec:sec.label, n:c.work, min:min}); } });
+  });
+  return out;
+}
+function kplPubRecalc(){
+  var box=document.getElementById('kpl-pub-short'); if(!box) return;
+  var weeks=kplPubSelectedWeeks();
+  if(!weeks.length){ box.innerHTML=''; return; }
+  var shorts=kplShortNights(weeks);
+  if(!shorts.length){ box.innerHTML='<div style="background:#e9f6ef;border:1px solid #a9d8bf;border-radius:8px;padding:6px 10px;font-size:12px;color:#0f5132">&#10003; Every section meets its minimum on the selected dates.</div>'; return; }
+  var show=shorts.slice(0,6).map(function(s){ return '<li>'+s.sec+' — '+new Date(s.ds+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+': '+s.n+' working (min '+s.min+')</li>'; }).join('');
+  var more=shorts.length>6?'<li>…and '+(shorts.length-6)+' more short slots</li>':'';
+  box.innerHTML='<div style="background:#fbe4e1;border:1px solid #e6a79f;border-radius:8px;padding:6px 10px;font-size:12px;color:#a8342a"><b>&#9888; '+shorts.length+' short slot'+(shorts.length>1?'s':'')+' in the selected weeks</b> — you can still publish, just so you know:<ul style="margin:4px 0 0;padding-left:18px">'+show+more+'</ul></div>';
+}
+function kplClosePublish(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; document.getElementById('kpl-modalhost').innerHTML=''; }
+function kplReadSnap(){ try{ return JSON.parse(localStorage.getItem(KPL_SNAP_LS)||'null'); }catch(e){ return null; } }
+function kplRosterRow(id, ds, e){
+  return { staff_id:id, work_date:ds, status:e.status,
+    shift_start:e.status==='working'?(e.shift_start||null):null, shift_end:e.status==='working'?(e.shift_end||null):null,
+    shift_start2:e.status==='working'?(e.shift_start2||null):null, shift_end2:e.status==='working'?(e.shift_end2||null):null,
+    notes:e.notes||null, updated_at:new Date().toISOString() };
+}
+async function kplDoPublish(){
+  var weeks=[]; Array.prototype.forEach.call(document.querySelectorAll('.kpl-pubwk'), function(c){ if(c.checked) weeks.push(parseInt(c.value,10)); });
+  var secDiff = schedPlanSectionDiff();
+  var secRenames = secDiff.renames;
+  var newSecs = secDiff.adds.slice();
+  var hasSecChanges = secDiff.total > 0;
+  if(!weeks.length && !hasSecChanges){ alert('Nothing to bring live yet. Tick a week to publish, or make a change first.'); return; }
+  var dates=[]; weeks.forEach(function(w){ for(var d=0; d<7; d++) dates.push(kplDateISO(w,d)); });
+  var minD = dates.length ? dates.slice().sort()[0] : null;
+  var maxD = dates.length ? dates.slice().sort()[dates.length-1] : null;
+  var existingIds = kplStaff.map(function(s){return s.id;});
+  // team changes held in the draft
+  var moves = Object.keys(kplDraftSec).filter(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); return s && kplDraftSec[id]!==s.station_key; });
+  var reorders = Object.keys(kplDraftOrd).filter(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); return s && kplDraftOrd[id]!==s.sort_order; });
+  var newPeople = kplNewStaff.slice();
+  // shift payloads for existing staff in the chosen dates. The publish replaces the
+  // whole week range, so write the FULL plan: the draft where a cell was changed,
+  // otherwise the untouched live row — so unchanged shifts are preserved, not wiped.
+  var payloads=[];
+  if(dates.length){ kplStaff.forEach(function(s){ dates.forEach(function(ds){
+    var k=kplKey(s.id,ds), e=kplDraft[k];
+    if(e && e.status){ payloads.push(kplRosterRow(s.id,ds,e)); }
+    else { var lv=kplLive[k]; if(lv && lv.status){ payloads.push(kplRosterRow(s.id,ds,lv)); } }
+  }); }); }
+  var lbl = weeks.length ? ('W'+(weeks[0]+1)+(weeks.length>1?'–W'+(weeks[weeks.length-1]+1):'')) : 'section changes';
+  var extra=[]; if(moves.length) extra.push(moves.length+' moved to a different section'); if(reorders.length) extra.push(reorders.length+' reordered'); if(newPeople.length) extra.push(newPeople.length+' new '+(newPeople.length===1?'person':'people')+' added');
+  if(newSecs.length) extra.push(newSecs.length+' new section'+(newSecs.length>1?'s':'')+' ('+newSecs.map(function(s){return s.label;}).join(', ')+')');
+  if(secRenames.length) extra.push(secRenames.length+' section'+(secRenames.length>1?'s':'')+' renamed');
+  if(secDiff.deletes.length) extra.push(secDiff.deletes.length+' section'+(secDiff.deletes.length>1?'s':'')+' deleted');
+  if(secDiff.orderChanged) extra.push('sections reordered');
+  var extraTxt = extra.length ? '\n\nAlso going live: '+extra.join(' · ')+'.' : '';
+  var rangeTxt = weeks.length ? (' ('+minD+' → '+maxD+')') : '';
+  var mainTxt = weeks.length ? (payloads.length+' shift-days for the team will go onto the live schedule — the team and HR will see them.') : 'Your section changes will go onto the live schedule for everyone.';
+  if(!confirm('Bring '+lbl+rangeTxt+' live?\n\n'+mainTxt+extraTxt+'\n\nYou can undo this straight after.')) return;
+  var goBtn=document.getElementById('kpl-pub-go'); if(goBtn){ goBtn.disabled=true; goBtn.textContent='Publishing…'; }
+  var statusEl=document.getElementById('kpl-pub-status');
+  try{
+    // 1) snapshot current live rows in range (for revert)
+    var snapRows=[];
+    if(dates.length){ var snapRes = await sb.from('roster').select('*').gte('work_date',minD).lte('work_date',maxD).in('staff_id', existingIds).limit(8000); if(snapRes.error) throw snapRes.error; snapRows = snapRes.data||[]; }
+    // remember prior sections + order of changed people, and prior section labels (for undo)
+    var priorSections={}; moves.forEach(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); priorSections[id]=s?s.station_key:null; });
+    var priorOrders={}; reorders.forEach(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); priorOrders[id]=s?s.sort_order:null; });
+    // 2) sections FIRST (so people can sit in new ones). Snapshot the whole table for undo,
+    //    then add / rename / delete / reorder.
+    var secSnapRows=[]; var insertedSecKeys=[];
+    if(hasSecChanges){
+      var ssnap = await sb.from('sched_sections').select('*'); if(ssnap.error) throw ssnap.error; secSnapRows = ssnap.data||[];
+      for(var ns=0; ns<newSecs.length; ns++){ var sc=newSecs[ns];
+        var sres=await sb.from('sched_sections').insert({ section_key:sc.key, label:sc.label, sort_order:(secDiff.order.indexOf(sc.key)+1)||999, active:true }); if(sres.error) throw sres.error;
+        insertedSecKeys.push(sc.key);
+      }
+      for(var rn=0; rn<secRenames.length; rn++){ var rk=secRenames[rn]; var rres=await sb.from('sched_sections').update({ label:kplSecRename[rk] }).eq('section_key',rk); if(rres.error) throw rres.error; }
+      if(secDiff.deletes.length){ var sdd=await sb.from('sched_sections').update({ active:false }).in('section_key', secDiff.deletes); if(sdd.error) throw sdd.error; }
+      for(var so=0; so<secDiff.order.length; so++){ var ok=secDiff.order[so]; var sor=await sb.from('sched_sections').update({ sort_order:so+1 }).eq('section_key',ok); if(sor.error) throw sor.error; }
+    }
+    // 3) insert the brand-new people, so their shifts get a real id
+    var insertedIds=[];
+    for(var i=0;i<newPeople.length;i++){ var np=newPeople[i];
+      var res=await sb.from('staff').insert({ name:np.name, designation:np.designation||null, station_key:np.station_key, active:true, in_schedule:true, sort_order:(kplDraftOrd[np.id]!=null?kplDraftOrd[np.id]:999) }).select().single();
+      if(res.error) throw res.error;
+      insertedIds.push(res.data.id);
+      dates.forEach(function(ds){ var e=kplDraft[kplKey(np.id,ds)]; if(e && e.status){ payloads.push(kplRosterRow(res.data.id,ds,e)); } });
+    }
+    // 4) persist the undo snapshot
+    localStorage.setItem(KPL_SNAP_LS, JSON.stringify({ label:lbl, minD:minD, maxD:maxD, staffIds:existingIds, rows:snapRows, priorSections:priorSections, priorOrders:priorOrders, insertedIds:insertedIds, secRows:secSnapRows, insertedSecKeys:insertedSecKeys, at:new Date().toISOString() }));
+    // 5) apply section moves + reorders (team-list change)
+    for(var m=0;m<moves.length;m++){ var mid=moves[m]; var mr=await sb.from('staff').update({ station_key:kplDraftSec[mid] }).eq('id',mid); if(mr.error) throw mr.error; }
+    for(var q=0;q<reorders.length;q++){ var rid=reorders[q]; var rr=await sb.from('staff').update({ sort_order:kplDraftOrd[rid] }).eq('id',rid); if(rr.error) throw rr.error; }
+    // 6) replace the roster rows in range, then insert the plan
+    if(dates.length){
+      var del = await sb.from('roster').delete().gte('work_date',minD).lte('work_date',maxD).in('staff_id', existingIds);
+      if(del.error) throw del.error;
+      if(payloads.length){ var ins = await sb.from('roster').upsert(payloads,{onConflict:'staff_id,work_date'}); if(ins.error) throw ins.error; }
+    }
+    // applied — clear the draft team + section changes so they don't re-apply
+    kplDraftSec={}; kplDraftOrd={}; kplNewStaff=[]; kplSecRename={}; kplSecNew=[]; schedPlanSaveDraft();
+    if(statusEl){ statusEl.style.color='#0f766e'; statusEl.textContent='✓ Brought live'+(weeks.length?(' '+payloads.length+' shift-days'):'')+(extra.length?' + '+extra.join(' + '):'')+'. The live schedule is updated'+(weeks.length?(' for '+minD+' → '+maxD):'')+'.'; }
+    if(goBtn){ goBtn.textContent='✓ Live'; }
+    await schedPlanAfterWrite();
+  }catch(err){
+    console.error('Publish error', err);
+    if(statusEl){ statusEl.style.color='#a8342a'; statusEl.textContent='Could not publish: '+(err.message||err)+(String(err.message||err).indexOf('read-only')>=0?' (unlock the DEV badge to write on the dev site).':''); }
+    if(goBtn){ goBtn.disabled=false; goBtn.textContent='Put these weeks on the schedule'; }
+  }
+}
+async function kplRevert(){
+  var snap=kplReadSnap(); if(!snap){ alert('Nothing to undo.'); return; }
+  var extra=[]; if(snap.priorSections && Object.keys(snap.priorSections).length) extra.push('section moves'); if(snap.priorOrders && Object.keys(snap.priorOrders).length) extra.push('reordering'); if(snap.insertedIds && snap.insertedIds.length) extra.push(snap.insertedIds.length+' added '+(snap.insertedIds.length===1?'person':'people')); if(snap.secRows && snap.secRows.length) extra.push('section changes');
+  var rangeTxt = snap.minD ? (' for '+snap.minD+' → '+snap.maxD) : '';
+  if(!confirm('Undo the last Bring live ('+snap.label+')?\n\nThe live schedule'+rangeTxt+' goes back to exactly what it was before'+(extra.length?', and '+extra.join(' + ')+' are reversed':'')+'.')) return;
+  try{
+    if(snap.minD){
+      var allIds = (snap.staffIds||[]).concat(snap.insertedIds||[]);
+      var del = await sb.from('roster').delete().gte('work_date',snap.minD).lte('work_date',snap.maxD).in('staff_id', allIds);
+      if(del.error) throw del.error;
+      if(snap.rows && snap.rows.length){ var rows=snap.rows.map(function(r){ return Object.assign({},r); }); var ins=await sb.from('roster').upsert(rows,{onConflict:'staff_id,work_date'}); if(ins.error) throw ins.error; }
+    }
+    // restore prior sections + order
+    var ps = snap.priorSections||{};
+    for(var id in ps){ if(ps.hasOwnProperty(id)){ var r=await sb.from('staff').update({ station_key:ps[id] }).eq('id',id); if(r.error) throw r.error; } }
+    var po = snap.priorOrders||{};
+    for(var oid in po){ if(po.hasOwnProperty(oid)){ var r2=await sb.from('staff').update({ sort_order:po[oid] }).eq('id',oid); if(r2.error) throw r2.error; } }
+    // restore sections to exactly the snapshot (undoes rename / reorder / delete),
+    // then deactivate any section we added (it wasn't in the snapshot).
+    if(snap.secRows && snap.secRows.length){
+      var srows = snap.secRows.map(function(r){ return Object.assign({}, r); });
+      var sup = await sb.from('sched_sections').upsert(srows,{onConflict:'section_key'}); if(sup.error) throw sup.error;
+    }
+    if(snap.insertedSecKeys && snap.insertedSecKeys.length){ var sdel=await sb.from('sched_sections').update({ active:false }).in('section_key', snap.insertedSecKeys); if(sdel.error) throw sdel.error; }
+    // remove the people we added (soft: take them off the team list so no FK trouble)
+    if(snap.insertedIds && snap.insertedIds.length){
+      var rd=await sb.from('roster').delete().in('staff_id', snap.insertedIds); if(rd.error) throw rd.error;
+      var sd=await sb.from('staff').update({ active:false, in_schedule:false }).in('id', snap.insertedIds); if(sd.error) throw sd.error;
+    }
+    localStorage.removeItem(KPL_SNAP_LS);
+    alert('Done — the live schedule'+(snap.minD?(' for '+snap.minD+' → '+snap.maxD):'')+' is back to how it was before you brought it live.');
+    await schedPlanAfterWrite(); kplClosePublish();
+  }catch(err){ console.error('Revert error', err); alert('Could not undo: '+(err.message||err)); }
 }
 
 // ── Navigation ──
@@ -2239,8 +4231,71 @@ function renderSchedView() {
 
 // ── Weekly grid ──
 function renderSchedWeek() {
+  // In planning mode, record the change into the draft (never the live DB) first.
+  if (schedPlanMode) schedPlanCapture();
+  var tool = document.getElementById('kpl-full');
+  var toolOpen = tool && tool.style.display !== 'none';
+  // While the Roster tool is open the real grid is hidden — don't render it (saves
+  // work and avoids duplicate element ids for the Move/Add panels). Just sync the tool.
+  if (toolOpen) { if (typeof krtRender === 'function') krtRender(); return; }
+  document.getElementById('sch-grid-wrap').innerHTML = schedWeekTableHtml(schedWeekStart);
+}
+// One day cell for a person — shared by the single-week grid and the several-weeks
+// grid so both look and behave identically. Returns the <td> + its hours/days count.
+function schedDayCellHtml(staff, sid, ds2, today) {
+  var rrow = schedRoster[schedRosterKey(sid, ds2)];
+  var isTod = ds2 === today;
+  var planChg = (schedPlanMode && kplDraft && kplDraft[schedRosterKey(sid, ds2)]) ? ' sch-plan-changed' : '';
+  var wHours = 0, wDays = 0, inner = '';
+  if (!rrow || rrow.status === 'working') {
+    var ts = rrow ? formatTime(rrow.shift_start) : '';
+    var te = rrow ? formatTime(rrow.shift_end) : '';
+    var ts2 = rrow ? formatTime(rrow.shift_start2) : '';
+    var te2 = rrow ? formatTime(rrow.shift_end2)   : '';
+    var plannedH = calcHours(ts, te, ts2, te2);
+    // In the Roster tool (planning) show the PLANNED shift, never clock-in data — attendance
+    // belongs on the live schedule. This makes Clear/empty actually look empty here.
+    var att = schedPlanMode ? { kind: 'plan' } : schedAttState(staff, ds2);
+    if (att.kind === 'done') {
+      wHours += att.hours; wDays++;
+      inner = '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
+        (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
+    } else if (att.kind === 'in') {
+      wDays++;
+      inner = '<div class="sch-shift actual-live"><span>' + att.in + '</span>' +
+        '<span class="sch-actual-open">working</span></div>';
+    } else if (att.kind === 'open') {
+      wDays++;
+      inner = '<div class="sch-shift actual-open-flag" onclick="schedCloseShift(event,\'' + sid + '\',\'' + ds2 + '\')">' +
+        '<span>' + att.in + '</span><span class="sch-actual-close">tap to close</span></div>';
+    } else if (att.kind === 'absent') {
+      wDays++;
+      inner = '<div class="sch-shift actual-absent">' +
+        (ts && te ? '<span>' + ts + '</span><span>' + te + '</span>' : '') +
+        '<span class="sch-actual-tag">no clock-in</span></div>';
+    } else {
+      if (ts && te) { wHours += plannedH; wDays++; }
+      var splitLabel = (ts2 && te2) ? '<span style="opacity:.8;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
+      inner = '<div class="sch-shift working">' +
+        (ts && te ? '<span>' + ts + '–' + te + '</span>' + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
+    }
+  } else {
+    var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
+    if (rrow.status !== 'off') wDays++;
+    inner = '<div class="sch-shift ' + meta.bg + '">' + meta.label + '</div>';
+  }
+  var html = '<td class="sch-cell' + (isTod ? ' sch-cell-today' : '') + planChg +
+    '" onclick="schedOpenEdit(\'' + sid + '\',\'' + ds2 + '\')">' + inner + '</td>';
+  return { html: html, hours: wHours, days: wDays };
+}
+
+// The exact same weekly grid the team already uses — reused by the Roster tool so
+// there is only ever ONE way to set times, add people and move people.
+function schedWeekTableHtml(weekStart, opts) {
+  opts = opts || {};
+  var controls = opts.controls !== false;   // per-row Move + Add-staff rows (off for stacked weeks)
   var today = formatDate(new Date());
-  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(weekStart, i));
   var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
   var html = '<table class="sch-grid"><thead><tr>';
@@ -2251,7 +4306,7 @@ function renderSchedWeek() {
       '<br><span style="font-size:10px;opacity:.8">' +
       days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</span></th>';
   }
-  html += '<th>Hrs</th><th>Days</th><th></th></tr></thead><tbody>';
+  html += '<th>Hrs</th><th>Days</th>' + (controls ? '<th></th>' : '') + '</tr></thead><tbody>';
 
   // Events strip — one cell per day, up to 2 events each
   html += '<tr class="sch-events-row"><td class="sch-events-label" colspan="2">Events</td>';
@@ -2282,90 +4337,58 @@ function renderSchedWeek() {
         var mpid = 'smp' + sid.replace(/-/g,'');
         var wHours = 0, wDays = 0;
 
+        var upBtn = xi>0 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',-1)" title="Move up">&#9650;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9650;</span>';
+        var dnBtn = xi<allStaff.length-1 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',1)" title="Move down">&#9660;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9660;</span>';
         html += '<tr>';
         html += '<td class="sch-td-name" onclick="schedEditEmpId(event,\'' + sid + '\')" title="Tap to set employee ID" style="cursor:pointer">' +
+          '<span class="sch-ord">' + upBtn + dnBtn + '</span>' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
           staff.name +
+          ((schedPlanMode && kplStaff && !kplStaff.some(function(x){ return x.id === sid; })) ? '<span class="sch-plan-newbadge">NEW</span>' : '') +
           (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</td>';
         html += '<td class="sch-td-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit" style="cursor:pointer">' +
           staff.designation + ' <span style="opacity:.3;font-size:10px">✎</span></td>';
 
         for (var dj = 0; dj < days.length; dj++) {
-          var ds2 = formatDate(days[dj]);
-          var rrow = schedRoster[schedRosterKey(sid, ds2)];
-          var isTod = ds2 === today;
-          html += '<td class="sch-cell' + (isTod ? ' sch-cell-today' : '') +
-            '" onclick="schedOpenEdit(\'' + sid + '\',\'' + ds2 + '\')">';
-          if (!rrow || rrow.status === 'working') {
-            var ts = rrow ? formatTime(rrow.shift_start) : '';
-            var te = rrow ? formatTime(rrow.shift_end) : '';
-            var ts2 = rrow ? formatTime(rrow.shift_start2) : '';
-            var te2 = rrow ? formatTime(rrow.shift_end2)   : '';
-            var plannedH = calcHours(ts, te, ts2, te2);
-            var att = schedAttState(staff, ds2);
-
-            if (att.kind === 'done') {
-              wHours += att.hours; wDays++;
-              html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
-                (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
-            } else if (att.kind === 'in') {
-              wDays++;
-              html += '<div class="sch-shift actual-live"><span>' + att.in + '</span>' +
-                '<span class="sch-actual-open">working</span></div>';
-            } else if (att.kind === 'open') {
-              wDays++;
-              html += '<div class="sch-shift actual-open-flag" onclick="schedCloseShift(event,\'' + sid + '\',\'' + ds2 + '\')">' +
-                '<span>' + att.in + '</span><span class="sch-actual-close">tap to close</span></div>';
-            } else if (att.kind === 'absent') {
-              wDays++;
-              html += '<div class="sch-shift actual-absent">' +
-                (ts && te ? '<span>' + ts + '</span><span>' + te + '</span>' : '') +
-                '<span class="sch-actual-tag">no clock-in</span></div>';
-            } else {
-              if (ts && te) { wHours += plannedH; wDays++; }
-              var splitLabel = (ts2 && te2) ? '<span style="opacity:.8;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
-              html += '<div class="sch-shift working">' +
-                (ts && te ? '<span>' + ts + '–' + te + '</span>' + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
-            }
-          } else {
-            var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
-            if (rrow.status !== 'off') wDays++;
-            html += '<div class="sch-shift ' + meta.bg + '">' + meta.label + '</div>';
-          }
-          html += '</td>';
+          var cell = schedDayCellHtml(staff, sid, formatDate(days[dj]), today);
+          html += cell.html; wHours += cell.hours; wDays += cell.days;
         }
 
         html += '<td class="sch-td-hours">' + (wHours > 0 ? (Math.round(wHours * 10) / 10) + 'h' : '—') + '</td>';
         html += '<td class="sch-td-days">' + (wDays > 0 ? wDays : '—') + '</td>';
 
-        var stOpts = '';
-        for (var oi = 0; oi < STATIONS_SCH.length; oi++) {
-          stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' +
-            (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' +
-            STATIONS_SCH[oi].label + '</option>';
+        if (controls) {
+          var stOpts = '';
+          for (var oi = 0; oi < STATIONS_SCH.length; oi++) {
+            stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' +
+              (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' +
+              STATIONS_SCH[oi].label + '</option>';
+          }
+          html += '<td class="sch-td-move">' +
+            '<button class="sch-move-btn" onclick="schedShowMove(\'' + mpid + '\')">&#8596; Move</button>' +
+            '<div class="sch-move-panel" id="' + mpid + '">' +
+              '<span class="sch-move-label">Move to</span>' +
+              '<select class="dish-move-select" id="' + mpid + 'sel">' + stOpts + '</select>' +
+              '<button class="dish-move-yes" onclick="schedMoveStation(\'' + sid + '\',\'' + mpid + '\')">Move</button>' +
+              '<button class="dish-move-no" onclick="schedHideMove(\'' + mpid + '\')">Cancel</button>' +
+            '</div></td>';
         }
-        html += '<td class="sch-td-move">' +
-          '<button class="sch-move-btn" onclick="schedShowMove(\'' + mpid + '\')">&#8596; Move</button>' +
-          '<div class="sch-move-panel" id="' + mpid + '">' +
-            '<span class="sch-move-label">Move to</span>' +
-            '<select class="dish-move-select" id="' + mpid + 'sel">' + stOpts + '</select>' +
-            '<button class="dish-move-yes" onclick="schedMoveStation(\'' + sid + '\',\'' + mpid + '\')">Move</button>' +
-            '<button class="dish-move-no" onclick="schedHideMove(\'' + mpid + '\')">Cancel</button>' +
-          '</div></td>';
         html += '</tr>';
       }
     }
 
-    // Add staff row at bottom of each station
-    html += '<tr class="sch-add-row"><td colspan="11">' +
-      '<button class="sch-add-staff-btn" onclick="schedShowAddStaff(\'' + st.key + '\')">+ Add staff to ' + st.label + '</button>' +
-      '<div class="sch-add-staff-panel" id="sadd-' + st.key + '">' +
-        '<input type="text" class="sch-add-name-inp" id="sadd-name-' + st.key + '" placeholder="Full name" />' +
-        '<input type="text" class="sch-add-role-inp" id="sadd-role-' + st.key + '" placeholder="Role (CDP, Commis 1...)" />' +
-        '<button class="dish-move-yes" onclick="schedSaveNewStaff(\'' + st.key + '\')">Add</button>' +
-        '<button class="dish-move-no" onclick="schedHideAddStaff(\'' + st.key + '\')">Cancel</button>' +
-      '</div>' +
-    '</td></tr>';
+    // Add staff row at bottom of each station (only in the fully-interactive grid)
+    if (controls) {
+      html += '<tr class="sch-add-row"><td colspan="11">' +
+        '<button class="sch-add-staff-btn" onclick="schedShowAddStaff(\'' + st.key + '\')">+ Add staff to ' + st.label + '</button>' +
+        '<div class="sch-add-staff-panel" id="sadd-' + st.key + '">' +
+          '<input type="text" class="sch-add-name-inp" id="sadd-name-' + st.key + '" placeholder="Full name" />' +
+          '<input type="text" class="sch-add-role-inp" id="sadd-role-' + st.key + '" placeholder="Role (CDP, Commis 1...)" />' +
+          '<button class="dish-move-yes" onclick="schedSaveNewStaff(\'' + st.key + '\')">Add</button>' +
+          '<button class="dish-move-no" onclick="schedHideAddStaff(\'' + st.key + '\')">Cancel</button>' +
+        '</div>' +
+      '</td></tr>';
+    }
   }
 
   html += '</tbody>';
@@ -2382,10 +4405,87 @@ function renderSchedWeek() {
     html += '<td>' + (dayTotal > 0 ? dayTotal + 'h' : '—') + '</td>';
   }
   grandTotal = Math.round(grandTotal * 10) / 10;
-  html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td><td></td></tr></tfoot>';
+  html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td>' + (controls ? '<td></td>' : '') + '</tr></tfoot>';
 
   html += '</table>';
-  document.getElementById('sch-grid-wrap').innerHTML = html;
+  return html;
+}
+
+// Several weeks SIDE BY SIDE — one grid, one Name column, the weeks flow left→right
+// (like the chefs' Excel) instead of stacking down the page. Same cells/editing.
+function schedMultiWeekTableHtml(weekStart, numWeeks) {
+  var today = formatDate(new Date());
+  var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var COLS = 1 + 7 * numWeeks + 3;   // name(+role), all days, hrs, days, move
+  var weeks = []; for (var w = 0; w < numWeeks; w++) weeks.push(addDays(weekStart, w * 7));
+
+  var html = '<table class="sch-grid sch-multi"><thead>';
+  html += '<tr><th class="sch-th-name" rowspan="2">Name</th>';
+  weeks.forEach(function(ws){ var we = addDays(ws, 6); var wmon = formatDate(ws);
+    var lbl = 'Week of ' + ws.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' &ndash; ' + we.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+    html += '<th class="sch-weekgroup" colspan="7"><div class="krt-wk-hd"><span>'+lbl+'</span><span class="krt-wk-actions">'+krtWeekTabsHtml(wmon)+'</span></div></th>';
+  });
+  html += '<th rowspan="2">Hrs</th><th rowspan="2">Days</th><th rowspan="2"></th></tr><tr>';
+  weeks.forEach(function(ws){ for (var d = 0; d < 7; d++){ var day = addDays(ws, d), ds = formatDate(day);
+    html += '<th class="' + (ds === today ? 'sch-th-today' : '') + (d === 0 ? ' sch-weekstart' : '') + '">' + dayNames[d] +
+      '<br><span style="font-size:10px;opacity:.8">' + day.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</span></th>';
+  }});
+  html += '</tr></thead><tbody>';
+
+  // Events strip across every week
+  html += '<tr class="sch-events-row"><td class="sch-events-label" colspan="1">Events</td>';
+  weeks.forEach(function(ws){ for (var d = 0; d < 7; d++){ var eds = formatDate(addDays(ws, d)); var evs = schedEvents[eds] || [];
+    html += '<td class="sch-events-cell' + (eds === today ? ' sch-cell-today' : '') + (d === 0 ? ' sch-weekstart' : '') + '" onclick="schedOpenEvents(\'' + eds + '\')">';
+    if (evs.length) { for (var evi = 0; evi < evs.length; evi++) html += '<div class="sch-event-chip">' + schEvEsc(evs[evi].name) + '</div>'; }
+    else html += '<div class="sch-event-add">+</div>';
+    html += '</td>';
+  }});
+  html += '<td colspan="3"></td></tr>';
+
+  for (var si = 0; si < STATIONS_SCH.length; si++) {
+    var st = STATIONS_SCH[si];
+    var allStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    html += '<tr class="sch-station-hdr"><td colspan="' + COLS + '">' + st.label + '</td></tr>';
+    for (var xi = 0; xi < allStaff.length; xi++) {
+      var staff = allStaff[xi], sid = staff.id, mpid = 'smpM' + sid.replace(/-/g,'');
+      var wHours = 0, wDays = 0;
+      var upBtn = xi > 0 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',-1)" title="Move up">&#9650;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9650;</span>';
+      var dnBtn = xi < allStaff.length - 1 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',1)" title="Move down">&#9660;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9660;</span>';
+      html += '<tr>';
+      html += '<td class="sch-td-name sch-td-namemulti" onclick="schedEditEmpId(event,\'' + sid + '\')" title="Tap to set employee ID" style="cursor:pointer">' +
+        '<span class="sch-ord">' + upBtn + dnBtn + '</span>' +
+        '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
+        '<span class="sch-multi-info"><span class="sch-multi-nm">' + staff.name +
+          ((schedPlanMode && kplStaff && !kplStaff.some(function(x){ return x.id === sid; })) ? '<span class="sch-plan-newbadge">NEW</span>' : '') +
+          (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</span>' +
+          '<span class="sch-multi-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit role">' + staff.designation + ' <span style="opacity:.3;font-size:9px">✎</span></span>' +
+        '</span></td>';
+      weeks.forEach(function(ws){ for (var d = 0; d < 7; d++){
+        var cell = schedDayCellHtml(staff, sid, formatDate(addDays(ws, d)), today);
+        html += (d === 0) ? cell.html.replace('class="sch-cell', 'class="sch-cell sch-weekstart') : cell.html;
+        wHours += cell.hours; wDays += cell.days;
+      }});
+      html += '<td class="sch-td-hours">' + (wHours > 0 ? (Math.round(wHours * 10) / 10) + 'h' : '—') + '</td>';
+      html += '<td class="sch-td-days">' + (wDays > 0 ? wDays : '—') + '</td>';
+      var stOpts = ''; for (var oi = 0; oi < STATIONS_SCH.length; oi++){ stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' + (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' + STATIONS_SCH[oi].label + '</option>'; }
+      html += '<td class="sch-td-move"><button class="sch-move-btn" onclick="schedShowMove(\'' + mpid + '\')">&#8596; Move</button>' +
+        '<div class="sch-move-panel" id="' + mpid + '"><span class="sch-move-label">Move to</span>' +
+        '<select class="dish-move-select" id="' + mpid + 'sel">' + stOpts + '</select>' +
+        '<button class="dish-move-yes" onclick="schedMoveStation(\'' + sid + '\',\'' + mpid + '\')">Move</button>' +
+        '<button class="dish-move-no" onclick="schedHideMove(\'' + mpid + '\')">Cancel</button></div></td>';
+      html += '</tr>';
+    }
+    html += '<tr class="sch-add-row"><td colspan="' + COLS + '">' +
+      '<button class="sch-add-staff-btn" onclick="schedShowAddStaff(\'' + st.key + '\')">+ Add staff to ' + st.label + '</button>' +
+      '<div class="sch-add-staff-panel" id="sadd-' + st.key + '">' +
+        '<input type="text" class="sch-add-name-inp" id="sadd-name-' + st.key + '" placeholder="Full name" />' +
+        '<input type="text" class="sch-add-role-inp" id="sadd-role-' + st.key + '" placeholder="Role (CDP, Commis 1...)" />' +
+        '<button class="dish-move-yes" onclick="schedSaveNewStaff(\'' + st.key + '\')">Add</button>' +
+        '<button class="dish-move-no" onclick="schedHideAddStaff(\'' + st.key + '\')">Cancel</button>' +
+      '</div></td></tr>';
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 // ── Day view ──
@@ -2548,7 +4648,7 @@ async function schedSaveShift() {
   });
   schedRoster[key] = payload;
   renderSchedWeek();
-  if (!DEV_READ_ONLY) {
+  if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('roster').upsert(payload, { onConflict: 'staff_id,work_date' });
     if (res.error) console.error('Save error:', res.error);
   }
@@ -2557,6 +4657,7 @@ async function schedSaveShift() {
 
 // ── Day events (up to 2 per day, shown at the top of the schedule) ──
 function schedOpenEvents(date) {
+  if (schedPlanMode) { alert('Events (brunch, wine dinners…) are set on the live schedule, not while planning shifts.'); return; }
   if (!schedGuard(function(){ schedOpenEvents(date); })) return;
   schedEventDate = date;
   var evs = schedEvents[date] || [];
@@ -2670,7 +4771,7 @@ async function schedWriteClipboard(targets) {
     schedRoster[key] = payload; payloads.push(payload);
   });
   renderSchedWeek();
-  if (!DEV_READ_ONLY) {
+  if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('roster').upsert(payloads, { onConflict: 'staff_id,work_date' });
     if (res.error) { console.error('Paste error:', res.error); alert('Could not paste the shift: ' + res.error.message); return 0; }
   }
@@ -2733,7 +4834,7 @@ async function schedMoveStation(staffId, mpid) {
   // Permanent move — update staff.station_key in Supabase
   staff.station_key = targetStation; // optimistic local update
   renderSchedWeek();
-  if (!DEV_READ_ONLY) {
+  if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
     if (res.error) {
       console.error('Move error:', res.error);
@@ -2743,6 +4844,32 @@ async function schedMoveStation(staffId, mpid) {
   }
 }
 
+
+// ── Reorder staff within a section (↑/↓), mirrors FOH's fohSchedMoveStaff ──
+// Renumber a section's members 1..N by array order; persist only rows that changed.
+async function schedPersistSectionOrder(orderedMates) {
+  var updates = [];
+  orderedMates.forEach(function(s, i){ var want = i + 1; if (s.sort_order !== want) { s.sort_order = want; updates.push(s); } });
+  for (var i = 0; i < updates.length; i++) {
+    if (DEV_READ_ONLY || schedPlanMode) continue;
+    var res = await sb.from('staff').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id);
+    if (res.error) { console.error('Reorder error:', res.error); loadSchedData().then(renderSchedWeek); return; }
+  }
+}
+function schedMoveStaff(event, staffId, dir) {
+  event.stopPropagation();
+  if (!schedGuard(function(){ schedMoveStaff(event, staffId, dir); })) return;
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  var mates = schedStaff.filter(function(s){ return s.station_key === staff.station_key; });
+  var idx = mates.indexOf(staff), swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= mates.length) return;   // already at the top/bottom
+  var other = mates[swapIdx];
+  var gi = schedStaff.indexOf(staff), gj = schedStaff.indexOf(other);
+  schedStaff[gi] = other; schedStaff[gj] = staff;        // swap so the render reflects it
+  renderSchedWeek();
+  schedPersistSectionOrder(schedStaff.filter(function(s){ return s.station_key === staff.station_key; }));
+}
 
 // ── Edit role inline ──
 function schedEditRole(event, staffId) {
@@ -2769,7 +4896,7 @@ async function schedSaveRole(staffId, input) {
   }
   staff.designation = newRole;
   renderSchedWeek();
-  if (!DEV_READ_ONLY) {
+  if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('staff').update({ designation: newRole }).eq('id', staffId);
     if (res.error) { console.error('Role update error:', res.error); loadSchedData().then(renderSchedWeek); }
   }
@@ -2787,6 +4914,18 @@ function schedConfirmDelete(event, staffId) {
   if (!schedGuard(null)) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff) return;
+  if (schedPlanMode) {
+    // In planning you can only remove a person you ADDED in this plan; a real
+    // teammate is removed on the live schedule (and you can move them instead).
+    var isNew = (kplNewStaff||[]).some(function(n){ return n.id === staffId; });
+    if (!isNew) { alert('Removing a teammate from the roster is done on the live schedule, not while planning.\n\nIn the plan you can move ' + staff.name + ' to another section instead.'); return; }
+    if (!confirm('Remove ' + staff.name + ' from your plan? (They were only added here — nothing on the live schedule changes.)')) return;
+    schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
+    kplNewStaff = kplNewStaff.filter(function(n){ return n.id !== staffId; });
+    Object.keys(kplDraft).forEach(function(k){ if (k.indexOf(staffId + '|') === 0) delete kplDraft[k]; });
+    renderSchedWeek(); schedPlanSaveDraft();
+    return;
+  }
   if (!confirm('Remove ' + staff.name + ' from the roster? This cannot be undone.')) return;
   schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
   renderSchedWeek();
@@ -2821,7 +4960,7 @@ async function schedSaveNewStaff(stationKey) {
   var newStaff = { id: tempId, name: name, designation: role, station_key: stationKey, sort_order: sortOrder, active: true };
   schedStaff.push(newStaff);
   renderSchedWeek();
-  if (!DEV_READ_ONLY) {
+  if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('staff').insert({ name: name, designation: role, station_key: stationKey, sort_order: sortOrder, active: true }).select().single();
     if (res.error) {
       console.error('Add staff error:', res.error);
