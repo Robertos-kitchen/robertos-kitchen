@@ -636,3 +636,9 @@ function crAggBlock(title, list, field) {
 function crEsc(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// Reload guard: true whenever the Closing Report is open, so the app's
+// auto-update mechanisms don't reload and wipe an in-progress report.
+window.__closingActive = function(){
+  return typeof activeStation !== 'undefined' && activeStation === CLOSING_KEY;
+};
