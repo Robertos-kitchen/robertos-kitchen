@@ -1671,75 +1671,133 @@ function openHome(){
   loadKitchenEvents();
 }
 // ══ KITCHEN EVENTS STRIP ══════════════════════════════════════════════
-// Confirmed FOH events for today → +KEV_DAYS days, shown at the top of the home
-// screen so the team is notified the day they have an event. Reads a scoped,
-// read-only feed from the FOH project — kitchen-safe fields ONLY (event name,
-// date, time, area, guests, dietary, menu + quantities); never prices or client
-// data. Empty window → the strip renders nothing. Each event prints a menu sheet.
+// Every confirmed FOH event whose team brief has been sent, from today onward,
+// grouped this-week / next-2-weeks / later and capped. Reads a scoped read-only
+// feed from the FOH project — kitchen-safe fields only (name, date, time, area,
+// guests, dietary, menu + quantities); never prices or client data. Handles
+// canapé menus AND plated set menus; flags beverage-only events; shows a note
+// (not a silent blank) if the feed can't be reached. Tap a row to expand its
+// prep list; Print menu prints it.
 const FOH_EVENTS_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co/functions/v1/kitchen-events';
-const KEV_DAYS = 14;
 const KEV_ALG = {D:'dairy',E:'egg',H:'homemade',N:'nuts',R:'raw',S:'shellfish',V:'vegetarian'};
+// Plated set-menu courses (mirror of the FOH PE_SET_MENUS) — kept here in the
+// browser so accented names render correctly. Keep in sync with the events desk.
+const KEV_SET_MENUS = {
+  terra: { name:'Terra set menu', courses:[
+    {name:'Primi', items:['Burrata']},
+    {name:'Pasta', items:['Tortelli ricotta & spinach']},
+    {name:'Secondi', choose:1, options:['Branzino','Polletto','Insalata 4 semi']},
+    {name:'Dolci', items:['Tiramisù']} ]},
+  mare: { name:'Mare set menu', courses:[
+    {name:'Primi', items:['Burrata','Bresaola','Tonno Battuto']},
+    {name:'Pasta', items:['Il Bosco truffle risotto']},
+    {name:'Secondi', choose:1, options:['Ribeye di Angus','Branzino','Melanzane']},
+    {name:'Dolci', items:['Torta al Limone']} ]},
+  fuoco: { name:'Fuoco set menu', courses:[
+    {name:'Primi', items:['Burrata','Bresaola','Tonno Battuto']},
+    {name:'Pasta', items:['Raviolo alla Genovese']},
+    {name:'Secondi', choose:1, options:['Ribeye di Wagyu','Moro','Melanzane']},
+    {name:'Dolci', items:['Choc-Choc']} ]}
+};
 let KEV_CACHE = {};
 function kevEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function kevAlg(a){ return (a||[]).map(function(c){ return KEV_ALG[c]||String(c).toLowerCase(); }).join(', '); }
 function kevDate(ds){ if(!ds) return {day:'',mon:'',full:''}; var d=new Date(String(ds).slice(0,10)+'T12:00:00');
   return { day:d.getDate(), mon:d.toLocaleDateString('en-GB',{weekday:'short',month:'short'}),
            full:d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) }; }
+// One model for both canapé + plated set-menu events → rows + a total label.
+function kevMenuModel(e){
+  var g = Number(e.guests)||0;
+  if(e.kind==='set' && e.set_menu && KEV_SET_MENUS[e.set_menu.key]){
+    var sm = KEV_SET_MENUS[e.set_menu.key], choices = (e.set_menu.choices)||{}, rows=[];
+    sm.courses.forEach(function(c){
+      if(c.choose){
+        (c.options||[]).forEach(function(o){ var n=Number((choices[c.name]||{})[o])||0;
+          rows.push({name:o, group:c.name, qty:(n||null), unit:'portions', sub:'guests’ choice', allergens:[], comp:false, unconfirmed:!n, min_flag:null}); });
+      } else {
+        (c.items||[]).forEach(function(it){
+          rows.push({name:it, group:c.name, qty:(g||null), unit:'portions', sub:'', allergens:[], comp:false, unconfirmed:false, min_flag:null}); });
+      }
+    });
+    return { rows:rows, total_label:(g?g+' guests · ':'')+sm.name, empty_msg:null };
+  }
+  if(e.kind==='canape' && e.menu && e.menu.length){
+    var rows2 = e.menu.map(function(m){
+      return {name:m.name, group:m.group, qty:m.qty, unit:m.unit||'pcs', sub:(m.per_guest?m.per_guest+' / guest':''), allergens:m.allergens||[], comp:m.comp, unconfirmed:m.unconfirmed, min_flag:m.min_flag}; });
+    return { rows:rows2, total_label:(e.total_pcs||0)+' pcs'+(e.pcs_per_guest?' · '+e.pcs_per_guest+' / guest':''), empty_msg:null };
+  }
+  return { rows:[], total_label:'', empty_msg: e.bev_only ? 'Beverage only — no kitchen prep' : 'No dishes listed yet — check with the events desk' };
+}
 async function loadKitchenEvents(){
   var box = document.getElementById('kev-strip'); if(!box) return;
   try{
-    var res = await fetch(FOH_EVENTS_URL + '?days=' + KEV_DAYS, { headers:{ 'x-proxy-secret':'Kitchen' } });
+    var res = await fetch(FOH_EVENTS_URL, { headers:{ 'x-proxy-secret':'Kitchen' } });
+    if(!res.ok) throw new Error('HTTP '+res.status);
     var data = await res.json();
+    if(data && data.error) throw new Error(data.error);
     KEV_CACHE = {};
     (data.events||[]).forEach(function(e){ KEV_CACHE[e.id]=e; });
     renderKitchenEvents(data.events||[], data.today);
-  }catch(err){ console.warn('[kitchen-events] load failed', err); box.innerHTML=''; }
+  }catch(err){
+    console.warn('[kitchen-events] load failed', err);
+    box.innerHTML = '<div class="kev-err">Couldn’t load upcoming events — check the connection.</div>';
+  }
 }
+function kevDaysUntil(d, today){ return Math.round((new Date(String(d).slice(0,10)+'T12:00:00') - new Date(today+'T12:00:00'))/86400000); }
 function renderKitchenEvents(events, today){
   var box = document.getElementById('kev-strip'); if(!box) return;
-  if(!events.length){ box.innerHTML=''; return; }
-  var todayEv = events.filter(function(e){ return e.date===today; });
-  var upcoming = events.filter(function(e){ return e.date!==today; });
+  if(!events || !events.length){ box.innerHTML=''; return; }
+  var todayEv=[], up=[];
+  events.forEach(function(e){ if(kevDaysUntil(e.date, today)<=0) todayEv.push(e); else up.push(e); });
   var h = '<div class="kev-band"><span class="kev-band-t">Events</span></div>';
   todayEv.forEach(function(e){ h += kevTodayCard(e); });
-  if(upcoming.length){
-    h += '<div class="kev-up-h">'+(todayEv.length?'Also coming up':'Coming up')+' · next '+KEV_DAYS+' days</div>';
-    upcoming.forEach(function(e){ h += kevUpRow(e); });
-  }
+  // Upcoming: grouped by proximity, nearest first, capped so the home screen
+  // never floods (the feed is sorted by date, so the cap keeps the soonest).
+  var MAX = 6, shown = 0, hidden = 0, lastLb = null;
+  function bucket(n){ return n<=7 ? 'This week' : (n<=21 ? 'Next 2 weeks' : 'Later'); }
+  up.forEach(function(e){
+    if(shown >= MAX){ hidden++; return; }
+    var lb = bucket(kevDaysUntil(e.date, today));
+    if(lb !== lastLb){ lastLb = lb; h += '<div class="kev-up-h">'+lb+'</div>'; }
+    h += kevUpRow(e); shown++;
+  });
+  if(hidden>0) h += '<div class="kev-more">+ '+hidden+' more event'+(hidden>1?'s':'')+' further out</div>';
   box.innerHTML = h;
 }
-// Shared "to prepare" list (dishes + quantities + allergens + total + dietary).
+// Shared prep list (dishes/courses + quantities + allergens + total + dietary).
 function kevPrepRows(e){
-  var rows = (e.menu||[]).map(function(m){
-    return '<div class="kev-prow"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+(m.comp?' <span class="kev-comp">on the house</span>':'')+
-      (kevAlg(m.allergens)?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+(m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
-      '</div><div class="kev-qty">'+(m.total!=null?m.total+' pcs':'—')+(m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+'</div></div>';
-  }).join('');
-  if(!rows) return '';
-  return '<div class="kev-prep-h">To prepare</div>'+rows+
-    '<div class="kev-total"><span>Total</span><b>'+(e.total_pcs||0)+' pcs · '+(e.pcs_per_guest||0)+' / guest</b></div>'+
-    (e.dietary? '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>':'');
+  var mm = kevMenuModel(e);
+  if(!mm.rows.length){ return '<div class="kev-empty">'+kevEsc(mm.empty_msg||'')+'</div>'; }
+  var h = '', lastG = null;
+  mm.rows.forEach(function(m){
+    if(m.group && m.group!==lastG){ lastG = m.group; h += '<div class="kev-grp">'+kevEsc(m.group)+'</div>'; }
+    h += '<div class="kev-prow"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+
+      (m.comp?' <span class="kev-comp">on the house</span>':'')+
+      (m.allergens&&m.allergens.length?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+
+      (m.sub?' <span class="kev-sub">'+kevEsc(m.sub)+'</span>':'')+
+      (m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
+      '</div><div class="kev-qty">'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+(m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+'</div></div>';
+  });
+  h += '<div class="kev-total"><span>Total</span><b>'+kevEsc(mm.total_label)+'</b></div>';
+  if(e.dietary) h += '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>';
+  return h;
 }
 function kevTodayCard(e){
   var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
-  var prep = kevPrepRows(e);
   return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
     '<div class="kev-name">'+kevEsc(e.name)+'</div><div class="kev-meta">'+meta+'</div></div>'+
     '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    (prep? '<div class="kev-prep">'+prep+'</div>' : '')+'</div>';
+    '<div class="kev-prep">'+kevPrepRows(e)+'</div></div>';
 }
-// Upcoming rows are compact but TAP TO EXPAND — the chef taps the row to see the
-// dishes and quantities inline, without printing. The Print button still prints.
 function kevUpRow(e){
   var d = kevDate(e.date);
   var meta = [ (e.guests!=null?e.guests+' guests':''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
-  var prep = kevPrepRows(e);
   return '<div class="kev-up-wrap">'+
-    '<div class="kev-up'+(prep?' clickable':'')+'"'+(prep?' onclick="kevToggle(\''+e.id+'\',this)"':'')+'>'+
+    '<div class="kev-up clickable" onclick="kevToggle(\''+e.id+'\',this)">'+
       '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
-      '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+(prep?' <span class="kev-chev">&#9662;</span>':'')+'</div><div class="kev-up-meta">'+meta+'</div></div>'+
+      '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+' <span class="kev-chev">&#9662;</span></div><div class="kev-up-meta">'+meta+'</div></div>'+
       '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    (prep? '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none">'+prep+'</div>' : '')+
+    '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none">'+kevPrepRows(e)+'</div>'+
   '</div>';
 }
 function kevToggle(id, rowEl){
@@ -1751,12 +1809,15 @@ function kevToggle(id, rowEl){
 }
 function kevPrintMenu(id){
   var e = KEV_CACHE[id]; if(!e) return;
-  var d = kevDate(e.date);
-  var rows = (e.menu||[]).map(function(m){
-    return '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(kevAlg(m.allergens))+'</span></td>'+
-      '<td style="text-align:center">'+(m.pcs_per_guest||0)+' / guest</td>'+
-      '<td style="text-align:right"><b>'+(m.total!=null?m.total+' pcs':'—')+'</b>'+(m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
-  }).join('');
+  var d = kevDate(e.date), mm = kevMenuModel(e);
+  var rows = '', lastG = null;
+  if(!mm.rows.length){ rows = '<tr><td colspan="2" style="color:#8A6A4F">'+kevEsc(mm.empty_msg||'No dishes')+'</td></tr>'; }
+  mm.rows.forEach(function(m){
+    if(m.group && m.group!==lastG){ lastG = m.group; rows += '<tr><td colspan="2" style="background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8A6A4F">'+kevEsc(m.group)+'</td></tr>'; }
+    var note = [kevAlg(m.allergens), m.sub].filter(Boolean).join(' · ');
+    rows += '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+(note?' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(note)+'</span>':'')+'</td>'+
+      '<td style="text-align:right"><b>'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+'</b>'+(m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
+  });
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Kitchen menu — '+kevEsc(e.name)+'</title>'+
     '<style>@page{margin:16mm}body{font-family:Georgia,serif;color:#2C1810;max-width:640px;margin:0 auto;padding:20px}'+
     '.b{font-size:22px;letter-spacing:7px;color:#400207;text-align:center;margin:4px 0}'+
@@ -1765,13 +1826,13 @@ function kevPrintMenu(id){
     '.meta{text-align:center;font-size:13px;color:#6B4A33;margin:8px 0 4px}'+
     'table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}td{padding:6px 8px;border:1px solid #E3D5C2}'+
     'th{background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8A6A4F;padding:6px 8px;border:1px solid #E3D5C2;text-align:left}'+
-    '.diet{color:#b00020;font-size:12px;margin-top:8px}.btn{position:fixed;top:10px;right:10px}@media print{.btn{display:none}}'+
+    '.tl{text-align:center;font-size:13px;color:#400207;margin-top:10px;font-weight:bold}.diet{color:#b00020;font-size:12px;margin-top:8px}.btn{position:fixed;top:10px;right:10px}@media print{.btn{display:none}}'+
     '</style></head><body>'+
     '<div class="btn"><button onclick="window.print()" style="background:#400207;color:#E8D9C7;border:none;border-radius:8px;padding:10px 18px;font-family:Georgia,serif;font-size:14px;cursor:pointer">Print</button></div>'+
-    '<div class="b">R O B E R T O &rsquo; S</div><div class="r"></div><div class="h">KITCHEN — MENU &amp; QUANTITIES</div>'+
+    '<div class="b">R O B E R T O ’ S</div><div class="r"></div><div class="h">KITCHEN — MENU &amp; QUANTITIES</div>'+
     '<div class="meta"><b>'+kevEsc(e.name)+'</b><br>'+d.full+(e.guests!=null?' · '+e.guests+' guests':'')+([e.time_from,e.time_to].filter(Boolean).length?' · '+[e.time_from,e.time_to].filter(Boolean).join('–'):'')+(e.area?' · '+kevEsc(e.area):'')+'</div>'+
-    '<table><tr><th>Dish</th><th style="text-align:center">Per guest</th><th style="text-align:right">Total to prepare</th></tr>'+rows+
-    '<tr><td style="text-align:right"><b>Total</b></td><td></td><td style="text-align:right"><b>'+(e.total_pcs||0)+' pcs</b></td></tr></table>'+
+    '<table><tr><th>Dish</th><th style="text-align:right">To prepare</th></tr>'+rows+'</table>'+
+    (mm.total_label?'<div class="tl">'+kevEsc(mm.total_label)+'</div>':'')+
     (e.dietary?'<div class="diet"><b>Dietary — read before prep:</b> '+kevEsc(e.dietary)+'</div>':'')+
     '</body></html>';
   var w = window.open('','_blank'); if(!w){ alert('Allow pop-ups to print the menu'); return; }
