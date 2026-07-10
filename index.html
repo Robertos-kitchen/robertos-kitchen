@@ -425,6 +425,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-cell:hover .sch-shift{box-shadow:0 0 0 2px var(--vino)}
 .sch-shift{border-radius:3px;padding:3px 5px;font-size:11px;line-height:1.3;transition:box-shadow .1s;min-height:42px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .sch-shift.working{background:#f0ebe3;color:var(--ink);border:1px solid var(--sabbia-dark)}
+.sch-cover-tag{margin-top:2px;font-size:9px;line-height:1.2;font-weight:700;letter-spacing:.3px;color:#7a5a12;background:#f6e7bf;border:1px solid #e2c877;border-radius:3px;padding:1px 4px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-sans)}
 /* COSEC attendance (face recognition) */
 .sch-emp-id{display:block;font-size:9px;color:#b9ab9c;cursor:pointer;margin-top:2px;letter-spacing:1.2px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
 .sch-emp-id:hover{color:var(--vino)}
@@ -473,7 +474,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-day-badge{border-radius:3px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:.5px}
 
 /* Modal */
-.sch-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.sch-ord{display:inline-flex;flex-direction:column;line-height:.8;margin-right:7px;vertical-align:middle}
+.sch-ord-btn{font-size:12px;color:rgba(65,2,7,.45);cursor:pointer;user-select:none;padding:1px 4px;border-radius:3px}
+.sch-ord-btn:hover{color:#fff;background:var(--vino)}
+.sch-ord-off{visibility:hidden;cursor:default}
+.sch-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:5000;display:flex;align-items:center;justify-content:center}
 .sch-modal-box{background:var(--cream);border-radius:6px;padding:24px;min-width:300px;max-width:380px;width:90%}
 .sch-modal-title{font-family:var(--font-serif);font-size:16px;color:var(--vino);margin-bottom:16px;letter-spacing:.5px}
 .sch-modal-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
@@ -485,6 +490,28 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-modal-cancel{padding:8px 16px;border:1px solid var(--sabbia-dark);border-radius:4px;background:none;color:var(--vino-light);font-size:12px;cursor:pointer;font-family:var(--font-sans)}
 .sch-modal-save{padding:8px 20px;border:none;border-radius:4px;background:var(--vino);color:var(--cream);font-size:12px;cursor:pointer;font-family:var(--font-sans);letter-spacing:.5px}
 .sch-modal-save:hover{background:var(--vino-light)}
+/* Quick-fill presets in the shift editor */
+.sch-preset-row{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:8px;padding:9px 10px;margin-bottom:14px}
+.sch-preset-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.sch-preset-hd span{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);font-weight:700;font-family:var(--font-sans)}
+.sch-preset-edit{background:transparent;border:0;color:var(--vino);font-size:11px;cursor:pointer;font-family:var(--font-sans);font-weight:600}
+.sch-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.sch-preset-btn{background:#fff;border:1px solid var(--sabbia-dark);border-radius:7px;padding:8px 9px;text-align:left;cursor:pointer;font-family:var(--font-sans);display:flex;flex-direction:column;gap:2px}
+.sch-preset-btn:hover{border-color:var(--oro);box-shadow:0 0 0 1px var(--oro)}
+.sch-preset-btn .nm{font-size:13px;font-weight:600;color:var(--ink)}
+.sch-preset-btn .sub{font-size:11px;color:var(--vino-light)}
+/* Preset editor (over the shift editor) */
+#sch-preset-editor .sch-pe-ov{position:fixed;inset:0;background:rgba(30,10,10,.5);z-index:6000;display:flex;align-items:center;justify-content:center;padding:16px}
+#sch-preset-editor .sch-pe-box{background:var(--cream);border-radius:10px;max-width:460px;width:100%;max-height:88vh;overflow:auto;padding:20px}
+#sch-preset-editor .sch-pe-title{font-family:var(--font-serif);color:var(--vino);font-size:19px;margin-bottom:4px}
+#sch-preset-editor .sch-pe-row{border:1px solid var(--sabbia-dark);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--sabbia-light)}
+#sch-preset-editor .sch-pe-label{width:100%;box-sizing:border-box;font-size:14px;padding:7px 9px;border:1px solid var(--sabbia-dark);border-radius:6px;background:#fff;color:var(--ink);font-family:var(--font-sans);margin-bottom:6px}
+#sch-preset-editor .sch-pe-status{font-size:13px;padding:6px 8px;border:1px solid var(--sabbia-dark);border-radius:6px;background:#fff;color:var(--ink);font-family:var(--font-sans)}
+#sch-preset-editor .sch-pe-times{margin-top:8px}
+#sch-preset-editor .sch-pe-time{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--vino-light);margin-top:6px;flex-wrap:wrap}
+#sch-preset-editor .sch-pe-time select{font-size:13px;padding:4px 5px;border:1px solid var(--sabbia-dark);border-radius:5px;background:#fff;color:var(--ink)}
+#sch-preset-editor .sch-pe-splitlbl{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--vino);margin-top:8px;cursor:pointer}
+#sch-preset-editor .sch-pe-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
 
 /* Print styles */
 @media print {
@@ -1174,7 +1201,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1783628648"></script>
+<script src="market-list.js?v=1783664703"></script>
 <!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
      on demand to keep cold-boot light on the always-on screens. -->
 <script>
@@ -1189,12 +1216,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     return window._lazyLoaded[src];
   };
   // Recipe data needed by app.js's renderRecipes(); fetched on demand.
-  window.LAZY_RECIPES = 'recipes.js?v=1783628648';
+  window.LAZY_RECIPES = 'recipes.js?v=1783664703';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1783628648').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1783628648').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1783628648').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1783664703').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1783664703').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1783664703').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1209,8 +1236,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     if (sect) sect.classList.toggle('open', !isOpen);
   }
 </script>
-<script src="common.js?v=1783628648"></script>
-<script src="app.js?v=1783628648"></script>
+<script src="common.js?v=1783664703"></script>
+<script src="app.js?v=1783664703"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1231,6 +1258,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     </div>
     <div class="sch-toolbar-actions">
       <button class="sch-copy-btn" id="sch-sync-btn" onclick="schedForceSync()" title="Sync face recognition attendance now">Live</button>
+      <button class="sch-copy-btn" onclick="kplOpen()" title="Build the roster the way the chefs' Excel looks — plan a week or several weeks ahead, then put it on the live schedule" style="background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.35);color:#fff;font-weight:700">Roster tool</button>
       <button class="sch-copy-btn" onclick="schedDuplicateWeek()">&#10697; Duplicate this week</button>
       <button class="sch-delweek-btn" onclick="schedDeleteWeek()">&#128465; Delete week</button>
       <button class="sch-copy-btn" id="svt-dl" onclick="schedDownloadXlsx()" title="Download this week as an Excel file to print or share">&#11015; Excel</button>
@@ -1291,6 +1319,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="sch-modal" class="sch-modal-overlay" style="display:none" onclick="schedCloseModal(event)">
   <div class="sch-modal-box">
     <div class="sch-modal-title" id="sch-modal-title">Edit Shift</div>
+    <div id="sch-preset-row" class="sch-preset-row"></div>
     <div class="sch-modal-row">
       <label class="sch-modal-label">Status</label>
       <select id="sch-status-sel" class="sch-modal-sel" onchange="schedStatusChange()">
@@ -1306,6 +1335,10 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
       </select>
     </div>
     <div id="sch-time-fields" class="sch-modal-times">
+      <div class="sch-modal-row">
+        <label class="sch-modal-label">Section</label>
+        <select id="sch-section-sel" class="sch-modal-sel" title="Cover a different section for this day only — their real section stays the same"></select>
+      </div>
       <div class="sch-modal-row">
         <label class="sch-modal-label">Start</label>
         <div class="sch-time-row">
@@ -1376,7 +1409,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </div>
 
 <script>
-if ('serviceWorker' in navigator) {
+var __devHostLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+if (__devHostLocal && 'serviceWorker' in navigator) {
+  // Local testing: never cache — always load the freshest files (no stale-code surprises).
+  navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); });
+  if (window.caches) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); });
+} else if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then(reg => {
     // Check for updates every time app gains focus
     document.addEventListener('visibilitychange', () => {
