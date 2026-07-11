@@ -2185,6 +2185,10 @@ async function loadAttendance() {
   if (!ids.length) { schedAttendance = {}; return; }
   var res = await sb.from('attendance').select('*')
     .in('emp_id', ids).gte('att_date', from).lte('att_date', to).limit(2000);
+  // Same row-cap guard as the roster load above: if this window ever fills the
+  // limit, punches are being silently dropped and hours totals would undercount.
+  // Warn loudly so it's caught before a wrong number reaches anyone.
+  if ((res.data || []).length >= 2000) console.warn('attendance load hit the row cap (2000) — some punches may be missing; hours totals could undercount. Raise .limit() or page it.');
   schedAttendance = {};
   (res.data || []).forEach(function(a) { schedAttendance[schedAttKey(a.emp_id, a.att_date)] = a; });
 }
@@ -2797,6 +2801,10 @@ async function schedPlanAfterWrite(){
 function kplOpen(){
   var sview = document.getElementById('scheduling-view'); if(sview) sview.style.display = 'none';
   var fb = document.querySelector('.footer-bar'); if(fb) fb.style.display='none';
+  // Empty the (hidden) live grid while the tool is open — its stale HTML carries the
+  // same element ids (add-staff panels/inputs), so getElementById would hit the hidden
+  // copy and the tool's own panels would never open. Re-rendered on close.
+  var lgrid = document.getElementById('sch-grid-wrap'); if(lgrid) lgrid.innerHTML = '';
   if(!schedWeekStart) schedWeekStart = getMonday(new Date());
   var el = document.getElementById('kpl-full');
   if(!el){
