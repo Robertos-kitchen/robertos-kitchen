@@ -25,7 +25,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 // ── Config (inline, matching send-market-order / send-closing-report) ──
-const RESEND_API_KEY = "re_DV2gjCqH_4JmjoPbm4PLanhPRoXmkiYCs";
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";  // set as a function secret - never in code
 const FROM = "Roberto's Attendance <attendance@kitchenteam.robertos.ae>"; // verified Resend domain
 const RECIPIENTS = ["fguarracino@robertos.ae"];                           // Francesco only, for now
 

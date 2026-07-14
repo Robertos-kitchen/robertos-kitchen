@@ -109,7 +109,7 @@ async function crFetchCovers(sd) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'x-proxy-secret': 'Kitchen'
+        'x-proxy-secret': KITCHEN_PROXY_SECRET
       }
     });
     var d = await r.json();

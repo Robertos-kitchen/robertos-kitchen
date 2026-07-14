@@ -8,6 +8,19 @@ var teamMode = 'list';
 var teamScrollY = 0;
 var teamLang = 'en';        // current display language
 
+// kitchen-guard — the server-side gate for team_survey/team_survey_summary.
+// Those tables are service-role-only at the database now; every read/write
+// goes through this function, and the results passcode is checked SERVER-side
+// (the page no longer contains it).
+var KGUARD_URL = 'https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/kitchen-guard';
+var teamAdminCode = null;   // the passcode the server accepted for this admin session
+async function kguard(body){
+  var r = await fetch(KGUARD_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  var d = await r.json();
+  if(!r.ok || (d && d.error)) throw new Error((d && d.error) || ('HTTP ' + r.status));
+  return d;
+}
+
 // ── Survey round config (quarterly cycle) ──
 // Update these each round. teamDeadline = when Danilo must have the team finished.
 // `start` scopes the one-per-cycle gate: only submissions ON/AFTER this date
@@ -294,10 +307,9 @@ async function teamLoadCompletion(){
     // Current round only (see TEAM_ROUND.start) — and capped: the table keeps
     // every round forever, an unfiltered load would eventually hit the
     // 1000-row response cap and mark people "not done" at random.
-    var res = await sb.from('team_survey').select('staff_id,staff_name,submitted_at')
-      .gte('submitted_at', TEAM_ROUND.start + 'T00:00:00Z').limit(2000);
+    var res = await kguard({ op:'survey_completion', since: TEAM_ROUND.start + 'T00:00:00Z' });
     teamDoneNames = {};
-    (res.data||[]).forEach(function(r){ teamDoneNames[r.staff_id||r.staff_name]=true; });
+    (res.rows||[]).forEach(function(r){ teamDoneNames[r.staff_id||r.staff_name]=true; });
     teamCompletionLoaded = true;
   } catch(e){ teamCompletionLoaded = false; }
 }
@@ -394,9 +406,14 @@ function teamAdminGate(){
   var code = prompt('Admin passcode:');
   if (code === null) return;
   var c = String(code).trim();
-  if (c === '1212') { teamAdminAnon = true; teamAiIncludeNames = false; teamOpenAdmin(); }
-  else if (c === '121212') { teamAdminAnon = false; teamOpenAdmin(); }
-  else { alert('Incorrect passcode.'); return; }
+  if (!c) { alert('Incorrect passcode.'); return; }
+  // The SERVER decides if the code is right (kitchen-guard checks it against
+  // its TEAM_RESULTS_CODES secret) — the page no longer contains the codes.
+  // Short code = anonymous view, long code = named view (same codes as before).
+  teamAdminAnon = c.length <= 4;
+  teamAiIncludeNames = !teamAdminAnon;
+  teamAdminCode = c;
+  teamOpenAdmin();
 }
 
 function teamStart(staffId) {
@@ -491,7 +508,7 @@ async function teamSubmit() {
   }
   var btn=document.getElementById('team-submit-btn'); if(btn){btn.disabled=true;btn.textContent=Tui('sending');}
   var row = { staff_id:(teamCurrent._virtual?null:teamCurrent.id), staff_name:teamCurrent.name, designation:teamCurrent.designation||null, station_key:teamCurrent.station_key||null, answers:teamAnswers, lang:teamLang, submitted_at:new Date().toISOString() };
-  try { var res=await sb.from('team_survey').insert(row); if(res.error)throw res.error; teamMode='thanks'; teamRender(); }
+  try { await kguard({ op:'survey_submit', row: row }); teamMode='thanks'; teamRender(); }
   catch(e){ if(btn){btn.disabled=false;btn.textContent=Tui('send');} alert('Could not send — please try again.\n'+(e.message||'')); }
 }
 
@@ -574,8 +591,11 @@ function teamFlags(s,answers){
 
 async function teamOpenAdmin(){
   teamMode='admin';
-  try { var res=await sb.from('team_survey').select('*').order('submitted_at',{ascending:false}); teamSubmissions=res.data||[]; }
-  catch(e){ teamSubmissions=[]; }
+  try { var res=await kguard({ op:'survey_results', code:teamAdminCode }); teamSubmissions=res.rows||[]; }
+  catch(e){
+    teamSubmissions=[];
+    if(/passcode/i.test(String(e && e.message || ''))){ alert('Incorrect passcode.'); teamAdminCode=null; teamMode='list'; teamRender(); return; }
+  }
   await teamLoadSummary();
   teamRender();
   // translate non-English free-text in the background, then re-render
@@ -611,7 +631,7 @@ async function teamTranslateFreeText(){
 }
 // ── AI proxy (secure Supabase Edge Function — keeps the Anthropic key server-side) ──
 var TEAM_AI_PROXY_URL = 'https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/survey-assistant';
-var TEAM_AI_PROXY_SECRET = 'Kitchen';
+var TEAM_AI_PROXY_SECRET = KITCHEN_PROXY_SECRET;   // defined in app.js, checked server-side
 function teamAiProxyHeaders(){
   return {
     'Content-Type':'application/json',
@@ -1325,8 +1345,8 @@ var teamSummaryBusy = false;
 
 async function teamLoadSummary(){
   try {
-    var res = await sb.from('team_survey_summary').select('*').order('created_at',{ascending:false}).limit(1);
-    if(res.data && res.data.length){ teamSummary = res.data[0].summary; }
+    var res = await kguard({ op:'summary_get', code:teamAdminCode });
+    if(res.rows && res.rows.length){ teamSummary = res.rows[0].summary; }
   } catch(e){ /* table may not exist yet; summary stays null */ }
 }
 
@@ -1361,7 +1381,7 @@ async function teamApproveSummary(){
   teamSummaryDraft = null;
   // persist (best-effort; if table missing it still shows this session)
   try{
-    await sb.from('team_survey_summary').insert({ summary:text, round:TEAM_ROUND.label, created_at:new Date().toISOString() });
+    await kguard({ op:'summary_save', code:teamAdminCode, summary:text, round:TEAM_ROUND.label });
   }catch(e){ /* not fatal */ }
   teamRender();
   teamAiToast('Summary saved to Dashboard');

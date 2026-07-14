@@ -91,7 +91,12 @@ async function kFetchAllPaged(buildQuery, pageSize){
 }
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1783664703;
+// Proxy secret for the sevenrooms-sync / kitchen-events / survey-assistant
+// functions. The kitchen app has no logins, so this ships in page source by
+// design - its job is scoping those functions, not authentication. Must match
+// the SEVENROOMS_PROXY_SECRET / KITCHEN_PROXY_SECRET function secrets.
+const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
+const APP_VERSION = 1784450000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -950,7 +955,7 @@ async function fetchUpcomingTonight() {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'x-proxy-secret': 'Kitchen'
+        'x-proxy-secret': KITCHEN_PROXY_SECRET
       }
     });
     var data = await res.json();
@@ -975,7 +980,7 @@ async function syncSevenRoomsCovers() {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'x-proxy-secret': 'Kitchen'
+        'x-proxy-secret': KITCHEN_PROXY_SECRET
       }
     });
 
@@ -1731,7 +1736,7 @@ function kevMenuModel(e){
 async function loadKitchenEvents(){
   var box = document.getElementById('kev-strip'); if(!box) return;
   try{
-    var res = await fetch(FOH_EVENTS_URL, { headers:{ 'x-proxy-secret':'Kitchen' } });
+    var res = await fetch(FOH_EVENTS_URL, { headers:{ 'x-proxy-secret': KITCHEN_PROXY_SECRET } });
     if(!res.ok) throw new Error('HTTP '+res.status);
     var data = await res.json();
     if(data && data.error) throw new Error(data.error);
@@ -2298,9 +2303,14 @@ function schedCloseShift(event, staffId, dateStr) {
   if (!/^\d{1,2}:\d{2}$/.test(out)) { alert('Please use HH:MM (e.g. 00:00)'); return; }
   a.manual_out = out; a.closed_at = new Date().toISOString();
   renderSchedView();
-  sb.from('attendance').update({ manual_out: out, closed_by: 'manager', closed_at: a.closed_at })
-    .eq('emp_id', staff.emp_id).eq('att_date', dateStr)
-    .then(function(res){ if (res.error) console.error('Close shift error:', res.error); });
+  // attendance writes are service-role-only now — the manual clock-out goes
+  // through the kitchen-guard function (kitchen-security-batch-b.sql).
+  fetch(SUPABASE_URL + '/functions/v1/kitchen-guard', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'manual_out', emp_id: staff.emp_id, att_date: dateStr, out: out, closed_at: a.closed_at })
+  }).then(function(r){ return r.json(); })
+    .then(function(d){ if (d && d.error) console.error('Close shift error:', d.error); })
+    .catch(function(e){ console.error('Close shift error:', e); });
 }
 
 // Inline edit of COSEC employee ID. Lock-gated.
