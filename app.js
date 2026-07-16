@@ -96,7 +96,7 @@ async function kFetchAllPaged(buildQuery, pageSize){
 // design - its job is scoping those functions, not authentication. Must match
 // the SEVENROOMS_PROXY_SECRET / KITCHEN_PROXY_SECRET function secrets.
 const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
-const APP_VERSION = 1784450000;
+const APP_VERSION = 1784460000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -4884,11 +4884,21 @@ async function schedSaveShift() {
     station_override: stationOverride,
     notes: notes || null, updated_at: new Date().toISOString()
   });
+  var prev = schedRoster[key];   // undefined when this day had no shift yet
   schedRoster[key] = payload;
   renderSchedWeek();
   if (!DEV_READ_ONLY && !schedPlanMode) {
     var res = await sb.from('roster').upsert(payload, { onConflict: 'staff_id,work_date' });
-    if (res.error) console.error('Save error:', res.error);
+    if (res.error) {
+      // Save didn't reach the server — revert the optimistic change so the roster
+      // never shows a shift the database doesn't have, and tell whoever edited it.
+      // Silent here meant a failed edit stayed on screen looking saved until a
+      // reload, and surfaced days later as wrong hours.
+      if (prev === undefined) delete schedRoster[key]; else schedRoster[key] = prev;
+      renderSchedWeek();
+      console.error('Save error:', res.error);
+      kToast('Shift not saved — check connection and tap the day again.', true);
+    }
   }
   schedEditTarget = null;
 }
