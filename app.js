@@ -847,7 +847,9 @@ async function renderDashboard(){
   const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
 
   // Live "still expected" breakdown straight from SevenRooms (read-only)
-  const liveTonight = await fetchUpcomingTonight();
+  const srLive = await Promise.all([fetchUpcomingTonight(), fetchCoverFlow()]);
+  const liveTonight = srLive[0];
+  const coverFlow = srLive[1];
 
   // Next 6 days covers
   const upcomingDays = [];
@@ -934,6 +936,24 @@ async function renderDashboard(){
       <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms</span></div>
       <div class="dash-covers-row">${coversRow}</div>
     </div>` : ''}
+    ${coverFlow ? `
+    <div class="ops-panel" style="margin-bottom:16px">
+      <div class="ops-panel-head">Tonight's flow <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · party sizes per time slot</span></div>
+      <div class="flow-grid">${coverFlow.slots.map(s => `
+        <div class="flow-col">
+          <div class="flow-time">${s.t}</div>
+          <div class="flow-covers">${s.covers}</div>
+          ${s.parties.map(p => `<div class="flow-party ${p.state}">${p.size}</div>`).join('')}
+          <div class="flow-count">${s.parties.length}</div>
+        </div>`).join('')}
+      </div>
+      <div class="flow-totals">
+        <span><strong>${coverFlow.totals.booked}</strong> booked</span>
+        <span class="ft-upcoming"><strong>${coverFlow.totals.upcoming}</strong> upcoming</span>
+        <span class="ft-seated"><strong>${coverFlow.totals.seated}</strong> seated</span>
+        <span class="ft-completed"><strong>${coverFlow.totals.completed}</strong> completed</span>
+      </div>
+    </div>` : ''}
     <div class="ops-two">
       <div class="ops-panel">
         <div class="ops-panel-head">Station readiness</div>
@@ -963,6 +983,29 @@ async function fetchUpcomingTonight() {
     return { booked: data.booked, here: data.here, upcoming: data.upcoming };
   } catch (err) {
     console.error('Upcoming fetch error:', err);
+    return null;
+  }
+}
+
+// Fetch the SevenRooms "Cover Flow" for tonight: covers per 15-min slot with
+// every party's size and live state (upcoming / seated / completed). The edge
+// function strips all guest data server-side, so this is safe on the wall
+// screen. Read-only; returns null on any failure so the panel simply hides.
+async function fetchCoverFlow() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?coverflow=' + TODAY, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-proxy-secret': KITCHEN_PROXY_SECRET
+      }
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok || !data.slots || !data.slots.length) return null;
+    return data;
+  } catch (err) {
+    console.error('Cover flow fetch error:', err);
     return null;
   }
 }

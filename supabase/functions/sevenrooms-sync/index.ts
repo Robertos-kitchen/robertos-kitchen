@@ -135,6 +135,42 @@ serve(async (req) => {
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- COVER FLOW MODE: replica of SevenRooms' "Cover Flow" grid for one date ----
+    // ?coverflow=YYYY-MM-DD → per 15-min slot: total covers + every party's size and
+    // live state (upcoming / seated / completed), plus night totals. Deliberately
+    // PII-free: sizes, slot times and statuses only — no names, phones or tables —
+    // so it is safe on the kitchen wall screen. One aggregated payload per call.
+    const coverflow = reqUrl.searchParams.get("coverflow");
+    if (coverflow) {
+      const rows = await fetchReservations(token, venueGroupId, coverflow, coverflow);
+      const SEATED_NOW = new Set(["ARRIVED", "SEATED"]);
+      const DONE = new Set(["COMPLETE", "PAID"]);
+      const slots: Record<string, { size: number; state: string }[]> = {};
+      let booked = 0, upcomingPax = 0, seatedPax = 0, completedPax = 0;
+      for (const r of rows) {
+        const st = String(r.status || "").toUpperCase();
+        if (EXCLUDE.has(st)) continue;            // drop cancel / no-show
+        const pax = Number(r.max_guests) || 0;
+        const state = DONE.has(st) ? "completed" : SEATED_NOW.has(st) ? "seated" : "upcoming";
+        booked += pax;
+        if (state === "completed") completedPax += pax;
+        else if (state === "seated") seatedPax += pax;
+        else upcomingPax += pax;
+        const slot = String(r.real_datetime_of_slot || "").slice(11, 16) || "?";
+        (slots[slot] ||= []).push({ size: pax, state });
+      }
+      const outSlots = Object.keys(slots).sort().map((t) => ({
+        t,
+        covers: slots[t].reduce((s, p) => s + p.size, 0),
+        parties: slots[t].sort((a, b) => b.size - a.size),
+      }));
+      return new Response(JSON.stringify({
+        ok: true, date: coverflow,
+        totals: { booked, upcoming: upcomingPax, seated: seatedPax, completed: completedPax },
+        slots: outSlots,
+      }), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     // ---- SPEND DIAGNOSTIC MODE (read-only): payment/POS fields for one date ----
     // ?spend=YYYY-MM-DD → per-reservation payment fields + pos_tickets, plus night totals.
     // Built 4 Jul 2026 to answer: is the SevenRooms "live spend" net or gross of the
