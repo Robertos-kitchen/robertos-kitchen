@@ -3350,6 +3350,7 @@ function kplEnterDraft(fresh){
     kplDraftSec = saved.secOverrides||{}; kplDraftOrd = saved.order||{}; kplNewStaff = saved.newStaff||[]; kplNewSeq = saved.newSeq||0;
   }
   kplMode = 'draft';
+  kplUndoStack = []; if (typeof kplRenderUndoBtn === 'function') kplRenderUndoBtn();   // fresh draft session — no stale undo
   kplSaveDraft();
   kplRenderControls(); kplRender();
 }
@@ -3878,9 +3879,10 @@ function kplPickStatus(st){
   document.getElementById('kpl-timefields').style.display = st==='working'?'block':'none';
 }
 function kplToggleSplit2(){ var f=document.getElementById('kpl-split2'), b=document.getElementById('kpl-splitbtn'); var open=f.style.display!=='none'; f.style.display=open?'none':'flex'; b.textContent=open?'+ Add split shift':'− Remove split'; }
-function kplClearCell(){ if(kplEditKey) delete kplDraft[kplEditKey]; kplCloseCell(); kplSaveDraft(); kplRender(); }
+function kplClearCell(){ if(kplEditKey){ kplPushUndo([kplEditKey], 'clear ' + kplKeyLabel(kplEditKey)); delete kplDraft[kplEditKey]; } kplCloseCell(); kplSaveDraft(); kplRender(); }
 function kplApplyPreset(kind){
   if(!kplEditKey) return;
+  kplPushUndo([kplEditKey], 'set ' + kplKeyLabel(kplEditKey));
   var prev=kplDraft[kplEditKey]||{}; var e;
   if(kind==='lunch')        e={status:'working',shift_start:'10:00',shift_end:'15:00',shift_start2:'19:00',shift_end2:'00:00'};
   else if(kind==='dinner')  e={status:'working',shift_start:'15:00',shift_end:'03:00',shift_start2:null,shift_end2:null};
@@ -3901,6 +3903,7 @@ function kplReadEditorEntry(){
 }
 function kplSaveCell(){
   if(!kplEditKey) return;
+  kplPushUndo([kplEditKey], 'edit ' + kplKeyLabel(kplEditKey));
   kplDraft[kplEditKey] = kplReadEditorEntry();
   kplCloseCell(); kplSaveDraft(); kplRender();
 }
@@ -3910,6 +3913,7 @@ function kplCloseCell(ev){ if(ev && ev.target && !ev.target.classList.contains('
 var kplShiftClip = null;    // { status, shift_start…, srcStaff, srcDate, label }
 var kplPasteOn   = false;
 var kplPasteCount= 0;
+var kplUndoStack = [];      // Excel-style undo for the planning draft: [{label, cells:[{key, prev}]}], newest last
 function kplShiftLabel(e){
   if(e.status==='working') return (e.shift_start||'')+(e.shift_end?'–'+e.shift_end:'')+(e.shift_start2&&e.shift_end2?' + '+e.shift_start2+'–'+e.shift_end2:'');
   return kplFriendly(e.status);
@@ -3917,26 +3921,33 @@ function kplShiftLabel(e){
 function kplCopyShiftFromEditor(){
   if(!kplEditKey) return;
   var e = kplReadEditorEntry();
+  kplPushUndo([kplEditKey], 'edit ' + kplKeyLabel(kplEditKey));
   kplDraft[kplEditKey] = e;                 // keep the cell you copied from set too
   var parts = kplEditKey.split('|');
   kplShiftClip = Object.assign({}, e, { srcStaff:parts[0], srcDate:parts[1], label:kplShiftLabel(e) });
   kplCloseCell(); kplSaveDraft(); kplRender();
   kplPasteOn = true; kplPasteCount = 0; kplShowPasteBar();
 }
-function kplPasteInto(sid, ds){
+function kplPasteInto(sid, ds, _noUndo){
   if(!kplShiftClip) return;
-  kplDraft[kplKey(sid,ds)] = { status:kplShiftClip.status, shift_start:kplShiftClip.shift_start, shift_end:kplShiftClip.shift_end,
+  var key = kplKey(sid,ds);
+  if(!_noUndo) kplPushUndo([key], 'paste to ' + kplStaffName(sid) + ', ' + kplDayLbl(ds));
+  kplDraft[key] = { status:kplShiftClip.status, shift_start:kplShiftClip.shift_start, shift_end:kplShiftClip.shift_end,
     shift_start2:kplShiftClip.shift_start2, shift_end2:kplShiftClip.shift_end2, notes:kplShiftClip.notes||null };
   kplPasteCount++; kplSaveDraft(); kplRender(); kplShowPasteBar();
 }
 function kplFillPersonWeek(){
   if(!kplShiftClip) return;
   var mon = getMonday(new Date(kplShiftClip.srcDate+'T12:00:00'));
-  for(var d=0; d<7; d++){ kplPasteInto(kplShiftClip.srcStaff, formatDate(addDays(mon,d))); }
+  var keys = []; for(var i=0;i<7;i++){ keys.push(kplKey(kplShiftClip.srcStaff, formatDate(addDays(mon,i)))); }
+  kplPushUndo(keys, 'fill ' + kplStaffName(kplShiftClip.srcStaff) + '’s week');   // one undo step for the whole fill
+  for(var d=0; d<7; d++){ kplPasteInto(kplShiftClip.srcStaff, formatDate(addDays(mon,d)), true); }
 }
 function kplFillDay(){
   if(!kplShiftClip) return;
-  kplAllPeople().forEach(function(s){ kplPasteInto(s.id, kplShiftClip.srcDate); });
+  var ppl = kplAllPeople();
+  kplPushUndo(ppl.map(function(s){ return kplKey(s.id, kplShiftClip.srcDate); }), 'fill whole day ' + kplDayLbl(kplShiftClip.srcDate));
+  ppl.forEach(function(s){ kplPasteInto(s.id, kplShiftClip.srcDate, true); });
 }
 function kplShowPasteBar(){
   var host = document.getElementById('kpl-full') || document.body;
@@ -3948,15 +3959,62 @@ function kplShowPasteBar(){
   }
   var bs='padding:7px 12px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.12);color:#f6ece0;border-radius:7px;cursor:pointer;font:inherit;font-weight:600';
   var msg = kplPasteCount
-    ? ('Pasted to '+kplPasteCount+' '+(kplPasteCount===1?'day':'days')+' &middot; keep tapping cells, or Done')
+    ? ('Pasted to '+kplPasteCount+' '+(kplPasteCount===1?'day':'days')+' &middot; keep tapping cells, or stop below')
     : ('Copied <b>'+(kplShiftClip?kplShiftClip.label:'')+'</b> &middot; tap any day to paste it');
   bar.innerHTML = '<span>'+msg+'</span>'
     + '<button style="'+bs+'" onclick="kplFillPersonWeek()">Fill this person’s week</button>'
     + '<button style="'+bs+'" onclick="kplFillDay()">Fill this whole day</button>'
-    + '<button style="'+bs+';background:var(--sabbia);color:var(--vino)" onclick="kplEndPaste()">Done</button>';
+    + '<button style="'+bs+';background:var(--sabbia);color:var(--vino)" onclick="kplEndPaste()">&#10005; Stop pasting (Esc)</button>';
   bar.style.display='flex';
 }
 function kplEndPaste(){ kplPasteOn=false; kplShiftClip=null; kplPasteCount=0; var b=document.getElementById('kpl-paste-bar'); if(b) b.style.display='none'; }
+
+// ── Excel-style undo for the planning tool ────────────────────────────────────
+// Every draft change (cell edit, preset, clear, paste, fill week/day) snapshots
+// the affected cells' prior draft state before writing. Undo restores it and
+// re-renders. Draft-only — nothing here touches the live DB (that happens on
+// Bring live), so undo is a pure in-memory restore. Multi-level, newest-first.
+function kplStaffName(id){ var s = kplAllPeople().find(function(x){ return x.id===id; }); return s ? s.name : 'staff'; }
+function kplDayLbl(ds){ try { return new Date(ds+'T12:00:00').toLocaleDateString('en-GB',{ weekday:'short', day:'numeric' }); } catch(e){ return ds; } }
+function kplKeyLabel(key){ var p = String(key).split('|'); return kplStaffName(p[0]) + ', ' + kplDayLbl(p[1]); }
+function kplPushUndo(keys, label){
+  var cells = keys.map(function(k){ return { key:k, prev: kplDraft[k] ? JSON.parse(JSON.stringify(kplDraft[k])) : null }; });
+  kplUndoStack.push({ label: label || 'change', cells: cells });
+  if (kplUndoStack.length > 30) kplUndoStack.shift();
+  kplRenderUndoBtn();
+}
+function kplUndoLast(){
+  if (!kplUndoStack.length) return;
+  var u = kplUndoStack.pop();
+  u.cells.forEach(function(c){ if (c.prev) kplDraft[c.key] = c.prev; else delete kplDraft[c.key]; });
+  kplSaveDraft(); kplRender(); kplRenderUndoBtn();
+}
+function kplRenderUndoBtn(){
+  var host = document.getElementById('kpl-full');
+  var show = host && host.style.display !== 'none' && kplMode === 'draft' && kplUndoStack.length > 0;
+  var btn = document.getElementById('kpl-undo-btn');
+  if (!show){ if (btn) btn.style.display = 'none'; return; }
+  if (!btn){
+    btn = document.createElement('button'); btn.id = 'kpl-undo-btn'; btn.type = 'button'; btn.onclick = kplUndoLast;
+    btn.style.cssText = 'position:fixed;left:14px;bottom:20px;z-index:4400;background:#fff;color:var(--vino);border:1.5px solid var(--vino);padding:9px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.28);font-family:var(--font-sans);font-size:13px;font-weight:700;cursor:pointer;max-width:60vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    host.appendChild(btn);
+  }
+  var last = kplUndoStack[kplUndoStack.length - 1];
+  btn.title = 'Undo: ' + last.label + (kplUndoStack.length > 1 ? ('  (' + kplUndoStack.length + ' changes can be undone)') : '');
+  btn.innerHTML = '&#8630; Undo' + (kplUndoStack.length > 1 ? (' (' + kplUndoStack.length + ')') : '') + ' &middot; ' + last.label;
+  btn.style.display = 'block';
+}
+// Ctrl/Cmd+Z in the planning tool — but let text fields keep their native undo.
+document.addEventListener('keydown', function(e){
+  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
+    var host = document.getElementById('kpl-full');
+    if (!host || host.style.display === 'none' || kplMode !== 'draft') return;
+    var el = document.activeElement;
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    if (!kplUndoStack.length) return;
+    e.preventDefault(); kplUndoLast();
+  }
+});
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && kplPasteOn) kplEndPaste(); });
 
 // ── Copy / paste week ──
