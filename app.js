@@ -1728,25 +1728,11 @@ function openHome(){
 // prep list; Print menu prints it.
 const FOH_EVENTS_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co/functions/v1/kitchen-events';
 const KEV_ALG = {D:'dairy',E:'egg',H:'homemade',N:'nuts',R:'raw',S:'shellfish',V:'vegetarian'};
-// Plated set-menu courses (mirror of the FOH PE_SET_MENUS) — kept here in the
-// browser so accented names render correctly. Keep in sync with the events desk.
-const KEV_SET_MENUS = {
-  terra: { name:'Terra set menu', courses:[
-    {name:'Primi', items:['Burrata']},
-    {name:'Pasta', items:['Tortelli ricotta & spinach']},
-    {name:'Secondi', choose:1, options:['Branzino','Polletto','Insalata 4 semi']},
-    {name:'Dolci', items:['Tiramisù']} ]},
-  mare: { name:'Mare set menu', courses:[
-    {name:'Primi', items:['Burrata','Bresaola','Tonno Battuto']},
-    {name:'Pasta', items:['Il Bosco truffle risotto']},
-    {name:'Secondi', choose:1, options:['Ribeye di Angus','Branzino','Melanzane']},
-    {name:'Dolci', items:['Torta al Limone']} ]},
-  fuoco: { name:'Fuoco set menu', courses:[
-    {name:'Primi', items:['Burrata','Bresaola','Tonno Battuto']},
-    {name:'Pasta', items:['Raviolo alla Genovese']},
-    {name:'Secondi', choose:1, options:['Ribeye di Wagyu','Moro','Melanzane']},
-    {name:'Dolci', items:['Choc-Choc']} ]}
-};
+// Plated set-menu dishes are NOT kept here any more. They are data-driven in the
+// FOH Chef Corner (event_set_menus) and resolved server-side by the kitchen-events
+// function, which sends the ready prep rows in e.menu — exactly like canapEs. This
+// is the single source of truth: a hardcoded mirror here silently went stale the
+// moment a menu was created or edited, and the kitchen showed "No dishes listed".
 let KEV_CACHE = {};
 function kevEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function kevAlg(a){ return (a||[]).map(function(c){ return KEV_ALG[c]||String(c).toLowerCase(); }).join(', '); }
@@ -1756,18 +1742,15 @@ function kevDate(ds){ if(!ds) return {day:'',mon:'',full:''}; var d=new Date(Str
 // One model for both canapé + plated set-menu events → rows + a total label.
 function kevMenuModel(e){
   var g = Number(e.guests)||0;
-  if(e.kind==='set' && e.set_menu && KEV_SET_MENUS[e.set_menu.key]){
-    var sm = KEV_SET_MENUS[e.set_menu.key], choices = (e.set_menu.choices)||{}, rows=[];
-    sm.courses.forEach(function(c){
-      if(c.choose){
-        (c.options||[]).forEach(function(o){ var n=Number((choices[c.name]||{})[o])||0;
-          rows.push({name:o, group:c.name, qty:(n||null), unit:'portions', sub:'guests’ choice', allergens:[], comp:false, unconfirmed:!n, min_flag:null}); });
-      } else {
-        (c.items||[]).forEach(function(it){
-          rows.push({name:it, group:c.name, qty:(g||null), unit:'portions', sub:'', allergens:[], comp:false, unconfirmed:false, min_flag:null}); });
-      }
-    });
-    return { rows:rows, total_label:(g?g+' guests · ':'')+sm.name, empty_msg:null };
+  if(e.kind==='set'){
+    // Prep rows are resolved server-side from the live event_set_menus library
+    // and arrive in e.menu. No local menu table — so any menu the events desk
+    // creates or edits reaches the kitchen with zero redeploy.
+    if(e.menu && e.menu.length){
+      var smName = (e.set_menu && e.set_menu.name) ? e.set_menu.name : 'Set menu';
+      return { rows:e.menu, total_label:(g?g+' guests · ':'')+smName, empty_msg:null };
+    }
+    return { rows:[], total_label:'', empty_msg:'Set menu selected — its dishes couldn’t be loaded. Check with the events desk.' };
   }
   if(e.kind==='canape' && e.menu && e.menu.length){
     var rows2 = e.menu.map(function(m){
