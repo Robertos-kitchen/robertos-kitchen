@@ -2792,6 +2792,9 @@ function schedPlanEnter(){
   kplSecLive   = STATIONS_SCH.map(function(s){ return { key:s.key, label:s.label }; });  // live baseline
   schedPlanReseedFromLive();
   schedPlanUpdateBadge();
+  // The undo stack is shared with the live schedule; start the planning session clean so a
+  // live-schedule edit can never be "undone" into the draft. Cleared again on close (krtClose).
+  schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
 }
 // ── Sections manager (in the tool): rename, add, reorder (▲▼), delete — held in the plan ──
 function krtSectionRowHtml(key, label, isNew){
@@ -3156,8 +3159,13 @@ function krtCloseActions(){ var m=document.getElementById('krt-actmenu'); if(m) 
 function krtClose(){
   schedPlanMode = false;                 // back to live editing on the real schedule
   schedPlanRestoreLiveSections();        // drop any draft section add/rename from the live list
+  // End the planning session cleanly: stop any paste-in-progress and drop the draft-only undo
+  // history so it can't be replayed against the live DB once we're back on the real schedule.
+  if (typeof schedEndPaste === 'function') schedEndPaste();
+  schedUndoStack = [];
   var el=document.getElementById('kpl-full'); if(el) el.style.display='none';
   var sview=document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
+  if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
   var fb=document.querySelector('.footer-bar'); if(fb) fb.style.display='flex';
   // Reload the untouched live data so the real schedule never shows the draft.
   if(typeof loadSchedData==='function' && schedWeekStart) loadSchedData().then(renderSchedView);
@@ -5310,15 +5318,21 @@ function schedRenderUndoBtn(){
   var view = document.getElementById('scheduling-view');
   var tool = document.getElementById('kpl-full');
   var toolOpen = tool && tool.style.display !== 'none';
-  var visible = view && view.style.display !== 'none' && !toolOpen;
-  var show = visible && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
+  // Show on the live schedule OR inside the Roster planning tool. When the tool is open
+  // the live view is display:none, so the button must be hosted in the tool overlay to
+  // render (a fixed child of a hidden parent draws nothing).
+  var host = toolOpen ? tool : view;
+  var onSurface = toolOpen || (view && view.style.display !== 'none');
+  var show = onSurface && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
   var btn = document.getElementById('sch-undo-btn');
   if (!show){ if (btn) btn.style.display = 'none'; return; }
   if (!btn){
     btn = document.createElement('button'); btn.id = 'sch-undo-btn'; btn.type = 'button';
     btn.onclick = schedUndoLast;
     btn.style.cssText = 'position:fixed;left:14px;bottom:18px;z-index:9600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.22);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    (view || document.body).appendChild(btn);
+    (host || document.body).appendChild(btn);
+  } else if (host && btn.parentElement !== host) {
+    host.appendChild(btn);   // keep it on whichever surface is showing
   }
   var last = schedUndoStack[schedUndoStack.length - 1];
   btn.title = 'Undo: ' + last.label + (schedUndoStack.length > 1 ? ('  (' + schedUndoStack.length + ' changes can be undone)') : '');
@@ -5329,7 +5343,9 @@ function schedRenderUndoBtn(){
 document.addEventListener('keydown', function(e){
   if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
     var view = document.getElementById('scheduling-view');
-    if (!view || view.style.display === 'none') return;
+    var tool = document.getElementById('kpl-full');
+    var toolOpen = tool && tool.style.display !== 'none';
+    if (!toolOpen && (!view || view.style.display === 'none')) return;   // only on the schedule or in the Roster tool
     var el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
     if (!schedUndoStack.length) return;
