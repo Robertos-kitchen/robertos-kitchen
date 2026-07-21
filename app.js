@@ -1740,7 +1740,9 @@ function kevDate(ds){ if(!ds) return {day:'',mon:'',full:''}; var d=new Date(Str
   return { day:d.getDate(), mon:d.toLocaleDateString('en-GB',{weekday:'short',month:'short'}),
            full:d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) }; }
 // One model for both canapé + plated set-menu events → rows + a total label.
-function kevMenuModel(e){
+// kevMenuModelRaw = the events-desk truth; kevMenuModel layers the kitchen's own
+// prep overrides on top (see KEV_OVR) WITHOUT ever hiding the events number.
+function kevMenuModelRaw(e){
   var g = Number(e.guests)||0;
   if(e.kind==='set'){
     // Prep rows are resolved server-side from the live event_set_menus library
@@ -1759,6 +1761,83 @@ function kevMenuModel(e){
   }
   return { rows:[], total_label:'', empty_msg: e.bev_only ? 'Beverage only — no kitchen prep' : 'No dishes listed yet — check with the events desk' };
 }
+// ── Kitchen prep overrides ──────────────────────────────────────────────────
+// A chef can override how many portions to actually cook for a dish (e.g. spares
+// or extra staff portions). Overrides live in the KITCHEN db (kitchen owns its
+// prep numbers; the events desk still owns the menu). The override NEVER hides
+// the events count — the row shows both, so the two can't silently disagree.
+const KEV_EDIT_CODE = '2580';           // kitchen prep-override code (change here)
+let KEV_OVR = {};                        // key(event_id, dish_name) -> portions (number)
+let KEV_TODAY = null;                    // last "today" from the feed, for re-render
+let KEV_CAN_EDIT = false;                // unlocked this session after the code
+function kevOvrKey(eid, name){ return String(eid)+' '+String(name); }
+// Events-desk portion for one dish (before any override) — used to show "events: N".
+function kevBaseQty(e, name){
+  var raw = kevMenuModelRaw(e);
+  for(var i=0;i<raw.rows.length;i++){ if(raw.rows[i].name===name) return raw.rows[i].qty; }
+  return null;
+}
+// Layer overrides on top of the raw model. Always returns FRESH row objects so
+// the KEV_CACHE feed data is never mutated.
+function kevMenuModel(e){
+  var mm = kevMenuModelRaw(e);
+  var rows = mm.rows.map(function(m){
+    var o = KEV_OVR[kevOvrKey(e.id, m.name)];
+    if(o==null) return m;
+    return Object.assign({}, m, { qty:o, base_qty:m.qty, ovr:true });
+  });
+  return { rows:rows, total_label:mm.total_label, empty_msg:mm.empty_msg };
+}
+async function loadKevOverrides(ids){
+  KEV_OVR = {};
+  if(!ids || !ids.length) return;
+  try{
+    var r = await sb.from('kitchen_event_overrides').select('event_id,dish_name,portions').in('event_id', ids);
+    if(r && r.error) throw r.error;
+    (r.data||[]).forEach(function(o){ KEV_OVR[kevOvrKey(o.event_id, o.dish_name)] = o.portions; });
+  }catch(err){ console.warn('[kev-ovr] load skipped', err && err.message||err); }  // table missing / offline → no overrides, strip still works
+}
+function kevUnlockEdit(){
+  if(KEV_CAN_EDIT) return true;
+  var p = prompt('Enter the kitchen prep code to change portions:');
+  if(p===null) return false;
+  if(String(p).trim() !== KEV_EDIT_CODE){ kToast('Wrong code — portions stay as the events count.', true); return false; }
+  KEV_CAN_EDIT = true; return true;
+}
+// Re-render just one event's prep block, keeping the card open (no full reload).
+function rerenderKevEvent(eid){
+  var e = KEV_CACHE[eid]; if(!e) return;
+  var el = document.getElementById('kev-prep-'+eid);
+  if(el){ el.innerHTML = kevPrepRows(e); }
+  else if(KEV_TODAY!=null){ renderKitchenEvents(Object.keys(KEV_CACHE).map(function(k){return KEV_CACHE[k];}), KEV_TODAY); }
+}
+async function kevEditPortion(eid, idx){
+  if(!kevUnlockEdit()) return;
+  var e = KEV_CACHE[eid]; if(!e) return;
+  var raw = kevMenuModelRaw(e); var row = raw.rows[idx]; if(!row) return;
+  var name = row.name, base = row.qty;
+  var cur = (KEV_OVR[kevOvrKey(eid,name)]!=null) ? KEV_OVR[kevOvrKey(eid,name)] : base;
+  var v = prompt('Portions to cook for “'+name+'” — '+e.name+'\nEvents count: '+(base==null?'—':base)+'\n\nEnter a whole number (blank = back to the events count):', cur==null?'':String(cur));
+  if(v===null) return;
+  v = String(v).trim();
+  if(v===''){ return kevResetPortion(eid, name); }
+  var n = Number(v);
+  if(!isFinite(n) || n<0 || Math.floor(n)!==n){ kToast('Enter a whole number (0 or more).', true); return; }
+  var res = await sb.from('kitchen_event_overrides').upsert(
+    { event_id:eid, dish_name:name, portions:n, set_by:'kitchen', updated_at:new Date().toISOString() },
+    { onConflict:'event_id,dish_name' });
+  if(res && res.error){ kToast('Could not save: '+res.error.message+(String(res.error.message).indexOf('read-only')>=0?' (unlock the DEV badge).':''), true); return; }
+  KEV_OVR[kevOvrKey(eid,name)] = n;
+  kToast('Saved ✓ — '+name+' set to '+n+' (events: '+(base==null?'—':base)+')');
+  rerenderKevEvent(eid);
+}
+async function kevResetPortion(eid, name){
+  var res = await sb.from('kitchen_event_overrides').delete().eq('event_id',eid).eq('dish_name',name);
+  if(res && res.error){ kToast('Could not reset: '+res.error.message, true); return; }
+  delete KEV_OVR[kevOvrKey(eid,name)];
+  kToast('Reset ✓ — '+name+' back to the events count.');
+  rerenderKevEvent(eid);
+}
 async function loadKitchenEvents(){
   var box = document.getElementById('kev-strip'); if(!box) return;
   try{
@@ -1768,6 +1847,8 @@ async function loadKitchenEvents(){
     if(data && data.error) throw new Error(data.error);
     KEV_CACHE = {};
     (data.events||[]).forEach(function(e){ KEV_CACHE[e.id]=e; });
+    KEV_TODAY = data.today;
+    await loadKevOverrides((data.events||[]).map(function(e){ return e.id; }));
     renderKitchenEvents(data.events||[], data.today);
   }catch(err){
     console.warn('[kitchen-events] load failed', err);
@@ -1800,14 +1881,19 @@ function kevPrepRows(e){
   var mm = kevMenuModel(e);
   if(!mm.rows.length){ return '<div class="kev-empty">'+kevEsc(mm.empty_msg||'')+'</div>'; }
   var h = '', lastG = null;
-  mm.rows.forEach(function(m){
+  mm.rows.forEach(function(m, idx){
     if(m.group && m.group!==lastG){ lastG = m.group; h += '<div class="kev-grp">'+kevEsc(m.group)+'</div>'; }
     h += '<div class="kev-prow"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+
       (m.comp?' <span class="kev-comp">on the house</span>':'')+
       (m.allergens&&m.allergens.length?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+
       (m.sub?' <span class="kev-sub">'+kevEsc(m.sub)+'</span>':'')+
       (m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
-      '</div><div class="kev-qty">'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+(m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+'</div></div>';
+      '</div><div class="kev-qty">'+
+        (m.ovr?'<b class="kev-ovr-n">'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+'</b> <span class="kev-ovr-was">events: '+(m.base_qty==null?'—':m.base_qty)+'</span>'
+             :(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—'))+
+        (m.min_flag?' <span class="kev-min">min '+m.min_flag+'</span>':'')+
+        ' <button class="kev-edit" title="Change portions to cook" onclick="event.stopPropagation();kevEditPortion(\''+e.id+'\','+idx+')">edit</button>'+
+      '</div></div>';
   });
   h += '<div class="kev-total"><span>Total</span><b>'+kevEsc(mm.total_label)+'</b></div>';
   if(e.dietary) h += '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>';
@@ -1818,7 +1904,7 @@ function kevTodayCard(e){
   return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
     '<div class="kev-name">'+kevEsc(e.name)+'</div><div class="kev-meta">'+meta+'</div></div>'+
     '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    '<div class="kev-prep">'+kevPrepRows(e)+'</div></div>';
+    '<div class="kev-prep" id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>';
 }
 function kevUpRow(e){
   var d = kevDate(e.date);
@@ -1828,7 +1914,7 @@ function kevUpRow(e){
       '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
       '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+' <span class="kev-chev">&#9662;</span></div><div class="kev-up-meta">'+meta+'</div></div>'+
       '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none">'+kevPrepRows(e)+'</div>'+
+    '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>'+
   '</div>';
 }
 function kevToggle(id, rowEl){
@@ -1847,7 +1933,9 @@ function kevPrintMenu(id){
     if(m.group && m.group!==lastG){ lastG = m.group; rows += '<tr><td colspan="2" style="background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8A6A4F">'+kevEsc(m.group)+'</td></tr>'; }
     var note = [kevAlg(m.allergens), m.sub].filter(Boolean).join(' · ');
     rows += '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+(note?' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(note)+'</span>':'')+'</td>'+
-      '<td style="text-align:right"><b>'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+'</b>'+(m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
+      '<td style="text-align:right"><b>'+(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—')+'</b>'+
+      (m.ovr?' <span style="color:#9a7b5f;font-size:11px">(events: '+(m.base_qty==null?'—':m.base_qty)+')</span>':'')+
+      (m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
   });
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Kitchen menu — '+kevEsc(e.name)+'</title>'+
     '<style>@page{margin:16mm}body{font-family:Georgia,serif;color:#2C1810;max-width:640px;margin:0 auto;padding:20px}'+
