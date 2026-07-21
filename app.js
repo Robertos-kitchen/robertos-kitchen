@@ -2561,6 +2561,7 @@ var kplDirty      = false;
 var kplEditKey    = null;     // cell being edited
 var kplPaint      = null;     // {status} while paint mode armed
 var kplPainting   = false;
+var kplPaintStroke= null;     // {label, cells:[{key,prev}], seen} — collects one drag stroke so it undoes as a single step
 var kplMins       = {};       // sectionKey -> {wd,we} coverage minimums
 var kplEnt        = {};       // staffId -> {off,al,ph} entitlement targets over the span
 var kplWkClip     = null;     // copied week index for copy→paste
@@ -3809,13 +3810,25 @@ function kplEditMin(secKey){
 
 // ── Cell editing (draft) ──
 var kplDownAt = 0;
-function kplCellDown(ev, sid, ds){ if(!kplPaint) return; kplPainting=true; kplApplyPaint(sid, ds); ev.preventDefault(); }
+function kplCellDown(ev, sid, ds){ if(!kplPaint) return; kplPainting=true; kplPaintStroke={ label:kplPaintLabel(), cells:[], seen:{} }; kplApplyPaint(sid, ds); ev.preventDefault(); }
 function kplCellEnter(sid, ds){ if(kplPaint && kplPainting){ kplApplyPaint(sid, ds); } }
-function kplWirePaint(el){
-  document.addEventListener('pointerup', function(){ if(kplPainting){ kplPainting=false; kplSaveDraft(); kplRender(); } });
-}
+function kplPaintLabel(){ if(!kplPaint) return 'paint'; return kplPaint.status==='__clear' ? 'clear' : (kplPaint.status==='working' ? 'paint shift' : ('paint ' + kplFriendly(kplPaint.status))); }
+// End a paint drag: reset the flag, fold the WHOLE stroke into one undo step, then save + render.
+// (Attached once at load — the old kplWirePaint was never called, so paint had no pointerup at all.)
+document.addEventListener('pointerup', function(){
+  if(!kplPainting) return;
+  kplPainting = false;
+  if(kplPaintStroke && kplPaintStroke.cells.length){
+    var lbl = kplPaintStroke.label + (kplPaintStroke.cells.length>1 ? (' ('+kplPaintStroke.cells.length+' days)') : '');
+    kplUndoStack.push({ label: lbl, cells: kplPaintStroke.cells });
+    if (kplUndoStack.length > 30) kplUndoStack.shift();
+  }
+  kplPaintStroke = null;
+  kplSaveDraft(); kplRender(); if(typeof kplRenderUndoBtn==='function') kplRenderUndoBtn();
+});
 function kplApplyPaint(sid, ds){
   var k = kplKey(sid,ds);
+  if(kplPaintStroke && !kplPaintStroke.seen[k]){ kplPaintStroke.seen[k]=1; kplPaintStroke.cells.push({ key:k, prev: kplDraft[k] ? JSON.parse(JSON.stringify(kplDraft[k])) : null }); }
   if(kplPaint.status==='working') kplDraft[k]={status:'working', shift_start:KPL_DEF_START, shift_end:KPL_DEF_END, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
   else if(kplPaint.status==='__clear') delete kplDraft[k];
   else kplDraft[k]={status:kplPaint.status, shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
@@ -4023,6 +4036,8 @@ function kplPasteWeek(w){
   if(kplWkClip===null || kplWkClip===w) return;
   if(!confirm('Paste week '+(kplWkClip+1)+' onto week '+(w+1)+'? This overwrites week '+(w+1)+' in the draft (all people shown or hidden).')) return;
   var affected = kplFilterPer==='all' ? kplStaff : kplStaff.filter(function(s){return s.id===kplFilterPer;});
+  var _wk=[]; affected.forEach(function(s){ for(var d=0; d<7; d++){ _wk.push(kplKey(s.id,kplDateISO(w,d))); } });
+  kplPushUndo(_wk, 'paste week '+(kplWkClip+1)+' → week '+(w+1));
   affected.forEach(function(s){ for(var d=0; d<7; d++){ var src=kplDraft[kplKey(s.id,kplDateISO(kplWkClip,d))]; var dk=kplKey(s.id,kplDateISO(w,d)); if(src) kplDraft[dk]=Object.assign({},src); else delete kplDraft[dk]; } });
   kplSaveDraft(); kplRender();
 }
@@ -4076,6 +4091,8 @@ function kplApplyBulk(){
   var st=document.getElementById('kpl-bulk-st').value||KPL_DEF_START, et=document.getElementById('kpl-bulk-et').value||KPL_DEF_END;
   var alt=document.getElementById('kpl-bulk-alt').checked;
   var patA=kplReadPattern('kpl-patA'), patB=alt?kplReadPattern('kpl-patB'):patA;
+  var _bk=[]; people.forEach(function(s){ weeks.forEach(function(w){ var pat=(alt && (w%2===1))?patB:patA; for(var d=0; d<7; d++){ var v=pat[d]; if(v===undefined||v==='') continue; _bk.push(kplKey(s.id,kplDateISO(w,d))); } }); });
+  if(_bk.length) kplPushUndo(_bk, 'bulk fill ('+_bk.length+' cells)');
   var n=0;
   people.forEach(function(s){ weeks.forEach(function(w){ var pat=(alt && (w%2===1))?patB:patA; for(var d=0; d<7; d++){ var v=pat[d]; if(v===undefined||v==='') continue; var k=kplKey(s.id,kplDateISO(w,d)); if(v==='working') kplDraft[k]={status:'working',shift_start:st,shift_end:et,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; else kplDraft[k]={status:v,shift_start:null,shift_end:null,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; n++; } }); });
   kplCloseBulk(); kplSaveDraft(); kplRender();
@@ -5228,12 +5245,18 @@ function schedFillDay() {
   schedWriteClipboard(t, 'fill whole day ' + schedDayLabel(schedClipboard.srcDate)).then(function(n){ if (n) schedShowPasteBar(n); });
 }
 function schedShowPasteBar(pastedCount) {
-  var host = document.getElementById('scheduling-view') || document.body;
+  // While the Roster tool is open the live schedule (#scheduling-view) is display:none,
+  // and a position:fixed child of a hidden parent won't render — so host the bar in the
+  // tool overlay whenever it's open, else on the live schedule as before.
+  var tool = document.getElementById('kpl-full');
+  var host = (tool && tool.style.display !== 'none') ? tool : (document.getElementById('scheduling-view') || document.body);
   var bar = document.getElementById('sch-paste-bar');
   if (!bar) {
     bar = document.createElement('div'); bar.id = 'sch-paste-bar';
     bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9500;background:var(--vino,#410207);color:#fff;padding:9px 12px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;align-items:center;gap:8px;font-family:var(--font-sans),sans-serif;font-size:13px;max-width:94vw;flex-wrap:wrap;justify-content:center';
     host.appendChild(bar);
+  } else if (bar.parentElement !== host) {
+    host.appendChild(bar);   // move it onto whichever surface is on top now
   }
   var bs = 'padding:6px 11px;border:1px solid rgba(255,255,255,.55);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-weight:600';
   var msg = pastedCount ? ('&#9989; Pasted to ' + pastedCount + ' cell' + (pastedCount === 1 ? '' : 's') + ' &middot; keep tapping cells, or stop below')
