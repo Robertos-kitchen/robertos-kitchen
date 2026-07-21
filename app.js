@@ -2706,7 +2706,8 @@ function schedPlanRowFromEntry(sid, ds, e){
 }
 
 // Save / load the draft on this device (survives closing the tool and reopening).
-function schedPlanSaveDraft(){
+function schedPlanSaveDraft(){ krtScheduleCheckpoint(); schedPlanPersist(); }
+function schedPlanPersist(){
   kplDirty = true;
   try{
     localStorage.setItem(SCHED_PLAN_LS, JSON.stringify({
@@ -2716,6 +2717,68 @@ function schedPlanSaveDraft(){
     }));
   }catch(e){ console.warn('plan draft save failed', e); }
   schedPlanUpdateBadge();
+}
+
+// ── Comprehensive Excel-style undo for the Roster PLANNING tool ───────────────
+// The tool is the sched grid in plan mode; every draft change — cell edit, paste,
+// paint, fill, week copy/paste/clear, section add/rename/delete/move, add/move/
+// remove person — funnels through schedPlanSaveDraft. So we snapshot the WHOLE
+// draft there (coalesced to ONE step per action via a next-tick checkpoint) and
+// undo restores it. Draft-only: nothing here touches the live DB (that's Bring
+// live). This supersedes the per-path sched undo while the tool is open.
+var krtUndoStack = [];      // [{label, state}] newest last
+var krtUndoBase  = null;    // JSON snapshot as of the last checkpoint
+var krtUndoPending = false;
+var krtNextLabel = null;    // optional friendly label for the next checkpoint
+function krtStateSnap(){
+  return JSON.stringify({
+    d:kplDraft||{}, sec:kplDraftSec||{}, ord:kplDraftOrd||{},
+    ns:kplNewStaff||[], nseq:kplNewSeq||0,
+    sr:kplSecRename||{}, sn:kplSecNew||[], so:kplSecOrder||[]
+  });
+}
+function krtUndoReset(){ krtUndoStack=[]; krtUndoBase=krtStateSnap(); krtNextLabel=null; krtUndoPending=false; krtRenderUndoBtn(); }
+function krtUndoCheckpoint(){
+  var cur = krtStateSnap();
+  if(krtUndoBase===null){ krtUndoBase=cur; krtNextLabel=null; return; }
+  if(cur!==krtUndoBase){
+    krtUndoStack.push({ label: krtNextLabel||'change', state: krtUndoBase });
+    if(krtUndoStack.length>60) krtUndoStack.shift();
+    krtUndoBase = cur;
+  }
+  krtNextLabel = null;
+  krtRenderUndoBtn();
+}
+// Coalesce every synchronous save in one user action (e.g. Fill week = 7 writes)
+// into a single undo step by deferring the checkpoint to the next tick.
+function krtScheduleCheckpoint(){ if(krtUndoPending) return; krtUndoPending=true; setTimeout(function(){ krtUndoPending=false; krtUndoCheckpoint(); }, 0); }
+function krtUndoLast(){
+  if(!krtUndoStack.length) return;
+  var u = krtUndoStack.pop();
+  var s; try{ s=JSON.parse(u.state); }catch(e){ return; }
+  kplDraft=s.d||{}; kplDraftSec=s.sec||{}; kplDraftOrd=s.ord||{};
+  kplNewStaff=s.ns||[]; kplNewSeq=s.nseq||0;
+  kplSecRename=s.sr||{}; kplSecNew=s.sn||[]; kplSecOrder=s.so||[];
+  krtUndoBase = u.state;                 // baseline is now the restored state
+  schedPlanPersist();                    // persist WITHOUT re-checkpointing
+  if(typeof schedPlanApplySections==='function') schedPlanApplySections();
+  schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
+  krtRenderUndoBtn();
+}
+function krtRenderUndoBtn(){
+  var host = document.getElementById('kpl-full');
+  var show = host && host.style.display!=='none' && schedPlanMode && krtUndoStack.length>0;
+  var btn = document.getElementById('krt-undo-btn');
+  if(!show){ if(btn) btn.style.display='none'; return; }
+  if(!btn){
+    btn=document.createElement('button'); btn.id='krt-undo-btn'; btn.type='button'; btn.onclick=krtUndoLast;
+    btn.style.cssText='position:fixed;left:14px;bottom:20px;z-index:4600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.28);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:60vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    host.appendChild(btn);
+  } else if(btn.parentElement!==host){ host.appendChild(btn); }
+  var last=krtUndoStack[krtUndoStack.length-1];
+  btn.title='Undo: '+last.label+(krtUndoStack.length>1?('  ('+krtUndoStack.length+' changes can be undone)'):'');
+  btn.innerHTML='&#8630; Undo'+(krtUndoStack.length>1?(' ('+krtUndoStack.length+')'):'')+' &middot; '+last.label;
+  btn.style.display='block';
 }
 function schedPlanLoadDraft(){ try{ return JSON.parse(localStorage.getItem(SCHED_PLAN_LS)||'null'); }catch(e){ return null; } }
 
@@ -2795,6 +2858,7 @@ function schedPlanEnter(){
   // The undo stack is shared with the live schedule; start the planning session clean so a
   // live-schedule edit can never be "undone" into the draft. Cleared again on close (krtClose).
   schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
+  krtUndoReset();   // comprehensive draft undo — fresh baseline for this planning session
 }
 // ── Sections manager (in the tool): rename, add, reorder (▲▼), delete — held in the plan ──
 function krtSectionRowHtml(key, label, isNew){
@@ -2898,6 +2962,7 @@ function krtWeekPaste(tgtMon){
     });
   }
   krtWeekClip = null;
+  krtNextLabel = 'paste week of '+srcLabel+' → '+tLabel;
   schedPlanSaveDraft(); schedPlanApplySections(); schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
 }
 // Clear a whole week back to empty — names stay, every shift removed. Draft only.
@@ -2915,6 +2980,7 @@ function krtClearWeek(mon){
     });
   }
   krtWeekClip = null;
+  krtNextLabel = 'clear week '+mLabel;
   schedPlanSaveDraft(); schedPlanApplySections(); schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
 }
 
@@ -3163,6 +3229,7 @@ function krtClose(){
   // history so it can't be replayed against the live DB once we're back on the real schedule.
   if (typeof schedEndPaste === 'function') schedEndPaste();
   schedUndoStack = [];
+  krtUndoStack = []; krtUndoBase = null; if (typeof krtRenderUndoBtn === 'function') krtRenderUndoBtn();   // drop the draft undo history + hide its button
   var el=document.getElementById('kpl-full'); if(el) el.style.display='none';
   var sview=document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
   if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
@@ -5289,6 +5356,7 @@ document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && sche
 function schedStaffName(id){ var s = (schedStaff || []).find(function(x){ return x.id === id; }); return s ? s.name : 'staff'; }
 function schedDayLabel(ds){ try { return new Date(ds + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'short', day:'numeric' }); } catch(e){ return ds; } }
 function schedPushUndo(targets, label){
+  if (schedPlanMode) { krtNextLabel = label || krtNextLabel; return; }   // in the tool, the comprehensive krtUndo handles it
   var cells = targets.map(function(t){
     var key = schedRosterKey(t.staffId, t.date);
     return { staffId:t.staffId, date:t.date, key:key, prev: schedRoster[key] ? JSON.parse(JSON.stringify(schedRoster[key])) : null };
@@ -5348,6 +5416,7 @@ document.addEventListener('keydown', function(e){
     if (!toolOpen && (!view || view.style.display === 'none')) return;   // only on the schedule or in the Roster tool
     var el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    if (schedPlanMode){ if(!krtUndoStack.length) return; e.preventDefault(); krtUndoLast(); return; }   // in the tool: comprehensive draft undo
     if (!schedUndoStack.length) return;
     e.preventDefault(); schedUndoLast();
   }
