@@ -2765,20 +2765,22 @@ function krtUndoLast(){
   schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
   krtRenderUndoBtn();
 }
+// Excel-style: the Undo button lives permanently in the tool's top bar (part of
+// KRT_SHELL). It's always visible while planning — enabled with the last action in
+// its tooltip when there's something to undo, greyed/disabled when there isn't.
 function krtRenderUndoBtn(){
-  var host = document.getElementById('kpl-full');
-  var show = host && host.style.display!=='none' && schedPlanMode && krtUndoStack.length>0;
   var btn = document.getElementById('krt-undo-btn');
-  if(!show){ if(btn) btn.style.display='none'; return; }
-  if(!btn){
-    btn=document.createElement('button'); btn.id='krt-undo-btn'; btn.type='button'; btn.onclick=krtUndoLast;
-    btn.style.cssText='position:fixed;left:14px;bottom:20px;z-index:4600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.28);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:60vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    host.appendChild(btn);
-  } else if(btn.parentElement!==host){ host.appendChild(btn); }
-  var last=krtUndoStack[krtUndoStack.length-1];
-  btn.title='Undo: '+last.label+(krtUndoStack.length>1?('  ('+krtUndoStack.length+' changes can be undone)'):'');
-  btn.innerHTML='&#8630; Undo'+(krtUndoStack.length>1?(' ('+krtUndoStack.length+')'):'')+' &middot; '+last.label;
-  btn.style.display='block';
+  if(!btn) return;
+  var has = schedPlanMode && krtUndoStack.length>0;
+  btn.disabled = !has;
+  if(has){
+    var last = krtUndoStack[krtUndoStack.length-1];
+    btn.title = 'Undo: '+last.label+(krtUndoStack.length>1?('  ('+krtUndoStack.length+' changes can be undone)'):'');
+    btn.innerHTML = '&#8630; Undo'+(krtUndoStack.length>1?(' ('+krtUndoStack.length+')'):'');
+  } else {
+    btn.title = 'Nothing to undo yet';
+    btn.innerHTML = '&#8630; Undo';
+  }
 }
 function schedPlanLoadDraft(){ try{ return JSON.parse(localStorage.getItem(SCHED_PLAN_LS)||'null'); }catch(e){ return null; } }
 
@@ -3265,6 +3267,8 @@ function KRT_SHELL(){
   #kpl-full .krt-changed-chip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:rgba(0,0,0,.16);color:#f6ece0;font-size:11.5px;padding:6px 11px;border-radius:20px;white-space:nowrap}
   #kpl-full .krt-changed-chip::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--oro)}
   #kpl-full .krt-bring{background:var(--oro);color:#2a1a10;border:0;border-radius:8px;padding:9px 17px;font-size:13.5px;font-weight:700;cursor:pointer;letter-spacing:.3px}
+  #kpl-full .krt-undo{background:#fff;color:var(--vino);border:1.5px solid rgba(255,255,255,.55);border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  #kpl-full .krt-undo:disabled{background:rgba(255,255,255,.10);color:rgba(246,236,224,.38);border-color:rgba(255,255,255,.16);cursor:default}
   #kpl-full .krt-bring:hover{filter:brightness(1.06)}
   #kpl-full .sch-plan-changed{position:relative}
   #kpl-full .sch-plan-changed .sch-shift{box-shadow:0 0 0 2px var(--oro)}
@@ -3329,6 +3333,7 @@ function KRT_SHELL(){
     </div>
     <span class="krt-stepper" id="krt-stepper">weeks&nbsp;<select onchange="krtSetWeeks(this.value)"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></span>
     <span class="krt-changed-chip" id="krt-changecount">No changes yet</span>
+    <button class="krt-undo" id="krt-undo-btn" onclick="krtUndoLast()" disabled title="Nothing to undo yet">&#8630; Undo</button>
     <button class="krt-bring" id="krt-bringlive" onclick="schedPlanOpenPublish()" title="Put the week(s) you pick onto the real schedule the team sees">Bring live</button>
     <div class="krt-act-wrap">
       <button class="krt-act-btn" onclick="krtToggleActions(event)">Actions &#9660;</button>
