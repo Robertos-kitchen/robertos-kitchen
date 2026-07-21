@@ -16,6 +16,8 @@ let fdDoc   = null;    // { entries:{item_id:{qty,kg,price|gr}}, oyster, low85:[
 let fdChannel = null;
 let fdCtx = null;      // active editor context
 let fdBizDate = null;  // 'YYYY-MM-DD' — the sheet's business date (= TODAY)
+let fdPendingRender = false;  // a remote change arrived while a cell was focused; apply on blur
+function fdGridFocused(){ const a=document.activeElement; return !!(a && a.classList && a.classList.contains('fd-in')); }
 
 function fdEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fdBlankDoc(){ return { entries:{}, oyster:'', low85:['',''], out86:['',''], push:['',''], blank_rows:3 }; }
@@ -50,11 +52,13 @@ function subscribeFishDisplay(){
       payload => {
         const r = payload.new; if(!r) return;
         fdDoc = fdNormalise(r.doc);
-        if(activeStation === FISH_KEY && !fdCtx) renderFishDisplay();   // don't yank the sheet out from under an open editor
+        // NEVER re-render while a cell is focused — that would destroy the input the
+        // user is typing in (their own auto-save echoes back here). Defer instead.
+        if(activeStation === FISH_KEY){ if(fdGridFocused()) fdPendingRender = true; else renderFishDisplay(); }
         fdFlashSync();
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'fish_display_items' },
-      () => { if(activeStation === FISH_KEY){ loadFishDisplay().then(()=>{ if(activeStation===FISH_KEY && !fdCtx) renderFishDisplay(); }); } })
+      () => { if(activeStation === FISH_KEY){ loadFishDisplay().then(()=>{ if(activeStation!==FISH_KEY) return; if(fdGridFocused()) fdPendingRender=true; else renderFishDisplay(); }); } })
     .subscribe(status=>{
       const dot=document.getElementById('realtime-dot');
       if(dot) dot.classList.toggle('live', status==='SUBSCRIBED');
@@ -100,53 +104,52 @@ async function fdDelItem(id){
   fdSaveSoon();
 }
 
-// ── render ───────────────────────────────────────────────────────────────────
-function fdMeta(e, kind){
-  if(!e) return '';
-  const parts=[];
-  if(e.qty) parts.push('<b>'+fdEsc(e.qty)+'</b>');
-  if(kind==='caviar'){ if(e.gr) parts.push(fdEsc(e.gr)+' g'); }
-  else { if(e.kg) parts.push(fdEsc(e.kg)+' kg'); if(e.price) parts.push('AED '+fdEsc(e.price)); }
-  return parts.join('<span class="fd-dot">·</span>');
+// ── render (inline, Excel-style editable grid) ───────────────────────────────
+// Every cell is a real <input>: type straight in, Enter drops to the cell below,
+// Tab moves across, paste a column fills down, and it auto-saves (no Save button).
+function fdNumIn(grid, r, c, id, field, val, dis){
+  return `<input class="fd-in fd-num" type="text" inputmode="decimal" data-grid="${grid}" data-r="${r}" data-c="${c}"`
+    + (id?` data-id="${id}"`:'') + ` data-f="${field}"${dis?' disabled':''} value="${fdEsc(val||'')}">`;
 }
 function renderFishDisplay(){
   const host = document.getElementById('fish-view');
   if(!host) return;
+  const fish = fdFish(), cav = fdCav();
   const dateLabel = new Date(fdBizDate+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  const dl = (id,list)=>`<datalist id="${id}">${list.map(n=>`<option value="${fdEsc(n)}">`).join('')}</datalist>`;
 
-  const fishRows = fdFish().map(it=>{
-    const e = fdDoc.entries[it.id];
-    const set = e && (e.qty||e.kg||e.price);
-    return `<div class="fd-row${set?' set':''}">
-      <div class="fd-name" onclick="fdEditItem('${it.id}')">${fdEsc(it.name)}<span class="fd-del" title="Remove from list" onclick="event.stopPropagation();fdDelItem('${it.id}')">×</span></div>
-      <div class="fd-cell${(e&&e.qty)?'':' empty'}" onclick="fdEditNum('${it.id}','qty')">${(e&&e.qty)?fdEsc(e.qty):'·'}</div>
-      <div class="fd-cell${(e&&e.kg)?'':' empty'}" onclick="fdEditNum('${it.id}','kg')">${(e&&e.kg)?fdEsc(e.kg):'·'}</div>
-      <div class="fd-cell${(e&&e.price)?'':' empty'}" onclick="fdEditNum('${it.id}','price')">${(e&&e.price)?fdEsc(e.price):'·'}</div>
+  const fishRows = fish.map((it,r)=>{
+    const e = fdDoc.entries[it.id] || {};
+    return `<div class="fd-row" data-id="${it.id}">
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" data-grid="fish" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-del" title="Remove from list" onclick="fdDelItem('${it.id}')">×</span></div>
+      ${fdNumIn('fish',r,1,it.id,'qty',e.qty)}${fdNumIn('fish',r,2,it.id,'kg',e.kg)}${fdNumIn('fish',r,3,it.id,'price',e.price)}
     </div>`;
   }).join('');
 
   let blanks='';
-  for(let b=0;b<(fdDoc.blank_rows||0);b++){
+  const base = fish.length;
+  for(let b=0;b<(fdDoc.blank_rows||0);b++){ const r=base+b;
     blanks += `<div class="fd-row fd-writein">
-      <div class="fd-name empty fd-writein-name" onclick="fdEditNewFish()">＋ blank line (write-in)<span class="fd-del" title="Remove line" onclick="event.stopPropagation();fdRemoveBlank()">×</span></div>
-      <div class="fd-cell empty" onclick="fdEditNewFish()">·</div><div class="fd-cell empty" onclick="fdEditNewFish()">·</div><div class="fd-cell empty" onclick="fdEditNewFish()">·</div>
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" placeholder="＋ new fish…" data-grid="fish" data-r="${r}" data-c="0" data-f="newfish" value=""><span class="fd-del" title="Remove line" onclick="fdRemoveBlank()">×</span></div>
+      ${fdNumIn('fish',r,1,'','qty','',true)}${fdNumIn('fish',r,2,'','kg','',true)}${fdNumIn('fish',r,3,'','price','',true)}
     </div>`;
   }
 
-  const cavRows = fdCav().map(it=>{
-    const e = fdDoc.entries[it.id];
-    const set = e && (e.qty||e.gr);
-    return `<div class="fd-row fd-cav${set?' set':''}">
-      <div class="fd-name" onclick="fdEditItem('${it.id}')">${fdEsc(it.name)}<span class="fd-del" title="Remove" onclick="event.stopPropagation();fdDelItem('${it.id}')">×</span></div>
-      <div class="fd-cell${(e&&e.qty)?'':' empty'}" onclick="fdEditNum('${it.id}','qty')">${(e&&e.qty)?fdEsc(e.qty):'·'}</div>
-      <div class="fd-cell${(e&&e.gr)?'':' empty'}" onclick="fdEditNum('${it.id}','gr')">${(e&&e.gr)?fdEsc(e.gr):'·'}</div>
+  const cavRows = cav.map((it,r)=>{
+    const e = fdDoc.entries[it.id] || {};
+    return `<div class="fd-row fd-cav" data-id="${it.id}">
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" data-grid="cav" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-del" title="Remove" onclick="fdDelItem('${it.id}')">×</span></div>
+      ${fdNumIn('cav',r,1,it.id,'qty',e.qty)}${fdNumIn('cav',r,2,it.id,'gr',e.gr)}
     </div>`;
   }).join('');
 
   host.innerHTML = `
     ${FD_STYLE}
+    ${dl('fd-dl-fish', fish.map(i=>i.name))}
+    ${dl('fd-dl-cav', cav.map(i=>i.name))}
+    ${dl('fd-dl-all', fdItems.map(i=>i.name))}
     <div class="ops-title">Fish of the Day</div>
-    <div class="ops-subtitle">Raw Bar · shared live · tap a cell to fill · ${fdEsc(dateLabel)}</div>
+    <div class="ops-subtitle">Raw Bar · shared live · type in a cell · Enter = next row · paste a column · auto-saves · ${fdEsc(dateLabel)}</div>
 
     <div class="fd-actions">
       <button class="report-btn" onclick="fdPrint()">Print A3</button>
@@ -155,7 +158,7 @@ function renderFishDisplay(){
 
     <div class="fd-grid">
       <div class="fd-left">
-        <div class="fd-coltitle">Fish <small>tap a name to change · tap a blank line to add</small></div>
+        <div class="fd-coltitle">Fish <small>type in a cell · Enter drops down · × removes a fish</small></div>
         <div class="fd-head fd-head-fish"><span>Fish</span><span>Qty</span><span>Kg</span><span>Price</span></div>
         ${fishRows || '<div class="fd-empty-note">No items yet.</div>'}
         ${blanks}
@@ -164,115 +167,113 @@ function renderFishDisplay(){
         <div class="fd-coltitle">Caviar</div>
         <div class="fd-head fd-head-cav"><span>Type</span><span>Qty</span><span>Gr</span></div>
         ${cavRows}
-        <div class="fd-oyster"><span>Oyster N.</span><b onclick="fdEditOyster()">${fdDoc.oyster?fdEsc(fdDoc.oyster):'—'}</b></div>
+        <div class="fd-oyster"><span>Oyster N.</span><input class="fd-in" type="text" inputmode="numeric" data-grid="oyster" data-r="0" data-c="0" data-f="oyster" value="${fdEsc(fdDoc.oyster)}" placeholder="—"></div>
         ${fdListBlock('85 · Running Low','low85','short — order more')}
         ${fdListBlock('86 · Out of Stock','out86','not available tonight','b86')}
         ${fdListBlock('★ To Push Tonight','push','','push')}
       </div>
     </div>`;
+  fdEnsureHandlers();
 }
 function fdListBlock(title, key, sub, cls){
   const arr = [...(fdDoc[key]||[])];
-  if(arr.length===0 || arr[arr.length-1]!=='') arr.push('');
-  const cells = arr.map((v,i)=>`<div class="fd-lb-cell${v?'':' empty'}" onclick="fdEditList('${key}',${i})">${v?fdEsc(v):'+ add item'}${v?`<span class="fd-del" onclick="event.stopPropagation();fdDelList('${key}',${i})">×</span>`:''}</div>`).join('');
+  while(arr.length && arr[arr.length-1]==='') arr.pop();   // trim trailing empties
+  const lines = [...arr, '', '', ''];                      // + 3 spare write-in lines
+  const cells = lines.map((v,i)=>`<div class="fd-lb-cell"><input class="fd-in fd-lbin" list="fd-dl-all" data-grid="${key}" data-r="${i}" data-c="0" data-f="list" value="${fdEsc(v||'')}" placeholder="+ add item">${v?`<span class="fd-del" onclick="fdDelList('${key}',${i})">×</span>`:''}</div>`).join('');
   return `<div class="fd-lb ${cls||''}"><div class="fd-lb-head">${title}${sub?` <small>— ${sub}</small>`:''}</div>${cells}</div>`;
 }
 
-// ── editors ──────────────────────────────────────────────────────────────────
-function fdOpenPop(title, html){
-  let ov = document.getElementById('fd-ov');
-  if(!ov){ ov=document.createElement('div'); ov.id='fd-ov'; ov.className='fd-ov'; document.body.appendChild(ov);
-    ov.addEventListener('click',e=>{ if(e.target.id==='fd-ov') fdClosePop(); }); }
-  ov.innerHTML = `<div class="fd-pop"><h4>${fdEsc(title)}</h4><div class="fd-pb" id="fd-pb">${html}</div>
-    <div class="fd-acts"><button class="fd-clr" onclick="fdClearCell()">Clear</button><button class="fd-sv" onclick="fdSaveCell()">Save</button></div></div>`;
-  ov.classList.add('show');
-  const inp = document.getElementById('fd-q'); if(inp){ inp.focus(); inp.select && inp.select(); }
+// ── inline editing: delegated handlers (bound once on the persistent host) ────
+function fdEnsureHandlers(){
+  const host = document.getElementById('fish-view');
+  if(!host || host._fdBound) return;
+  host._fdBound = true;
+  host.addEventListener('input', fdOnInput);
+  host.addEventListener('change', fdOnChange);
+  host.addEventListener('keydown', fdOnKey);
+  host.addEventListener('paste', fdOnPaste, true);
+  // when the user leaves the grid, apply any remote change that arrived mid-edit
+  host.addEventListener('focusout', function(){ setTimeout(function(){ if(fdPendingRender && !fdGridFocused()){ fdPendingRender=false; renderFishDisplay(); } }, 80); });
 }
-function fdClosePop(){ const ov=document.getElementById('fd-ov'); if(ov) ov.classList.remove('show'); fdCtx=null; }
-
-function fdEditItem(id){
-  const it = fdItems.find(i=>i.id===id); if(!it) return;
-  fdCtx = { type:'item', id, kind:it.kind };
-  fdOpenPop(it.name, `<input id="fd-q" placeholder="Search or type a new name…" oninput="fdSugg()" value="${fdEsc(it.name)}"><div class="fd-sugg" id="fd-sg"></div>`);
-  fdSugg();
+function fdIsCell(t){ return t && t.classList && t.classList.contains('fd-in'); }
+function fdFocusCell(grid, r, c){
+  const host = document.getElementById('fish-view'); if(!host) return false;
+  const el = host.querySelector('.fd-in[data-grid="'+grid+'"][data-r="'+r+'"][data-c="'+c+'"]');
+  if(el && !el.disabled){ el.focus(); if(el.select) el.select(); return true; }
+  return false;
 }
-function fdEditNewFish(){
-  fdCtx = { type:'newfish', kind:'fish' };
-  fdOpenPop('Add fish', `<input id="fd-q" placeholder="Search or type a new item…" oninput="fdSugg()" value=""><div class="fd-sugg" id="fd-sg"></div>`);
-  fdSugg();
+function fdSetNum(id, field, val){
+  if(!id) return;
+  if(!fdDoc.entries[id]) fdDoc.entries[id] = {};
+  val = (val==null?'':String(val)).trim();
+  if(val==='') delete fdDoc.entries[id][field]; else fdDoc.entries[id][field] = val;
+  if(!Object.keys(fdDoc.entries[id]).length) delete fdDoc.entries[id];
 }
-function fdSugg(){
-  const q = (document.getElementById('fd-q').value||'').trim();
-  const ql = q.toLowerCase();
-  const pool = fdItems.filter(i=>i.kind===fdCtx.kind).map(i=>i.name);
-  const matches = pool.filter(n=>n.toLowerCase().includes(ql));
-  let html = matches.map(n=>`<div class="fd-sg" onclick="fdPick(${JSON.stringify(n).replace(/"/g,'&quot;')})">${fdEsc(n)}</div>`).join('');
-  if(q && !pool.some(n=>n.toLowerCase()===ql)) html = `<div class="fd-sg add" onclick="fdPickNew()">➕ Add “<b>${fdEsc(q)}</b>” as new item</div>`+html;
-  document.getElementById('fd-sg').innerHTML = html || '<div class="fd-sg muted">type to add a new item…</div>';
+function fdSetList(key, r, val){
+  if(!Array.isArray(fdDoc[key])) fdDoc[key]=[];
+  while(fdDoc[key].length <= r) fdDoc[key].push('');
+  fdDoc[key][r] = (val==null?'':String(val));
 }
-async function fdPick(name){
-  if(fdCtx.type==='newfish'){ const m = await fdAddMaster(name,'fish'); if(m){ /* named as existing → nothing extra */ } }
-  else if(fdCtx.type==='item'){
-    // rename an existing standing item
-    const it = fdItems.find(i=>i.id===fdCtx.id); if(it && it.name!==name){ it.name=name; await sb.from('fish_display_items').update({name}).eq('id',it.id); }
+function fdOnInput(e){
+  const t=e.target; if(!fdIsCell(t)) return;
+  const f=t.dataset.f;
+  if(f==='name' || f==='newfish') return;             // committed on change (blur/Enter)
+  if(f==='oyster'){ fdDoc.oyster = t.value.trim(); fdSaveSoon(); return; }
+  if(f==='list'){ fdSetList(t.dataset.grid, +t.dataset.r, t.value); fdSaveSoon(); return; }
+  fdSetNum(t.dataset.id, f, t.value); fdSaveSoon();    // qty/kg/price/gr
+}
+async function fdOnChange(e){
+  const t=e.target; if(!fdIsCell(t)) return;
+  const f=t.dataset.f;
+  if(f==='newfish'){ await fdCommitNewFish(t); return; }
+  if(f==='name'){
+    const id=t.dataset.id, v=t.value.trim(), it=fdItems.find(i=>i.id===id);
+    if(!v){ if(it) t.value=it.name; return; }          // don't let a blank wipe a standing item
+    if(it && v!==it.name){ it.name=v; const r=await sb.from('fish_display_items').update({name:v}).eq('id',id); if(r&&r.error){ await loadFishDisplay(); renderFishDisplay(); } }
   }
-  renderFishDisplay(); fdClosePop();
 }
-async function fdPickNew(){
-  const name = (document.getElementById('fd-q').value||'').trim(); if(!name) return;
-  if(fdCtx.type==='newfish' || fdCtx.type==='item'){
-    const kind = fdCtx.kind;
-    if(fdCtx.type==='item'){ const it=fdItems.find(i=>i.id===fdCtx.id); if(it){ it.name=name; await sb.from('fish_display_items').update({name}).eq('id',it.id); } }
-    else { await fdAddMaster(name, kind); }
+function fdOnKey(e){
+  const t=e.target; if(!fdIsCell(t)) return;
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const f=t.dataset.f, grid=t.dataset.grid, r=+t.dataset.r, c=+t.dataset.c;
+    if(f==='newfish'){ fdCommitNewFish(t); return; }
+    if(f==='name'){ t.dispatchEvent(new Event('change')); }
+    if(!fdFocusCell(grid, r+1, c)) t.blur();            // last row → just commit
   }
-  renderFishDisplay(); fdClosePop();
+}
+function fdOnPaste(e){
+  const t=e.target; if(!fdIsCell(t)) return;
+  const grid=t.dataset.grid;
+  if(['fish','cav','low85','out86','push'].indexOf(grid)===-1) return;
+  const text=(e.clipboardData||window.clipboardData).getData('text');
+  if(!text || !/[\n\t]/.test(text)) return;             // single value → normal paste
+  e.preventDefault();
+  const host=document.getElementById('fish-view');
+  const rows=text.replace(/\r/g,'').split('\n'); while(rows.length && rows[rows.length-1]==='') rows.pop();
+  const r0=+t.dataset.r, c0=+t.dataset.c;
+  rows.forEach((line,ri)=>{ line.split('\t').forEach((val,ci)=>{
+    const el=host.querySelector('.fd-in[data-grid="'+grid+'"][data-r="'+(r0+ri)+'"][data-c="'+(c0+ci)+'"]');
+    if(!el || el.disabled) return;
+    const f=el.dataset.f; if(f==='name'||f==='newfish') return;   // never paste over names
+    el.value = val.trim();
+    if(f==='list') fdSetList(grid, r0+ri, val.trim());
+    else if(f==='oyster') fdDoc.oyster = val.trim();
+    else fdSetNum(el.dataset.id, f, val.trim());
+  }); });
+  fdSaveSoon();
+}
+async function fdCommitNewFish(el){
+  const name=(el.value||'').trim(); if(!name) return;
+  if(!fdItems.some(i=>i.kind==='fish' && i.name.toLowerCase()===name.toLowerCase())) await fdAddMaster(name,'fish');
+  renderFishDisplay();
+  const idx=fdFish().findIndex(i=>i.name.toLowerCase()===name.toLowerCase());
+  if(idx>=0) fdFocusCell('fish', idx, 1);               // jump to the new fish's Qty
 }
 
-function fdEditNum(id, field){
-  const it = fdItems.find(i=>i.id===id);
-  fdCtx = { type:'num', id, field };
-  const e = fdDoc.entries[id] || {};
-  fdOpenPop((it?it.name+' — ':'')+field.toUpperCase(), `<input id="fd-q" type="number" inputmode="decimal" placeholder="0" value="${fdEsc(e[field]||'')}">`);
-}
-function fdEditOyster(){ fdCtx={type:'oyster'}; fdOpenPop('Oyster N.', `<input id="fd-q" type="number" inputmode="numeric" placeholder="0" value="${fdEsc(fdDoc.oyster)}">`); }
-function fdEditList(key,i){
-  fdCtx={type:'list',key,i};
-  const cur = (fdDoc[key]||[])[i]||'';
-  const title = key==='out86'?'86 · Out of stock':key==='low85'?'85 · Running low':'To push tonight';
-  fdOpenPop(title, `<input id="fd-q" placeholder="Pick or type…" oninput="fdSuggList()" value="${fdEsc(cur)}"><div class="fd-sugg" id="fd-sg"></div>`);
-  fdSuggList();
-}
-function fdSuggList(){
-  const q=(document.getElementById('fd-q').value||'').trim(); const ql=q.toLowerCase();
-  const pool = fdItems.map(i=>i.name);
-  const matches = pool.filter(n=>n.toLowerCase().includes(ql));
-  let html = matches.map(n=>`<div class="fd-sg" onclick="fdPickList(${JSON.stringify(n).replace(/"/g,'&quot;')})">${fdEsc(n)}</div>`).join('');
-  if(q && !pool.some(n=>n.toLowerCase()===ql)) html = `<div class="fd-sg add" onclick="fdPickList(document.getElementById('fd-q').value.trim())">Use “<b>${fdEsc(q)}</b>”</div>`+html;
-  document.getElementById('fd-sg').innerHTML = html;
-}
-function fdPickList(name){ fdDoc[fdCtx.key][fdCtx.i]=name; fdSave(); renderFishDisplay(); fdClosePop(); }
-
-function fdSaveCell(){
-  const inp = document.getElementById('fd-q');
-  if(!inp){ fdClosePop(); return; }
-  const v = inp.value.trim();
-  if(fdCtx.type==='num'){ if(!fdDoc.entries[fdCtx.id]) fdDoc.entries[fdCtx.id]={}; if(v==='') delete fdDoc.entries[fdCtx.id][fdCtx.field]; else fdDoc.entries[fdCtx.id][fdCtx.field]=v; if(!Object.keys(fdDoc.entries[fdCtx.id]).length) delete fdDoc.entries[fdCtx.id]; fdSave(); renderFishDisplay(); fdClosePop(); return; }
-  if(fdCtx.type==='oyster'){ fdDoc.oyster=v; fdSave(); renderFishDisplay(); fdClosePop(); return; }
-  if(fdCtx.type==='list'){ fdDoc[fdCtx.key][fdCtx.i]=v; fdSave(); renderFishDisplay(); fdClosePop(); return; }
-  if(fdCtx.type==='item' || fdCtx.type==='newfish'){ if(!v){ fdClosePop(); return; } const exists = fdItems.some(i=>i.kind===fdCtx.kind && i.name.toLowerCase()===v.toLowerCase()); if(exists && fdCtx.type==='newfish') fdPick(v); else fdPickNew(); return; }
-  fdClosePop();
-}
-function fdClearCell(){
-  if(!fdCtx){ fdClosePop(); return; }
-  if(fdCtx.type==='num'){ if(fdDoc.entries[fdCtx.id]){ delete fdDoc.entries[fdCtx.id][fdCtx.field]; if(!Object.keys(fdDoc.entries[fdCtx.id]).length) delete fdDoc.entries[fdCtx.id]; } fdSave(); }
-  else if(fdCtx.type==='oyster'){ fdDoc.oyster=''; fdSave(); }
-  else if(fdCtx.type==='list'){ fdDoc[fdCtx.key].splice(fdCtx.i,1); if(!fdDoc[fdCtx.key].length) fdDoc[fdCtx.key]=['']; fdSave(); }
-  renderFishDisplay(); fdClosePop();
-}
-
-function fdDelList(key,i){ fdDoc[key].splice(i,1); if(!fdDoc[key].length) fdDoc[key]=['']; fdSave(); renderFishDisplay(); }
-function fdAddBlank(){ fdDoc.blank_rows=(fdDoc.blank_rows||0)+1; fdSave(); renderFishDisplay(); }
-function fdRemoveBlank(){ fdDoc.blank_rows=Math.max(0,(fdDoc.blank_rows||0)-1); fdSave(); renderFishDisplay(); }
+function fdDelList(key,i){ if(Array.isArray(fdDoc[key])){ fdDoc[key].splice(i,1); } fdSaveSoon(); renderFishDisplay(); }
+function fdAddBlank(){ fdDoc.blank_rows=(fdDoc.blank_rows||0)+1; fdSaveSoon(); renderFishDisplay(); }
+function fdRemoveBlank(){ fdDoc.blank_rows=Math.max(0,(fdDoc.blank_rows||0)-1); fdSaveSoon(); renderFishDisplay(); }
 
 // ── print (A3 landscape, white paper / black ink / bold clear font) ──────────
 function fdPrint(){
@@ -330,12 +331,6 @@ async function openFishDisplay(){
   renderFishDisplay();
 }
 
-document.addEventListener('keydown', function(e){
-  const ov=document.getElementById('fd-ov'); if(!ov||!ov.classList.contains('show')) return;
-  if(e.key==='Escape'){ e.preventDefault(); fdClosePop(); }
-  else if(e.key==='Enter'){ e.preventDefault(); fdSaveCell(); }
-});
-
 // ══ styles (screen) ══════════════════════════════════════════════════════════
 const FD_STYLE = `<style id="fd-style">
 .fd-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
@@ -358,11 +353,23 @@ const FD_STYLE = `<style id="fd-style">
 .fd-cell{text-align:center;font-size:16px;font-weight:600;color:var(--ink);padding:8px 4px;border-left:1px solid var(--sabbia-dark);cursor:pointer}
 .fd-cell.empty{color:var(--sabbia-dark)}
 .fd-name:hover,.fd-cell:hover{background:var(--sabbia-light)}
-.fd-del{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:20px;height:20px;line-height:18px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:15px;opacity:0;transition:opacity .12s}
-.fd-row:hover .fd-del,.fd-lb-cell:hover .fd-del{opacity:1}.fd-del:hover{background:var(--vino);color:var(--cream)}
-.fd-oyster{display:flex;justify-content:space-between;align-items:center;border:1.5px solid var(--vino);border-radius:4px;padding:8px 12px}
+.fd-del{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:19px;height:19px;line-height:17px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:14px;opacity:.4;transition:opacity .12s;cursor:pointer;z-index:2}
+.fd-row:hover .fd-del,.fd-lb-cell:hover .fd-del{opacity:1}.fd-del:hover{background:var(--vino);color:var(--cream);opacity:1}
+/* inline Excel-style inputs */
+.fd-namecell{position:relative;display:flex;align-items:center;overflow:hidden}
+.fd-in{width:100%;border:none;background:transparent;font-family:var(--font-sans);color:var(--ink);padding:8px 6px;-webkit-appearance:none;border-radius:0}
+.fd-in:focus{outline:none;background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
+.fd-in::placeholder{color:var(--sabbia-dark);font-style:italic}
+.fd-num{text-align:center;font-size:16px;font-weight:600;border-left:1px solid var(--sabbia-dark)}
+.fd-num:disabled{background:transparent}
+.fd-namein{font-family:var(--font-serif);font-size:19px;text-align:left;padding-right:24px;text-transform:capitalize}
+.fd-row.fd-cav .fd-namein{font-size:16px}
+.fd-namein[data-f="newfish"]{color:#b98a6a;font-style:italic;font-size:14px;font-family:var(--font-sans);text-transform:none}
+.fd-lbin{font-size:15px;font-weight:600;padding:8px 12px;padding-right:24px}
+.fd-lb.b86 .fd-lbin{color:#c00000}
+.fd-oyster{display:flex;justify-content:space-between;align-items:center;border:1.5px solid var(--vino);border-radius:4px;padding:6px 8px 6px 12px}
 .fd-oyster span{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light)}
-.fd-oyster b{font-family:var(--font-serif);font-size:22px;color:var(--vino);cursor:pointer;min-width:44px;text-align:right}
+.fd-oyster input{width:90px;text-align:right;font-family:var(--font-serif);font-size:22px;color:var(--vino);font-weight:600}
 .fd-lb{border:1.5px solid var(--vino);border-radius:4px;overflow:hidden}
 .fd-lb.b86{border-color:#c00000}.fd-lb.push{border-color:var(--oro)}
 .fd-lb-head{font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#fff;background:var(--vino);padding:6px 12px}
