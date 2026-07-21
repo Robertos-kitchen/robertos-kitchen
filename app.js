@@ -1766,7 +1766,7 @@ function kevMenuModelRaw(e){
 // or extra staff portions). Overrides live in the KITCHEN db (kitchen owns its
 // prep numbers; the events desk still owns the menu). The override NEVER hides
 // the events count — the row shows both, so the two can't silently disagree.
-const KEV_EDIT_CODE = '2580';           // kitchen prep-override code (change here)
+const KEV_EDIT_CODE = '2468';           // kitchen prep-override code (change here) — same as stock-take supervisor
 let KEV_OVR = {};                        // key(event_id, dish_name) -> portions (number)
 let KEV_TODAY = null;                    // last "today" from the feed, for re-render
 let KEV_CAN_EDIT = false;                // unlocked this session after the code
