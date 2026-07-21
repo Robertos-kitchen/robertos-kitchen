@@ -2250,6 +2250,7 @@ function schedSubmitPin() {
     schedUnlocked = true;
     schedTouchLock();
     schedUpdateLockBtn();
+    if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
     document.getElementById('sch-pin-modal').style.display = 'none';
     var fn = schedPendingAction;
     schedPendingAction = null;
@@ -3267,8 +3268,8 @@ function KRT_SHELL(){
   #kpl-full .krt-changed-chip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:rgba(0,0,0,.16);color:#f6ece0;font-size:11.5px;padding:6px 11px;border-radius:20px;white-space:nowrap}
   #kpl-full .krt-changed-chip::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--oro)}
   #kpl-full .krt-bring{background:var(--oro);color:#2a1a10;border:0;border-radius:8px;padding:9px 17px;font-size:13.5px;font-weight:700;cursor:pointer;letter-spacing:.3px}
-  #kpl-full .krt-undo{background:#fff;color:var(--vino);border:1.5px solid rgba(255,255,255,.55);border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
-  #kpl-full .krt-undo:disabled{background:rgba(255,255,255,.10);color:rgba(246,236,224,.38);border-color:rgba(255,255,255,.16);cursor:default}
+  #kpl-full .krt-undo{background:#fff;color:var(--vino);border:1.5px solid #fff;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  #kpl-full .krt-undo:disabled{background:rgba(255,255,255,.5);color:rgba(65,2,7,.45);border-color:rgba(255,255,255,.55);cursor:default}
   #kpl-full .krt-bring:hover{filter:brightness(1.06)}
   #kpl-full .sch-plan-changed{position:relative}
   #kpl-full .sch-plan-changed .sch-shift{box-shadow:0 0 0 2px var(--oro)}
@@ -5387,30 +5388,25 @@ async function schedUndoLast(){
     } catch(e){ console.error('Undo sync error', e); alert('Undo could not reach the server: ' + (e.message || e) + '\nReopen the schedule to be sure it matches.'); }
   }
 }
+// Excel-style: the schedule's Undo button lives permanently in the toolbar (next to
+// the lock, in index.html). Always visible — enabled with the last action in its
+// tooltip when there's something to undo, greyed/disabled otherwise. On the live
+// schedule this reverses real DB writes (schedUndoLast); the planning tool has its
+// own krtUndo, so schedUndoStack stays empty there (schedPushUndo is guarded).
 function schedRenderUndoBtn(){
-  var view = document.getElementById('scheduling-view');
-  var tool = document.getElementById('kpl-full');
-  var toolOpen = tool && tool.style.display !== 'none';
-  // Show on the live schedule OR inside the Roster planning tool. When the tool is open
-  // the live view is display:none, so the button must be hosted in the tool overlay to
-  // render (a fixed child of a hidden parent draws nothing).
-  var host = toolOpen ? tool : view;
-  var onSurface = toolOpen || (view && view.style.display !== 'none');
-  var show = onSurface && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
   var btn = document.getElementById('sch-undo-btn');
-  if (!show){ if (btn) btn.style.display = 'none'; return; }
-  if (!btn){
-    btn = document.createElement('button'); btn.id = 'sch-undo-btn'; btn.type = 'button';
-    btn.onclick = schedUndoLast;
-    btn.style.cssText = 'position:fixed;left:14px;bottom:18px;z-index:9600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.22);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    (host || document.body).appendChild(btn);
-  } else if (host && btn.parentElement !== host) {
-    host.appendChild(btn);   // keep it on whichever surface is showing
+  if (!btn) return;
+  var unlocked = (typeof schedUnlocked === 'undefined' || schedUnlocked);
+  var has = schedUndoStack.length > 0 && unlocked;
+  btn.disabled = !has;
+  if (has){
+    var last = schedUndoStack[schedUndoStack.length - 1];
+    btn.title = 'Undo: ' + last.label + (schedUndoStack.length > 1 ? ('  (' + schedUndoStack.length + ' changes can be undone)') : '');
+    btn.innerHTML = '&#8630; Undo' + (schedUndoStack.length > 1 ? (' (' + schedUndoStack.length + ')') : '');
+  } else {
+    btn.title = unlocked ? 'Nothing to undo yet' : 'Unlock the schedule to edit, then Undo appears here';
+    btn.innerHTML = '&#8630; Undo';
   }
-  var last = schedUndoStack[schedUndoStack.length - 1];
-  btn.title = 'Undo: ' + last.label + (schedUndoStack.length > 1 ? ('  (' + schedUndoStack.length + ' changes can be undone)') : '');
-  btn.innerHTML = '&#8630; Undo' + (schedUndoStack.length > 1 ? (' (' + schedUndoStack.length + ')') : '') + ' &middot; ' + last.label;
-  btn.style.display = 'block';
 }
 // Ctrl/Cmd+Z on the schedule — but let text fields keep their own native undo.
 document.addEventListener('keydown', function(e){

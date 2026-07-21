@@ -385,6 +385,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-vtab.active,.sch-vtab:hover{background:var(--cream);color:var(--vino)}
 
 /* Edit lock */
+.sch-undo-btn{padding:6px 12px;border-radius:4px;border:1.5px solid #fff;background:#fff;color:var(--vino,#410207);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);font-weight:700}
+.sch-undo-btn:disabled{background:rgba(255,255,255,.5);color:rgba(65,2,7,.45);border-color:rgba(255,255,255,.55);cursor:default}
 .sch-lock-btn{padding:6px 12px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:var(--cream);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .15s}
 .sch-lock-btn:hover{background:rgba(255,255,255,.25)}
 .sch-lock-btn.unlocked{background:var(--oliva);border-color:var(--oliva);color:var(--cream);font-weight:700}
@@ -1253,7 +1255,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1784460000"></script>
-<script src="app.js?v=1785200000"></script>
+<script src="app.js?v=1785300000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1279,6 +1281,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
       <button class="sch-delweek-btn" onclick="schedDeleteWeek()">&#128465; Delete week</button>
       <button class="sch-copy-btn" id="svt-dl" onclick="schedDownloadXlsx()" title="Download this week as an Excel file to print or share">&#11015; Excel</button>
       <button class="sch-hr-btn" id="svt-hr" onclick="schedSendToHR()">&#128231; Send to HR</button>
+      <button class="sch-undo-btn" id="sch-undo-btn" onclick="schedUndoLast()" disabled title="Nothing to undo yet">&#8630; Undo</button>
       <button class="sch-lock-btn" id="sch-lock-btn" onclick="schedToggleLock()">&#128274; Locked</button>
     </div>
   </div>
