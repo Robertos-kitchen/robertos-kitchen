@@ -499,6 +499,11 @@ async function crSubmit() {
     var res = await sb.from('closing_reports').upsert(row, { onConflict: 'service_date' }).select().single();
     if (res.error) throw res.error;
     crReportId = res.data.id;
+    // Re-check the CURRENT emailed state at submit time, straight from the saved
+    // row — NOT the value from when this page was opened. Two people can have the
+    // same night open at once (exactly the Antonio+Danilo case); whoever opened
+    // first would never see the other's send unless we read it live here.
+    if (res.data && res.data.emailed_at) crEmailedAt = res.data.emailed_at;
 
     // Insert new entries one-by-one so each returned id maps back to the exact
     // entry it belongs to. A bulk insert's returned rows are NOT guaranteed to
