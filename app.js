@@ -96,24 +96,33 @@ async function kFetchAllPaged(buildQuery, pageSize){
 // design - its job is scoping those functions, not authentication. Must match
 // the SEVENROOMS_PROXY_SECRET / KITCHEN_PROXY_SECRET function secrets.
 const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
+// APP_VERSION kept for reference only. The old midnight–6am version-check that
+// used it was REMOVED: it compared this hardcoded number to the live app.js?v,
+// so once index.html's ?v was bumped without also bumping APP_VERSION it saw a
+// "newer version" every 60s and reloaded in a LOOP all night — wiping the closing
+// report (written 2–4am). Version updates now come solely from the ETag guard in
+// index.html, which IS guarded by busy()/__closingActive/__schedEditing and runs
+// at any hour. Do NOT re-add a hardcoded-version reload here.
 const APP_VERSION = 1784460000;
+
+// True while someone is mid-task, so the timer below never force-refreshes over
+// live work: a focused field, editing the schedule, or writing the closing report
+// (done late at night — exactly when this timer runs). Mirrors index.html's
+// busy() guard — the half of the earlier fix that was never wired into app.js.
+function kReloadBusy(){
+  var el = document.activeElement;
+  if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;
+  if (window.__closingActive && window.__closingActive()) return true;
+  if (window.__schedEditing && window.__schedEditing()) return true;
+  return false;
+}
 setInterval(function(){
-  // Service-day rollover at 06:00 - not at midnight
-  if(getServiceDate() !== TODAY){
+  // Service-day rollover at 06:00 (not midnight): reload so TODAY re-derives and
+  // the app shows the new night — but never while mid-task, so it can't wipe a
+  // closing report still being written past 6am (the report keys off its own date
+  // picker, so waiting until they finish is safe).
+  if(getServiceDate() !== TODAY && !kReloadBusy()){
     window.location.reload();
-    return;
-  }
-  // Version check — only auto-reload between midnight and 6am (off-peak hours)
-  var hour = new Date().getHours();
-  if(hour >= 0 && hour < 6){
-    fetch(window.location.pathname + '?_=' + Date.now(), {cache:'no-store'})
-      .then(function(r){ return r.text(); })
-      .then(function(html){
-        var m = html.match(/app\.js\?v=(\d+)/);
-        if(m && parseInt(m[1]) > APP_VERSION){
-          window.location.reload();
-        }
-      }).catch(function(){});
   }
 }, 60000);
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
