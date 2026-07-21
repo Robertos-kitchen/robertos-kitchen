@@ -2129,6 +2129,7 @@ let schedView        = 'week';
 let schedEditTarget  = null;
 let schedRTChannel   = null;
 let schedClipboard   = null;  // copied shift {status,times…,srcStaff,srcDate,label}
+let schedUndoStack   = [];    // Excel-style undo: [{label, cells:[{staffId,date,key,prev}]}], newest last
 let schedPasteMode   = false; // while true, tapping a cell pastes instead of opening the editor
 let schedEvents      = {};    // date(YYYY-MM-DD) -> [{slot,name}] (max 2 per day)
 let schedEventDate   = null;  // day being edited in the events modal
@@ -2215,6 +2216,7 @@ function schedLockNow() {
   schedUnlocked = false;
   if (schedLockTimer) { clearTimeout(schedLockTimer); schedLockTimer = null; }
   schedUpdateLockBtn();
+  schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();   // locking ends the edit session
 }
 function schedUpdateLockBtn() {
   var b = document.getElementById('sch-lock-btn');
@@ -2508,6 +2510,7 @@ function schedRealtimeRerender() {
 // ── Open page ──
 async function openScheduling() {
   schedEndPaste();   // clear any leftover paste mode from a previous visit
+  schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();   // fresh session — no stale undo history
   activeStation = SCHED_KEY;
   hideAllPages();
   var el = document.getElementById('scheduling-view');
@@ -5011,6 +5014,7 @@ async function schedSaveShift() {
     notes: notes || null, updated_at: new Date().toISOString()
   });
   var prev = schedRoster[key];   // undefined when this day had no shift yet
+  schedPushUndo([{ staffId: staffId, date: date }], 'edit ' + schedStaffName(staffId) + ', ' + schedDayLabel(date));
   schedRoster[key] = payload;
   renderSchedWeek();
   if (!DEV_READ_ONLY && !schedPlanMode) {
@@ -5132,8 +5136,9 @@ function schedCopyShift() {
   schedWriteClipboard([{ staffId: schedClipboard.srcStaff, date: schedClipboard.srcDate }]); // keep the source cell
   schedShowPasteBar();
 }
-async function schedWriteClipboard(targets) {
+async function schedWriteClipboard(targets, undoLabel) {
   if (!schedClipboard || !targets.length) return 0;
+  if (undoLabel) schedPushUndo(targets, undoLabel);   // snapshot BEFORE overwriting, so this paste is undoable
   var c = schedClipboard, now = new Date().toISOString(), payloads = [];
   targets.forEach(function(t) {
     var key = schedRosterKey(t.staffId, t.date);
@@ -5152,17 +5157,17 @@ async function schedWriteClipboard(targets) {
   return payloads.length;
 }
 function schedPasteToCell(staffId, date) {
-  schedWriteClipboard([{ staffId: staffId, date: date }]).then(function(n){ if (n) schedShowPasteBar(n); });
+  schedWriteClipboard([{ staffId: staffId, date: date }], 'paste to ' + schedStaffName(staffId) + ', ' + schedDayLabel(date)).then(function(n){ if (n) schedShowPasteBar(n); });
 }
 function schedFillWeek() {
   if (!schedClipboard) return;
   var t = []; for (var i = 0; i < 7; i++) t.push({ staffId: schedClipboard.srcStaff, date: formatDate(addDays(schedWeekStart, i)) });
-  schedWriteClipboard(t).then(function(n){ if (n) schedShowPasteBar(n); });
+  schedWriteClipboard(t, 'fill ' + schedStaffName(schedClipboard.srcStaff) + '’s week').then(function(n){ if (n) schedShowPasteBar(n); });
 }
 function schedFillDay() {
   if (!schedClipboard) return;
   var t = schedStaff.map(function(s){ return { staffId: s.id, date: schedClipboard.srcDate }; });
-  schedWriteClipboard(t).then(function(n){ if (n) schedShowPasteBar(n); });
+  schedWriteClipboard(t, 'fill whole day ' + schedDayLabel(schedClipboard.srcDate)).then(function(n){ if (n) schedShowPasteBar(n); });
 }
 function schedShowPasteBar(pastedCount) {
   var host = document.getElementById('scheduling-view') || document.body;
@@ -5173,12 +5178,12 @@ function schedShowPasteBar(pastedCount) {
     host.appendChild(bar);
   }
   var bs = 'padding:6px 11px;border:1px solid rgba(255,255,255,.55);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-weight:600';
-  var msg = pastedCount ? ('&#9989; Pasted to ' + pastedCount + ' cell' + (pastedCount === 1 ? '' : 's') + ' &middot; keep tapping or Done')
+  var msg = pastedCount ? ('&#9989; Pasted to ' + pastedCount + ' cell' + (pastedCount === 1 ? '' : 's') + ' &middot; keep tapping cells, or stop below')
                         : ('&#128203; Copied <b>' + (schedClipboard ? schedClipboard.label : '') + '</b> &middot; tap cells to paste');
   bar.innerHTML = '<span style="margin-right:2px">' + msg + '</span>' +
     '<button onclick="schedFillWeek()" style="' + bs + '">Fill person’s week</button>' +
     '<button onclick="schedFillDay()" style="' + bs + '">Fill whole day</button>' +
-    '<button onclick="schedEndPaste()" style="' + bs + ';background:#fff;color:var(--vino,#410207)">Done</button>';
+    '<button onclick="schedEndPaste()" style="' + bs + ';background:#fff;color:var(--vino,#410207)">&#10005; Stop pasting (Esc)</button>';
   bar.style.display = 'flex';
 }
 function schedEndPaste() {
@@ -5186,6 +5191,70 @@ function schedEndPaste() {
   var bar = document.getElementById('sch-paste-bar'); if (bar) bar.style.display = 'none';
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && schedPasteMode) schedEndPaste(); });
+
+// ── Excel-style undo for the schedule ─────────────────────────────────────────
+// Every cell change (edit, paste, fill week/day) snapshots the affected cells'
+// PRIOR state before writing. Undo restores them on screen AND in the database:
+// it puts the old shift back, or clears a cell that was newly filled. Multi-level,
+// newest-first, capped so memory never grows without bound.
+function schedStaffName(id){ var s = (schedStaff || []).find(function(x){ return x.id === id; }); return s ? s.name : 'staff'; }
+function schedDayLabel(ds){ try { return new Date(ds + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'short', day:'numeric' }); } catch(e){ return ds; } }
+function schedPushUndo(targets, label){
+  var cells = targets.map(function(t){
+    var key = schedRosterKey(t.staffId, t.date);
+    return { staffId:t.staffId, date:t.date, key:key, prev: schedRoster[key] ? JSON.parse(JSON.stringify(schedRoster[key])) : null };
+  });
+  schedUndoStack.push({ label: label || 'last change', cells: cells });
+  if (schedUndoStack.length > 25) schedUndoStack.shift();
+  schedRenderUndoBtn();
+}
+async function schedUndoLast(){
+  if (!schedUndoStack.length) return;
+  var u = schedUndoStack.pop();
+  var upserts = [], deletes = [];
+  u.cells.forEach(function(c){
+    if (c.prev){ schedRoster[c.key] = c.prev; upserts.push(c.prev); }
+    else { delete schedRoster[c.key]; deletes.push(c); }
+  });
+  renderSchedWeek();
+  schedRenderUndoBtn();
+  if (!DEV_READ_ONLY && !schedPlanMode){
+    try {
+      if (upserts.length){ var r = await sb.from('roster').upsert(upserts, { onConflict:'staff_id,work_date' }); if (r.error) throw r.error; }
+      for (var i = 0; i < deletes.length; i++){ var d = deletes[i]; var dr = await sb.from('roster').delete().eq('staff_id', d.staffId).eq('work_date', d.date); if (dr.error) throw dr.error; }
+    } catch(e){ console.error('Undo sync error', e); alert('Undo could not reach the server: ' + (e.message || e) + '\nReopen the schedule to be sure it matches.'); }
+  }
+}
+function schedRenderUndoBtn(){
+  var view = document.getElementById('scheduling-view');
+  var tool = document.getElementById('kpl-full');
+  var toolOpen = tool && tool.style.display !== 'none';
+  var visible = view && view.style.display !== 'none' && !toolOpen;
+  var show = visible && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
+  var btn = document.getElementById('sch-undo-btn');
+  if (!show){ if (btn) btn.style.display = 'none'; return; }
+  if (!btn){
+    btn = document.createElement('button'); btn.id = 'sch-undo-btn'; btn.type = 'button';
+    btn.onclick = schedUndoLast;
+    btn.style.cssText = 'position:fixed;left:14px;bottom:18px;z-index:9600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.22);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    (view || document.body).appendChild(btn);
+  }
+  var last = schedUndoStack[schedUndoStack.length - 1];
+  btn.title = 'Undo: ' + last.label + (schedUndoStack.length > 1 ? ('  (' + schedUndoStack.length + ' changes can be undone)') : '');
+  btn.innerHTML = '&#8630; Undo' + (schedUndoStack.length > 1 ? (' (' + schedUndoStack.length + ')') : '') + ' &middot; ' + last.label;
+  btn.style.display = 'block';
+}
+// Ctrl/Cmd+Z on the schedule — but let text fields keep their own native undo.
+document.addEventListener('keydown', function(e){
+  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
+    var view = document.getElementById('scheduling-view');
+    if (!view || view.style.display === 'none') return;
+    var el = document.activeElement;
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    if (!schedUndoStack.length) return;
+    e.preventDefault(); schedUndoLast();
+  }
+});
 
 // ── Move panel ──
 function schedShowMove(mpid) {
