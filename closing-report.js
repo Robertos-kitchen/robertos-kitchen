@@ -30,6 +30,14 @@ let crRating = 0;
 let crTab = 'tonight';
 let crLoaded = false;
 let crAddOpenType = null;
+let crServiceDate = null;   // the night this report is FOR. Default = getServiceDate(); a late sender can pick a past night.
+let crEmailedAt = null;     // when the loaded night was last emailed — used to stop silent duplicate team emails.
+
+// The single night this report belongs to. Load, draft-key, save and email all
+// key off this. So a report opened the morning after (past 06:00, when
+// getServiceDate() has already rolled to today) can still be filed against the
+// correct night instead of silently landing on today.
+function crSD(){ return crServiceDate || getServiceDate(); }
 
 const CR_DRAFT_KEY = 'robertos-closing-draft-';
 
@@ -95,6 +103,7 @@ async function openClosingReport() {
   document.getElementById('foot-label').textContent = 'Closing Report';
   el.innerHTML = '<div class="cr-wrap"><div style="text-align:center;padding:40px;color:var(--vino)">Loading…</div></div>';
   crTab = 'tonight';
+  crServiceDate = getServiceDate();
   await crLoadToday();
   crRender();
 }
@@ -119,7 +128,7 @@ async function crFetchCovers(sd) {
 }
 
 async function crLoadToday() {
-  var sd = getServiceDate();
+  var sd = crSD();
   try {
     // Pull actual covers served for the service date (non-blocking if it fails)
     crCovers = await crFetchCovers(sd);
@@ -149,6 +158,7 @@ async function crLoadToday() {
     if (report) {
       // Existing report: load it for editing
       crReportId = report.id;
+      crEmailedAt = report.emailed_at || null;
       crChefsOn = report.chefs_on_duty || [];
       crChefsOff = report.chefs_off_duty || [];
       crRating = report.day_rating || 0;
@@ -162,6 +172,7 @@ async function crLoadToday() {
       };
     } else {
       crReportId = null;
+      crEmailedAt = null;
       crEntries = [];
       // Pre-fill chefs from schedule
       crChefsOn = crSeniorPool.filter(function(s){ return s.scheduledWorking; }).map(function(s){ return s.name; });
@@ -193,7 +204,7 @@ function crEmptyDraft(){ return { revenue:'', briefing_foh:'', briefing_boh:'', 
 
 function crSaveDraftLocal(){
   if (crReportId) return; // once submitted, Supabase is the source of truth
-  var sd = getServiceDate();
+  var sd = crSD();
   crCollectFields();
   try { localStorage.setItem(CR_DRAFT_KEY + sd, JSON.stringify({ fields: crDraft, entries: crEntries, chefsOn: crChefsOn, chefsOff: crChefsOff, rating: crRating })); } catch(e){}
 }
@@ -202,6 +213,25 @@ function crCollectFields(){
     var el = document.getElementById('cr-f-' + f);
     if (el) crDraft[f] = el.value;
   });
+}
+
+function crFmtWhen(ts){
+  try { return new Date(ts).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); }
+  catch(e){ return String(ts); }
+}
+
+// Switch the night this report is for. Save the current night's draft first (the
+// draft key is per-date), then load the picked night so you edit the right row.
+async function crChangeServiceDate(v){
+  if (!v || v === crSD()) return;
+  crCollectFields();
+  crSaveDraftLocal();
+  crServiceDate = v;
+  crAddOpenType = null;
+  var el = document.getElementById('closing-view');
+  if (el) el.innerHTML = '<div class="cr-wrap"><div style="text-align:center;padding:40px;color:var(--vino)">Loading…</div></div>';
+  await crLoadToday();
+  crRender();
 }
 
 // ── Render ──
@@ -229,14 +259,20 @@ function crSetTab(t){ crCollectIfTonight(); crTab = t; crRender(); }
 function crCollectIfTonight(){ if (crTab === 'tonight') { crCollectFields(); crSaveDraftLocal(); } }
 
 function crRenderTonight() {
-  var sd = getServiceDate();
+  var sd = crSD();
+  var maxSd = getServiceDate();
   var dLabel = new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   var html = '';
 
-  if (crReportId) html += '<div class="cr-saved-banner">✓ Report for tonight already submitted — you are editing it.</div>';
+  if (crReportId) html += '<div class="cr-saved-banner">✓ Report for this night already submitted — you are editing it.' + (crEmailedAt ? ' Emailed to the team ' + crFmtWhen(crEmailedAt) + '.' : '') + '</div>';
 
-  // Date header
+  // Date header + night selector. Defaults to tonight's service date, but a late
+  // sender filing last night the next morning can pick the correct night instead
+  // of it silently landing on today (the Friday-report-sent-Saturday problem).
   html += '<div class="cr-card"><div class="cr-card-title">' + dLabel + '<span class="cr-sub">Service date ' + sd + '</span></div>';
+  html += '<div class="cr-field-label">This report is for the night of</div>'
+    + '<input class="cr-input" id="cr-service-date" type="date" value="' + sd + '" max="' + maxSd + '" onchange="crChangeServiceDate(this.value)">'
+    + (sd !== maxSd ? '<div class="cr-empty" style="color:var(--vino-light);margin-top:4px">Filing for a past night — not tonight.</div>' : '');
 
   // Chefs on duty (from schedule)
   html += '<div class="cr-field-label">Senior chefs on duty <span style="text-transform:none;font-weight:400">(from schedule — tap to correct)</span></div>';
@@ -414,7 +450,7 @@ async function crSubmit() {
   crCollectFields();
   var btn = document.getElementById('cr-submit-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
-  var sd = getServiceDate();
+  var sd = crSD();
   var crChecks = await crFetchChecklistCounts(sd);
   // Block blank submits: chefs-on-duty and covers are auto-filled, so a report
   // with no human input would still send a near-empty email to Francesco/HR
@@ -484,6 +520,19 @@ async function crSubmit() {
 
     try { localStorage.removeItem(CR_DRAFT_KEY + sd); } catch(e){}
 
+    // Stop silent duplicate team emails. If this night was already emailed, a
+    // second copy must be an explicit human choice — not the accident of two
+    // people submitting the same night (the twice-on-Monday problem). The report
+    // is already SAVED, so declining still keeps every edit.
+    if (crEmailedAt && !confirm('This night (' + sd + ') was already emailed to the team ' + crFmtWhen(crEmailedAt) + '.\n\nThe report is saved either way. Send ANOTHER copy to everyone now?')) {
+      if (typeof logReset === 'function') logReset(crWho, 'closing_report_save_only', sd, null);
+      btn.disabled = false;
+      btn.textContent = '✓ Saved — email skipped (already sent)';
+      btn.style.background = 'var(--oliva)';
+      setTimeout(function(){ crRender(); }, 2500);
+      return;
+    }
+
     // Email Francesco. The report is already SAVED at this point — only the
     // email send can still fail, and it must NOT be reported as success.
     btn.textContent = 'Sending email…';
@@ -504,6 +553,13 @@ async function crSubmit() {
     if (typeof logReset === 'function') logReset(crWho, emailOk ? 'closing_report_send' : 'closing_report_send_failed', sd, null);
 
     if (emailOk) {
+      // Stamp the send so a later submit for this same night won't fire a silent
+      // duplicate. Best-effort: the report already saved above, so if the column
+      // isn't there yet we never surface this as a failure.
+      var stampedAt = new Date().toISOString();
+      try { await sb.from('closing_reports').update({ emailed_at: stampedAt }).eq('service_date', sd); }
+      catch(e){ console.warn('[closing] emailed_at stamp skipped', e); }
+      crEmailedAt = stampedAt;
       btn.textContent = '✓ Saved & emailed to Francesco';
       btn.style.background = 'var(--oliva)';
       setTimeout(function(){ crRender(); }, 2500);
