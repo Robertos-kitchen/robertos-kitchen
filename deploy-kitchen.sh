@@ -24,7 +24,7 @@ trap 'rm -rf auto-deploy-*/ 2>/dev/null || true' EXIT
 
 # Front-end files the screens actually load. supabase/ is deliberately EXCLUDED
 # (LIVE holds COSEC fixes that DEV is behind on — never overwrite it from here).
-FILES="index.html common.js app.js market-list.js stock-take.js recipes.js team.js closing-report.js sw.js manifest.json"
+FILES="index.html common.js app.js market-list.js fish-display.js stock-take.js recipes.js team.js closing-report.js sw.js manifest.json"
 EXIST=""
 for f in $FILES; do [ -f "$f" ] && EXIST="$EXIST $f"; done
 
@@ -54,7 +54,7 @@ DEV=$(git rev-parse HEAD)
 
 # Cache-bust guard: warn if a JS file shipped without bumping index.html's ?v=.
 CHANGED=$(git diff --name-only HEAD~1 HEAD || true)
-for js in app.js market-list.js closing-report.js team.js recipes.js stock-take.js; do
+for js in app.js market-list.js fish-display.js closing-report.js team.js recipes.js stock-take.js; do
   if echo "$CHANGED" | grep -qx "$js"; then
     if ! echo "$CHANGED" | grep -qx "index.html"; then
       echo "⚠️  $js changed but index.html (?v= cache-bust) was NOT in the same commit — screens may keep running stale code."
