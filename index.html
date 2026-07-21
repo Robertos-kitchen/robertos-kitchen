@@ -1115,10 +1115,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Stock Take</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span></span>
+    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
+    <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
     <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
@@ -1186,6 +1187,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="dashboard-view" class="ops-view" style="display:none"></div>
 <div id="reports-view" class="ops-view" style="display:none"></div>
 <div id="order-view" class="ops-view" style="display:none"></div>
+<div id="fish-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
 <div id="recipes-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
@@ -1220,6 +1222,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </div>
 
 <script src="market-list.js?v=1784460000"></script>
+<script src="fish-display.js?v=1785400000"></script>
 <!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
      on demand to keep cold-boot light on the always-on screens. -->
 <script>
