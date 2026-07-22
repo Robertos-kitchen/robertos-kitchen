@@ -171,6 +171,49 @@ serve(async (req) => {
       }), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- FLOORPLAN MODE: who is sat where, for one date ----
+    // ?floorplan=YYYY-MM-DD → one entry per reservation carrying its table
+    // number(s), guest name, party size and live state. SevenRooms' API gives
+    // table NUMBERS but never the map geometry, so the kitchen screen draws its
+    // own floorplan and colours it from this feed.
+    //
+    // Unlike ?coverflow this DOES carry guest names — Francesco's explicit call
+    // (22 Jul) so the brigade can see who is on which table, matching what the
+    // hosts see in SevenRooms. Read-only: writes nothing.
+    const floorplan = reqUrl.searchParams.get("floorplan");
+    if (floorplan) {
+      const rows = await fetchReservations(token, venueGroupId, floorplan, floorplan);
+      const SEATED_NOW = new Set(["ARRIVED", "SEATED"]);
+      const DONE = new Set(["COMPLETE", "PAID"]);
+      const out: any[] = [];
+      let seatedPax = 0, seatedTables = 0, unassigned = 0;
+      for (const r of rows) {
+        const st = String(r.status || "").toUpperCase();
+        if (EXCLUDE.has(st)) continue;                  // drop cancel / no-show
+        const tables = Array.isArray(r.table_numbers)
+          ? r.table_numbers.map(String).filter(Boolean)
+          : (r.table_numbers ? [String(r.table_numbers)] : []);
+        // A booking with no table yet can't be placed on the map. Count it so the
+        // screen can say so out loud rather than quietly losing a party.
+        if (!tables.length) { unassigned++; continue; }
+        const state = DONE.has(st) ? "completed" : SEATED_NOW.has(st) ? "seated" : "upcoming";
+        const pax = Number(r.arrived_guests) > 0 ? Number(r.arrived_guests) : (Number(r.max_guests) || 0);
+        if (state === "seated") { seatedPax += pax; seatedTables += tables.length; }
+        out.push({
+          tables,
+          name: `${r.first_name || ""} ${r.last_name || ""}`.trim() || "Guest",
+          pax, state,
+          time: String(r.real_datetime_of_slot || "").slice(11, 16),
+          area: r.venue_seating_area_name || null,
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true, date: floorplan,
+        seated_pax: seatedPax, seated_tables: seatedTables, unassigned,
+        reservations: out,
+      }), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     // ---- SPEND DIAGNOSTIC MODE (read-only): payment/POS fields for one date ----
     // ?spend=YYYY-MM-DD → per-reservation payment fields + pos_tickets, plus night totals.
     // Built 4 Jul 2026 to answer: is the SevenRooms "live spend" net or gross of the

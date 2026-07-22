@@ -721,6 +721,51 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .flow-totals .ft-seated strong{color:var(--oliva)}
 .flow-totals .ft-completed strong{color:#6a7280}
 .flow-empty{padding:18px 16px;font-size:12px;font-family:var(--font-sans);color:var(--vino-light)}
+/* Flow grid and live floorplan share the row on a wall screen / laptop, and
+   stack on anything narrow. */
+.dash-live-row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.dash-live-flow{flex:1 1 430px;min-width:0}
+.dash-live-map{flex:1 1 560px;min-width:0}
+.dash-live-map:empty{display:none}
+/* Live floorplan */
+.fp-panel{margin-bottom:16px}
+.fp-wrap{padding:10px 12px;overflow-x:auto}
+.fp-svg{width:100%;height:auto;display:block;min-width:620px;font-family:var(--font-sans)}
+.fp-panel .ops-panel-head{display:flex;align-items:center;gap:8px}
+.fp-size-btn{margin-left:auto;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,255,255,.4);background:none;color:inherit;font-size:9px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans)}
+.fp-size-btn:hover{background:rgba(255,255,255,.15)}
+.dash-live-row.fp-full{flex-direction:column}
+.dash-live-row.fp-full .dash-live-flow,.dash-live-row.fp-full .dash-live-map{flex:1 1 100%;width:100%}
+.fp-room{fill:rgba(64,2,7,.03);stroke:var(--sabbia-dark);stroke-width:1}
+.fp-room-label{font-size:13px;letter-spacing:2px;fill:var(--vino-light);text-anchor:middle;opacity:.75}
+.fp-fix{fill:var(--sabbia-dark);opacity:.45}
+.fp-blob{opacity:.3}
+.fp-label{font-size:9px;letter-spacing:1px;fill:var(--vino-light);text-anchor:middle;opacity:.6}
+.fp-t rect{fill:#fff;stroke:var(--sabbia-dark);stroke-width:1}
+.fp-t .fp-num{font-size:10px;font-weight:600;fill:var(--ink);text-anchor:middle}
+.fp-sm .fp-num{font-size:7.5px}
+/* Halo: where two neighbouring tables both carry a name the labels can touch.
+   Painting a cream outline behind the glyphs keeps both readable. */
+.fp-t .fp-name{font-size:8px;fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--sabbia-light);stroke-width:2.5px;stroke-linejoin:round}
+.fp-t .fp-time{font-size:7.5px;fill:var(--vino-light);text-anchor:middle;paint-order:stroke;stroke:var(--sabbia-light);stroke-width:2.5px;stroke-linejoin:round}
+.fp-free rect{opacity:.55}
+.fp-free .fp-num{opacity:.45}
+.fp-seated rect{fill:var(--oliva);stroke:var(--oliva)}
+.fp-seated .fp-num{fill:#fff}
+.fp-seated .fp-name{fill:var(--oliva);font-weight:700}
+.fp-completed rect{fill:#6a7280;stroke:#6a7280}
+.fp-completed .fp-num{fill:#fff}
+.fp-completed .fp-name{fill:#6a7280}
+.fp-upcoming rect{stroke:var(--vino);stroke-width:1.5}
+.fp-upcoming .fp-num{fill:var(--vino)}
+.fp-upcoming .fp-name{fill:var(--vino-light)}
+.fp-legend{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-top:1px solid var(--sabbia-dark);font-size:11px;font-family:var(--font-sans);color:var(--ink)}
+.fp-key{display:inline-block;width:12px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.fp-key-seated{background:var(--oliva)}
+.fp-key-upcoming{background:#fff;border:1.5px solid var(--vino)}
+.fp-key-completed{background:#6a7280}
+.fp-stamp{margin-left:auto;opacity:.6;font-size:10px}
+.fp-warn{padding:8px 16px;border-top:1px solid var(--sabbia-dark);font-size:11px;font-family:var(--font-sans);color:var(--vino)}
 
 
 .sr-sync-btn{padding:8px 16px;border-radius:4px;border:1px solid var(--vino);background:none;color:var(--vino);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .2s;white-space:nowrap}
@@ -1264,7 +1309,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1784460000"></script>
-<script src="app.js?v=1785990000"></script>
+<script src="floorplan.js?v=1785995000"></script>
+<script src="app.js?v=1785995000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

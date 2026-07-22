@@ -958,7 +958,10 @@ async function renderDashboard(){
       <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · tap a day to see its flow</span></div>
       <div class="dash-covers-row">${coversRow}</div>
     </div>` : ''}
-    <div id="flow-panel-wrap">${flowPanelHtml(coverFlow, flowFor)}</div>
+    <div class="dash-live-row">
+      <div id="flow-panel-wrap" class="dash-live-flow">${flowPanelHtml(coverFlow, flowFor)}</div>
+      <div id="floorplan-panel-wrap" class="dash-live-map">${floorplanPanelHtml(null, flowFor)}</div>
+    </div>
     <div class="ops-two">
       <div class="ops-panel">
         <div class="ops-panel-head">Station readiness</div>
@@ -969,6 +972,11 @@ async function renderDashboard(){
         <div class="ops-panel-body"><div class="critical-list">${criticalList}</div></div>
       </div>
     </div>`;
+
+  // The map paints after the shell so the rest of the dashboard isn't held up
+  // waiting on SevenRooms.
+  paintFloorplan(flowFor);
+  startFloorplanTimer();
 }
 
 // Fetch live "still expected tonight" breakdown straight from SevenRooms
@@ -1045,10 +1053,111 @@ async function selectFlowDate(ds){
   var wrap = document.getElementById('flow-panel-wrap');
   if (wrap) wrap.innerHTML = '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
     '<div class="flow-empty">Loading ' + flowDayLabel(ds) + '’s flow…</div></div>';
+  var fw = document.getElementById('floorplan-panel-wrap');
+  if (fw && floorplanSupported) fw.innerHTML = floorplanPanelHtml(null, ds);
+  paintFloorplan(ds);                        // the map follows the chosen day
   var flow = await fetchCoverFlow(ds);
   if (flowDate !== ds) return;               // a later tap already won
   var w = document.getElementById('flow-panel-wrap');
   if (w) w.innerHTML = flowPanelHtml(flow, ds);
+}
+
+// ── Live floorplan: who is sat where ──
+// The map geometry lives in floorplan.js. This fetches the live feed, paints
+// it, and refreshes once a minute while the dashboard is open on today.
+let floorplanTimer = null;
+let floorplanSupported = true;   // flipped off if the edge function is older
+
+async function fetchFloorplan(date){
+  var d = date || TODAY;
+  if (!floorplanSupported) return null;
+  try {
+    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?floorplan=' + d, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'x-proxy-secret': KITCHEN_PROXY_SECRET
+      }
+    });
+    var data = await res.json();
+    // GUARD: an edge function that predates floorplan mode ignores the unknown
+    // param and falls through to the NORMAL sync, which WRITES the covers table.
+    // If we don't see a floorplan payload, assume that's what happened, switch
+    // the panel off for good and stop the timer — never poll a write every minute.
+    if (!res.ok || !data.ok || !Array.isArray(data.reservations)) {
+      floorplanSupported = false;
+      if (floorplanTimer) { clearInterval(floorplanTimer); floorplanTimer = null; }
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.error('Floorplan fetch error:', err);
+    return null;
+  }
+}
+
+function floorplanPanelHtml(fp, ds){
+  if (!floorplanSupported) return '';
+  var title = ds === TODAY ? 'Live floorplan' : flowDayLabel(ds) + ' — floorplan';
+  var head = '<div class="ops-panel-head">' + title +
+    '<span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · who’s seated where</span>' +
+    '<button id="fp-size-btn" class="fp-size-btn" onclick="toggleFloorplanSize()">' +
+      (floorplanFull ? 'Shrink map' : 'Make map bigger') + '</button></div>';
+  if (!fp) return '<div class="ops-panel fp-panel">' + head + '<div class="flow-empty">Loading the floorplan…</div></div>';
+  var built = fpSvg(fp.reservations);
+  var stamp = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  return '<div class="ops-panel fp-panel">' + head +
+    '<div class="fp-wrap">' + built.svg + '</div>' +
+    '<div class="fp-legend">' +
+      '<span><i class="fp-key fp-key-seated"></i>Seated</span>' +
+      '<span><i class="fp-key fp-key-upcoming"></i>Booked, not in yet</span>' +
+      '<span><i class="fp-key fp-key-completed"></i>Finished</span>' +
+      '<span class="fp-stamp">' + fp.seated_tables + ' tables · ' + fp.seated_pax + ' guests seated · updated ' + stamp + '</span>' +
+    '</div>' +
+    // Never lose a party quietly: anything the feed placed on a table this map
+    // doesn't know, or with no table at all, is called out here.
+    (built.unmapped.length ? '<div class="fp-warn">Not on the map: ' +
+      built.unmapped.map(function(u){ return 'table ' + fpEsc(u.table) + ' (' + fpEsc(fpShortName(u.name)) + ')'; }).join(', ') +
+      '</div>' : '') +
+    (fp.unassigned ? '<div class="fp-warn">' + fp.unassigned + ' booking' + (fp.unassigned>1?'s':'') + ' with no table assigned yet</div>' : '') +
+  '</div>';
+}
+
+// Squeezed into half a dashboard row the table numbers get small. One tap gives
+// the map the full width and back again; the choice survives the minute refresh.
+let floorplanFull = false;
+function applyFloorplanSize(){
+  var row = document.querySelector('.dash-live-row');
+  if (row) row.classList.toggle('fp-full', floorplanFull);
+}
+function toggleFloorplanSize(){
+  floorplanFull = !floorplanFull;
+  applyFloorplanSize();
+  var b = document.getElementById('fp-size-btn');
+  if (b) b.textContent = floorplanFull ? 'Shrink map' : 'Make map bigger';
+}
+
+async function paintFloorplan(ds){
+  var fp = await fetchFloorplan(ds);
+  if ((flowDate || TODAY) !== ds) return;            // day changed under us
+  var w = document.getElementById('floorplan-panel-wrap');
+  if (w) w.innerHTML = floorplanPanelHtml(fp, ds);
+  applyFloorplanSize();
+}
+
+// Refresh once a minute — enough for "who's seated", and a quarter of the
+// edge-function calls a 15-second poll would burn. Only ticks while the
+// dashboard is the open view and the map is showing today.
+function startFloorplanTimer(){
+  if (floorplanTimer) clearInterval(floorplanTimer);
+  if (!floorplanSupported) return;
+  floorplanTimer = setInterval(function(){
+    if (activeStation !== DASHBOARD_KEY) return;
+    if ((flowDate || TODAY) !== TODAY) return;
+    if (document.hidden) return;                     // don't poll a sleeping screen
+    paintFloorplan(TODAY);
+  }, 60000);
 }
 
 // Fetch the SevenRooms "Cover Flow" for one date: covers per 15-min slot with
