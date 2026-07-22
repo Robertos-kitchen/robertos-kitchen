@@ -143,6 +143,24 @@ function fpShortName(name){
 
 // Turn the live feed into a lookup of table number → the booking on it, and
 // report back any table the feed named that this map has never heard of.
+// A busy table is turned, so one table carries two bookings in a night — on a
+// normal Wednesday 8 of them do. Which booking owns the square matters: whoever
+// is physically sat there wins; if nobody is, the party still to come beats the
+// party that has already left. Without this the map happily shows a guest who
+// went home an hour ago on a table someone else is eating at right now.
+var FP_RANK = { seated: 3, upcoming: 2, completed: 1 };
+
+function fpBeats(next, prev){
+  if (!prev) return true;
+  var a = FP_RANK[next.state] || 0, b = FP_RANK[prev.state] || 0;
+  if (a !== b) return a > b;
+  // Same standing: show the next party due in, and the most recent of those
+  // already finished.
+  if (next.state === 'upcoming') return (next.time || '99:99') < (prev.time || '99:99');
+  if (next.state === 'completed') return (next.time || '') > (prev.time || '');
+  return false;
+}
+
 function fpIndex(reservations){
   var pos = {};
   FP_TABLES.forEach(function(t){ pos[t.n] = t; });
@@ -154,7 +172,8 @@ function fpIndex(reservations){
     mapped.sort(function(a, b){ return pos[a].x - pos[b].x; });
     (r.tables || []).forEach(function(t){
       if (!pos[t]) { unmapped.push({ table: t, name: r.name, state: r.state, pax: r.pax }); return; }
-      byTable[t] = { state: r.state, name: r.name, pax: r.pax, time: r.time, lead: mapped[0] === t };
+      var cand = { state: r.state, name: r.name, pax: r.pax, time: r.time, lead: mapped[0] === t };
+      if (fpBeats(cand, byTable[t])) byTable[t] = cand;
     });
   });
   return { byTable: byTable, unmapped: unmapped };
