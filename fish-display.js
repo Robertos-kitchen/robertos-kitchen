@@ -142,6 +142,11 @@ function renderFishDisplay(){
       ${fdNumIn('cav',r,1,it.id,'qty',e.qty)}${fdNumIn('cav',r,2,it.id,'gr',e.gr)}
     </div>`;
   }).join('');
+  // always-present trailing row to add a new caviar type (saved to the standing list)
+  const cavBlank = `<div class="fd-row fd-cav fd-writein">
+    <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" placeholder="＋ new caviar…" data-grid="cav" data-r="${cav.length}" data-c="0" data-f="newcav" value=""></div>
+    ${fdNumIn('cav',cav.length,1,'','qty','',true)}${fdNumIn('cav',cav.length,2,'','gr','',true)}
+  </div>`;
 
   host.innerHTML = `
     ${FD_STYLE}
@@ -166,7 +171,7 @@ function renderFishDisplay(){
       <div class="fd-right">
         <div class="fd-coltitle">Caviar</div>
         <div class="fd-head fd-head-cav"><span>Type</span><span>Qty</span><span>Gr</span></div>
-        ${cavRows}
+        ${cavRows}${cavBlank}
         <div class="fd-oyster"><span>Oyster N.</span><input class="fd-in" type="text" inputmode="numeric" data-grid="oyster" data-r="0" data-c="0" data-f="oyster" value="${fdEsc(fdDoc.oyster)}" placeholder="—"></div>
         ${fdListBlock('85 · Running Low','low85','short — order more')}
         ${fdListBlock('86 · Out of Stock','out86','not available tonight','b86')}
@@ -226,6 +231,7 @@ async function fdOnChange(e){
   const t=e.target; if(!fdIsCell(t)) return;
   const f=t.dataset.f;
   if(f==='newfish'){ await fdCommitNewFish(t); return; }
+  if(f==='newcav'){ await fdCommitNewCav(t); return; }
   if(f==='name'){
     const id=t.dataset.id, v=t.value.trim(), it=fdItems.find(i=>i.id===id);
     if(!v){ if(it) t.value=it.name; return; }          // don't let a blank wipe a standing item
@@ -238,6 +244,7 @@ function fdOnKey(e){
     e.preventDefault();
     const f=t.dataset.f, grid=t.dataset.grid, r=+t.dataset.r, c=+t.dataset.c;
     if(f==='newfish'){ fdCommitNewFish(t); return; }
+    if(f==='newcav'){ fdCommitNewCav(t); return; }
     if(f==='name'){ t.dispatchEvent(new Event('change')); }
     if(!fdFocusCell(grid, r+1, c)) t.blur();            // last row → just commit
   }
@@ -269,6 +276,13 @@ async function fdCommitNewFish(el){
   renderFishDisplay();
   const idx=fdFish().findIndex(i=>i.name.toLowerCase()===name.toLowerCase());
   if(idx>=0) fdFocusCell('fish', idx, 1);               // jump to the new fish's Qty
+}
+async function fdCommitNewCav(el){
+  const name=(el.value||'').trim(); if(!name) return;
+  if(!fdItems.some(i=>i.kind==='caviar' && i.name.toLowerCase()===name.toLowerCase())) await fdAddMaster(name,'caviar');
+  renderFishDisplay();
+  const idx=fdCav().findIndex(i=>i.name.toLowerCase()===name.toLowerCase());
+  if(idx>=0) fdFocusCell('cav', idx, 1);                // jump to the new caviar's Qty
 }
 
 function fdDelList(key,i){ if(Array.isArray(fdDoc[key])){ fdDoc[key].splice(i,1); } fdSaveSoon(); renderFishDisplay(); }
@@ -364,7 +378,7 @@ const FD_STYLE = `<style id="fd-style">
 .fd-num:disabled{background:transparent}
 .fd-namein{font-family:var(--font-serif);font-size:19px;text-align:left;padding-right:24px;text-transform:capitalize}
 .fd-row.fd-cav .fd-namein{font-size:16px}
-.fd-namein[data-f="newfish"]{color:#b98a6a;font-style:italic;font-size:14px;font-family:var(--font-sans);text-transform:none}
+.fd-namein[data-f="newfish"],.fd-namein[data-f="newcav"]{color:#b98a6a;font-style:italic;font-size:14px;font-family:var(--font-sans);text-transform:none}
 .fd-lbin{font-size:15px;font-weight:600;padding:8px 12px;padding-right:24px}
 .fd-lb.b86 .fd-lbin{color:#c00000}
 .fd-oyster{display:flex;justify-content:space-between;align-items:center;border:1.5px solid var(--vino);border-radius:4px;padding:6px 8px 6px 12px}
