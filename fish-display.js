@@ -94,6 +94,22 @@ async function fdAddMaster(name, kind){
   fdItems.push(data);
   return data;
 }
+// move a standing item up/down within its kind; renumbers the pool so
+// duplicate sort_orders self-heal, then writes only the rows that changed
+async function fdMoveItem(id, dir){
+  const it = fdItems.find(i=>i.id===id); if(!it) return;
+  const pool = fdItems.filter(i=>i.kind===it.kind).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  const idx = pool.findIndex(i=>i.id===id);
+  const to = idx + dir;
+  if(to < 0 || to >= pool.length) return;
+  pool.splice(idx,1); pool.splice(to,0,it);
+  const changed = [];
+  pool.forEach((p,k)=>{ const want=(k+1)*10; if(p.sort_order!==want){ p.sort_order=want; changed.push(p); } });
+  fdItems.sort((a,b)=> a.kind===b.kind ? (a.sort_order||0)-(b.sort_order||0) : (a.kind<b.kind?-1:1));
+  renderFishDisplay();
+  const res = await Promise.all(changed.map(p=>sb.from('fish_display_items').update({sort_order:p.sort_order}).eq('id',p.id)));
+  if(res.some(r=>r&&r.error)){ await loadFishDisplay(); renderFishDisplay(); }
+}
 // soft-delete a standing item (removes the row from the template going forward)
 async function fdDelItem(id){
   fdItems = fdItems.filter(i=>i.id!==id);
@@ -121,7 +137,7 @@ function renderFishDisplay(){
   const fishRows = fish.map((it,r)=>{
     const e = fdDoc.entries[it.id] || {};
     return `<div class="fd-row" data-id="${it.id}">
-      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" data-grid="fish" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-del" title="Remove from list" onclick="fdDelItem('${it.id}')">×</span></div>
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" data-grid="fish" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-mv up" title="Move up" onclick="fdMoveItem('${it.id}',-1)">▲</span><span class="fd-mv dn" title="Move down" onclick="fdMoveItem('${it.id}',1)">▼</span><span class="fd-del" title="Remove from list" onclick="fdDelItem('${it.id}')">×</span></div>
       ${fdNumIn('fish',r,1,it.id,'qty',e.qty)}${fdNumIn('fish',r,2,it.id,'kg',e.kg)}${fdNumIn('fish',r,3,it.id,'price',e.price)}
     </div>`;
   }).join('');
@@ -138,7 +154,7 @@ function renderFishDisplay(){
   const cavRows = cav.map((it,r)=>{
     const e = fdDoc.entries[it.id] || {};
     return `<div class="fd-row fd-cav" data-id="${it.id}">
-      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" data-grid="cav" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-del" title="Remove" onclick="fdDelItem('${it.id}')">×</span></div>
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" data-grid="cav" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-mv up" title="Move up" onclick="fdMoveItem('${it.id}',-1)">▲</span><span class="fd-mv dn" title="Move down" onclick="fdMoveItem('${it.id}',1)">▼</span><span class="fd-del" title="Remove" onclick="fdDelItem('${it.id}')">×</span></div>
       ${fdNumIn('cav',r,1,it.id,'qty',e.qty)}${fdNumIn('cav',r,2,it.id,'gr',e.gr)}
     </div>`;
   }).join('');
@@ -369,6 +385,9 @@ const FD_STYLE = `<style id="fd-style">
 .fd-name:hover,.fd-cell:hover{background:var(--sabbia-light)}
 .fd-del{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:19px;height:19px;line-height:17px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:14px;opacity:.4;transition:opacity .12s;cursor:pointer;z-index:2}
 .fd-row:hover .fd-del,.fd-lb-cell:hover .fd-del{opacity:1}.fd-del:hover{background:var(--vino);color:var(--cream);opacity:1}
+.fd-mv{position:absolute;top:50%;transform:translateY(-50%);width:19px;height:19px;line-height:18px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:10px;opacity:.4;transition:opacity .12s;cursor:pointer;z-index:2;user-select:none}
+.fd-mv.up{right:47px}.fd-mv.dn{right:26px}
+.fd-row:hover .fd-mv{opacity:1}.fd-mv:hover{background:var(--vino);color:var(--cream);opacity:1}
 /* inline Excel-style inputs */
 .fd-namecell{position:relative;display:flex;align-items:center;overflow:hidden}
 .fd-in{width:100%;border:none;background:transparent;font-family:var(--font-sans);color:var(--ink);padding:8px 6px;-webkit-appearance:none;border-radius:0}
@@ -376,7 +395,7 @@ const FD_STYLE = `<style id="fd-style">
 .fd-in::placeholder{color:var(--sabbia-dark);font-style:italic}
 .fd-num{text-align:center;font-size:16px;font-weight:600;border-left:1px solid var(--sabbia-dark)}
 .fd-num:disabled{background:transparent}
-.fd-namein{font-family:var(--font-serif);font-size:19px;text-align:left;padding-right:24px;text-transform:capitalize}
+.fd-namein{font-family:var(--font-serif);font-size:19px;text-align:left;padding-right:70px;text-transform:capitalize}
 .fd-row.fd-cav .fd-namein{font-size:16px}
 .fd-namein[data-f="newfish"],.fd-namein[data-f="newcav"]{color:#b98a6a;font-style:italic;font-size:14px;font-family:var(--font-sans);text-transform:none}
 .fd-lbin{font-size:15px;font-weight:600;padding:8px 12px;padding-right:24px}
