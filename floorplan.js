@@ -3,94 +3,118 @@
 //
 // WHY THIS FILE EXISTS: the SevenRooms API hands us table NUMBERS (43, 600,
 // 502…) but never the map — it will not tell us where table 43 physically is.
-// So the venue is drawn here once, by hand, transcribed from the SevenRooms
-// floorplan. The live feed (?floorplan= mode of the sevenrooms-sync edge
-// function) then just colours it in.
 //
-// TO MOVE FURNITURE: edit the coordinates below. Nothing else needs touching.
-// Coordinates are in the SVG viewBox (1289 x 751) and are the CENTRE of each
-// table. Any table the feed mentions but this map doesn't know is listed on
-// screen under "not on the map" — it is never silently dropped.
+// WHERE THE GEOMETRY CAME FROM: read straight out of the SevenRooms floorplan
+// itself (22 Jul 2026). Their floorplan is a Konva canvas, so every table,
+// wall and room was pulled from the live scene graph — real coordinates, real
+// shapes, real sizes. This is not a hand-drawing: the layout matches theirs.
+// Coordinates are SevenRooms' own, kept as-is so a re-read drops straight in.
+//
+// TO RE-READ AFTER THEY MOVE FURNITURE: open the SevenRooms floorplan, and in
+// the console walk Konva.stages[0] — Text nodes matching /^\d{1,3}$/ are the
+// table numbers, the nearest Rect/Circle is that table's shape.
+//
+// Any table the feed mentions but this map doesn't know is listed on screen
+// under "not on the map" — it is never silently dropped.
 // ──────────────────────────────────────────────────────────────────────────
 
-// Cropped tight to the furniture (measured, not guessed) — the raw SevenRooms
-// canvas wastes ~23% of its width and ~20% of its height on empty margin, and
-// that margin is scale the table numbers can't afford in a side panel.
-var FP_VIEW = { x: 108, y: 103, w: 1014, h: 622 };
+// Cropped to the furniture. These are SevenRooms' units.
+var FP_VIEW = { x: 380, y: 950, w: 5240, h: 3350 };
 
-// Room outlines, drawn as simple boxes with the room name along the bottom.
-var FP_ROOMS = [
-  { label: 'SCALA',    x: 118, y: 137, w: 192, h: 226 },
-  { label: 'CORTINA',  x: 340, y: 352, w: 240, h: 128 },
-  { label: 'PIEMONTE', x: 575, y: 340, w: 455, h: 238 },
-  { label: 'GIARDINO', x: 1030, y: 288, w: 82,  h: 252 },
-  { label: 'TERRAZZA', x: 793, y: 578, w: 237, h: 137 }
+// Floor areas, by kind: 'floor' = a named room, 'boh' = back of house,
+// 'fix' = fixed furniture (the bar, the wine cellar, the centre banquette).
+var FP_AREAS = [
+  { k: 'boh',   x: 1887, y: 100,  w: 2960, h: 1022 },   // kitchen block
+  { k: 'boh',   x: 3871, y: 983,  w: 648,  h: 780 },
+  { k: 'boh',   x: 4513, y: 982,  w: 341,  h: 204 },
+  { k: 'floor', x: 1600, y: 2250, w: 1210, h: 638 },    // Cortina
+  { k: 'floor', x: 5184, y: 1869, w: 416,  h: 1352 },   // Giardino
+  { k: 'floor', x: 3944, y: 3370, w: 1226, h: 736 },    // Terrazza
+  { k: 'fix',   x: 1982, y: 1284, w: 609,  h: 454 },    // the bar
+  { k: 'fix',   x: 2785, y: 1795, w: 698,  h: 45  },    // wine cellar
+  { k: 'fix',   x: 2789, y: 2071, w: 698,  h: 45  },
+  { k: 'fix',   x: 3825, y: 2387, w: 214,  h: 634 }     // centre banquette
 ];
 
-// Fixed furniture and landmarks — they orient the eye, nothing more.
-var FP_FIXTURES = [
-  { kind: 'blob', x: 378, y: 180, w: 155, h: 88, rx: 14 },   // the bar
-  { kind: 'bar',  x: 570, y: 262, w: 140, h: 26 },           // wine cellar
-  { kind: 'bar',  x: 918, y: 296, w: 70,  h: 18 },           // hostess desk
-  { kind: 'bar',  x: 893, y: 342, w: 130, h: 12 }            // pass / back bar
+// Wall segments, exactly as SevenRooms draws them.
+var FP_WALLS = [
+  [399,2253,1171,8],[1562,2253,8,658],[1562,2903,1231,8],[2785,2768,8,631],
+  [2785,2127,712,8],[2785,2127,8,342],[398,1122,8,1139],[398,1122,1647,8],
+  [2785,3391,1158,8],[3935,4133,1243,8],[3935,3391,8,750],[5169,2934,8,1207],
+  [5169,2149,8,586],[4314,2150,863,8],[1562,2254,206,8],[2580,2254,206,8],
+  [5171,1858,433,8],[5176,3224,423,8],[5596,1866,8,1366],[5169,1858,8,297],
+  [1444,1130,8,180],[1449,2074,8,180],[2774,1772,718,8],[5169,991,8,871],
+  [3871,1772,669,8],[4532,1210,8,567],[4720,1210,8,567],[4720,1203,160,8],
+  [4877,991,293,8],[4872,991,8,217],[4531,1203,43,8],[4678,1203,43,8],
+  [2329,1124,140,8],[2467,1125,8,160],[3926,3391,181,8],[4994,3391,181,8]
 ];
 
+// Room names and landmarks. rot = -90 for the two SevenRooms draws sideways.
 var FP_LABELS = [
-  { t: 'WC',            x: 452,  y: 121 },
-  { t: 'KITCHEN',       x: 638,  y: 127 },
-  { t: 'WC',            x: 925,  y: 136 },
-  { t: 'FOOD DISPLAY',  x: 838,  y: 247 },
-  { t: 'WINE CELLAR',   x: 640,  y: 285 },
-  { t: 'HOSTESS DESK',  x: 953,  y: 309 },
-  { t: 'STAIRS',        x: 322,  y: 160 },
-  { t: 'STATION',       x: 906,  y: 640 }
+  { t: 'SCALA',        x: 470,  y: 1733, room: 1, rot: -90 },
+  { t: 'CORTINA',      x: 2198, y: 2973, room: 1 },
+  { t: 'PIEMONTE',     x: 3464, y: 3467, room: 1 },
+  { t: 'TERRAZZA',     x: 4511, y: 4235, room: 1 },
+  { t: 'GIARDINO',     x: 5530, y: 2438, room: 1, rot: -90 },
+  { t: 'KITCHEN',      x: 3138, y: 1057 },
+  { t: 'CIGARS',       x: 1484, y: 1228 },
+  { t: 'WINE CELLAR',  x: 3135, y: 1912 },
+  { t: 'FOOD DISPLAY', x: 4183, y: 1690 },
+  { t: 'HOSTESS DESK', x: 4778, y: 1965 },
+  { t: 'STATION',      x: 5183, y: 2973 },
+  { t: 'STATION',      x: 3835, y: 3339 },
+  { t: 'STATION',      x: 4538, y: 3729 },
+  { t: 'STATION',      x: 3956, y: 3447 },
+  { t: 'STATION',      x: 5122, y: 3454 }
 ];
 
-// Every table in the venue. n = the number SevenRooms uses in its feed.
+// Every table in the venue, straight from SevenRooms.
+// n = the number their feed uses · k = R(ectangle) or C(ircle) · w = size.
 var FP_TABLES = [
-  // ── Scala ──
-  { n: '614', x: 160, y: 180 }, { n: '612', x: 208, y: 180 }, { n: '611', x: 238, y: 180 }, { n: '610', x: 277, y: 180 },
-  { n: '621', x: 224, y: 227 }, { n: '623', x: 268, y: 227 },
-  { n: '620', x: 224, y: 272 }, { n: '622', x: 271, y: 272 },
-  { n: '603', x: 161, y: 324 }, { n: '602', x: 205, y: 324 }, { n: '601', x: 237, y: 324 }, { n: '600', x: 277, y: 325 },
-  // ── Bar (small = stools, drawn smaller so the row doesn't collide) ──
-  { n: '510', x: 367, y: 214, small: 1 }, { n: '509', x: 367, y: 236, small: 1 }, { n: '508', x: 393, y: 251, small: 1 },
-  { n: '506', x: 410, y: 268, small: 1 }, { n: '505', x: 430, y: 268, small: 1 }, { n: '504', x: 450, y: 268, small: 1 },
-  { n: '503', x: 470, y: 268, small: 1 }, { n: '502', x: 490, y: 268, small: 1 }, { n: '501', x: 510, y: 268, small: 1 },
-  { n: '500', x: 530, y: 268, small: 1 },
-  { n: '403', x: 401, y: 327 }, { n: '402', x: 448, y: 327 }, { n: '401', x: 493, y: 327 }, { n: '400', x: 533, y: 327 },
-  // ── Cortina ──
-  { n: '323', x: 368, y: 378 }, { n: '322', x: 368, y: 400 }, { n: '321', x: 368, y: 427 }, { n: '320', x: 368, y: 452 },
-  { n: '330', x: 452, y: 378 }, { n: '331', x: 496, y: 378 },
-  { n: '311', x: 432, y: 467 }, { n: '310', x: 464, y: 467 }, { n: '301', x: 500, y: 467 }, { n: '300', x: 532, y: 467 },
-  // ── Piemonte (left) ──
-  { n: '80', x: 603, y: 364 }, { n: '81', x: 647, y: 364 }, { n: '82', x: 675, y: 364 },
-  { n: '71', x: 687, y: 433 }, { n: '70', x: 684, y: 483 },
-  { n: '64', x: 610, y: 446 }, { n: '63', x: 610, y: 502 },
-  { n: '62', x: 612, y: 543 }, { n: '61', x: 647, y: 543 }, { n: '60', x: 679, y: 543 },
-  // ── Piemonte (centre banquettes) ──
-  { n: '50', x: 756, y: 393 }, { n: '51', x: 756, y: 415 }, { n: '52', x: 756, y: 441 },
-  { n: '53', x: 756, y: 467 }, { n: '54', x: 756, y: 489 },
-  { n: '40', x: 821, y: 393 }, { n: '41', x: 821, y: 415 }, { n: '42', x: 821, y: 441 },
-  { n: '43', x: 821, y: 467 }, { n: '44', x: 821, y: 489 },
-  // ── Piemonte (right) ──
-  { n: '10', x: 905, y: 373, small: 1 }, { n: '11', x: 928, y: 373, small: 1 }, { n: '12', x: 951, y: 373, small: 1 },
-  { n: '14', x: 976, y: 373, small: 1 }, { n: '15', x: 1003, y: 373, small: 1 },
-  { n: '20', x: 928, y: 442, big: 1 },
-  { n: '21', x: 994, y: 427 }, { n: '22', x: 994, y: 461 },
-  { n: '33', x: 931, y: 492 }, { n: '32', x: 995, y: 490 },
-  { n: '30', x: 927, y: 545 }, { n: '31', x: 990, y: 545 },
-  // ── Giardino ──
-  { n: '100', x: 1058, y: 302 }, { n: '101', x: 1090, y: 302 },
-  { n: '110', x: 1040, y: 359 }, { n: '111', x: 1086, y: 357 },
-  { n: '121', x: 1091, y: 429 }, { n: '120', x: 1069, y: 468 },
-  { n: '130', x: 1058, y: 514 }, { n: '131', x: 1090, y: 514 },
-  // ── Terrazza ──
-  { n: '210', x: 877, y: 596 }, { n: '211', x: 931, y: 596 },
-  { n: '209', x: 829, y: 616 }, { n: '208', x: 829, y: 638 },
-  { n: '200', x: 987, y: 613 }, { n: '201', x: 987, y: 632 },
-  { n: '207', x: 830, y: 682 }, { n: '206', x: 866, y: 683 }, { n: '205', x: 894, y: 683 },
-  { n: '204', x: 922, y: 683 }, { n: '203', x: 949, y: 683 }, { n: '202', x: 982, y: 682 }
+  {n:'10',x:4529,y:2336,k:'R',w:100},  {n:'11',x:4640,y:2334,k:'R',w:100},
+  {n:'12',x:4771,y:2334,k:'R',w:100},  {n:'14',x:4891,y:2334,k:'R',w:100},
+  {n:'15',x:5045,y:2335,k:'R',w:100},  {n:'20',x:4648,y:2701,k:'C',w:150},
+  {n:'21',x:4996,y:2622,k:'R',w:125},  {n:'22',x:4996,y:2794,k:'R',w:125},
+  {n:'30',x:4643,y:3240,k:'C',w:150},  {n:'31',x:4973,y:3240,k:'C',w:150},
+  {n:'32',x:4998,y:2951,k:'R',w:125},  {n:'33',x:4663,y:2967,k:'R',w:125},
+  {n:'40',x:4084,y:2448,k:'R',w:100},  {n:'41',x:4086,y:2561,k:'R',w:100},
+  {n:'42',x:4088,y:2697,k:'R',w:100},  {n:'43',x:4091,y:2839,k:'R',w:100},
+  {n:'44',x:4093,y:2951,k:'R',w:100},  {n:'50',x:3746,y:2444,k:'R',w:100},
+  {n:'51',x:3747,y:2555,k:'R',w:100},  {n:'52',x:3745,y:2693,k:'R',w:100},
+  {n:'53',x:3751,y:2835,k:'R',w:100},  {n:'54',x:3751,y:2947,k:'R',w:100},
+  {n:'60',x:3346,y:3229,k:'R',w:100},  {n:'61',x:3180,y:3226,k:'R',w:100},
+  {n:'62',x:2993,y:3227,k:'C',w:125},  {n:'63',x:2986,y:3012,k:'R',w:100},
+  {n:'64',x:2985,y:2866,k:'R',w:100},  {n:'70',x:3385,y:2915,k:'C',w:150},
+  {n:'71',x:3385,y:2655,k:'C',w:150},  {n:'80',x:2949,y:2295,k:'C',w:125},
+  {n:'81',x:3176,y:2291,k:'R',w:100},  {n:'82',x:3325,y:2289,k:'R',w:100},
+  {n:'100',x:5353,y:1966,k:'R',w:100}, {n:'101',x:5481,y:1965,k:'R',w:100},
+  {n:'110',x:5233,y:2265,k:'R',w:100}, {n:'111',x:5483,y:2258,k:'R',w:100},
+  {n:'120',x:5392,y:2836,k:'R',w:100}, {n:'121',x:5506,y:2631,k:'R',w:100},
+  {n:'130',x:5357,y:3074,k:'R',w:100}, {n:'131',x:5470,y:3079,k:'R',w:100},
+  {n:'200',x:4957,y:3594,k:'R',w:100}, {n:'201',x:4959,y:3700,k:'R',w:100},
+  {n:'202',x:4934,y:3949,k:'C',w:125}, {n:'203',x:4764,y:3973,k:'R',w:100},
+  {n:'204',x:4622,y:3970,k:'R',w:100}, {n:'205',x:4474,y:3970,k:'R',w:100},
+  {n:'206',x:4330,y:3963,k:'R',w:100}, {n:'207',x:4137,y:3950,k:'C',w:125},
+  {n:'208',x:4134,y:3713,k:'R',w:100}, {n:'209',x:4134,y:3608,k:'R',w:100},
+  {n:'210',x:4385,y:3508,k:'C',w:125}, {n:'211',x:4667,y:3508,k:'C',w:125},
+  {n:'300',x:2541,y:2825,k:'R',w:100}, {n:'301',x:2422,y:2824,k:'R',w:100},
+  {n:'310',x:2183,y:2830,k:'R',w:100}, {n:'311',x:2067,y:2833,k:'R',w:100},
+  {n:'320',x:1720,y:2753,k:'R',w:100}, {n:'321',x:1720,y:2625,k:'R',w:100},
+  {n:'322',x:1720,y:2487,k:'R',w:100}, {n:'323',x:1720,y:2369,k:'R',w:100},
+  {n:'330',x:2160,y:2370,k:'C',w:125}, {n:'331',x:2392,y:2364,k:'C',w:125},
+  {n:'400',x:2585,y:2101,k:'C',w:125}, {n:'401',x:2376,y:2103,k:'C',w:125},
+  {n:'402',x:2142,y:2094,k:'C',w:125}, {n:'403',x:1890,y:2105,k:'C',w:125},
+  {n:'500',x:2500,y:1776,k:'R',w:80},  {n:'501',x:2396,y:1776,k:'R',w:80},
+  {n:'502',x:2297,y:1774,k:'R',w:80},  {n:'503',x:2197,y:1775,k:'R',w:80},
+  {n:'504',x:2095,y:1775,k:'R',w:80},  {n:'505',x:1992,y:1776,k:'R',w:80},
+  {n:'506',x:1878,y:1779,k:'R',w:98},  {n:'508',x:1776,y:1718,k:'R',w:113},
+  {n:'509',x:1713,y:1615,k:'R',w:80},  {n:'510',x:1711,y:1509,k:'R',w:80},
+  {n:'600',x:1242,y:2091,k:'C',w:100}, {n:'601',x:1005,y:2082,k:'R',w:100},
+  {n:'602',x:876,y:2082,k:'R',w:100},  {n:'603',x:639,y:2084,k:'C',w:100},
+  {n:'610',x:1235,y:1332,k:'C',w:100}, {n:'611',x:1009,y:1330,k:'R',w:100},
+  {n:'612',x:895,y:1329,k:'R',w:100},  {n:'614',x:628,y:1330,k:'C',w:100},
+  {n:'620',x:962,y:1811,k:'C',w:100},  {n:'621',x:965,y:1569,k:'C',w:100},
+  {n:'622',x:1214,y:1808,k:'C',w:100}, {n:'623',x:1199,y:1582,k:'C',w:100}
 ];
 
 function fpEsc(s){
@@ -99,15 +123,13 @@ function fpEsc(s){
     .replace(/"/g,'&quot;');
 }
 
-// Names run long ("Ms. Ekaterina Vasil") and tables are 30px wide. Trim to
-// something a chef can still read across a kitchen.
+// Names run long ("Ms. Ekaterina Vasil") and tables are small on a shared
+// screen. Trim to something a chef can still read across a kitchen.
 function fpShortName(name){
   var n = String(name || '').trim();
   // Drop the honorific first — "Ms. Ekaterina Vasil" must not shorten to
   // "Ms. Vasil" and lose the name the chef actually needs.
   n = n.replace(/^(mr|mrs|ms|miss|dr|sir|mx)\.?\s+/i, '');
-  // 12 is what fits between two neighbouring tables without the labels
-  // colliding on the narrowest spacing in the room.
   if (n.length <= 12) return n;
   var parts = n.split(/\s+/);
   if (parts.length > 1) {
@@ -122,49 +144,37 @@ function fpShortName(name){
 // Turn the live feed into a lookup of table number → the booking on it, and
 // report back any table the feed named that this map has never heard of.
 function fpIndex(reservations){
-  var known = {}, i;
-  for (i = 0; i < FP_TABLES.length; i++) known[FP_TABLES[i].n] = 1;
+  var pos = {};
+  FP_TABLES.forEach(function(t){ pos[t.n] = t; });
   var byTable = {}, unmapped = [];
   (reservations || []).forEach(function(r){
     // Anchor the name to the left-most table of a joined booking (611+612)
     // so a party across two tables gets one label, not two.
-    var mapped = (r.tables || []).filter(function(t){ return known[t]; });
-    mapped.sort(function(a, b){
-      var ta = null, tb = null, k;
-      for (k = 0; k < FP_TABLES.length; k++) {
-        if (FP_TABLES[k].n === a) ta = FP_TABLES[k];
-        if (FP_TABLES[k].n === b) tb = FP_TABLES[k];
-      }
-      return (ta ? ta.x : 0) - (tb ? tb.x : 0);
-    });
+    var mapped = (r.tables || []).filter(function(t){ return pos[t]; });
+    mapped.sort(function(a, b){ return pos[a].x - pos[b].x; });
     (r.tables || []).forEach(function(t){
-      if (!known[t]) { unmapped.push({ table: t, name: r.name, state: r.state, pax: r.pax }); return; }
+      if (!pos[t]) { unmapped.push({ table: t, name: r.name, state: r.state, pax: r.pax }); return; }
       byTable[t] = { state: r.state, name: r.name, pax: r.pax, time: r.time, lead: mapped[0] === t };
     });
   });
   return { byTable: byTable, unmapped: unmapped };
 }
 
-function fpSize(t){
-  if (t.big) return { w: 42, h: 28 };
-  if (t.small) return { w: 18, h: 14 };
-  return { w: 26, h: 18 };
-}
-
 function fpTableSvg(t, hit){
-  var sz = fpSize(t), w = sz.w, h = sz.h;
-  var x = t.x - w / 2, y = t.y - h / 2;
   var state = hit ? hit.state : 'free';
-  var out = '<g class="fp-t fp-' + state + (t.small ? ' fp-sm' : '') + '">' +
-    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="5"></rect>' +
-    '<text class="fp-num" x="' + t.x + '" y="' + (t.y + 3.5) + '">' + t.n + '</text>';
+  var half = t.w / 2;
+  var out = '<g class="fp-t fp-' + state + '">';
+  out += t.k === 'C'
+    ? '<circle cx="' + t.x + '" cy="' + t.y + '" r="' + half + '"></circle>'
+    : '<rect x="' + (t.x - half) + '" y="' + (t.y - half) + '" width="' + t.w + '" height="' + t.w + '" rx="12"></rect>';
+  out += '<text class="fp-num" x="' + t.x + '" y="' + (t.y + 18) + '">' + t.n + '</text>';
   // The guest's name sits under the table, exactly as the hosts see it in
   // SevenRooms — Francesco's call, 22 Jul.
   if (hit && hit.lead && hit.state !== 'free') {
-    out += '<text class="fp-name" x="' + t.x + '" y="' + (t.y + h / 2 + 9) + '">' +
+    out += '<text class="fp-name" x="' + t.x + '" y="' + (t.y + half + 48) + '">' +
       fpEsc(fpShortName(hit.name)) + (hit.pax ? ' · ' + hit.pax : '') + '</text>';
     if (hit.state === 'upcoming' && hit.time) {
-      out += '<text class="fp-time" x="' + t.x + '" y="' + (t.y + h / 2 + 18) + '">' + fpEsc(hit.time) + '</text>';
+      out += '<text class="fp-time" x="' + t.x + '" y="' + (t.y + half + 96) + '">' + fpEsc(hit.time) + '</text>';
     }
   }
   return out + '</g>';
@@ -174,16 +184,16 @@ function fpSvg(reservations){
   var idx = fpIndex(reservations);
   var s = '<svg class="fp-svg" viewBox="' + FP_VIEW.x + ' ' + FP_VIEW.y + ' ' + FP_VIEW.w + ' ' + FP_VIEW.h +
           '" preserveAspectRatio="xMidYMid meet">';
-  FP_ROOMS.forEach(function(r){
-    s += '<rect class="fp-room" x="' + r.x + '" y="' + r.y + '" width="' + r.w + '" height="' + r.h + '" rx="3"></rect>' +
-         '<text class="fp-room-label" x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h - 6) + '">' + r.label + '</text>';
+  FP_AREAS.forEach(function(a){
+    s += '<rect class="fp-area fp-a-' + a.k + '" x="' + a.x + '" y="' + a.y +
+         '" width="' + a.w + '" height="' + a.h + '" rx="8"></rect>';
   });
-  FP_FIXTURES.forEach(function(f){
-    s += '<rect class="fp-fix' + (f.kind === 'blob' ? ' fp-blob' : '') + '" x="' + f.x + '" y="' + f.y +
-         '" width="' + f.w + '" height="' + f.h + '" rx="' + (f.rx || 2) + '"></rect>';
+  FP_WALLS.forEach(function(w){
+    s += '<rect class="fp-wall" x="' + w[0] + '" y="' + w[1] + '" width="' + w[2] + '" height="' + w[3] + '"></rect>';
   });
   FP_LABELS.forEach(function(l){
-    s += '<text class="fp-label" x="' + l.x + '" y="' + l.y + '">' + l.t + '</text>';
+    var tr = l.rot ? ' transform="rotate(' + l.rot + ' ' + l.x + ' ' + l.y + ')"' : '';
+    s += '<text class="fp-label' + (l.room ? ' fp-room-label' : '') + '" x="' + l.x + '" y="' + l.y + '"' + tr + '>' + l.t + '</text>';
   });
   FP_TABLES.forEach(function(t){ s += fpTableSvg(t, idx.byTable[t.n]); });
   s += '</svg>';
