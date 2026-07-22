@@ -692,8 +692,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .dash-covers-sync{font-size:9px;letter-spacing:.5px;opacity:.6;margin-top:4px;font-family:var(--font-sans)}
 .dash-no-covers .ops-num{opacity:.3}
 .dash-covers-row{display:flex;gap:0;overflow-x:auto;padding:12px 16px}
-.dash-cover-day{flex:1;min-width:80px;text-align:center;padding:10px 8px;border-right:1px solid var(--sabbia-dark)}
+.dash-cover-day{flex:1;min-width:80px;text-align:center;padding:10px 8px;border-right:1px solid var(--sabbia-dark);cursor:pointer;transition:background .15s}
 .dash-cover-day:last-child{border-right:none}
+.dash-cover-day:hover{background:rgba(64,2,7,.06)}
+.dash-cover-today:hover{background:var(--vino)}
+/* the day whose flow grid is showing below */
+.dash-cover-day.is-flow-day{box-shadow:inset 0 -3px 0 var(--vino)}
+.dash-cover-today.is-flow-day{box-shadow:inset 0 -3px 0 var(--sabbia)}
 .dash-cover-today{background:var(--vino);border-radius:4px;color:var(--cream)}
 .dash-cover-today .dash-cover-num{color:var(--cream)}
 .dash-cover-today .dash-cover-label{color:rgba(255,255,255,.7)}
@@ -715,6 +720,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .flow-totals{display:flex;gap:18px;padding:10px 16px;border-top:1px solid var(--sabbia-dark);font-size:12px;font-family:var(--font-sans);flex-wrap:wrap;color:var(--ink)}
 .flow-totals .ft-seated strong{color:var(--oliva)}
 .flow-totals .ft-completed strong{color:#6a7280}
+.flow-empty{padding:18px 16px;font-size:12px;font-family:var(--font-sans);color:var(--vino-light)}
 
 
 .sr-sync-btn{padding:8px 16px;border-radius:4px;border:1px solid var(--vino);background:none;color:var(--vino);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .2s;white-space:nowrap}

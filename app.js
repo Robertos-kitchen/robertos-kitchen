@@ -832,6 +832,13 @@ function renderStationChecks(stKey){
 // â”€â”€ DASHBOARD â”€â”€
 function statusLabel(s){return {none:'Pending',sos:'SOS',bu:'Backup',ok:'OK',review:'To check',discard:'Discard'}[s]||s;}
 let dashCovers = {};
+// Which day the flow grid is showing. null = tonight. The team asked to be able
+// to click any day in the "Upcoming covers" strip and see that day's flow grid.
+let flowDate = null;
+// Future days don't change second-to-second, so cache them (5 min) — the
+// dashboard repaints on every realtime prep update and would otherwise hit the
+// edge function on each repaint. Today is always fetched live.
+let flowCache = {};
 
 async function loadCovers() {
   // Only the next ~3 weeks are ever shown. An unbounded .gte(TODAY) keeps every
@@ -856,7 +863,8 @@ async function renderDashboard(){
   const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
 
   // Live "still expected" breakdown straight from SevenRooms (read-only)
-  const srLive = await Promise.all([fetchUpcomingTonight(), fetchCoverFlow()]);
+  const flowFor = flowDate || TODAY;
+  const srLive = await Promise.all([fetchUpcomingTonight(), fetchCoverFlow(flowFor)]);
   const liveTonight = srLive[0];
   const coverFlow = srLive[1];
 
@@ -867,6 +875,7 @@ async function renderDashboard(){
     var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     var row = dashCovers[ds];
     if (row) upcomingDays.push({
+      date: ds,
       label: di === 0 ? 'Tonight' : d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),
       night: row.night_covers,
       day: row.day_covers
@@ -897,17 +906,21 @@ async function renderDashboard(){
     </div>`).join(''):`<div class="report-no-data">No critical items at the moment</div>`;
 
   const coversRow = upcomingDays.map(function(d){
+    // Every tile opens that day's flow grid below (team request 22 Jul).
+    var sel = d.date === flowFor ? ' is-flow-day' : '';
+    var open = ' data-flow-date="' + d.date + '" onclick="selectFlowDate(\'' + d.date + '\')"' +
+               ' title="Show ' + (d.label === 'Tonight' ? "tonight's" : d.label + "'s") + ' flow grid"';
     // Tonight is already the big card on top — repurpose its strip tile to show
     // the live "still expected" number instead of repeating tonight's total.
     if (d.label === 'Tonight') {
       var stillNum = (liveTonight && liveTonight.upcoming != null) ? liveTonight.upcoming : '—';
-      return '<div class="dash-cover-day dash-cover-today">' +
+      return '<div class="dash-cover-day dash-cover-today' + sel + '"' + open + '>' +
         '<div class="dash-cover-label">Tonight</div>' +
         '<div class="dash-cover-num">' + stillNum + '</div>' +
         '<div class="dash-cover-sub">upcoming</div>' +
       '</div>';
     }
-    return '<div class="dash-cover-day">' +
+    return '<div class="dash-cover-day' + sel + '"' + open + '>' +
       '<div class="dash-cover-label">' + d.label + '</div>' +
       '<div class="dash-cover-num">' + d.night + '</div>' +
       '<div class="dash-cover-sub">night</div>' +
@@ -942,27 +955,10 @@ async function renderDashboard(){
     </div>
     ${upcomingDays.length > 1 ? `
     <div class="ops-panel" style="margin-bottom:16px">
-      <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms</span></div>
+      <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · tap a day to see its flow</span></div>
       <div class="dash-covers-row">${coversRow}</div>
     </div>` : ''}
-    ${coverFlow ? `
-    <div class="ops-panel" style="margin-bottom:16px">
-      <div class="ops-panel-head">Tonight's flow <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · party sizes per time slot</span></div>
-      <div class="flow-grid">${coverFlow.slots.map(s => `
-        <div class="flow-col">
-          <div class="flow-time">${s.t}</div>
-          <div class="flow-covers">${s.covers}</div>
-          ${s.parties.map(p => `<div class="flow-party ${p.state}">${p.size}</div>`).join('')}
-          <div class="flow-count">${s.parties.length}</div>
-        </div>`).join('')}
-      </div>
-      <div class="flow-totals">
-        <span><strong>${coverFlow.totals.booked}</strong> booked</span>
-        <span class="ft-upcoming"><strong>${coverFlow.totals.upcoming}</strong> upcoming</span>
-        <span class="ft-seated"><strong>${coverFlow.totals.seated}</strong> seated</span>
-        <span class="ft-completed"><strong>${coverFlow.totals.completed}</strong> completed</span>
-      </div>
-    </div>` : ''}
+    <div id="flow-panel-wrap">${flowPanelHtml(coverFlow, flowFor)}</div>
     <div class="ops-two">
       <div class="ops-panel">
         <div class="ops-panel-head">Station readiness</div>
@@ -996,13 +992,78 @@ async function fetchUpcomingTonight() {
   }
 }
 
-// Fetch the SevenRooms "Cover Flow" for tonight: covers per 15-min slot with
+// ── Flow grid: one day at a time, any day in the strip ──
+function flowDayLabel(ds){
+  if (ds === TODAY) return 'Tonight';
+  return new Date(ds + 'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+}
+
+function flowPanelHead(ds){
+  var title = ds === TODAY ? "Tonight's flow" : flowDayLabel(ds) + ' — flow';
+  return '<div class="ops-panel-head">' + title +
+    '<span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · party sizes per time slot</span></div>';
+}
+
+// Build the flow panel for one date. Returns '' only for tonight-with-no-data
+// (the panel simply never appears, as before). If a chef deliberately picked a
+// day, always show the panel so the tap isn't silently ignored.
+function flowPanelHtml(flow, ds){
+  if (!flow) {
+    if (ds === TODAY) return '';
+    return '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
+      '<div class="flow-empty">No bookings in SevenRooms for ' + flowDayLabel(ds) + ' yet</div></div>';
+  }
+  var t = flow.totals || {};
+  var live = ds === TODAY;
+  return '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
+    '<div class="flow-grid">' + flow.slots.map(function(s){
+      return '<div class="flow-col">' +
+        '<div class="flow-time">' + s.t + '</div>' +
+        '<div class="flow-covers">' + s.covers + '</div>' +
+        s.parties.map(function(p){ return '<div class="flow-party ' + p.state + '">' + p.size + '</div>'; }).join('') +
+        '<div class="flow-count">' + s.parties.length + '</div>' +
+      '</div>';
+    }).join('') + '</div>' +
+    '<div class="flow-totals">' +
+      '<span><strong>' + t.booked + '</strong> booked</span>' +
+      '<span class="ft-upcoming"><strong>' + t.upcoming + '</strong> upcoming</span>' +
+      // Future days have nobody seated or finished — don't print two zeros.
+      (live || t.seated ? '<span class="ft-seated"><strong>' + t.seated + '</strong> seated</span>' : '') +
+      (live || t.completed ? '<span class="ft-completed"><strong>' + t.completed + '</strong> completed</span>' : '') +
+    '</div>' +
+  '</div>';
+}
+
+// Clicking a day in the "Upcoming covers" strip swaps the flow grid below it.
+// Only the flow panel is repainted — no full dashboard reload, so the rest of
+// the screen doesn't flicker mid-service.
+async function selectFlowDate(ds){
+  flowDate = ds;
+  Array.prototype.forEach.call(document.querySelectorAll('.dash-cover-day'), function(el){
+    el.classList.toggle('is-flow-day', el.getAttribute('data-flow-date') === ds);
+  });
+  var wrap = document.getElementById('flow-panel-wrap');
+  if (wrap) wrap.innerHTML = '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
+    '<div class="flow-empty">Loading ' + flowDayLabel(ds) + '’s flow…</div></div>';
+  var flow = await fetchCoverFlow(ds);
+  if (flowDate !== ds) return;               // a later tap already won
+  var w = document.getElementById('flow-panel-wrap');
+  if (w) w.innerHTML = flowPanelHtml(flow, ds);
+}
+
+// Fetch the SevenRooms "Cover Flow" for one date: covers per 15-min slot with
 // every party's size and live state (upcoming / seated / completed). The edge
 // function strips all guest data server-side, so this is safe on the wall
 // screen. Read-only; returns null on any failure so the panel simply hides.
-async function fetchCoverFlow() {
+async function fetchCoverFlow(date) {
+  var d = date || TODAY;
+  // Tonight must stay live (parties move to seated/completed during service).
+  // Other days are cached for 5 minutes so realtime repaints don't re-hit the
+  // edge function for a day whose bookings barely move.
+  var cached = flowCache[d];
+  if (d !== TODAY && cached && (Date.now() - cached.t) < 300000) return cached.v;
   try {
-    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?coverflow=' + TODAY, {
+    var res = await fetch(SUPABASE_URL + '/functions/v1/sevenrooms-sync?coverflow=' + d, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1011,8 +1072,9 @@ async function fetchCoverFlow() {
       }
     });
     var data = await res.json();
-    if (!res.ok || !data.ok || !data.slots || !data.slots.length) return null;
-    return data;
+    var out = (!res.ok || !data.ok || !data.slots || !data.slots.length) ? null : data;
+    if (d !== TODAY) flowCache[d] = { t: Date.now(), v: out };
+    return out;
   } catch (err) {
     console.error('Cover flow fetch error:', err);
     return null;
