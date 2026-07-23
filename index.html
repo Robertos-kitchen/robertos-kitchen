@@ -747,10 +747,15 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .fp-label{font-size:55px;letter-spacing:6px;fill:var(--vino-light);text-anchor:middle;opacity:.55}
 .fp-t rect,.fp-t circle{fill:#fff;stroke:var(--sabbia-dark);stroke-width:6}
 .fp-t .fp-num{font-size:52px;font-weight:600;fill:var(--ink);text-anchor:middle}
-/* Halo: where two neighbouring tables both carry a name the labels can touch.
-   Painting a cream outline behind the glyphs keeps both readable. */
-.fp-t .fp-name{font-size:46px;fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--sabbia-light);stroke-width:14px;stroke-linejoin:round}
-.fp-t .fp-time{font-size:42px;fill:var(--vino-light);text-anchor:middle;paint-order:stroke;stroke:var(--sabbia-light);stroke-width:14px;stroke-linejoin:round}
+/* Names are hidden until a table is tapped — showing all of them at once made
+   the screen unreadable. One card at a time, drawn over its neighbours. */
+.fp-has{cursor:pointer}
+.fp-pop{display:none}
+.fp-open .fp-pop{display:block}
+.fp-open rect,.fp-open circle{stroke:var(--vino);stroke-width:14}
+.fp-pop rect{fill:var(--vino);stroke:none}
+.fp-pop-name{font-size:62px;font-weight:600;fill:var(--cream);text-anchor:middle}
+.fp-pop-sub{font-size:46px;fill:rgba(255,255,255,.72);text-anchor:middle}
 .fp-free rect,.fp-free circle{opacity:.55}
 .fp-free .fp-num{opacity:.45}
 .fp-seated rect,.fp-seated circle{fill:var(--oliva);stroke:var(--oliva)}
@@ -1312,8 +1317,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1784460000"></script>
-<script src="floorplan.js?v=1785996000"></script>
-<script src="app.js?v=1785996000"></script>
+<script src="floorplan.js?v=1785997000"></script>
+<script src="app.js?v=1785997000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

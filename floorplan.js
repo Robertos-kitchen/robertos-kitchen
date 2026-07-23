@@ -179,30 +179,78 @@ function fpIndex(reservations){
   return { byTable: byTable, unmapped: unmapped };
 }
 
+// Which table's name is currently showing. Only ever one, and it survives the
+// minute refresh so the card doesn't vanish while a chef is reading it.
+var FP_OPEN = null;
+
+var FP_STATE_WORD = { seated: 'seated', upcoming: 'due', completed: 'finished' };
+
+// The name card. Printed for every booked table but hidden until tapped —
+// names on every table at once made the screen unreadable (Francesco, 22 Jul).
+// Full name here, not the shortened one: there's room on a card.
+// Some SevenRooms records carry a placeholder surname, so the name arrives as
+// "Ghinwa ." — don't print the stray dot.
+function fpTidyName(name){
+  return String(name || '').replace(/\s+/g, ' ').replace(/\s*[.,-]+\s*$/, '').trim() || 'Guest';
+}
+
+function fpNameCard(t, hit, half){
+  var label = fpTidyName(hit.name) + (hit.pax ? ' · ' + hit.pax : '');
+  var sub = (FP_STATE_WORD[hit.state] || '') + (hit.time ? ' · ' + hit.time : '');
+  var w = Math.max(420, label.length * 34 + 90);
+  var h = sub ? 186 : 126;
+  var x = t.x - w / 2;
+  var y = t.y - half - h - 26;                       // sits above the table
+  return '<g class="fp-pop">' +
+    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="18"></rect>' +
+    '<text class="fp-pop-name" x="' + t.x + '" y="' + (y + 76) + '">' + fpEsc(label) + '</text>' +
+    (sub ? '<text class="fp-pop-sub" x="' + t.x + '" y="' + (y + 142) + '">' + fpEsc(sub) + '</text>' : '') +
+  '</g>';
+}
+
 function fpTableSvg(t, hit){
   var state = hit ? hit.state : 'free';
   var half = t.w / 2;
-  var out = '<g class="fp-t fp-' + state + '">';
+  var cls = 'fp-t fp-' + state + (hit ? ' fp-has' : '') + (FP_OPEN === t.n ? ' fp-open' : '');
+  var out = '<g class="' + cls + '" data-t="' + t.n + '"' +
+    (hit ? ' onclick="fpToggleTable(event,\'' + t.n + '\')"' : '') + '>';
   out += t.k === 'C'
     ? '<circle cx="' + t.x + '" cy="' + t.y + '" r="' + half + '"></circle>'
     : '<rect x="' + (t.x - half) + '" y="' + (t.y - half) + '" width="' + t.w + '" height="' + t.w + '" rx="12"></rect>';
   out += '<text class="fp-num" x="' + t.x + '" y="' + (t.y + 18) + '">' + t.n + '</text>';
-  // The guest's name sits under the table, exactly as the hosts see it in
-  // SevenRooms — Francesco's call, 22 Jul.
-  if (hit && hit.lead && hit.state !== 'free') {
-    out += '<text class="fp-name" x="' + t.x + '" y="' + (t.y + half + 48) + '">' +
-      fpEsc(fpShortName(hit.name)) + (hit.pax ? ' · ' + hit.pax : '') + '</text>';
-    if (hit.state === 'upcoming' && hit.time) {
-      out += '<text class="fp-time" x="' + t.x + '" y="' + (t.y + half + 96) + '">' + fpEsc(hit.time) + '</text>';
-    }
-  }
+  if (hit) out += fpNameCard(t, hit, half);
   return out + '</g>';
+}
+
+function fpCloseTable(){
+  FP_OPEN = null;
+  Array.prototype.forEach.call(document.querySelectorAll('.fp-t.fp-open'), function(el){
+    el.classList.remove('fp-open');
+  });
+}
+
+function fpToggleTable(ev, n){
+  if (ev) ev.stopPropagation();                      // don't hit the close-all below
+  var wasOpen = FP_OPEN === n;
+  fpCloseTable();
+  if (wasOpen) return;                               // second tap closes it
+  var g = document.querySelector('.fp-t[data-t="' + n + '"]');
+  if (!g) return;
+  FP_OPEN = n;
+  g.classList.add('fp-open');
+  g.parentNode.appendChild(g);                       // draw the card over its neighbours
+}
+
+// Tapping the floor, or Escape, puts the name away again.
+if (typeof document !== 'undefined' && !window.__fpKeyBound) {
+  window.__fpKeyBound = 1;
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') fpCloseTable(); });
 }
 
 function fpSvg(reservations){
   var idx = fpIndex(reservations);
   var s = '<svg class="fp-svg" viewBox="' + FP_VIEW.x + ' ' + FP_VIEW.y + ' ' + FP_VIEW.w + ' ' + FP_VIEW.h +
-          '" preserveAspectRatio="xMidYMid meet">';
+          '" preserveAspectRatio="xMidYMid meet" onclick="fpCloseTable()">';
   FP_AREAS.forEach(function(a){
     s += '<rect class="fp-area fp-a-' + a.k + '" x="' + a.x + '" y="' + a.y +
          '" width="' + a.w + '" height="' + a.h + '" rx="8"></rect>';

@@ -1101,7 +1101,7 @@ function floorplanPanelHtml(fp, ds){
   if (!floorplanSupported) return '';
   var title = ds === TODAY ? 'Live floorplan' : flowDayLabel(ds) + ' — floorplan';
   var head = '<div class="ops-panel-head">' + title +
-    '<span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · who’s seated where</span>' +
+    '<span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · tap a table for the name</span>' +
     '<button id="fp-size-btn" class="fp-size-btn" onclick="toggleFloorplanSize()">' +
       (floorplanFull ? 'Shrink map' : 'Make map bigger') + '</button></div>';
   if (!fp) return '<div class="ops-panel fp-panel">' + head + '<div class="flow-empty">Loading the floorplan…</div></div>';
