@@ -71,6 +71,7 @@ let mpCal      = [];     // calendar cells
 let mpComments = [];
 let mpTastings = [];     // [{...session, items:[...]}]
 let mpSprint   = null;
+let mpCampaigns = [];    // seasons/marketing periods that OWN their event dates
 let mpPhotos   = {};     // dish_id -> data URL (loaded only with the Dish Bank)
 let mpMenuFiles = {};    // menu_id -> [ {id,file_name,file_path,mime,size_bytes,uploaded_by} ]
 let mpChannel  = null;
@@ -251,7 +252,8 @@ async function mpLoadAll(){
     sb.from('menu_plan_tastings').select('*').order('session_date', { ascending:false }),
     sb.from('menu_plan_tasting_items').select('*'),
     sb.from('menu_plan_menu_files').select('*').order('created_at'),
-    sb.from('menu_plan_dish_files').select('*').order('created_at')
+    sb.from('menu_plan_dish_files').select('*').order('created_at'),
+    sb.from('menu_plan_campaigns').select('*').order('sort_order')
   ]);
   mpMembers  = r[0].data || [];
   mpMenus    = r[1].data || [];
@@ -272,6 +274,9 @@ async function mpLoadAll(){
   (r[9] && !r[9].error ? r[9].data : []).forEach(function(f){
     (mpDishFiles[f.dish_id] = mpDishFiles[f.dish_id] || []).push(f);
   });
+  // Optional table — a DB without the campaigns migration still runs; the menus
+  // just fall back to the two lanes with no season grouping.
+  mpCampaigns = (r[10] && !r[10].error ? r[10].data : []) || [];
   mpLoaded = true;
   // A failed members load would empty the picker and lock everyone out — say so.
   if (r[0].error) mpToast('Could not load the team list. Check the connection.', true);
@@ -285,7 +290,7 @@ async function mpLoadPhotos(){
 
 function mpSubscribe(){
   if (mpChannel){ sb.removeChannel(mpChannel); mpChannel = null; }
-  var tables = ['menu_plan_dishes','menu_plan_menus','menu_plan_calendar','menu_plan_comments','menu_plan_sprint','menu_plan_menu_files','menu_plan_dish_files','menu_plan_tastings','menu_plan_tasting_items'];
+  var tables = ['menu_plan_dishes','menu_plan_menus','menu_plan_calendar','menu_plan_comments','menu_plan_sprint','menu_plan_menu_files','menu_plan_dish_files','menu_plan_tastings','menu_plan_tasting_items','menu_plan_campaigns'];
   mpChannel = sb.channel('menu_plan_changes');
   tables.forEach(function(t){
     mpChannel = mpChannel.on('postgres_changes', { event:'*', schema:'public', table:t }, function(){
@@ -366,6 +371,74 @@ function mpNextVariantLabel(variants){
   var used = variants.map(function(v){ return (v.variant_label || '').toUpperCase(); });
   for (var i = 0; i < 26; i++){ var L = String.fromCharCode(65 + i); if (used.indexOf(L) === -1) return L; }
   return String(variants.length + 1);
+}
+
+// ── main vs event: two kinds of work, weighted differently on screen ─────────
+// A MAIN menu is created (à la carte, seasonal) — it earns a full card and the
+// dish-development treatment. An EVENT menu is a dated one-off (Christmas Eve, a
+// guest dinner) — lighter work: pick dishes from the bank + set a price. The
+// kind is stored on the row; if an older row has none, we derive it so the split
+// works before the migration is run (a one-off cadence = an event).
+function mpMenuKind(m){
+  if (m && (m.kind === 'main' || m.kind === 'event')) return m.kind;
+  return (m && m.change_cadence === 'One-off event') ? 'event' : 'main';
+}
+function mpIsEventMenu(m){ return mpMenuKind(m) === 'event'; }
+// The date an event happens — its own event_date, else the launch it was seeded
+// with. Drives the date chip and the "in N weeks" countdown.
+function mpMenuEventDate(m){ return (m && (m.event_date || m.launch_date)) || null; }
+// Which campaign (season) an event belongs to: an explicit campaign_id wins; if
+// none is set we fall back to the event's date landing inside a campaign's range,
+// so December's nights nest under the December campaign with no per-row linking.
+function mpCampaignFor(m){
+  if (!m || !mpIsEventMenu(m)) return null;
+  if (m.campaign_id){ var direct = mpCampaigns.find(function(c){ return c.id === m.campaign_id; }); if (direct) return direct; }
+  var d = mpMenuEventDate(m); if (!d) return null;
+  d = String(d).slice(0,10);
+  return mpCampaigns.find(function(c){
+    return c.date_from && c.date_to && d >= String(c.date_from).slice(0,10) && d <= String(c.date_to).slice(0,10);
+  }) || null;
+}
+function mpWeeksUntil(dateStr){
+  if (!dateStr) return null;
+  var t = mpToday(), d = String(dateStr).slice(0,10);
+  if (d < t) return null;
+  var ms = new Date(d + 'T00:00:00') - new Date(t + 'T00:00:00');
+  return Math.max(0, Math.round(ms / (7 * 864e5)));
+}
+// Dishes assembled onto a menu = dishes tagged for it (the existing for_menus
+// mechanism). Approved-and-beyond count is what "N dishes chosen" reports.
+function mpMenuDishPool(name){ return mpDishes.filter(function(d){ return (d.for_menus || []).includes(name); }); }
+
+// Split the whole menu list into the two lanes + the campaigns that own dates.
+// A campaign's core menu is pulled out of the lists and shown in its header, so
+// it never doubles as a loose card. Grouped menus (Set Menu A/B/C) are mains.
+function mpPlanGroups(){
+  var coreIds = {};
+  mpCampaigns.forEach(function(c){ if (c.core_menu_id) coreIds[c.core_menu_id] = c.id; });
+  var buckets = {};
+  mpCampaigns.forEach(function(c){ buckets[c.id] = { campaign:c, core:null, events:[] }; });
+  var mains = [], looseEvents = [];
+  mpMenuRows().forEach(function(row){
+    if (row.group){ mains.push(row); return; }          // Set Menu group = a main
+    var m = row.menu;
+    if (coreIds[m.id]){ var b = buckets[coreIds[m.id]]; if (b) b.core = m; return; }
+    if (mpIsEventMenu(m)){
+      var c = mpCampaignFor(m);
+      if (c && buckets[c.id]) buckets[c.id].events.push(m);
+      else looseEvents.push(m);
+    } else {
+      mains.push(row);
+    }
+  });
+  var campaigns = mpCampaigns
+    .map(function(c){ return buckets[c.id]; })
+    .filter(function(b){ return b.core || b.events.length; });
+  campaigns.forEach(function(b){
+    b.events.sort(function(a,c){ return (mpMenuEventDate(a) || '') < (mpMenuEventDate(c) || '') ? -1 : 1; });
+  });
+  looseEvents.sort(function(a,c){ return (mpMenuEventDate(a) || '') < (mpMenuEventDate(c) || '') ? -1 : 1; });
+  return { mains:mains, campaigns:campaigns, looseEvents:looseEvents };
 }
 
 // ══ IDENTITY — tap your name ═══════════════════════════════════════════════
@@ -515,17 +588,18 @@ function mpRenderPlan(){
   var isChef = mpMe && mpMe.role === 'chef';
   var noDates = !mpSprint || (!mpSprint.start_date && !mpSprint.end_date);
 
-  // Next steps, worded as things TO DO (not deficits). The dish-count targets are
-  // deliberately NOT listed here — the two bars above already show that progress,
-  // so a tired chef isn't greeted twice with "you're behind".
-  var menusWritten = mpMenus.filter(function(m){ return m.identity && m.structure; }).length;
+  // Next steps, worded as things TO DO (not deficits). Only MAIN menus are
+  // "written" — an event menu borrows its campaign's theme, so nagging a chef to
+  // give Christmas Eve an identity/structure/lead is exactly the busywork we cut.
+  var mainMenus = mpMenus.filter(function(m){ return !mpIsEventMenu(m); });
+  var menusWritten = mainMenus.filter(function(m){ return m.identity && m.structure; }).length;
   var todo = [];
-  if (noDates) todo.push({ label:'Set your sprint dates and dish goal', go:'plan-sprint' });
-  var noBrief = mpMenus.filter(function(m){ return !m.identity || !m.structure; });
+  if (noDates) todo.push({ label:'Set my dates and dish goal', go:'plan-sprint' });
+  var noBrief = mainMenus.filter(function(m){ return !m.identity || !m.structure; });
   if (noBrief.length) todo.push({ label:'Write ' + noBrief.length + ' menu' + (noBrief.length === 1 ? '' : 's') + ' — what it is and its structure', go:'briefs' });
-  var noLead = mpMenus.filter(function(m){ return !m.lead_chef; });
+  var noLead = mainMenus.filter(function(m){ return !m.lead_chef; });
   if (noLead.length) todo.push({ label:'Pick a lead chef for ' + noLead.length + ' menu' + (noLead.length === 1 ? '' : 's'), go:'briefs' });
-  var emptyRows = mpMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
+  var emptyRows = mainMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
   if (emptyRows.length) todo.push({ label:'Put ' + emptyRows.length + ' menu' + (emptyRows.length === 1 ? '' : 's') + ' on the calendar', go:'calendar' });
   var bareIdeas = mpBareIdeas();
   if (bareIdeas.length) todo.push({ label:'Finish ' + bareIdeas.length + ' quick idea' + (bareIdeas.length === 1 ? '' : 's') + ' — just needs a section', go:'dishes' });
@@ -549,20 +623,20 @@ function mpRenderPlan(){
       '<div class="mp-progress">' +
         mpStat(mpDishes.length, 'dishes logged') +
         mpStat(approved, 'approved') +
-        mpStat(menusWritten + ' / ' + mpMenus.length, 'menus written') +
+        mpStat(menusWritten + ' / ' + mainMenus.length, 'menus written') +
         mpStat(mpTastings.length, 'tasting' + (mpTastings.length === 1 ? '' : 's')) +
       '</div>' +
       '<div class="mp-progress-note">Add things as they come — there&rsquo;s no rush.</div>' +
     '</div>' +
 
-    // ── the two bars ──
+    // ── the two bars ── (his own goal, phrased as ambition — not a scorecard)
     '<div class="mp-card" id="plan-sprint">' +
-      '<div class="mp-card-h">The sprint</div>' +
+      '<div class="mp-card-h">' + (isChef ? 'My goal this season' : 'The sprint') + '</div>' +
       (tried >= tT && approved >= tA
-        ? '<div class="mp-celebrate">&#127881; <strong>Sprint goal hit.</strong> Both targets reached — keep going or ease off, your call.</div>'
+        ? '<div class="mp-celebrate">&#127881; <strong>Goal hit.</strong> Both targets reached — keep going or ease off, your call.</div>'
         : '') +
-      mpBar('Dishes tried', tried, tT, 'var(--mp-trying)') +
-      mpBar('Dishes approved', approved, tA, 'var(--mp-approved)') +
+      mpBar(isChef ? 'Dishes I’ve tried' : 'Dishes tried', tried, tT, 'var(--mp-trying)') +
+      mpBar(isChef ? 'Dishes approved' : 'Dishes approved', approved, tA, 'var(--mp-approved)') +
       '<div class="mp-sprint-meta">' +
         (mpSprint && (mpSprint.start_date || mpSprint.end_date)
           ? (mpSprint.start_date ? mpEsc(mpDateLabel(mpSprint.start_date)) : '?') + ' → ' + (mpSprint.end_date ? mpEsc(mpDateLabel(mpSprint.end_date)) : '?')
@@ -1769,26 +1843,94 @@ async function mpSaveCell(menuId, monthKey, clear){
 
 // ══ 4. MENU BRIEFS ═════════════════════════════════════════════════════════
 function mpRenderBriefs(){
+  var g = mpPlanGroups();
+  var mainCard = function(row){
+    if (row.group){
+      var m = mpSelVariant(row);
+      return '<div class="mp-card menu">' +
+        '<div class="mp-group-bar">' +
+          '<span class="mp-group-name">' + mpEsc(row.group) + '</span>' +
+          '<select class="mp-varsel" onchange="mpSelectVariant(\'' + mpEsc(row.group) + '\', this.value)">' +
+            row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === m.id ? ' selected' : '') + '>' + mpEsc(v.variant_label ? 'Variant ' + v.variant_label : v.name) + '</option>'; }).join('') +
+          '</select>' +
+          (mpCanAuthor() ? '<button class="mp-btn ghost small" onclick="mpGroupManage(\'' + mpEsc(row.group) + '\')">Variants</button>' : '') +
+        '</div>' +
+        mpBriefInner(m) +
+      '</div>';
+    }
+    return '<div class="mp-card menu">' + mpBriefInner(row.menu) + '</div>';
+  };
+
   return '<div class="mp-body">' +
-    '<div class="mp-hint">One card per menu. Say what it <em>is</em>, what it is made of, and who leads it. Set Menu shows one card — pick A, B or C at the top.</div>' +
-    mpMenuRows().map(function(row){
-      if (row.group){
-        var m = mpSelVariant(row);
-        return '<div class="mp-card menu">' +
-          '<div class="mp-group-bar">' +
-            '<span class="mp-group-name">' + mpEsc(row.group) + '</span>' +
-            '<select class="mp-varsel" onchange="mpSelectVariant(\'' + mpEsc(row.group) + '\', this.value)">' +
-              row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === m.id ? ' selected' : '') + '>' + mpEsc(v.variant_label ? 'Variant ' + v.variant_label : v.name) + '</option>'; }).join('') +
-            '</select>' +
-            (mpCanAuthor() ? '<button class="mp-btn ghost small" onclick="mpGroupManage(\'' + mpEsc(row.group) + '\')">Variants</button>' : '') +
-          '</div>' +
-          mpBriefInner(m) +
-        '</div>';
-      }
-      return '<div class="mp-card menu">' + mpBriefInner(row.menu) + '</div>';
-    }).join('') +
-    (mpCanAuthor() ? '<button class="mp-big ghost" onclick="mpAddMenu()">+ Add a menu</button>' : '') +
+
+    // ── lane 1: MAIN MENUS — the creative work, full cards ──
+    '<div class="mp-lane-h"><span class="mp-lane-title">My menus</span><span class="mp-lane-note">ongoing · you create these</span></div>' +
+    (g.mains.length
+      ? g.mains.map(mainCard).join('')
+      : '<div class="mp-empty">No menus of your own yet — add one below.</div>') +
+    (mpCanAuthor() ? '<button class="mp-big ghost" onclick="mpAddMenu()">+ Add a menu of my own</button>' : '') +
+
+    // ── lane 2: CAMPAIGNS — a theme with its dates nested inside ──
+    (g.campaigns.length
+      ? '<div class="mp-lane-h camp"><span class="mp-lane-title">Campaigns</span><span class="mp-lane-note">a season · a theme · its nights</span></div>' +
+        g.campaigns.map(mpCampaignCard).join('')
+      : '') +
+
+    // ── loose events (dated one-offs not tied to a season) ──
+    (g.looseEvents.length
+      ? '<div class="mp-lane-h camp"><span class="mp-lane-title">Events to cook for</span><span class="mp-lane-note">fixed dates · build from your dishes</span></div>' +
+        '<div class="mp-card menu"><div class="mp-eventlist">' + g.looseEvents.map(mpEventRow).join('') + '</div></div>'
+      : '') +
   '</div>';
+}
+// A campaign: theme header, the one core menu every night shares, then the
+// nested date rows. The heavy creative work is the core; the nights are light.
+function mpCampaignCard(b){
+  var c = b.campaign, core = b.core;
+  var pool = core ? mpMenuDishPool(core.name) : [];
+  var approved = pool.filter(function(d){ return MP_RANK[d.status] >= 3; }).length;
+  var range = (c.date_from ? mpDateLabel(c.date_from) : '') + (c.date_to ? ' – ' + mpDateLabel(c.date_to) : '');
+  return '<div class="mp-card camp">' +
+    '<div class="mp-camp-head">' +
+      '<div class="mp-camp-eyebrow">' + mpEsc(c.season_label || 'Campaign') + '</div>' +
+      '<div class="mp-camp-title">' + mpEsc(c.theme || c.title || 'Untitled campaign') + '</div>' +
+      (range ? '<div class="mp-camp-range">' + mpEsc(range) + '</div>' : '') +
+      (c.blurb ? '<div class="mp-camp-blurb">' + mpEsc(c.blurb) + '</div>' : '') +
+    '</div>' +
+    '<div class="mp-camp-body">' +
+      (core
+        ? '<button class="mp-camp-core" onclick="mpEditMenu(\'' + core.id + '\')">' +
+            '<div><div class="mp-camp-core-t">The festive menu</div>' +
+            '<div class="mp-camp-core-s">' + pool.length + ' dish' + (pool.length === 1 ? '' : 'es') + ' · ' + approved + ' approved · the core all nights share</div></div>' +
+            '<span class="mp-camp-core-go">Develop &rsaquo;</span>' +
+          '</button>'
+        : '') +
+      '<div class="mp-camp-datesh">Particular dates</div>' +
+      '<div class="mp-eventlist">' +
+        (b.events.length ? b.events.map(mpEventRow).join('') : '<div class="mp-empty">No dates yet.</div>') +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+// One dated event as a light row: date block, name, and the small job it needs.
+function mpEventRow(m){
+  var d = mpMenuEventDate(m);
+  var pool = mpMenuDishPool(m.name);
+  var wk = mpWeeksUntil(d);
+  var dishWord = pool.length + ' dish' + (pool.length === 1 ? '' : 'es');
+  var need = pool.length
+    ? (m.price ? dishWord + ' · ' + mpEsc(m.price)
+               : dishWord + ' chosen · set the price')
+    : (wk === 0 ? 'this week · build the menu' : 'not started · pick the dishes');
+  var needClass = pool.length && m.price ? 'ok' : (pool.length ? 'part' : '');
+  var dd = d ? String(d).slice(8,10).replace(/^0/,'') : '';
+  var mm = d ? MP_MON_NAMES[+String(d).slice(5,7)] : '';
+  return '<button class="mp-eventrow" onclick="mpEventBuild(\'' + m.id + '\')">' +
+    '<span class="mp-event-date">' + (d ? '<b>' + dd + '</b><em>' + mm + '</em>' : '<i class="mp-event-cal">&#128197;</i>') + '</span>' +
+    '<span class="mp-event-main"><span class="mp-event-name">' + mpEsc(m.name) + '</span>' +
+      '<span class="mp-event-need ' + needClass + '">' + mpEsc(need) + (wk !== null && wk > 0 ? ' · in ' + wk + ' wk' + (wk === 1 ? '' : 's') : '') + '</span></span>' +
+    '<span class="mp-event-go">&rsaquo;</span>' +
+  '</button>';
 }
 // The inner of a menu brief card (shared by standalone menus and group variants).
 function mpBriefInner(m){
@@ -1824,6 +1966,61 @@ function mpBriefInner(m){
     (mpCommentsFor('menu', m.id).length ? mpCommentBlock('menu', m.id, 'Comments (' + mpCommentsFor('menu', m.id).length + ')', true) : '');
 }
 const MP_MSTATUS_LABEL = { draft:'Draft', submitted:'Submitted', approved:'Approved', changes_requested:'Changes asked' };
+
+// The LIGHT build for an event menu — different, smaller work than a main menu.
+// The date is FIXED (it comes from the events calendar), so it's shown, not
+// edited. No identity/structure/cadence to fill: an event borrows its campaign's
+// theme. The job is just — pick dishes from the bank, set a price.
+function mpEventBuild(id){
+  var m = mpMenus.find(function(x){ return x.id === id; });
+  if (!m) return;
+  var canEdit = mpCanAuthor();
+  var d = mpMenuEventDate(m);
+  var camp = mpCampaignFor(m);
+  var pool = mpMenuDishPool(m.name);
+  var approved = pool.filter(function(x){ return MP_RANK[x.status] >= 3; }).length;
+  var oc = mpCommentsFor('menu', m.id);
+  mpSheet(m.name,
+    (camp ? '<div class="mp-hint">Part of <strong>' + mpEsc(camp.theme || camp.title) + '</strong> — it borrows that theme. You just pick the dishes and set the price.</div>' : '') +
+    '<div class="mp-eventfixed">' +
+      '<i class="mp-event-cal">&#128197;</i>' +
+      '<div><div class="mp-eventfixed-d">' + (d ? mpEsc(mpDateLabel(d)) : 'No date set') + '</div>' +
+      '<div class="mp-eventfixed-n">Fixed date — comes from the events calendar</div></div>' +
+    '</div>' +
+
+    '<div class="mp-eventdishes">' +
+      '<div class="mp-eventdishes-h"><span>Its dishes</span><b>' + pool.length + ' chosen · ' + approved + ' approved</b></div>' +
+      (pool.length
+        ? '<div class="mp-eventdishes-list">' + pool.slice(0,6).map(function(x){ return '<span class="mp-tag">' + mpEsc(x.name_it) + '</span>'; }).join('') +
+          (pool.length > 6 ? '<span class="mp-tag more">+' + (pool.length - 6) + '</span>' : '') + '</div>'
+        : '<div class="mp-empty">No dishes on it yet.</div>') +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet();mpMenuDishes(\'' + m.id + '\')">' + (pool.length ? 'See / choose its dishes' : 'Choose its dishes') + '</button>' +
+    '</div>' +
+
+    '<label class="mp-lab">Price <em>(per person)</em></label>' +
+    (canEdit
+      ? '<input class="mp-in" id="mpev-price" value="' + mpEsc(m.price || '') + '" placeholder="AED 395 per person"/>'
+      : '<div class="mp-readval">' + (m.price ? mpEsc(m.price) : '<em>not set</em>') + '</div>') +
+
+    mpFilesStrip(m.id) +
+
+    '<div class="mp-sheet-actions">' +
+      (canEdit ? '<button class="mp-btn go" onclick="mpSaveEventBuild(\'' + m.id + '\')">Save</button>' +
+        '<button class="mp-btn ghost" onclick="mpCloseSheet();mpPickMenuFile(\'' + m.id + '\')">&#128206; Attach menu doc</button>' : '') +
+      (mpIsApprover() ? '<button class="mp-btn go small" onclick="mpApproveMenu(\'' + m.id + '\')"' + (m.status === 'approved' ? ' disabled' : '') + '>Approve</button>' : '') +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (canEdit ? 'Cancel' : 'Close') + '</button>' +
+    '</div>' +
+    (oc.length ? mpCommentBlock('menu', m.id, 'Comments (' + oc.length + ')', true) : ''));
+}
+async function mpSaveEventBuild(id){
+  var el = document.getElementById('mpev-price');
+  var res = await sb.from('menu_plan_menus').update({
+    price: (el && el.value || '').trim() || null,
+    updated_at: new Date().toISOString(), updated_by: mpMe.name
+  }).eq('id', id);
+  if (mpErr(res, 'the menu')) return;
+  mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast('Saved');
+}
 
 // Delete a menu — names the consequence (calendar row, docs, dish tags) first.
 async function mpDeleteMenu(id){
@@ -2773,6 +2970,47 @@ const MP_STYLE = `<style id="mp-style">
 .mp-menu-facts span{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--mp-mute);display:flex;flex-direction:column;gap:1px}
 .mp-menu-facts b{font-family:'Forum',Georgia,serif;font-size:15px;letter-spacing:0;text-transform:none;color:var(--mp-maroon)}
 .mp-menu-actions{display:flex;gap:7px;flex-wrap:wrap;padding:0 14px 13px}
+
+/* two lanes: main menus (heavy) vs campaigns/events (light) */
+.mp-lane-h{display:flex;align-items:baseline;gap:9px;margin:6px 2px 2px}
+.mp-lane-h.camp{margin-top:16px}
+.mp-lane-title{font-family:'Forum',Georgia,serif;font-size:18px;color:var(--mp-maroon)}
+.mp-lane-note{font-size:11px;color:var(--mp-mute)}
+/* campaign card — a season with a theme + nested dates */
+.mp-card.camp{padding:0;overflow:hidden}
+.mp-camp-head{background:var(--mp-maroon);padding:14px 15px}
+.mp-camp-eyebrow{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#E0B5A0}
+.mp-camp-title{font-family:'Forum',Georgia,serif;font-size:21px;color:#fff;line-height:1.1;margin-top:2px}
+.mp-camp-range{font-size:11px;color:#EBC7B6;margin-top:3px}
+.mp-camp-blurb{font-size:12px;color:#F0DCCF;margin-top:6px;line-height:1.45}
+.mp-camp-body{padding:12px 14px 13px}
+.mp-camp-core{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:11px;padding:11px 12px;cursor:pointer}
+.mp-camp-core-t{font-family:'Forum',Georgia,serif;font-size:15px;color:var(--mp-maroon)}
+.mp-camp-core-s{font-size:11px;color:var(--mp-mute);margin-top:2px}
+.mp-camp-core-go{margin-left:auto;font-size:12px;color:var(--mp-orange);font-weight:600;white-space:nowrap}
+.mp-camp-datesh{font-size:9.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--mp-mute);margin:13px 0 6px}
+/* event rows — light, date-led */
+.mp-eventlist{display:flex;flex-direction:column;gap:7px}
+.mp-eventrow{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:10px;padding:9px 11px;cursor:pointer;font-family:'Outfit',sans-serif}
+.mp-event-date{flex:none;width:38px;text-align:center;line-height:1}
+.mp-event-date b{font-family:'Forum',Georgia,serif;font-size:16px;color:var(--mp-maroon);display:block}
+.mp-event-date em{font-style:normal;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--mp-mute)}
+.mp-event-cal{font-size:17px;filter:grayscale(.2)}
+.mp-event-main{flex:1;min-width:0;border-left:1px solid var(--mp-line);padding-left:11px}
+.mp-event-name{display:block;font-size:13.5px;color:var(--mp-ink);font-weight:500}
+.mp-event-need{display:block;font-size:10.5px;color:var(--mp-mute);margin-top:1px}
+.mp-event-need.ok{color:var(--mp-banked)}
+.mp-event-need.part{color:var(--mp-costing)}
+.mp-event-go{flex:none;color:var(--mp-mute);font-size:20px;line-height:1}
+/* event build sheet — fixed date + light job */
+.mp-eventfixed{display:flex;align-items:center;gap:11px;background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:11px;padding:11px 12px;margin:6px 0 2px}
+.mp-eventfixed .mp-event-cal{font-size:22px}
+.mp-eventfixed-d{font-family:'Forum',Georgia,serif;font-size:16px;color:var(--mp-maroon)}
+.mp-eventfixed-n{font-size:10.5px;color:var(--mp-mute);margin-top:1px}
+.mp-eventdishes{margin-top:14px;border-top:1px solid var(--mp-line);padding-top:12px}
+.mp-eventdishes-h{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--mp-mute);margin-bottom:8px}
+.mp-eventdishes-h b{font-family:'Forum',Georgia,serif;font-size:13px;letter-spacing:0;text-transform:none;color:var(--mp-maroon)}
+.mp-eventdishes-list{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
 
 /* menu documents (uploaded Word / PDF) */
 .mp-files{margin-top:11px;border-top:1px solid var(--mp-line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
