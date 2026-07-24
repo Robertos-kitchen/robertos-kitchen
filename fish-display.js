@@ -39,7 +39,17 @@ async function loadFishDisplay(){
   const it = await sb.from('fish_display_items').select('*').eq('active', true).order('kind').order('sort_order');
   fdItems = (it.data || []);
   const sh = await sb.from('fish_display_sheet').select('doc').eq('biz_date', fdBizDate).maybeSingle();
-  fdDoc = fdNormalise(sh && sh.data ? sh.data.doc : null);
+  if(sh && sh.data){
+    fdDoc = fdNormalise(sh.data.doc);
+  } else {
+    // No sheet for today yet — carry the most recent previous day's sheet forward so the
+    // Fish of the Day list stays exactly as the team left it (they adjust/clear what changed),
+    // instead of resetting to blank every morning. Yesterday's row is left untouched; the
+    // moment anyone edits today, an upsert creates today's own row (biz_date=TODAY).
+    const prev = await sb.from('fish_display_sheet').select('doc')
+      .lt('biz_date', fdBizDate).order('biz_date',{ ascending:false }).limit(1).maybeSingle();
+    fdDoc = fdNormalise(prev && prev.data ? prev.data.doc : null);
+  }
 }
 function fdFish(){ return fdItems.filter(i=>i.kind==='fish'); }
 function fdCav(){ return fdItems.filter(i=>i.kind==='caviar'); }
@@ -94,19 +104,67 @@ async function fdAddMaster(name, kind){
   fdItems.push(data);
   return data;
 }
-// move a standing item up/down within its kind; renumbers the pool so
-// duplicate sort_orders self-heal, then writes only the rows that changed
-async function fdMoveItem(id, dir){
-  const it = fdItems.find(i=>i.id===id); if(!it) return;
-  const pool = fdItems.filter(i=>i.kind===it.kind).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
-  const idx = pool.findIndex(i=>i.id===id);
-  const to = idx + dir;
-  if(to < 0 || to >= pool.length) return;
-  pool.splice(idx,1); pool.splice(to,0,it);
+// ── drag-to-reorder (touch + mouse) ──────────────────────────────────────────
+// Grab a row's grip and drop it anywhere in its list — no more one-step arrows.
+// Works with finger or mouse via Pointer Events; reorders the rows live in the
+// DOM while dragging, then on drop renumbers the standing pool (sort_order *10 so
+// duplicates self-heal) and writes only the rows that changed. Fish and caviar
+// live in separate columns, so a drag can never cross between the two kinds.
+let fdDrag = null;   // { id, kind, rowEl, container }
+function fdGripDown(e, id, kind){
+  if(e.button && e.button!==0) return;                 // primary button / touch only
+  e.preventDefault(); e.stopPropagation();
+  const host = document.getElementById('fish-view'); if(!host) return;
+  const rowEl = host.querySelector('.fd-row[data-id="'+id+'"]'); if(!rowEl) return;
+  fdDrag = { id, kind, rowEl, container: rowEl.parentNode };
+  rowEl.classList.add('fd-dragging');
+  document.body.classList.add('fd-dragging-active');
+  document.addEventListener('pointermove', fdGripMove, { passive:false });
+  document.addEventListener('pointerup', fdGripUp, true);
+  document.addEventListener('pointercancel', fdGripUp, true);
+}
+function fdDragRows(container, dragEl){
+  return Array.from(container.querySelectorAll('.fd-row[data-id]'))
+    .filter(r=>r!==dragEl && !r.classList.contains('fd-writein'));
+}
+function fdGripMove(e){
+  if(!fdDrag) return;
+  e.preventDefault();                                  // stop the page scrolling under the finger
+  const { container, rowEl } = fdDrag;
+  const y = e.clientY;
+  let before = null, closest = -Infinity;              // nearest row whose mid-point is below the pointer
+  for(const r of fdDragRows(container, rowEl)){
+    const box = r.getBoundingClientRect();
+    const off = y - (box.top + box.height/2);
+    if(off < 0 && off > closest){ closest = off; before = r; }
+  }
+  if(before){ if(rowEl.nextSibling!==before) container.insertBefore(rowEl, before); }
+  else {                                               // past the last fish → drop before the blank write-in rows
+    const blank = container.querySelector('.fd-row.fd-writein');
+    if(blank){ if(rowEl.nextSibling!==blank) container.insertBefore(rowEl, blank); }
+    else container.appendChild(rowEl);
+  }
+}
+async function fdGripUp(){
+  if(!fdDrag) return;
+  const { container, rowEl, kind } = fdDrag;
+  document.removeEventListener('pointermove', fdGripMove, { passive:false });
+  document.removeEventListener('pointerup', fdGripUp, true);
+  document.removeEventListener('pointercancel', fdGripUp, true);
+  rowEl.classList.remove('fd-dragging');
+  document.body.classList.remove('fd-dragging-active');
+  fdDrag = null;
+  const orderedIds = Array.from(container.querySelectorAll('.fd-row[data-id]'))
+    .filter(r=>!r.classList.contains('fd-writein')).map(r=>r.getAttribute('data-id'));
+  const pool = fdItems.filter(i=>i.kind===kind);
+  const byId = {}; pool.forEach(p=>byId[p.id]=p);
+  const reordered = orderedIds.map(id=>byId[id]).filter(Boolean);
+  if(reordered.length!==pool.length){ await loadFishDisplay(); renderFishDisplay(); return; }
   const changed = [];
-  pool.forEach((p,k)=>{ const want=(k+1)*10; if(p.sort_order!==want){ p.sort_order=want; changed.push(p); } });
+  reordered.forEach((p,k)=>{ const want=(k+1)*10; if(p.sort_order!==want){ p.sort_order=want; changed.push(p); } });
   fdItems.sort((a,b)=> a.kind===b.kind ? (a.sort_order||0)-(b.sort_order||0) : (a.kind<b.kind?-1:1));
   renderFishDisplay();
+  if(!changed.length) return;                          // dropped back where it started
   const res = await Promise.all(changed.map(p=>sb.from('fish_display_items').update({sort_order:p.sort_order}).eq('id',p.id)));
   if(res.some(r=>r&&r.error)){ await loadFishDisplay(); renderFishDisplay(); }
 }
@@ -137,7 +195,7 @@ function renderFishDisplay(){
   const fishRows = fish.map((it,r)=>{
     const e = fdDoc.entries[it.id] || {};
     return `<div class="fd-row" data-id="${it.id}">
-      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" data-grid="fish" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-mv up" title="Move up" onclick="fdMoveItem('${it.id}',-1)">▲</span><span class="fd-mv dn" title="Move down" onclick="fdMoveItem('${it.id}',1)">▼</span><span class="fd-del" title="Remove from list" onclick="fdDelItem('${it.id}')">×</span></div>
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-fish" data-grid="fish" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-grip" title="Drag to reorder" onpointerdown="fdGripDown(event,'${it.id}','fish')">⠿</span><span class="fd-del" title="Remove from list" onclick="fdDelItem('${it.id}')">×</span></div>
       ${fdNumIn('fish',r,1,it.id,'qty',e.qty)}${fdNumIn('fish',r,2,it.id,'kg',e.kg)}${fdNumIn('fish',r,3,it.id,'price',e.price)}
     </div>`;
   }).join('');
@@ -154,7 +212,7 @@ function renderFishDisplay(){
   const cavRows = cav.map((it,r)=>{
     const e = fdDoc.entries[it.id] || {};
     return `<div class="fd-row fd-cav" data-id="${it.id}">
-      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" data-grid="cav" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-mv up" title="Move up" onclick="fdMoveItem('${it.id}',-1)">▲</span><span class="fd-mv dn" title="Move down" onclick="fdMoveItem('${it.id}',1)">▼</span><span class="fd-del" title="Remove" onclick="fdDelItem('${it.id}')">×</span></div>
+      <div class="fd-namecell"><input class="fd-in fd-namein" list="fd-dl-cav" data-grid="cav" data-r="${r}" data-c="0" data-id="${it.id}" data-f="name" value="${fdEsc(it.name)}"><span class="fd-grip" title="Drag to reorder" onpointerdown="fdGripDown(event,'${it.id}','caviar')">⠿</span><span class="fd-del" title="Remove" onclick="fdDelItem('${it.id}')">×</span></div>
       ${fdNumIn('cav',r,1,it.id,'qty',e.qty)}${fdNumIn('cav',r,2,it.id,'gr',e.gr)}
     </div>`;
   }).join('');
@@ -385,9 +443,11 @@ const FD_STYLE = `<style id="fd-style">
 .fd-name:hover,.fd-cell:hover{background:var(--sabbia-light)}
 .fd-del{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:19px;height:19px;line-height:17px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:14px;opacity:.4;transition:opacity .12s;cursor:pointer;z-index:2}
 .fd-row:hover .fd-del,.fd-lb-cell:hover .fd-del{opacity:1}.fd-del:hover{background:var(--vino);color:var(--cream);opacity:1}
-.fd-mv{position:absolute;top:50%;transform:translateY(-50%);width:19px;height:19px;line-height:18px;text-align:center;border-radius:50%;background:var(--sabbia-dark);color:var(--vino);font-size:10px;opacity:.4;transition:opacity .12s;cursor:pointer;z-index:2;user-select:none}
-.fd-mv.up{right:47px}.fd-mv.dn{right:26px}
-.fd-row:hover .fd-mv{opacity:1}.fd-mv:hover{background:var(--vino);color:var(--cream);opacity:1}
+.fd-grip{position:absolute;right:30px;top:50%;transform:translateY(-50%);width:28px;height:28px;line-height:28px;text-align:center;border-radius:6px;background:var(--sabbia-dark);color:var(--vino);font-size:16px;opacity:.55;transition:opacity .12s,background .12s;cursor:grab;z-index:2;user-select:none;touch-action:none}
+.fd-row:hover .fd-grip{opacity:1}.fd-grip:hover{background:var(--vino);color:var(--cream);opacity:1}.fd-grip:active{cursor:grabbing;background:var(--vino);color:var(--cream);opacity:1}
+.fd-row.fd-dragging{opacity:.95;background:var(--sabbia-light);box-shadow:0 6px 18px rgba(66,2,7,.22);border-radius:6px;position:relative;z-index:50}
+body.fd-dragging-active{cursor:grabbing;user-select:none}
+body.fd-dragging-active .fd-in{pointer-events:none}
 /* inline Excel-style inputs */
 .fd-namecell{position:relative;display:flex;align-items:center;overflow:hidden}
 .fd-in{width:100%;border:none;background:transparent;font-family:var(--font-sans);color:var(--ink);padding:8px 6px;-webkit-appearance:none;border-radius:0}
