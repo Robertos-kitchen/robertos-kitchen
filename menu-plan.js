@@ -97,6 +97,7 @@ function mpFileSize(bytes){
 }
 let mpTab      = 'plan'; // plan | dishes | calendar | briefs | tastings
 let mpBoardView = 'list';// list | board  (list is the phone default)
+let mpCalView  = 'list'; // list | grid  (list is the calm phone default)
 let mpFilter   = { section:'', menu:'', status:'', q:'' };
 let mpDishFiles = {};    // dish_id -> [ cost-sheet file rows ]
 let mpGroupSel  = {};    // menu_group -> selected variant menu id (calendar/briefs)
@@ -660,7 +661,11 @@ function mpRenderDishes(){
   };
 
   return '<div class="mp-body">' +
-    (mpCanAuthor() ? '<button class="mp-big" onclick="mpAddDish()">+ Add a dish</button>' : '') +
+    (mpCanAuthor()
+      ? '<div class="mp-addrow-two">' +
+          '<button class="mp-big" onclick="mpQuickIdea()">&#9889; Quick idea</button>' +
+          '<button class="mp-big ghost" onclick="mpAddDish()">+ Add a dish</button>' +
+        '</div>' : '') +
 
     // cost controller / anyone: send the ready cost sheets on to costing
     (mpCanAuthor() && costingReady.length
@@ -791,16 +796,30 @@ function mpStatusMenu(id, ev){
   var d = mpDishes.find(function(x){ return x.id === id; });
   if (!d) return;
   if (!mpCanAuthor()){ mpToast('Only chefs and Francesco change a dish’s stage.', true); return; }
+  // A locked stage (Approved, for a chef) is NOT a dead button — it stays
+  // tappable and explains the path instead of just sitting there greyed.
   mpSheet('Move “' + d.name_it + '”',
     '<div class="mp-statuslist">' + MP_STATUSES.map(function(s){
       var allowed = mpCanSetStatus(s);
       return '<button class="mp-statusrow' + (d.status === s ? ' now' : '') + (allowed ? '' : ' locked') + '"' +
-        (allowed ? ' onclick="mpCloseSheet();mpSetDishStatus(\'' + id + '\',\'' + s + '\')"' : ' disabled') + '>' +
+        (allowed ? ' onclick="mpCloseSheet();mpSetDishStatus(\'' + id + '\',\'' + s + '\')"'
+                 : ' onclick="mpExplainApprove(\'' + id + '\')"') + '>' +
         '<span class="mp-chip s-' + s.toLowerCase() + '">' + s + '</span>' +
         '<span class="mp-statusnote">' + mpEsc(MP_STATUS_NOTE[s]) + '</span>' +
-        (allowed ? '' : '<span class="mp-locked">Only Francesco can do this</span>') +
+        (allowed ? '' : '<span class="mp-locked">Francesco approves &rsaquo;</span>') +
       '</button>';
     }).join('') + '</div>');
+}
+// The "handle" on the locked Approved row: tell the chef exactly how it gets
+// approved, and offer the action that leads there (book it into a tasting).
+function mpExplainApprove(dishId){
+  var d = mpDishes.find(function(x){ return x.id === dishId; });
+  mpSheet('Getting “' + (d ? d.name_it : 'this') + '” approved',
+    '<div class="mp-hint">You take a dish as far as <strong>Testing</strong>. Francesco does the final <strong>Approve</strong> — usually at a tasting, once he’s tried it. Your work up to then is all saved.</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpCloseSheet();mpGo(\'tastings\')">Book it into a tasting</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Got it</button>' +
+    '</div>');
 }
 const MP_STATUS_NOTE = {
   Idea:     'Written down, not cooked yet',
@@ -828,6 +847,30 @@ async function mpSetDishStatus(id, status){
 // a chef with flour on their hands must be able to log a dish in ten seconds.
 function mpAddDish(){ mpDishForm(null); }
 function mpOpenDish(id){ mpDishForm(mpDishes.find(function(x){ return x.id === id; }) || null); }
+
+// One-tap capture for mid-service: just a name, straight into Idea. Everything
+// else (section, photo, allergens) gets filled in later — a chef with flour on
+// their hands must be able to save a thought in five seconds.
+function mpQuickIdea(){
+  mpSheet('Quick idea',
+    '<div class="mp-hint">Just the name for now — you can flesh it out anytime.</div>' +
+    '<input class="mp-in" id="mpq-name" placeholder="e.g. Scampi crudo, lime &amp; pink pepper" autocomplete="off"/>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpSaveQuickIdea()">Save idea</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
+    '</div>');
+  setTimeout(function(){ var el = document.getElementById('mpq-name'); if (el) el.focus(); }, 40);
+}
+async function mpSaveQuickIdea(){
+  var name = (document.getElementById('mpq-name').value || '').trim();
+  if (!name){ mpToast('Type a name first.', true); document.getElementById('mpq-name').focus(); return; }
+  var res = await sb.from('menu_plan_dishes').insert({
+    name_it:name, section:'Other', status:'Idea', created_by:mpMe.name, updated_by:mpMe.name
+  }).select().single();
+  if (mpErr(res, 'the idea')) return;
+  if (res && res.data) mpDishes.unshift(res.data);
+  mpCloseSheet(); mpRender(); mpToast(name + ' saved — flesh it out anytime');
+}
 
 function mpDishForm(d){
   var isNew = !d;
@@ -903,6 +946,11 @@ function mpDishForm(d){
 
     // ── costing (only once a dish is Approved / in Costing) ──
     (inCosting ? mpCostingBlock(d) : '') +
+
+    // ── what's yours vs whose (reassurance, chefs only) ──
+    (canEdit && mpMe.role === 'chef'
+      ? '<div class="mp-owns">You can change everything on this dish. <strong>Francesco</strong> does the final Approve; <strong>Aht We</strong> does the costing.</div>'
+      : '') +
 
     (canEdit
       ? '<div class="mp-sheet-actions">' +
@@ -1212,15 +1260,67 @@ async function mpSaveCosted(dishId){
 
 // ══ 3. MENU CALENDAR ═══════════════════════════════════════════════════════
 function mpRenderCalendar(){
+  var isList = mpCalView === 'list';
   return '<div class="mp-body">' +
-    '<div class="mp-hint">Rows are menus, columns are months. Tap a square to set what happens; tap a menu name to edit or delete it.</div>' +
+    '<div class="mp-calhead">' +
+      '<div class="mp-hint">' + (isList
+        ? 'Each menu and when it happens. Tap a month to change it, or add one.'
+        : 'Rows are menus, columns are months. Tap a square to set it; tap a menu name to edit or delete.') + '</div>' +
+      '<span class="mp-viewtog">' +
+        '<button class="' + (isList ? 'on' : '') + '" onclick="mpSetCalView(\'list\')">List</button>' +
+        '<button class="' + (isList ? '' : 'on') + '" onclick="mpSetCalView(\'grid\')">Wide grid</button>' +
+      '</span>' +
+    '</div>' +
     '<div class="mp-legend">' + MP_CELL_STATES.map(function(s){
       return '<span class="mp-leg"><i class="mp-sw c-' + s.toLowerCase() + '"></i>' + s + '</span>';
     }).join('') + '<span class="mp-leg"><i class="mp-sw c-none"></i>Nothing</span></div>' +
-    mpCalendarGrid() +
+    (isList ? mpCalendarList() : mpCalendarGrid()) +
     (mpMenus.length === 0 ? '<div class="mp-empty big">No menus yet — add one below.</div>' : '') +
     (mpCanAuthor() ? '<button class="mp-big ghost" onclick="mpAddMenu()">+ Add a menu</button>' : '') +
   '</div>';
+}
+function mpSetCalView(v){ mpCalView = v; mpRender(); }
+
+// Per-menu list — the calm, phone-first view. One card per menu (grouped menus
+// keep the A/B/C dropdown); its scheduled months shown as tappable chips.
+function mpCalendarList(){
+  return '<div class="mp-callist">' + mpMenuRows().map(function(row){
+    var menu = row.group ? mpSelVariant(row) : row.menu;
+    var cells = mpCal.filter(function(c){ return c.menu_id === menu.id; })
+      .map(function(c){ return { c:c, i: MP_MONTHS.findIndex(function(m){ return m.key === String(c.month).slice(0,10); }) }; })
+      .filter(function(x){ return x.i >= 0; })
+      .sort(function(a,b){ return a.i - b.i; });
+    return '<div class="mp-calrow">' +
+      '<div class="mp-calrow-h">' +
+        (row.group
+          ? '<span class="mp-cal-group"><button class="mp-cal-namebtn" onclick="mpGroupManage(\'' + mpEsc(row.group) + '\')">' + mpEsc(row.group) + '</button>' +
+            '<select class="mp-varsel" onchange="mpSelectVariant(\'' + mpEsc(row.group) + '\', this.value)">' +
+              row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === menu.id ? ' selected' : '') + '>' + mpEsc(v.variant_label || v.name) + '</option>'; }).join('') +
+            '</select></span>'
+          : '<button class="mp-cal-namebtn" onclick="mpMenuActions(\'' + menu.id + '\')">' + mpEsc(menu.name) + '</button>') +
+      '</div>' +
+      '<div class="mp-calchips">' +
+        (cells.length
+          ? cells.map(function(x){
+              var day = mpCellDayLabel(x.c);
+              return '<button class="mp-calchip c-' + x.c.state.toLowerCase() + '" onclick="mpCellMenu(\'' + menu.id + '\',\'' + MP_MONTHS[x.i].key + '\')">' +
+                MP_MON_NAMES[MP_MONTHS[x.i].m] + ' · ' + x.c.state + (day ? ' ' + day : '') + '</button>';
+            }).join('')
+          : '<span class="mp-fine">Nothing scheduled yet.</span>') +
+        (mpCanAuthor() ? '<button class="mp-calchip add" onclick="mpAddCalMonth(\'' + menu.id + '\')">+ month</button>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('') + '</div>';
+}
+// Pick which month to set for a menu (used by the list view's "+ month").
+function mpAddCalMonth(menuId){
+  var menu = mpMenus.find(function(m){ return m.id === menuId; });
+  mpSheet((menu ? mpEsc(menu.name) : '') + ' — which month?',
+    '<div class="mp-monthgrid">' + MP_MONTHS.map(function(m){
+      var set = mpCellObj(menuId, m.key);
+      return '<button class="mp-monthbtn' + (set ? ' set c-' + set.state.toLowerCase() : '') + '" onclick="mpCloseSheet();mpCellMenu(\'' + menuId + '\',\'' + m.key + '\')">' +
+        MP_MON_NAMES[m.m] + '<em>' + String(m.y).slice(2) + '</em></button>';
+    }).join('') + '</div>');
 }
 
 // The shared grid — used by the Calendar tab AND The Plan. Grouped menus
@@ -1436,8 +1536,8 @@ async function mpDeleteMenu(id){
   var tagged = mpDishes.filter(function(d){ return (d.for_menus || []).includes(m.name); }).length;
   var ok = await mpConfirm('Delete “' + m.name + '”?',
     'It clears this menu’s calendar row and any uploaded documents' +
-    (tagged ? ', and untags it from ' + tagged + ' dish' + (tagged === 1 ? '' : 'es') + ' (the dishes stay)' : '') +
-    '. This cannot be undone.', 'Delete');
+    (tagged ? ', and untags it from ' + tagged + ' dish' + (tagged === 1 ? '' : 'es') : '') +
+    '. Your dishes themselves stay in Dishes — nothing you cooked is lost. This cannot be undone.', 'Delete');
   if (!ok) return;
   // clean up storage objects for this menu's docs (DB rows cascade)
   var files = mpFilesFor(id);
@@ -2169,8 +2269,30 @@ const MP_STYLE = `<style id="mp-style">
 .mp-dish.on-board .mp-dish-main{flex-direction:column}
 
 /* calendar */
+.mp-calhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mp-calhead .mp-hint{flex:1;min-width:160px}
 .mp-legend{display:flex;gap:11px;flex-wrap:wrap;font-size:11.5px;color:var(--mp-mute)}
 .mp-leg{display:inline-flex;align-items:center;gap:5px}
+/* two-up action row (Quick idea / Add a dish) */
+.mp-addrow-two{display:flex;gap:8px}
+.mp-addrow-two .mp-big{flex:1}
+/* ownership reassurance */
+.mp-owns{font-size:12px;color:var(--mp-mute);background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:9px;padding:9px 11px;margin-top:14px;line-height:1.45}
+.mp-owns strong{color:var(--mp-maroon)}
+/* calendar LIST view */
+.mp-callist{display:flex;flex-direction:column;gap:8px}
+.mp-calrow{background:#fff;border:1px solid var(--mp-line);border-radius:11px;padding:11px 12px}
+.mp-calrow-h{margin-bottom:7px}
+.mp-calrow-h .mp-cal-namebtn{font-family:'Forum',Georgia,serif;font-size:17px;color:var(--mp-maroon);text-decoration:none;padding:0}
+.mp-calchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.mp-calchip{border:none;color:#fff;border-radius:20px;padding:6px 11px;font:600 11.5px 'Outfit',sans-serif;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mp-calchip.add{background:#fff;color:var(--mp-maroon);border:1px dashed var(--mp-line);font-weight:500}
+.mp-calchip:active{transform:scale(.96)}
+/* month picker */
+.mp-monthgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.mp-monthbtn{background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:9px;padding:11px 4px;font:600 13px 'Outfit',sans-serif;color:var(--mp-ink);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
+.mp-monthbtn em{font-style:normal;font-size:9px;color:var(--mp-mute)}
+.mp-monthbtn.set{color:#fff;border-color:transparent}.mp-monthbtn.set em{color:rgba(255,255,255,.85)}
 .mp-sw,.mp-swatch{width:13px;height:13px;border-radius:3px;display:inline-block;flex:none;border:1px solid rgba(0,0,0,.08)}
 .mp-swatch{width:20px;height:20px}
 .c-develop{background:var(--mp-develop)}.c-testing{background:var(--mp-testing)}.c-photoshooting{background:var(--mp-photoshooting)}
