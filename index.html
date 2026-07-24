@@ -1189,10 +1189,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button type="button" class="home-toggle mgmt-toggle" id="mgmt-toggle" onclick="toggleHomePanel('mgmt')">
     <span class="home-chev" id="mgmt-chev">&#9662;</span>
     <span class="home-toggle-label">Management</span>
-    <span class="home-chips"><span class="home-chip">Closing Report</span><span class="home-chip">Team Survey</span></span>
+    <span class="home-chips"><span class="home-chip">Closing Report</span><span class="home-chip">Menu Plan</span><span class="home-chip">Team Survey</span></span>
   </button>
   <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:none">
     <button class="home-tile compact mgmt" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
+    <button class="home-tile compact mgmt" type="button" onclick="openMenuPlan()"><span class="home-code">MENU</span><span><span class="home-name">Menu Development Plan</span><span class="home-meta">Dish bank, year calendar, approvals</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
   </div>
   </div>
@@ -1251,6 +1252,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="recipes-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
+<div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
 <div id="team-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
 <div class="content" id="content"></div>
 
@@ -1302,6 +1304,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   function openClosingReport(){ lazyLoad('closing-report.js?v=1784570000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
   function openTeam(){ lazyLoad('team.js?v=1784460000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
   function openStockTake(){ lazyLoad('stock-take.js?v=1784460000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1786250000').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1318,7 +1321,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1785997000"></script>
+<script src="app.js?v=1786250000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

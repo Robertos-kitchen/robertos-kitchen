@@ -214,6 +214,107 @@ serve(async (req) => {
       }), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- DAY SHEET MODE: the whole book for one date, as the hosts see it ----
+    // ?daysheet=YYYY-MM-DD → one entry per reservation with everything the FOH
+    // "Reservations" module shows: time, guest, covers, table, seating area,
+    // status, notes, who booked it and when. Grouped by seating area with
+    // per-area counts, so a manager gets the full picture of a night without
+    // opening SevenRooms and without needing a SevenRooms seat.
+    //
+    // READ-ONLY, and deliberately NOT the full guest record:
+    //   • phone is returned MASKED (last 4 digits only) — enough to match a guest
+    //     on the phone, useless if the payload ever leaks. Never the full number.
+    //   • email, address, loyalty and the marketing opt-ins are never returned.
+    // The FOH side gates the whole module per user (app_users.modules), but the
+    // masking happens HERE so the browser is never handed data it shouldn't hold.
+    const daysheet = reqUrl.searchParams.get("daysheet");
+    if (daysheet) {
+      const rows = await fetchReservations(token, venueGroupId, daysheet, daysheet);
+      const SEATED_NOW = new Set(["ARRIVED", "SEATED"]);
+      const DONE = new Set(["COMPLETE", "PAID"]);
+      const out: any[] = [];
+      let covers = 0, seatedPax = 0, upcomingPax = 0, completedPax = 0;
+      for (const r of rows) {
+        const st = String(r.status || "").toUpperCase();
+        if (EXCLUDE.has(st)) continue;                  // drop cancel / no-show
+        const pax = Number(r.max_guests) || 0;
+        const state = DONE.has(st) ? "completed" : SEATED_NOW.has(st) ? "seated" : "upcoming";
+        covers += pax;
+        if (state === "completed") completedPax += pax;
+        else if (state === "seated") seatedPax += pax;
+        else upcomingPax += pax;
+        // The note a host would read off the booking. SevenRooms spreads this over
+        // several fields and any of them can be empty, so join whichever exist and
+        // label them the way the SevenRooms grid does. Line breaks are collapsed:
+        // this lands in a single-line table cell, and a raw "\n" would show as a gap.
+        //
+        // `tags` is deliberately NOT included: verified 23 Jul against the live
+        // book, it is an array of OBJECTS holding exactly the same tags that
+        // reservation_type already gives us as readable text (Alberto = 2 tags /
+        // 2 objects, Fatma = 3 / 3, and so on). Joining it printed "[object
+        // Object]" on 6 of 13 bookings AND duplicated the text beside it.
+        const clean = (v: unknown) => String(v).replace(/\s+/g, " ").trim();
+        const noteBits: string[] = [];
+        if (r.notes) noteBits.push(clean(r.notes));
+        if (r.client_requests) noteBits.push("Guest: " + clean(r.client_requests));
+        if (r.reservation_type) noteBits.push(clean(r.reservation_type));
+        const tables = Array.isArray(r.table_numbers)
+          ? r.table_numbers.map(String).filter(Boolean)
+          : (r.table_numbers ? [String(r.table_numbers)] : []);
+        // Money only if a check is actually linked — an unlinked booking must show
+        // blank, never a misleading 0.
+        const tickets = Array.isArray(r.pos_tickets) ? r.pos_tickets : [];
+        let posTotal = 0;
+        for (const t of tickets) posTotal += Number(t.total) || 0;
+        const spend = posTotal || Number(r.total_payment) || Number(r.onsite_payment_total) || 0;
+        const phone = String(r.phone_number || "").replace(/\D/g, "");
+        out.push({
+          time: String(r.real_datetime_of_slot || "").slice(11, 16) || String(r.arrival_time || ""),
+          // clean() here too — a trailing space on first_name would otherwise
+          // print "Standard  Chartered Bank" with a double gap.
+          name: clean(`${r.first_name || ""} ${r.last_name || ""}`) || "Guest",
+          pax,
+          arrived: r.arrived_guests != null ? Number(r.arrived_guests) : null,
+          tables,
+          area: r.venue_seating_area_name || null,
+          shift: r.shift_category || null,
+          status: st,
+          // What SevenRooms prints in its own STATUS column ("Do Not Move",
+          // "Awaiting Cc Details"…). Falling back to the raw code would show
+          // managers "CUSTOM_STATUS_27", which means nothing to anyone.
+          status_display: r.status_display || r.status_simple || null,
+          state,
+          vip: !!r.is_vip,
+          notes: noteBits.join(" · ") || null,
+          booked_by: r.booked_by || null,
+          created: r.created || null,
+          minimum: Number(r.min_price) || null,
+          spend: spend || null,
+          served_by: r.served_by || null,
+          phone_last4: phone ? phone.slice(-4) : null,
+        });
+      }
+      out.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+      // Per-seating-area counts — the "PIEMONTE (9 reservations) - 33 covers"
+      // header line the hosts read off the SevenRooms day view.
+      const areaMap: Record<string, { area: string; reservations: number; covers: number }> = {};
+      for (const r of out) {
+        const k = r.area || "Any Seating Area";
+        (areaMap[k] ||= { area: k, reservations: 0, covers: 0 });
+        areaMap[k].reservations++;
+        areaMap[k].covers += r.pax;
+      }
+      return new Response(JSON.stringify({
+        ok: true, date: daysheet,
+        totals: {
+          reservations: out.length, covers,
+          upcoming: upcomingPax, seated: seatedPax, completed: completedPax,
+        },
+        areas: Object.values(areaMap).sort((a, b) => b.covers - a.covers),
+        reservations: out,
+      }), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     // ---- SPEND DIAGNOSTIC MODE (read-only): payment/POS fields for one date ----
     // ?spend=YYYY-MM-DD → per-reservation payment fields + pos_tickets, plus night totals.
     // Built 4 Jul 2026 to answer: is the SevenRooms "live spend" net or gross of the

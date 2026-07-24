@@ -13,10 +13,24 @@ const IS_DEV_HOST = location.hostname === 'robertos-kitchen.github.io';
 const DEV_READ_ONLY = IS_DEV_HOST && localStorage.getItem('kitchen-dev-writes') !== '1';
 if (DEV_READ_ONLY) {
   const _realFetch = window.fetch.bind(window);
+  // These Edge Functions write to the DB (or send a real email) when called —
+  // /rest/v1/ blocking above never sees them since they're a different path.
+  // sevenrooms-sync also serves read-only reads via ?upcoming=/?floorplan=/
+  // ?coverflow= (used for the live dashboard) which must stay open on dev.
+  function isMutatingFunctionCall(urlStr) {
+    if (urlStr.indexOf('/functions/v1/cosec-sync') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/kitchen-guard') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/send-roster') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/sevenrooms-sync') !== -1 &&
+        urlStr.indexOf('?upcoming=') === -1 && urlStr.indexOf('?floorplan=') === -1 && urlStr.indexOf('?coverflow=') === -1) return true;
+    return false;
+  }
   window.fetch = function(url, opts) {
     const method = ((opts && opts.method) || 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD' && String(url).indexOf('/rest/v1/') !== -1) {
-      console.warn('[DEV read-only] blocked ' + method + ' ' + url);
+    const urlStr = String(url);
+    const blocked = (method !== 'GET' && method !== 'HEAD' && urlStr.indexOf('/rest/v1/') !== -1) || isMutatingFunctionCall(urlStr);
+    if (blocked) {
+      console.warn('[DEV read-only] blocked ' + method + ' ' + urlStr);
       return Promise.resolve(new Response(
         JSON.stringify({ message: 'DEV site is read-only — tap the DEV badge (bottom-left) to enable test writes.' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } }));
@@ -1885,7 +1899,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2191,7 +2205,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
@@ -2601,6 +2615,7 @@ function schedCloseShift(event, staffId, dateStr) {
   if (out === null) return;
   out = out.trim();
   if (!/^\d{1,2}:\d{2}$/.test(out)) { alert('Please use HH:MM (e.g. 00:00)'); return; }
+  var prevOut = a.manual_out, prevClosedAt = a.closed_at;
   a.manual_out = out; a.closed_at = new Date().toISOString();
   renderSchedView();
   // attendance writes are service-role-only now — the manual clock-out goes
@@ -2609,8 +2624,16 @@ function schedCloseShift(event, staffId, dateStr) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ op: 'manual_out', emp_id: staff.emp_id, att_date: dateStr, out: out, closed_at: a.closed_at })
   }).then(function(r){ return r.json(); })
-    .then(function(d){ if (d && d.error) console.error('Close shift error:', d.error); })
-    .catch(function(e){ console.error('Close shift error:', e); });
+    .then(function(d){
+      if (d && d.error) throw new Error(d.error);
+      if (d && d.message && !d.ok) throw new Error(d.message);
+    })
+    .catch(function(e){
+      console.error('Close shift error:', e);
+      a.manual_out = prevOut; a.closed_at = prevClosedAt;
+      renderSchedView();
+      alert('Close shift for ' + staff.name + ' did not save: ' + (e && e.message ? e.message : e));
+    });
 }
 
 // Inline edit of COSEC employee ID. Lock-gated.
