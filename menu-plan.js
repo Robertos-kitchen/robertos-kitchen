@@ -420,18 +420,18 @@ function mpRenderPlan(){
   var isChef = mpMe && mpMe.role === 'chef';
   var noDates = !mpSprint || (!mpSprint.start_date && !mpSprint.end_date);
 
-  // What is still missing, in plain words. This is the whole "easy for them"
-  // idea: never make them hunt for what is not done.
+  // Next steps, worded as things TO DO (not deficits). The dish-count targets are
+  // deliberately NOT listed here — the two bars above already show that progress,
+  // so a tired chef isn't greeted twice with "you're behind".
+  var menusWritten = mpMenus.filter(function(m){ return m.identity && m.structure; }).length;
   var todo = [];
-  if (noDates) todo.push({ n:'!', what:'propose your start date, end date and dish goal', go:'plan-sprint' });
+  if (noDates) todo.push({ label:'Set your sprint dates and dish goal', go:'plan-sprint' });
   var noBrief = mpMenus.filter(function(m){ return !m.identity || !m.structure; });
-  if (noBrief.length) todo.push({ n: noBrief.length, what: noBrief.length === 1 ? 'menu still has no identity or structure' : 'menus still have no identity or structure', go:'briefs' });
+  if (noBrief.length) todo.push({ label:'Write ' + noBrief.length + ' menu' + (noBrief.length === 1 ? '' : 's') + ' — what it is and its structure', go:'briefs' });
   var noLead = mpMenus.filter(function(m){ return !m.lead_chef; });
-  if (noLead.length) todo.push({ n: noLead.length, what: noLead.length === 1 ? 'menu has no lead chef' : 'menus have no lead chef', go:'briefs' });
+  if (noLead.length) todo.push({ label:'Pick a lead chef for ' + noLead.length + ' menu' + (noLead.length === 1 ? '' : 's'), go:'briefs' });
   var emptyRows = mpMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
-  if (emptyRows.length) todo.push({ n: emptyRows.length, what: emptyRows.length === 1 ? 'menu has nothing on the calendar' : 'menus have nothing on the calendar', go:'calendar' });
-  if (tried < tT)    todo.push({ n: tT - tried,    what: 'more dishes to try', go:'dishes' });
-  if (approved < tA) todo.push({ n: tA - approved, what: 'more dishes to approve', go:'dishes' });
+  if (emptyRows.length) todo.push({ label:'Put ' + emptyRows.length + ' menu' + (emptyRows.length === 1 ? '' : 's') + ' on the calendar', go:'calendar' });
 
   var canSubmit = mpDishes.length > 0;
   var openC = mpOpenCommentCount('plan', null);
@@ -445,6 +445,18 @@ function mpRenderPlan(){
 
     // ── the guide (chefs only) ──
     (isChef ? mpGuideCard() : '') +
+
+    // ── where you're at (lead with what's DONE, not what's missing) ──
+    '<div class="mp-card">' +
+      '<div class="mp-card-h">Where you&rsquo;re at</div>' +
+      '<div class="mp-progress">' +
+        mpStat(mpDishes.length, 'dishes logged') +
+        mpStat(approved, 'approved') +
+        mpStat(menusWritten + ' / ' + mpMenus.length, 'menus written') +
+        mpStat(mpTastings.length, 'tasting' + (mpTastings.length === 1 ? '' : 's')) +
+      '</div>' +
+      '<div class="mp-progress-note">Add things as they come — there&rsquo;s no rush.</div>' +
+    '</div>' +
 
     // ── the two bars ──
     '<div class="mp-card" id="plan-sprint">' +
@@ -475,16 +487,17 @@ function mpRenderPlan(){
       '<button class="mp-btn ghost" onclick="mpGo(\'tastings\')">Open tastings</button>' +
     '</div>' +
 
-    // ── what's left ──
+    // ── next steps (gentle, capped at 3 — never a wall of deficits) ──
     '<div class="mp-card">' +
-      '<div class="mp-card-h">Still to do</div>' +
+      '<div class="mp-card-h">Next steps</div>' +
       (todo.length
-        ? '<div class="mp-todo">' + todo.map(function(t){
+        ? '<div class="mp-todo">' + todo.slice(0, 3).map(function(t){
             var go = t.go === 'plan-sprint' ? "document.getElementById('plan-sprint').scrollIntoView({behavior:'smooth'})" : "mpGo('" + t.go + "')";
             return '<button class="mp-todo-row" onclick="' + go + '">' +
-              '<span class="mp-todo-n">' + t.n + '</span><span>' + mpEsc(t.what) + '</span><span class="mp-todo-go">&rsaquo;</span></button>';
-          }).join('') + '</div>'
-        : '<div class="mp-empty ok">Nothing outstanding. Good to submit.</div>') +
+              '<span>' + mpEsc(t.label) + '</span><span class="mp-todo-go">&rsaquo;</span></button>';
+          }).join('') + '</div>' +
+          (todo.length > 3 ? '<div class="mp-progress-note">&hellip;and ' + (todo.length - 3) + ' more, whenever you&rsquo;re ready.</div>' : '')
+        : '<div class="mp-empty ok">You&rsquo;re all set — submit whenever you&rsquo;re ready.</div>') +
     '</div>' +
 
     // ── the calendar, here for approval ──
@@ -544,6 +557,9 @@ function mpBar(label, n, target, colour){
     '<div class="mp-bar-top"><span>' + mpEsc(label) + '</span><strong>' + n + ' / ' + target + '</strong></div>' +
     '<div class="mp-bar"><i style="width:' + pct + '%;background:' + colour + '"></i></div>' +
   '</div>';
+}
+function mpStat(value, label){
+  return '<div class="mp-stat"><b>' + mpEsc(String(value)) + '</b><span>' + mpEsc(label) + '</span></div>';
 }
 
 // Propose (chef) or edit (approver) the sprint dates + goals. One sheet, all
@@ -1673,10 +1689,14 @@ async function mpDeleteTasting(id){
   if (mpErr(res, 'the delete')) return;
   await mpLoadAll(); mpRender(); mpToast('Tasting deleted');
 }
-function mpAttachDishes(sessionId){
+// keepPicks (optional) = dish ids the chef had ticked but not saved yet, carried
+// across a re-render (adding/removing a typed dish) so their in-flight list
+// selection is never silently lost.
+function mpAttachDishes(sessionId, keepPicks){
   var s = mpTastings.find(function(x){ return x.id === sessionId; });
   if (!s) return;
   var already = s.items.filter(function(i){ return i.dish_id; }).map(function(i){ return i.dish_id; });
+  var picked = already.concat(keepPicks || []).filter(function(v, i, a){ return a.indexOf(v) === i; });
   var manual = s.items.filter(function(i){ return !i.dish_id; });
   var pool = mpDishes.filter(function(d){ return d.status !== 'Retired'; });
   mpSheet('Attach dishes',
@@ -1684,7 +1704,7 @@ function mpAttachDishes(sessionId){
     (pool.length
       ? '<div class="mp-pills" id="mpt-pick">' +
           pool.map(function(d){
-            return '<button type="button" class="mp-pill' + (already.includes(d.id) ? ' on' : '') + '" data-v="' + d.id + '" onclick="this.classList.toggle(\'on\')">' + mpEsc(d.name_it) + '</button>';
+            return '<button type="button" class="mp-pill' + (picked.includes(d.id) ? ' on' : '') + '" data-v="' + d.id + '" onclick="this.classList.toggle(\'on\')">' + mpEsc(d.name_it) + '</button>';
           }).join('') +
         '</div>'
       : '<div class="mp-empty">No dishes in the bank yet — type one below.</div>') +
@@ -1708,17 +1728,23 @@ function mpAttachDishes(sessionId){
 }
 // A typed dish is inserted straight away (its own row) so it survives the Save
 // diff, which only touches linked dishes. It lives on the tasting only.
+function mpCurrentPicks(){
+  var el = document.getElementById('mpt-pick');
+  return el ? [].slice.call(el.querySelectorAll('.mp-pill.on')).map(function(b){ return b.getAttribute('data-v'); }) : [];
+}
 async function mpAddManualItem(sessionId){
   var name = (document.getElementById('mpt-manual').value || '').trim();
   if (!name){ mpToast('Type a name first.', true); return; }
+  var picks = mpCurrentPicks();                 // keep the chef's in-flight list ticks
   var res = await sb.from('menu_plan_tasting_items').insert({ session_id:sessionId, manual_name:name });
   if (mpErr(res, 'the dish')) return;
-  await mpLoadAll(); mpAttachDishes(sessionId); mpToast(name + ' added');
+  await mpLoadAll(); mpAttachDishes(sessionId, picks); mpToast(name + ' added');
 }
 async function mpRemoveManualItem(itemId, sessionId){
+  var picks = mpCurrentPicks();
   var res = await sb.from('menu_plan_tasting_items').delete().eq('id', itemId);
   if (mpErr(res, 'the dish')) return;
-  await mpLoadAll(); mpAttachDishes(sessionId);
+  await mpLoadAll(); mpAttachDishes(sessionId, picks);
 }
 async function mpSaveAttach(sessionId){
   var s = mpTastings.find(function(x){ return x.id === sessionId; });
@@ -2077,7 +2103,14 @@ const MP_STYLE = `<style id="mp-style">
 .mp-next{font-size:14px;margin-bottom:10px}
 .mp-next span{display:block;font-size:11.5px;color:var(--mp-mute);margin-top:2px}
 
-/* still-to-do */
+/* where you're at — positive progress row */
+.mp-progress{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.mp-stat{background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:10px;padding:10px 6px;text-align:center;display:flex;flex-direction:column;gap:2px}
+.mp-stat b{font-family:'Forum',Georgia,serif;font-size:20px;color:var(--mp-maroon);line-height:1}
+.mp-stat span{font-size:10px;color:var(--mp-mute);letter-spacing:.3px}
+.mp-progress-note{font-size:12px;color:var(--mp-mute);margin-top:10px;font-style:italic}
+@media(max-width:420px){.mp-progress{grid-template-columns:repeat(2,1fr)}}
+/* next steps */
 .mp-todo{display:flex;flex-direction:column;gap:6px}
 .mp-todo-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:9px;padding:10px 12px;font:400 13.5px 'Outfit',sans-serif;color:var(--mp-ink);cursor:pointer}
 .mp-todo-n{flex:none;min-width:26px;height:26px;border-radius:50%;background:var(--mp-orange);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;padding:0 6px}
