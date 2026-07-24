@@ -356,16 +356,20 @@ where not exists (select 1 from public.menu_plan_menus m where m.name = v.name);
 -- Hard dates from the email. Only the dates the email actually states are set —
 -- identity, structure, price and lead chef are deliberately left blank, because
 -- those are what the three of them are meant to decide at the table.
-update public.menu_plan_menus set
-  identity    = coalesce(identity, v.identity),
-  launch_date = coalesce(launch_date, v.launch_date)
+-- Alias the target table + qualify the right-hand columns: identity and
+-- launch_date exist on BOTH the table and the values list, so the unqualified
+-- names inside coalesce() were ambiguous (ERROR 42702). The SET targets on the
+-- left stay bare (that side is unambiguous).
+update public.menu_plan_menus as m set
+  identity    = coalesce(m.identity, v.identity),
+  launch_date = coalesce(m.launch_date, v.launch_date)
 from (values
   ('Art Nights · 13–16 Nov',       'Art Nights, 13–16 November 2026',      date '2026-11-13'),
   ('Christmas Eve · 24 Dec',       'Christmas Eve, 24 December 2026',      date '2026-12-24'),
   ('Christmas Day Lunch · 25 Dec', 'Christmas Day lunch / brunch, 25 December 2026', date '2026-12-25'),
   ('New Year''s Eve · 31 Dec',     'New Year''s Eve, 31 December 2026',    date '2026-12-31')
 ) as v(name, identity, launch_date)
-where menu_plan_menus.name = v.name;
+where m.name = v.name;
 
 -- the Bartolini dinner is a fixed two-night event: pre-fill its identity and
 -- put Develop on Oct 2026 + Launch on Nov 2026 so the row is not blank.
