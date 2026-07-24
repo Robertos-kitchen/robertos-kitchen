@@ -102,6 +102,100 @@ let mpFilter   = { section:'', menu:'', status:'', q:'' };
 let mpDishFiles = {};    // dish_id -> [ cost-sheet file rows ]
 let mpGroupSel  = {};    // menu_group -> selected variant menu id (calendar/briefs)
 let mpLoaded   = false;
+let mpDuplicateSeed = null;   // one-shot: fields to pre-fill when mpAddDish() opens next
+
+// ── guesses & templates: reduce blank-page thinking, never override a manual pick ──
+const MP_SECTION_GUESS = [
+  [/risotto|riso\b/i, 'Paste & Riso'],
+  [/pasta|spaghett|tagliatelle|raviol|gnocchi|tortell|linguine|orecchiette|penne|fettuccine/i, 'Paste & Riso'],
+  [/frollat/i, 'Crudo – Frollato'],
+  [/marinat/i, 'Crudo – Marinato'],
+  [/crudo|tartare|carpaccio/i, 'Crudo – Naturale'],
+  [/pizza/i, 'Pizza'],
+  [/insalat|salad/i, 'Insalate'],
+  [/tiramis|semifreddo|torta|gelato|sorbet|panna cotta|dolce/i, 'Dolce – plated'],
+  [/vitello|manzo|agnello|maiale|pollo|guancia|josper/i, 'Carne'],
+  [/branzino|orata|pesce|gambero|scampi|capesante|tonno|salmone|baccal[aà]/i, 'Secondi – Pesce'],
+  [/antipast|bruschetta|crostini/i, 'Antipasti']
+];
+const MP_ALLERGEN_GUESS = [
+  [/dairy|cheese|formaggio|burrata|parmig|pecorino|butter|burro|cream|panna|mozzarella|gorgonzola|castelmagno|ricotta|stracciatella/i, 'D'],
+  [/gluten|pasta|bread|pane|flour|farina|pizza|grissini|focaccia|tortell|raviol|gnocchi|crostini|panzerotti/i, 'G'],
+  [/nocciola|mandorla|almond|hazelnut|pistacchio|pistachio|walnut|noce|pinoli|pine nut/i, 'N'],
+  [/gambero|scampi|capesante|shrimp|prawn|granchio|crab|lobster|astice|vongole|clam|cozze|mussel/i, 'S'],
+  [/\buovo\b|\buova\b|maionese|mayo|egg/i, 'E'],
+  [/maiale|guanciale|pancetta|prosciutto|salame|lardo|miele|honey|pork/i, 'H'],
+  [/crudo|tartare|carpaccio/i, 'R']
+];
+function mpGuessSectionFor(name){
+  var n = (name || '').toLowerCase();
+  for (var i = 0; i < MP_SECTION_GUESS.length; i++) if (MP_SECTION_GUESS[i][0].test(n)) return MP_SECTION_GUESS[i][1];
+  return null;
+}
+function mpGuessSection(name){
+  var sel = document.getElementById('mpf-section');
+  if (!sel || sel.value) return;   // never override a manual pick
+  var guess = mpGuessSectionFor(name);
+  if (guess){
+    sel.value = guess;
+    var q = document.getElementById('mpf-section-q'); if (q) q.value = guess;   // keep the visible search box in sync
+    var hint = document.getElementById('mpf-section-hint');
+    if (hint) hint.textContent = 'Guessed from the name — change if wrong.';
+  }
+}
+function mpGuessAllergens(){
+  var wrap = document.getElementById('mpf-allerg');
+  if (!wrap || wrap.querySelectorAll('.mp-pill.on').length) return;   // never override manual picks
+  var text = ((document.getElementById('mpf-name') || {}).value || '') + ' ' + ((document.getElementById('mpf-desc') || {}).value || '');
+  text = text.toLowerCase();
+  var hit = [];
+  MP_ALLERGEN_GUESS.forEach(function(pair){ if (pair[0].test(text)) hit.push(pair[1]); });
+  if (!hit.length) return;
+  hit.forEach(function(code){
+    var btn = wrap.querySelector('.mp-pill[data-v="' + code + '"]');
+    if (btn) btn.classList.add('on');
+  });
+  var hint = document.getElementById('mpf-allerg-hint');
+  if (hint) hint.textContent = 'Guessed from the description — check and adjust.';
+}
+// Starter text for a brief — filled into the FIELD as real, editable text (not a
+// placeholder), so writing a menu starts from a sentence instead of a blank page.
+const MP_BRIEF_TEMPLATES = [
+  { test:/business lunch/i, identity:'Fast, focused lunch for the business crowd nearby.', structure:'2 courses, quick service', price:'AED 145' },
+  { test:/^à la carte$|a la carte/i, identity:'The full seasonal menu — coastal Italian, ingredient-led.', structure:'6 antipasti · 5 paste · 4 secondi · 4 dolci', price:'à la carte' },
+  { test:/scala|lounge/i, identity:'Relaxed lounge bites and shareable plates.', structure:'8–10 small plates', price:'à la carte' },
+  { test:/set menu/i, identity:'A set sequence, the same for the whole table.', structure:'4 courses', price:'AED 295 per person' },
+  { test:/canap/i, identity:'Bite-sized canapés for a standing reception.', structure:'8 pieces per person', price:'AED 95 per person' },
+  { test:/vegan/i, identity:'Fully plant-based, same ambition as the main menu.', structure:'5 antipasti · 4 paste · 3 secondi · 3 dolci', price:'à la carte' },
+  { test:/aperitivo/i, identity:'Early-evening drinks with small bites.', structure:'4–5 sharing bites', price:'AED 85 per person' },
+  { test:/truffle/i, identity:'A short truffle-forward menu for the season.', structure:'4–5 dishes built around truffle', price:'AED 350 per person' },
+  { test:/festive|christmas|new year/i, identity:'A festive set menu for the season.', structure:'4 courses', price:'AED 395 per person' },
+  { test:/dessert/i, identity:'The dessert selection.', structure:'5–6 dolci', price:'à la carte' },
+  { test:/brunch/i, identity:'Family-style weekend brunch.', structure:'Shared starters + main + dessert', price:'AED 275 per person' },
+  { test:/dinner|event/i, identity:'A one-off guest dinner.', structure:'Multi-course set menu', price:'TBC' }
+];
+function mpBriefTemplate(name){
+  for (var i = 0; i < MP_BRIEF_TEMPLATES.length; i++) if (MP_BRIEF_TEMPLATES[i].test.test(name || '')) return MP_BRIEF_TEMPLATES[i];
+  return null;
+}
+// Remember the last lead chef / cadence / price picked, so writing a run of
+// similar menus (the four Festive ones) doesn't mean re-picking every time.
+function mpRememberMenuDefaults(row){
+  try {
+    if (row.lead_chef) localStorage.setItem('menu-plan-last-lead', row.lead_chef);
+    if (row.change_cadence) localStorage.setItem('menu-plan-last-cadence', row.change_cadence);
+    if (row.price) localStorage.setItem('menu-plan-last-price', row.price);
+  } catch(e){}
+}
+function mpLastMenuDefaults(){
+  try {
+    return {
+      lead_chef: localStorage.getItem('menu-plan-last-lead') || null,
+      change_cadence: localStorage.getItem('menu-plan-last-cadence') || null,
+      price: localStorage.getItem('menu-plan-last-price') || null
+    };
+  } catch(e){ return {}; }
+}
 
 function mpEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function mpIsApprover(){ return !!(mpMe && mpMe.role === 'approver'); }
@@ -433,6 +527,8 @@ function mpRenderPlan(){
   if (noLead.length) todo.push({ label:'Pick a lead chef for ' + noLead.length + ' menu' + (noLead.length === 1 ? '' : 's'), go:'briefs' });
   var emptyRows = mpMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
   if (emptyRows.length) todo.push({ label:'Put ' + emptyRows.length + ' menu' + (emptyRows.length === 1 ? '' : 's') + ' on the calendar', go:'calendar' });
+  var bareIdeas = mpBareIdeas();
+  if (bareIdeas.length) todo.push({ label:'Finish ' + bareIdeas.length + ' quick idea' + (bareIdeas.length === 1 ? '' : 's') + ' — just needs a section', go:'dishes' });
 
   var canSubmit = mpDishes.length > 0;
   var openC = mpOpenCommentCount('plan', null);
@@ -462,6 +558,9 @@ function mpRenderPlan(){
     // ── the two bars ──
     '<div class="mp-card" id="plan-sprint">' +
       '<div class="mp-card-h">The sprint</div>' +
+      (tried >= tT && approved >= tA
+        ? '<div class="mp-celebrate">&#127881; <strong>Sprint goal hit.</strong> Both targets reached — keep going or ease off, your call.</div>'
+        : '') +
       mpBar('Dishes tried', tried, tT, 'var(--mp-trying)') +
       mpBar('Dishes approved', approved, tA, 'var(--mp-approved)') +
       '<div class="mp-sprint-meta">' +
@@ -554,9 +653,10 @@ function mpGuideCard(){
 }
 function mpBar(label, n, target, colour){
   var pct = target > 0 ? Math.min(100, Math.round(n / target * 100)) : 0;
-  return '<div class="mp-bar-wrap">' +
-    '<div class="mp-bar-top"><span>' + mpEsc(label) + '</span><strong>' + n + ' / ' + target + '</strong></div>' +
-    '<div class="mp-bar"><i style="width:' + pct + '%;background:' + colour + '"></i></div>' +
+  var hit = target > 0 && n >= target;
+  return '<div class="mp-bar-wrap' + (hit ? ' hit' : '') + '">' +
+    '<div class="mp-bar-top"><span>' + mpEsc(label) + '</span><strong>' + n + ' / ' + target + (hit ? ' <i class="mp-hitmark">&#10003;</i>' : '') + '</strong></div>' +
+    '<div class="mp-bar"><i style="width:' + pct + '%;background:' + (hit ? 'var(--mp-banked)' : colour) + '"></i></div>' +
   '</div>';
 }
 function mpStat(value, label){
@@ -636,6 +736,42 @@ async function mpRequestChanges(){
 }
 
 // ══ 2. DISH BANK ═══════════════════════════════════════════════════════════
+// A "bare" quick idea: fast to capture, but still owes a section/menus/
+// allergens. The tray below pays that debt back without reopening the full form.
+function mpBareIdeas(){
+  return mpDishes.filter(function(d){
+    return d.status === 'Idea' && d.section === 'Other' &&
+      !((d.for_menus || []).length) && !((d.allergens || []).length);
+  });
+}
+function mpIdeaTray(){
+  if (!mpCanAuthor()) return '';
+  var bare = mpBareIdeas();
+  if (!bare.length) return '';
+  return '<div class="mp-card mp-tray">' +
+    '<div class="mp-card-h">Finish these ideas <i>' + bare.length + '</i></div>' +
+    '<div class="mp-hint">Give each a section — a guess is already picked — and it&rsquo;s off this list. Tap the name for everything else.</div>' +
+    '<div class="mp-traylist">' + bare.map(function(d){
+      var guess = mpGuessSectionFor(d.name_it) || '';
+      return '<div class="mp-trayrow">' +
+        '<button class="mp-trayname" onclick="mpOpenDish(\'' + d.id + '\')">' + mpEsc(d.name_it) + '</button>' +
+        '<select class="mp-trayselect" id="mptray-' + d.id + '">' +
+          '<option value="">Section&hellip;</option>' +
+          MP_SECTIONS.map(function(s){ return '<option' + (guess === s ? ' selected' : '') + '>' + mpEsc(s) + '</option>'; }).join('') +
+        '</select>' +
+        '<button class="mp-btn go small" onclick="mpFinishIdea(\'' + d.id + '\')">Done</button>' +
+      '</div>';
+    }).join('') + '</div>' +
+  '</div>';
+}
+async function mpFinishIdea(dishId){
+  var sel = document.getElementById('mptray-' + dishId);
+  var section = sel ? sel.value : '';
+  if (!section){ mpToast('Pick a section first.', true); return; }
+  var res = await sb.from('menu_plan_dishes').update({ section:section, updated_at:new Date().toISOString(), updated_by:mpMe.name }).eq('id', dishId);
+  if (mpErr(res, 'the dish')) return;
+  await mpLoadAll(); mpRender(); mpToast('Sorted');
+}
 function mpFilteredDishes(){
   var f = mpFilter, q = (f.q || '').trim().toLowerCase();
   return mpDishes.filter(function(d){
@@ -666,6 +802,8 @@ function mpRenderDishes(){
           '<button class="mp-big" onclick="mpQuickIdea()">&#9889; Quick idea</button>' +
           '<button class="mp-big ghost" onclick="mpAddDish()">+ Add a dish</button>' +
         '</div>' : '') +
+
+    mpIdeaTray() +
 
     // cost controller / anyone: send the ready cost sheets on to costing
     (mpCanAuthor() && costingReady.length
@@ -848,6 +986,19 @@ async function mpSetDishStatus(id, status){
 function mpAddDish(){ mpDishForm(null); }
 function mpOpenDish(id){ mpDishForm(mpDishes.find(function(x){ return x.id === id; }) || null); }
 
+// "New like this" — start a fresh dish carrying over section/menus/allergens/
+// notes from an existing one, so a near-identical dish isn't typed from scratch.
+function mpDuplicateDish(dishId){
+  var src = mpDishes.find(function(x){ return x.id === dishId; });
+  if (!src) return;
+  mpDuplicateSeed = {
+    fromName: src.name_it, section: src.section,
+    for_menus: (src.for_menus || []).slice(), allergens: (src.allergens || []).slice(),
+    notes: src.notes || ''
+  };
+  mpAddDish();
+}
+
 // One-tap capture for mid-service: just a name, straight into Idea. Everything
 // else (section, photo, allergens) gets filled in later — a chef with flour on
 // their hands must be able to save a thought in five seconds.
@@ -876,6 +1027,16 @@ function mpDishForm(d){
   var isNew = !d;
   d = d || { name_it:'', description_en:'', section:'', for_menus:[], status:'Idea',
              allergens:[], notes:'' };
+  // "Duplicate" seed — a one-shot carry-over from mpDuplicateDish, consumed once.
+  var dupFrom = null;
+  if (isNew && mpDuplicateSeed){
+    dupFrom = mpDuplicateSeed.fromName;
+    d = Object.assign({}, d, {
+      section: mpDuplicateSeed.section, for_menus: mpDuplicateSeed.for_menus,
+      allergens: mpDuplicateSeed.allergens, notes: mpDuplicateSeed.notes
+    });
+    mpDuplicateSeed = null;
+  }
   var photo = d.id ? mpPhotos[d.id] : null;
   var oc = d.id ? mpCommentsFor('dish', d.id) : [];
   var canEdit = mpCanAuthor();
@@ -895,17 +1056,20 @@ function mpDishForm(d){
 
   var ro = canEdit ? '' : ' disabled';
   var body =
+    (dupFrom ? '<div class="mp-hint">Starting from <strong>' + mpEsc(dupFrom) + '</strong> — section, menus, allergens and notes copied. Give it a new name.</div>' : '') +
+
     '<label class="mp-lab">Dish name <em>(Italian)</em></label>' +
-    '<input class="mp-in" id="mpf-name" value="' + mpEsc(d.name_it) + '" placeholder="e.g. Tortello di burrata"' + ro + '/>' +
+    '<input class="mp-in" id="mpf-name" value="' + mpEsc(d.name_it) + '" placeholder="e.g. Tortello di burrata"' + ro +
+      (canEdit ? ' oninput="mpGuessSection(this.value)" onblur="mpGuessAllergens()"' : '') + '/>' +
 
     '<label class="mp-lab">Section</label>' +
-    '<select class="mp-in" id="mpf-section"' + ro + '>' +
-      '<option value="">Choose a section…</option>' +
-      MP_SECTIONS.map(function(s){ return '<option' + (d.section === s ? ' selected' : '') + '>' + mpEsc(s) + '</option>'; }).join('') +
-    '</select>' +
+    (canEdit ? mpSearchPicker('mpf-section', MP_SECTIONS, d.section, 'Search or tap a section…')
+             : '<div class="mp-readval">' + mpEsc(d.section || '—') + '</div>') +
+    '<div class="mp-fine" id="mpf-section-hint"></div>' +
 
     '<label class="mp-lab">What it is <em>(plain English — optional)</em></label>' +
-    '<textarea class="mp-in" id="mpf-desc" rows="2" placeholder="Burrata tortello, tomato water, basil oil"' + ro + '>' + mpEsc(d.description_en) + '</textarea>' +
+    '<textarea class="mp-in" id="mpf-desc" rows="2" placeholder="Burrata tortello, tomato water, basil oil"' + ro +
+      (canEdit ? ' onblur="mpGuessAllergens()"' : '') + '>' + mpEsc(d.description_en) + '</textarea>' +
 
     '<div class="mp-photo-row">' +
       (photo ? '<img class="mp-photo-prev" id="mpf-prev" src="' + photo + '"/>' : '<div class="mp-photo-prev empty" id="mpf-prev">no photo</div>') +
@@ -916,7 +1080,7 @@ function mpDishForm(d){
       '</div>' : '') +
     '</div>' +
 
-    '<details class="mp-more"' + (isNew ? '' : ' open') + '>' +
+    '<details class="mp-more"' + (isNew && !dupFrom ? '' : ' open') + '>' +
       '<summary>Add more detail</summary>' +
 
       '<label class="mp-lab">For which menus <em>(tap any that apply)</em></label>' +
@@ -932,6 +1096,7 @@ function mpDishForm(d){
           return '<button type="button" class="mp-pill' + ((d.allergens || []).includes(a.code) ? ' on' : '') + '" data-v="' + a.code + '"' + (canEdit ? ' onclick="this.classList.toggle(\'on\')"' : ' disabled') + '>' + a.code + ' · ' + mpEsc(a.label) + '</button>';
         }).join('') +
       '</div>' +
+      '<div class="mp-fine" id="mpf-allerg-hint"></div>' +
 
       '<label class="mp-lab">Notes</label>' +
       '<textarea class="mp-in" id="mpf-notes" rows="3" placeholder="What to fix, what worked, supplier…"' + ro + '>' + mpEsc(d.notes || '') + '</textarea>' +
@@ -955,6 +1120,7 @@ function mpDishForm(d){
     (canEdit
       ? '<div class="mp-sheet-actions">' +
           '<button class="mp-btn go" onclick="mpSaveDish(' + (d.id ? "'" + d.id + "'" : 'null') + ')">' + (isNew ? 'Add it' : 'Save') + '</button>' +
+          (d.id ? '<button class="mp-btn ghost" onclick="mpCloseSheet();mpDuplicateDish(\'' + d.id + '\')">Duplicate</button>' : '') +
           (d.id ? '<button class="mp-btn ghost danger" onclick="mpDeleteDish(\'' + d.id + '\')">Delete</button>' : '') +
           '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
         '</div>'
@@ -1298,6 +1464,7 @@ function mpCalendarList(){
               row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === menu.id ? ' selected' : '') + '>' + mpEsc(v.variant_label || v.name) + '</option>'; }).join('') +
             '</select></span>'
           : '<button class="mp-cal-namebtn" onclick="mpMenuActions(\'' + menu.id + '\')">' + mpEsc(menu.name) + '</button>') +
+        (mpCanAuthor() ? '<button class="mp-btn ghost small" onclick="mpMenuLifecycle(\'' + menu.id + '\')">&#128197; Schedule</button>' : '') +
       '</div>' +
       '<div class="mp-calchips">' +
         (cells.length
@@ -1378,6 +1545,8 @@ function mpMenuActions(menuId){
   if (!m || !mpCanAuthor()) return;
   mpSheet(m.name,
     '<div class="mp-statuslist">' +
+      '<button class="mp-statusrow" onclick="mpCloseSheet();mpMenuLifecycle(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Set the whole schedule</strong> — Develop, Testing, Photoshooting, Launch, one sheet</span></button>' +
+      '<button class="mp-statusrow" onclick="mpCloseSheet();mpDuplicateMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Duplicate this menu</strong> — start a new one from its structure and price</span></button>' +
       '<button class="mp-statusrow" onclick="mpCloseSheet();mpEditMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Edit this menu</strong> — identity, price, dates, lead chef</span></button>' +
       '<button class="mp-statusrow" onclick="mpCloseSheet();mpDeleteMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Delete this menu</strong> — remove it from the plan</span></button>' +
     '</div>');
@@ -1392,12 +1561,117 @@ function mpGroupManage(group){
         return '<div class="mp-varrow">' +
           '<span class="mp-varlbl">' + mpEsc(v.variant_label || '?') + '</span>' +
           '<span class="mp-varname">' + mpEsc(v.name) + '</span>' +
+          '<button class="mp-btn ghost small" onclick="mpCloseSheet();mpMenuLifecycle(\'' + v.id + '\')">Schedule</button>' +
           '<button class="mp-btn ghost small" onclick="mpCloseSheet();mpEditMenu(\'' + v.id + '\')">Edit</button>' +
           '<button class="mp-btn ghost small danger" onclick="mpCloseSheet();mpDeleteMenu(\'' + v.id + '\')">Delete</button>' +
         '</div>';
       }).join('') +
     '</div>' +
     (mpCanAuthor() ? '<button class="mp-btn go" onclick="mpAddVariant(\'' + mpEsc(group) + '\')">+ Add a variant</button>' : ''));
+}
+
+// ── one-sheet menu lifecycle: Develop/Testing/Photoshooting/Launch in ONE save,
+// instead of the month→phase→save sheet repeated once per stage. "Live" and
+// "Changing" stay on the per-cell editor since they're ongoing ranges, not a
+// single milestone month. ─────────────────────────────────────────────────
+const MP_LIFECYCLE_STATES = ['Develop', 'Testing', 'Photoshooting', 'Launch'];
+function mpMenuLifecycle(menuId){
+  var menu = mpMenus.find(function(m){ return m.id === menuId; });
+  if (!menu || !mpCanAuthor()) return;
+  var current = {};
+  MP_LIFECYCLE_STATES.forEach(function(s){
+    var hit = mpCal.find(function(c){ return c.menu_id === menuId && c.state === s; });
+    current[s] = hit ? String(hit.month).slice(0, 10) : '';
+  });
+  mpSheet('Schedule ' + menu.name,
+    '<div class="mp-hint">Set the whole timeline at once. Leave any stage blank to skip it — one Save for the lot.</div>' +
+    MP_LIFECYCLE_STATES.map(function(s){
+      return '<label class="mp-lab"><i class="mp-swatch c-' + s.toLowerCase() + '"></i> ' + s + '</label>' +
+        '<select class="mp-in" id="mpml-' + s + '">' +
+          '<option value="">&mdash; not set &mdash;</option>' +
+          MP_MONTHS.map(function(m){ return '<option value="' + m.key + '"' + (current[s] === m.key ? ' selected' : '') + '>' + MP_MON_NAMES[m.m] + ' ' + m.y + '</option>'; }).join('') +
+        '</select>';
+    }).join('') +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpSaveLifecycle(\'' + menuId + '\')">Save</button>' +
+      '<button class="mp-btn ghost" onclick="mpSaveLifecycle(\'' + menuId + '\',true)">Save &amp; copy to other menus</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
+    '</div>');
+}
+async function mpSaveLifecycle(menuId, andCopy){
+  var picks = {};
+  MP_LIFECYCLE_STATES.forEach(function(s){ var el = document.getElementById('mpml-' + s); picks[s] = el ? el.value : ''; });
+
+  var usedBy = {};
+  for (var s in picks){
+    if (picks[s]){
+      if (usedBy[picks[s]] && usedBy[picks[s]] !== s){
+        mpToast('Two stages can’t share the same month — ' + usedBy[picks[s]] + ' and ' + s + ' are both set to the same one.', true);
+        return;
+      }
+      usedBy[picks[s]] = s;
+    }
+  }
+
+  var existing = mpCal.filter(function(c){ return c.menu_id === menuId && MP_LIFECYCLE_STATES.indexOf(c.state) >= 0; });
+  var ops = [];
+  MP_LIFECYCLE_STATES.forEach(function(s){
+    var wantMonth = picks[s];
+    var have = existing.find(function(c){ return c.state === s; });
+    if (wantMonth){
+      if (have && String(have.month).slice(0, 10) === wantMonth) return;   // unchanged
+      if (have) ops.push(sb.from('menu_plan_calendar').delete().eq('id', have.id));
+      ops.push(sb.from('menu_plan_calendar').upsert(
+        { menu_id: menuId, month: wantMonth, state: s, updated_by: mpMe.name, updated_at: new Date().toISOString() },
+        { onConflict: 'menu_id,month' }));
+    } else if (have){
+      ops.push(sb.from('menu_plan_calendar').delete().eq('id', have.id));
+    }
+  });
+  if (ops.length){
+    var results = await Promise.all(ops);
+    if (results.some(function(r){ return r && r.error; })){ mpToast('Could not save the schedule. Check the connection.', true); return; }
+  }
+  mpCloseSheet();
+  await mpLoadAll();
+  if (andCopy) mpCopySchedule(menuId);
+  else { mpRender(); mpToast('Schedule saved'); }
+}
+// "Copy schedule to…" — duplicate the just-saved Develop/Testing/Photoshooting/
+// Launch months onto other menus in one go, for a run of near-identical menus
+// (the four Festive menus, the corporate lunches).
+function mpCopySchedule(sourceMenuId){
+  var source = mpMenus.find(function(m){ return m.id === sourceMenuId; });
+  var targets = mpMenus.filter(function(m){ return m.id !== sourceMenuId; });
+  mpSheet('Copy the schedule to…',
+    '<div class="mp-hint">Pick the menus that should follow ' + mpEsc(source ? source.name : 'this menu') + '’s Develop / Testing / Photoshooting / Launch months.</div>' +
+    '<div class="mp-pills" id="mpcs-pick">' +
+      targets.map(function(m){ return '<button type="button" class="mp-pill" data-v="' + m.id + '" onclick="this.classList.toggle(\'on\')">' + mpEsc(m.name) + '</button>'; }).join('') +
+    '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpDoCopySchedule(\'' + sourceMenuId + '\')">Copy</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Skip — just this menu</button>' +
+    '</div>');
+}
+async function mpDoCopySchedule(sourceMenuId){
+  var picks = [].slice.call(document.querySelectorAll('#mpcs-pick .mp-pill.on')).map(function(b){ return b.getAttribute('data-v'); });
+  if (!picks.length){ mpToast('Pick at least one menu to copy to.', true); return; }
+  var source = mpCal.filter(function(c){ return c.menu_id === sourceMenuId && MP_LIFECYCLE_STATES.indexOf(c.state) >= 0; });
+  if (!source.length){ mpCloseSheet(); mpToast('Nothing to copy — this menu has no schedule set yet.', true); return; }
+  var ops = [];
+  picks.forEach(function(targetId){
+    source.forEach(function(c){
+      ops.push(sb.from('menu_plan_calendar').upsert(
+        { menu_id: targetId, month: String(c.month).slice(0, 10), state: c.state, updated_by: mpMe.name, updated_at: new Date().toISOString() },
+        { onConflict: 'menu_id,month' }));
+    });
+  });
+  var results = await Promise.all(ops);
+  mpCloseSheet();
+  await mpLoadAll(); mpRender();
+  mpToast(results.some(function(r){ return r && r.error; })
+    ? 'Copied, but something failed to save — check the calendar.'
+    : 'Copied to ' + picks.length + ' menu' + (picks.length === 1 ? '' : 's'));
 }
 async function mpAddVariant(group){
   var variants = mpMenus.filter(function(m){ return m.menu_group === group; });
@@ -1412,6 +1686,19 @@ async function mpAddVariant(group){
   mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast(group + ' ' + label + ' added');
 }
 
+// First Sat/Sun of the given 'YYYY-MM' — used by the "Weekend" quick-date chip.
+function mpFirstWeekend(mk){
+  var y = +mk.slice(0, 4), m = +mk.slice(5, 7);
+  var d = new Date(y, m - 1, 1);
+  while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
+  var sat = new Date(d), sun = new Date(d); sun.setDate(sat.getDate() + 1);
+  function iso(x){ return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+  return { from: iso(sat), to: iso(sun) };
+}
+function mpSetDateInputs(from, to){
+  var f = document.getElementById('mpcell-from'), t = document.getElementById('mpcell-to');
+  if (f) f.value = from || ''; if (t) t.value = to || '';
+}
 function mpCellMenu(menuId, monthKey){
   if (!mpCanAuthor()){ mpToast('Only chefs and Francesco edit the calendar.', true); return; }
   var menu = mpMenus.find(function(m){ return m.id === menuId; });
@@ -1419,6 +1706,8 @@ function mpCellMenu(menuId, monthKey){
   var mk = monthKey.slice(0,7);            // 'YYYY-MM'
   var last = new Date(+mk.slice(0,4), +mk.slice(5,7), 0).getDate();
   var min = mk + '-01', max = mk + '-' + String(last).padStart(2,'0');
+  var weekend = mpFirstWeekend(mk);
+  var launchInMonth = menu && menu.launch_date && String(menu.launch_date).slice(0,7) === mk;
   mpSheet(mpEsc(menu ? menu.name : '') + ' · ' + mpMonthLabel(monthKey),
     '<label class="mp-lab">What happens this month</label>' +
     '<div class="mp-pills" id="mpcell-state">' +
@@ -1428,6 +1717,13 @@ function mpCellMenu(menuId, monthKey){
       }).join('') +
     '</div>' +
     '<label class="mp-lab">Specific date <em>(optional — leave blank for the whole month)</em></label>' +
+    '<div class="mp-datechips">' +
+      '<button type="button" class="mp-datechip" onclick="mpSetDateInputs(\'' + mk + '-01\',\'\')">1st</button>' +
+      '<button type="button" class="mp-datechip" onclick="mpSetDateInputs(\'' + mk + '-15\',\'\')">15th</button>' +
+      '<button type="button" class="mp-datechip" onclick="mpSetDateInputs(\'' + weekend.from + '\',\'' + weekend.to + '\')">Weekend</button>' +
+      (launchInMonth ? '<button type="button" class="mp-datechip" onclick="mpSetDateInputs(\'' + menu.launch_date + '\',\'\')">Launch day</button>' : '') +
+      '<button type="button" class="mp-datechip ghost" onclick="mpSetDateInputs(\'\',\'\')">Clear</button>' +
+    '</div>' +
     '<div class="mp-two">' +
       '<div><span class="mp-fine">From</span><input class="mp-in" type="date" id="mpcell-from" min="' + min + '" max="' + max + '" value="' + mpEsc((c.date_from || '').slice(0,10)) + '"/></div>' +
       '<div><span class="mp-fine">To</span><input class="mp-in" type="date" id="mpcell-to" min="' + min + '" max="' + max + '" value="' + mpEsc((c.date_to || '').slice(0,10)) + '"/></div>' +
@@ -1642,22 +1938,31 @@ async function mpRemoveMenuFile(menuId, fileId){
 
 function mpEditMenu(id){
   var m = mpMenus.find(function(x){ return x.id === id; }) || {};
+  // A menu that's never been written (identity/structure/price all blank) opens
+  // with STARTER TEXT already in the boxes — real, editable text, not a grey
+  // placeholder — so writing a brief starts from a sentence, not a blank page.
+  var blank = !m.identity && !m.structure && !m.price;
+  var tmpl = blank ? mpBriefTemplate(m.name) : null;
+  var last = mpLastMenuDefaults();
+  var identityVal  = m.identity  || (tmpl ? tmpl.identity  : '');
+  var structureVal = m.structure || (tmpl ? tmpl.structure : '');
+  var priceVal     = m.price     || (tmpl ? tmpl.price : (blank ? (last.price || '') : ''));
+  var leadVal      = m.lead_chef || (blank ? (last.lead_chef || '') : '');
   mpSheet('Edit ' + (m.name || 'menu'),
+    (tmpl ? '<div class="mp-hint">Starter text below, based on this kind of menu — tweak or replace it.</div>' : '') +
     '<label class="mp-lab">Menu name</label>' +
     '<input class="mp-in" id="mpm-name" value="' + mpEsc(m.name || '') + '"/>' +
     '<label class="mp-lab">Identity <em>(one line — what is this menu?)</em></label>' +
-    '<textarea class="mp-in" id="mpm-identity" rows="2" placeholder="Coastal southern Italy, simple, ingredient-led">' + mpEsc(m.identity || '') + '</textarea>' +
+    '<textarea class="mp-in" id="mpm-identity" rows="2" placeholder="Coastal southern Italy, simple, ingredient-led">' + mpEsc(identityVal) + '</textarea>' +
     '<label class="mp-lab">Structure</label>' +
-    '<textarea class="mp-in" id="mpm-structure" rows="2" placeholder="5 antipasti · 4 paste · 3 secondi · 3 dolci">' + mpEsc(m.structure || '') + '</textarea>' +
+    '<textarea class="mp-in" id="mpm-structure" rows="2" placeholder="5 antipasti · 4 paste · 3 secondi · 3 dolci">' + mpEsc(structureVal) + '</textarea>' +
     '<label class="mp-lab">Price</label>' +
-    '<input class="mp-in" id="mpm-price" value="' + mpEsc(m.price || '') + '" placeholder="AED 295 per person"/>' +
+    '<input class="mp-in" id="mpm-price" value="' + mpEsc(priceVal) + '" placeholder="AED 295 per person"/>' +
     '<label class="mp-lab">How often it changes</label>' +
     '<select class="mp-in" id="mpm-cadence">' + MP_CADENCES.map(function(c){
       return '<option' + (m.change_cadence === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>' +
     '<label class="mp-lab">Lead chef</label>' +
-    '<select class="mp-in" id="mpm-lead"><option value="">—</option>' +
-      mpMembers.map(function(p){ return '<option' + (m.lead_chef === p.name ? ' selected' : '') + '>' + mpEsc(p.name) + '</option>'; }).join('') +
-    '</select>' +
+    mpSearchPicker('mpm-lead', mpMembers.filter(function(p){ return p.role !== 'cost_controller'; }).map(function(p){ return p.name; }), leadVal, 'Search or tap a name…') +
     '<div class="mp-two">' +
       '<div><label class="mp-lab">Testing date</label><input class="mp-in" type="date" id="mpm-testing" value="' + mpEsc((m.testing_date || '').slice(0,10)) + '"/></div>' +
       '<div><label class="mp-lab">Launch date</label><input class="mp-in" type="date" id="mpm-launch" value="' + mpEsc((m.launch_date || '').slice(0,10)) + '"/></div>' +
@@ -1680,9 +1985,43 @@ async function mpCreateMenu(){
   var name = (document.getElementById('mpm-new').value || '').trim();
   if (!name){ mpToast('Give the menu a name first.', true); return; }
   var max = mpMenus.reduce(function(a, m){ return Math.max(a, m.sort_order || 0); }, 0);
-  var res = await sb.from('menu_plan_menus').insert({ name:name, sort_order:max + 10, updated_by:mpMe.name });
+  var last = mpLastMenuDefaults();
+  var res = await sb.from('menu_plan_menus').insert({
+    name:name, sort_order:max + 10, updated_by:mpMe.name,
+    lead_chef: last.lead_chef || null, change_cadence: last.change_cadence || 'Seasonal'
+  });
   if (mpErr(res, 'the menu')) return;
   mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast(name + ' added');
+}
+// "New like this" for menus — a blank name, everything else (structure/price/
+// cadence/lead chef) carried over so a run of similar menus (the four Festive
+// ones) doesn't start from nothing each time.
+function mpDuplicateMenu(sourceId){
+  var src = mpMenus.find(function(m){ return m.id === sourceId; });
+  if (!src) return;
+  mpSheet('New menu — like ' + src.name,
+    '<div class="mp-hint">Structure, price, cadence and lead chef copied from ' + mpEsc(src.name) + ' — tweak as needed.</div>' +
+    '<label class="mp-lab">Menu name</label>' +
+    '<input class="mp-in" id="mpm-new" placeholder="e.g. ' + mpEsc(src.name) + ' — variant"/>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpCreateDuplicateMenu(\'' + sourceId + '\')">Create</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
+    '</div>');
+}
+async function mpCreateDuplicateMenu(sourceId){
+  var src = mpMenus.find(function(m){ return m.id === sourceId; }) || {};
+  var name = (document.getElementById('mpm-new').value || '').trim();
+  if (!name){ mpToast('Give the new menu a name first.', true); return; }
+  var max = mpMenus.reduce(function(a, m){ return Math.max(a, m.sort_order || 0); }, 0);
+  var row = {
+    name:name, sort_order:max + 10, updated_by:mpMe.name,
+    structure: src.structure || null, price: src.price || null,
+    change_cadence: src.change_cadence || 'Seasonal', lead_chef: src.lead_chef || null
+  };
+  var res = await sb.from('menu_plan_menus').insert(row);
+  if (mpErr(res, 'the menu')) return;
+  mpRememberMenuDefaults(row);
+  mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast(name + ' created from ' + (src.name || 'that menu'));
 }
 async function mpSaveMenu(id){
   var row = {
@@ -1699,6 +2038,7 @@ async function mpSaveMenu(id){
   if (!row.name){ mpToast('The menu needs a name.', true); return; }
   var res = await sb.from('menu_plan_menus').update(row).eq('id', id);
   if (mpErr(res, 'the menu')) return;
+  mpRememberMenuDefaults(row);
   mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast('Saved');
 }
 async function mpApproveMenu(id){
@@ -1903,6 +2243,64 @@ function mpPickOne(btn){
   var wrap = btn.parentElement;
   wrap.querySelectorAll('.mp-pill').forEach(function(b){ b.classList.remove('on'); });
   btn.classList.add('on');
+}
+
+// ── searchable single-pick control ─────────────────────────────────────────
+// Replaces a native <select> for long lists (Section, Lead chef) — type to
+// filter, tap to choose, beats open-scroll-pick on a phone. The real value
+// lives in a hidden input with the given fieldId, so every existing
+// `document.getElementById(fieldId).value` read elsewhere keeps working
+// unchanged — only the widget around it changed.
+function mpSearchPicker(fieldId, options, current, placeholder){
+  return '<div class="mp-searchpick">' +
+    '<input class="mp-in" type="text" id="' + fieldId + '-q" placeholder="' + mpEsc(placeholder) + '" value="' + mpEsc(current || '') + '" autocomplete="off" ' +
+      'oninput="mpFilterPicker(\'' + fieldId + '\')" onfocus="mpOpenPicker(\'' + fieldId + '\')" onblur="mpBlurPicker(\'' + fieldId + '\')"/>' +
+    '<input type="hidden" id="' + fieldId + '" value="' + mpEsc(current || '') + '"/>' +
+    '<div class="mp-picklist" id="' + fieldId + '-list" style="display:none">' +
+      options.map(function(o){ return '<button type="button" class="mp-pickopt" data-v="' + mpEsc(o) + '" onmousedown="mpChoosePicker(this,\'' + fieldId + '\')">' + mpEsc(o) + '</button>'; }).join('') +
+    '</div>' +
+  '</div>';
+}
+function mpChoosePicker(btn, fieldId){
+  var val = btn.getAttribute('data-v');
+  var hidden = document.getElementById(fieldId), q = document.getElementById(fieldId + '-q'), list = document.getElementById(fieldId + '-list');
+  if (hidden) hidden.value = val;
+  if (q) q.value = val;
+  if (list) list.style.display = 'none';
+  if (fieldId === 'mpf-section'){ var h = document.getElementById('mpf-section-hint'); if (h) h.textContent = ''; }
+}
+function mpFilterPicker(fieldId){
+  // Just narrows the visible list as they type. Deliberately does NOT touch the
+  // hidden value mid-keystroke — a stray tap-away must never silently blank out
+  // an already-confirmed pick (Section, Lead chef) the way it would if typing
+  // itself invalidated the saved value.
+  var q = (document.getElementById(fieldId + '-q').value || '').toLowerCase();
+  var list = document.getElementById(fieldId + '-list');
+  if (!list) return;
+  list.style.display = 'block';
+  [].forEach.call(list.querySelectorAll('.mp-pickopt'), function(btn){
+    btn.style.display = (!q || (btn.getAttribute('data-v') || '').toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+  });
+}
+function mpOpenPicker(fieldId){ var list = document.getElementById(fieldId + '-list'); if (list) list.style.display = 'block'; }
+// A delayed close so a tap on an option (onmousedown, fires before blur) still
+// lands before the list disappears.
+function mpBlurPicker(fieldId){
+  setTimeout(function(){
+    var list = document.getElementById(fieldId + '-list'), hidden = document.getElementById(fieldId), q = document.getElementById(fieldId + '-q');
+    if (list) list.style.display = 'none';
+    if (!hidden || !q) return;
+    var typed = (q.value || '').trim();
+    if (!typed){ hidden.value = ''; return; }   // deliberately cleared = cleared
+    // typed the full, exact option (case-insensitive) without tapping it — accept
+    // it rather than punish them for not tapping. Anything else: it didn't match
+    // a real option, so revert the visible text to whatever was last confirmed —
+    // never leave a half-typed guess sitting in a value that gets saved.
+    var opts = list ? [].slice.call(list.querySelectorAll('.mp-pickopt')) : [];
+    var match = opts.find(function(b){ return (b.getAttribute('data-v') || '').toLowerCase() === typed.toLowerCase(); });
+    if (match){ hidden.value = match.getAttribute('data-v'); q.value = hidden.value; }
+    else q.value = hidden.value || '';
+  }, 150);
 }
 async function mpSaveScore(sessionId, itemId){
   var s = mpTastings.find(function(x){ return x.id === sessionId; });
@@ -2197,8 +2595,12 @@ const MP_STYLE = `<style id="mp-style">
 .mp-bar-wrap{margin-bottom:13px}
 .mp-bar-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:5px}
 .mp-bar-top strong{font-family:'Forum',Georgia,serif;font-size:17px;color:var(--mp-maroon)}
+.mp-bar-wrap.hit .mp-bar-top strong{color:var(--mp-banked)}
+.mp-hitmark{font-style:normal;color:var(--mp-banked);font-size:14px}
 .mp-bar{height:11px;background:var(--mp-cream);border-radius:6px;overflow:hidden}
 .mp-bar i{display:block;height:100%;border-radius:6px;transition:width .35s ease}
+.mp-celebrate{background:linear-gradient(135deg,var(--mp-cream-l),var(--mp-cream));border:1px solid var(--mp-banked);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--mp-ink);margin-bottom:13px;line-height:1.4}
+.mp-celebrate strong{color:var(--mp-banked)}
 .mp-sprint-meta{font-size:11.5px;color:var(--mp-mute);border-top:1px solid var(--mp-line);padding-top:9px}
 .mp-next{font-size:14px;margin-bottom:10px}
 .mp-next span{display:block;font-size:11.5px;color:var(--mp-mute);margin-top:2px}
@@ -2276,6 +2678,12 @@ const MP_STYLE = `<style id="mp-style">
 /* two-up action row (Quick idea / Add a dish) */
 .mp-addrow-two{display:flex;gap:8px}
 .mp-addrow-two .mp-big{flex:1}
+/* finish-this-idea tray */
+.mp-tray{border-color:var(--mp-orange)}
+.mp-traylist{display:flex;flex-direction:column;gap:7px}
+.mp-trayrow{display:flex;align-items:center;gap:7px;background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:9px;padding:7px 8px;flex-wrap:wrap}
+.mp-trayname{background:none;border:none;font-family:'Forum',Georgia,serif;font-size:15px;color:var(--mp-maroon);text-align:left;cursor:pointer;padding:2px 0;flex:1;min-width:110px}
+.mp-trayselect{border:1px solid var(--mp-line);border-radius:7px;padding:6px 7px;font:400 12px 'Outfit',sans-serif;background:#fff;color:var(--mp-ink);max-width:150px}
 /* ownership reassurance */
 .mp-owns{font-size:12px;color:var(--mp-mute);background:var(--mp-cream-l);border:1px solid var(--mp-line);border-radius:9px;padding:9px 11px;margin-top:14px;line-height:1.45}
 .mp-owns strong{color:var(--mp-maroon)}
@@ -2406,6 +2814,12 @@ const MP_STYLE = `<style id="mp-style">
 .mp-in:focus{outline:none;border-color:var(--mp-maroon);box-shadow:0 0 0 2px rgba(69,2,7,.1)}
 textarea.mp-in{resize:vertical;line-height:1.45}
 .mp-two{display:flex;gap:9px}.mp-two>div{flex:1;min-width:0}
+/* searchable single-pick — replaces a native select for long lists */
+.mp-searchpick{position:relative}
+.mp-picklist{position:relative;margin-top:5px;max-height:180px;overflow-y:auto;border:1px solid var(--mp-line);border-radius:9px;background:#fff;box-shadow:0 6px 18px rgba(44,36,34,.12);display:flex;flex-direction:column}
+.mp-pickopt{background:#fff;border:none;border-bottom:1px solid var(--mp-cream-l);text-align:left;padding:10px 12px;font:400 14px 'Outfit',sans-serif;color:var(--mp-ink);cursor:pointer}
+.mp-pickopt:last-child{border-bottom:none}
+.mp-pickopt:hover,.mp-pickopt:active{background:var(--mp-cream-l)}
 .mp-pills{display:flex;gap:6px;flex-wrap:wrap}
 .mp-pill{border:1px solid var(--mp-line);background:#fff;border-radius:20px;padding:8px 13px;font:500 12.5px 'Outfit',sans-serif;color:var(--mp-mute);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mp-pill.on{background:var(--mp-maroon);border-color:var(--mp-maroon);color:#fff}
