@@ -155,10 +155,10 @@ function mpFileSize(bytes){
   if (!bytes) return '';
   return bytes < 1024*1024 ? Math.max(1, Math.round(bytes/1024)) + ' KB' : (bytes/1048576).toFixed(1) + ' MB';
 }
-// Dishes is the first thing he sees, because it is the only screen he touches
-// every day: add one, move one on, tag it to a menu. Everything else in this
-// module is somewhere he GOES, not somewhere he works.
-let mpTab      = 'dishes'; // dishes | briefs | home | plan | calendar | tastings
+// The Plan is the first thing he sees: everything the kitchen is developing,
+// with the box to add to it at the top. Dishes is where the day-to-day happens,
+// but the plan is what he opens the module to look at.
+let mpTab      = 'home'; // home (The Plan) | plan (Progress) | dishes | calendar | briefs | tastings
 
 // ── the new front door ──────────────────────────────────────────────────────
 // Two capabilities the app checks for rather than assumes, so it keeps working
@@ -645,11 +645,12 @@ async function openMenuPlan(){
 function mpRender(){
   var host = document.getElementById('menuplan-view');
   if (!host || activeStation !== MENUPLAN_KEY) return;
-  // What's on is the way in now. The old five tabs are still here and still
-  // work — if the new front door reads wrong to the team, nothing is lost.
+  // Two tabs used to both claim to be the plan. The list of what the kitchen is
+  // developing IS the plan, so it takes the name and comes first; the old
+  // overview becomes Progress, which is what it was always really showing.
   var tabs = [
-    { k:'home',     label:'What’s on' },
-    { k:'plan',     label:'The Plan' },
+    { k:'home',     label:'The Plan' },
+    { k:'plan',     label:'Progress' },
     { k:'dishes',   label:'Dishes',     badge: mpDishes.length },
     { k:'calendar', label:'Calendar' },
     { k:'briefs',   label:'Menus' },
@@ -694,7 +695,7 @@ function mpStatusLine(){
   if (s === 'approved')          return 'Approved by ' + (mpSprint.approved_by || 'Francesco') + ' · ' + mpDateLabel(mpSprint.approved_at);
   if (s === 'submitted')         return 'Submitted ' + mpDateLabel(mpSprint.submitted_at) + ' · waiting for Francesco';
   if (s === 'changes_requested') return 'Francesco asked for changes — see the comments';
-  return 'Each thing is agreed on What’s on';
+  return 'Each thing is agreed on The Plan';
 }
 
 // ══ 0. WHAT'S ON — the way in ══════════════════════════════════════════════
@@ -1972,7 +1973,7 @@ function mpRenderPlan(){
       : '<div class="mp-card">' +
         '<div class="mp-card-h">Agreeing the work</div>' +
         '<div class="mp-hint">Each menu and each event is agreed on its own, on ' +
-          '<button class="mp-link" onclick="mpGo(\'home\')">What&rsquo;s on</button>' +
+          '<button class="mp-link" onclick="mpGo(\'home\')">The Plan</button>' +
           (mpIsApprover()
             ? ' — ask for something, read the plan the kitchen sends back, accept it.'
             : ' — give each one a timeline and Francesco accepts it there.') +
@@ -1989,7 +1990,7 @@ function mpRenderPlan(){
 // own now, on What's on.
 function mpGuideCard(){
   var steps = [
-    ['1', 'Start on What’s on', 'Everything the kitchen has already committed to is there, nearest first.'],
+    ['1', 'Start on The Plan', 'Everything the kitchen is developing is there, nearest first.'],
     ['2', 'Plan one thing', 'Open it, say how long you’ve got, and the app lays out Development, Testing, Approval and Costing. Drag anything that looks wrong.'],
     ['3', 'Francesco accepts it', 'He reads that one plan and accepts it, or writes to you in its thread. One thing at a time — nothing to submit.'],
     ['4', 'Add your dishes', 'Log every dish you develop in Dishes — even the ones that don’t work.'],
