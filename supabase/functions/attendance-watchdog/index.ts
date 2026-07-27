@@ -149,15 +149,24 @@ Deno.serve(async (req) => {
     const issueCount = noClockOut.length + longShift.length;
     const allClear = issueCount === 0;
 
+    // Zero attendance rows on a day with active staff almost always means the
+    // COSEC import itself didn't run/land — not a genuinely perfect day. Left
+    // unchecked, that reads as issueCount===0 and reports "all clear", which is
+    // the most reassuring possible message for the one failure that matters most.
+    const totalStaffCount = Object.keys(staffMap).length;
+    const feedSuspect = (att.data || []).length === 0 && totalStaffCount > 0;
+
     // ── Compose email ──
     const niceDate = new Date(targetDate + "T00:00:00Z").toLocaleDateString("en-GB", {
       weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
     });
-    const subject = allClear
+    const subject = feedSuspect
+      ? `⚠️ Attendance watchdog — ${niceDate}: no attendance data received`
+      : allClear
       ? `✅ Attendance watchdog — ${niceDate}: all clear`
       : `⏰ Attendance watchdog — ${niceDate}: ${issueCount} issue${issueCount > 1 ? "s" : ""}`;
 
-    const html = buildHtml({ niceDate, noClockOut, longShift, allClear, fohError, outsideRoster });
+    const html = buildHtml({ niceDate, noClockOut, longShift, allClear, feedSuspect, fohError, outsideRoster });
 
     let emailStatus: unknown = "skipped (dry run)";
     if (!dry) {
@@ -175,6 +184,7 @@ Deno.serve(async (req) => {
       date: targetDate,
       issueCount,
       allClear,
+      feedSuspect,
       noClockOut: (debug || dry) ? noClockOut : noClockOut.length,
       longShift: (debug || dry) ? longShift : longShift.length,
       outsideRoster,
@@ -193,6 +203,7 @@ function buildHtml(o: {
   noClockOut: Flagged[];
   longShift: Flagged[];
   allClear: boolean;
+  feedSuspect: boolean;
   fohError: string | null;
   outsideRoster: number;
 }): string {
@@ -212,6 +223,15 @@ function buildHtml(o: {
       "No clock-out" = a clock-in with no machine out and no manager close. "Long shift" = over 14 hours.
     </p>
   </div>`;
+
+  if (o.feedSuspect) {
+    return wrap(`
+      <div style="background:#fff4e5;border:1px solid #ffd8a8;border-radius:8px;padding:18px 20px;">
+        <div style="font-size:18px;">⚠️ <b>No attendance data received for this day.</b></div>
+        <div style="color:#456;margin-top:4px;">Zero rows came back for active staff — this usually means the COSEC import didn't run or the feed is down, not that the day was clean. Check the sync before trusting "all clear" for this date.</div>
+      </div>
+      ${o.fohError ? fohWarn(o.fohError) : ""}`);
+  }
 
   if (o.allClear) {
     return wrap(`

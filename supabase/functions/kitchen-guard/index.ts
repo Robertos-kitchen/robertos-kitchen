@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   let b: any;
   try { b = await req.json(); } catch { return json({ error: "bad request" }, 400); }
+  if (!b || typeof b !== "object") b = {};
 
   const supa = createClient(
     Deno.env.get("SUPABASE_URL")!,

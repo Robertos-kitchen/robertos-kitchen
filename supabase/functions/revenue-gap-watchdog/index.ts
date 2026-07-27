@@ -224,7 +224,9 @@ function buildHtml(o: {
             <td style="padding:9px 0;text-align:right;color:#c0392b;font-weight:700;">${money0(o.gapNet || 0)}</td></tr>
       </table>
       <div style="font-size:13px;color:#667;margin-bottom:18px;">
-        Coverage: <b style="color:${covColor};">${o.coveragePct!.toFixed(0)}%</b> of the night's revenue was linked to a table in SevenRooms.
+        ${o.coveragePct != null
+          ? `Coverage: <b style="color:${covColor};">${o.coveragePct.toFixed(0)}%</b> of the night's revenue was linked to a table in SevenRooms.`
+          : `Coverage: n/a — Simphony net was ${money0(o.truthNet as number)} (zero or negative), so a coverage percentage isn't meaningful.`}
       </div>`
     : `
       <table style="border-collapse:collapse;width:100%;font-size:15px;margin:6px 0 12px;">

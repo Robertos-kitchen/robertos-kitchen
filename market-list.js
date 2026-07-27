@@ -203,7 +203,11 @@ function mlFilteredItems(){
 }
 function mlCatsPresent(){
   const present = [...new Set(mlItems.map(i=>i.category))];
-  return ML_CAT_ORDER.filter(c=>present.includes(c));
+  const known = ML_CAT_ORDER.filter(c=>present.includes(c));
+  // A category saved on an item but missing from ML_CAT_ORDER must still show up
+  // (and stay orderable) instead of silently disappearing — append it, sorted.
+  const unknown = present.filter(c=>!ML_CAT_ORDER.includes(c)).sort();
+  return known.concat(unknown);
 }
 function mlOrderedCount(){
   const days = mlVisibleDays();

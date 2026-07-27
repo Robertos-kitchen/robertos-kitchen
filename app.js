@@ -21,6 +21,9 @@ if (DEV_READ_ONLY) {
     if (urlStr.indexOf('/functions/v1/cosec-sync') !== -1) return true;
     if (urlStr.indexOf('/functions/v1/kitchen-guard') !== -1) return true;
     if (urlStr.indexOf('/functions/v1/send-roster') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/send-market-order') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/send-stock-take') !== -1) return true;
+    if (urlStr.indexOf('/functions/v1/send-closing-report') !== -1) return true;
     if (urlStr.indexOf('/functions/v1/sevenrooms-sync') !== -1 &&
         urlStr.indexOf('?upcoming=') === -1 && urlStr.indexOf('?floorplan=') === -1 && urlStr.indexOf('?coverflow=') === -1) return true;
     return false;
@@ -1890,7 +1893,8 @@ async function undoDelete(){
       }
     }
   }
-  const st=STATIONS.find(s=>s.key===u.stKey);const ss=st.subsections.find(s=>s.key===u.ssKey);
+  const st=STATIONS.find(s=>s.key===u.stKey);const ss=st&&st.subsections.find(s=>s.key===u.ssKey);
+  if(!ss)return;   // station/subsection was renamed or removed under us (live reload) — nothing safe to restore into
   if(u.type==='dish'){ss.dishes.splice(u.idx,0,u.dish);u.dish.items.forEach(item=>{state[mkId(u.stKey,u.ssKey,u.dish.name,item)]=u.savedState[item]||'none';});}
   else{const dish=ss.dishes.find(d=>d.name===u.dishName);if(dish){dish.items.splice(u.idx,0,u.itemName);state[mkId(u.stKey,u.ssKey,u.dishName,u.itemName)]=u.savedStatus||'none';}}
   renderTabs();renderCounter();renderContent();
