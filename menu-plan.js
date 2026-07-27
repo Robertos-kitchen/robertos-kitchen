@@ -1368,25 +1368,54 @@ async function mpSkipWindow(){
 // ══ THE TIMELINE ═══════════════════════════════════════════════════════════
 // The four stages spread across the window he gave, Photoshoot floating. Every
 // number here is integer day arithmetic done in this file.
+// ══ THE TIMELINE ═══════════════════════════════════════════════════════════
+// Every block carries its OWN two dates. That is the whole point: changing when
+// Testing finishes changes Testing and nothing else. Blocks may overlap, and
+// may leave a gap between them — both happen in a real kitchen, and pretending
+// otherwise is what made adjusting a single date impossible.
+//
+// The first suggestion is still the four stages back to back across the window
+// he gave. From then on he moves whichever dates he means to move.
+function mpTlBlocks(){
+  var b = mpTl.parts.slice();
+  if (mpTl.photo.on) b.push(mpTl.photo);
+  return b;
+}
+function mpTlStart(){
+  return mpTlBlocks().reduce(function(a, p){ return !a || p.from < a ? p.from : a; }, null) || mpToday();
+}
+function mpTlEnd(){
+  return mpTlBlocks().reduce(function(a, p){ return !a || p.to > a ? p.to : a; }, null) || mpToday();
+}
+function mpTlTotal(){ return Math.max(1, mpDaysBetween(mpTlStart(), mpTlEnd()) + 1); }
+function mpTlLen(p){ return Math.max(1, mpDaysBetween(p.from, p.to) + 1); }
+function mpTlShift(p, days){ p.from = mpAddDays(p.from, days); p.to = mpAddDays(p.to, days); }
+
 function mpBuildTimeline(start, end){
   var total = Math.max(4, mpDaysBetween(start, end) + 1);
-  var parts = MP_STAGES.map(function(s){
-    return { stage:s, days: Math.max(1, Math.floor(total * MP_STAGE_WEIGHT[s])) };
-  });
+  var days = MP_STAGES.map(function(s){ return Math.max(1, Math.floor(total * MP_STAGE_WEIGHT[s])); });
   // Rounding must never leak or invent a day: the slack lands on Development,
   // and if that would take it below one day we take it back off the longest.
-  var used = parts.reduce(function(a, p){ return a + p.days; }, 0);
-  parts[0].days += (total - used);
-  while (parts[0].days < 1){
-    var big = parts.slice(1).sort(function(a, b){ return b.days - a.days; })[0];
-    if (!big || big.days <= 1) break;
-    big.days--; parts[0].days++;
+  var used = days.reduce(function(a, d){ return a + d; }, 0);
+  days[0] += (total - used);
+  while (days[0] < 1){
+    var bi = 1, bd = 0;
+    for (var k = 1; k < days.length; k++) if (days[k] > bd){ bd = days[k]; bi = k; }
+    if (bd <= 1) break;
+    days[bi]--; days[0]++;
   }
+  var acc = 0;
+  var parts = MP_STAGES.map(function(s, i){
+    var from = mpAddDays(start, acc);
+    acc += days[i];
+    return { stage:s, from:from, to:mpAddDays(start, acc - 1) };
+  });
   // Photoshoot starts where Testing ends and runs into Approval — the overlap
   // the old one-stage-per-month calendar could never hold.
   var pd = Math.max(1, Math.round(total * 0.08));
-  var pStart = Math.max(0, Math.min(parts[0].days + parts[1].days, total - pd));
-  return { start:start, total:total, parts:parts, photo:{ on:true, start:pStart, days:pd } };
+  var pOff = Math.max(0, Math.min(days[0] + days[1], total - pd));
+  return { parts:parts,
+           photo:{ stage:MP_PHOTO_STAGE, on:true, from:mpAddDays(start, pOff), to:mpAddDays(start, pOff + pd - 1) } };
 }
 // Rebuild the working timeline from what is actually saved, so going back to a
 // plan opens THAT plan. It used to spread a fresh one from today every time,
@@ -1395,27 +1424,18 @@ function mpBuildTimeline(start, end){
 function mpTlFromSaved(menuId){
   var st = mpStagesFor(menuId);
   if (!st.length) return null;
+  var day = function(v){ return String(v).slice(0, 10); };
   var main  = st.filter(function(c){ return c.stage !== MP_PHOTO_STAGE; });
   var photo = st.filter(function(c){ return c.stage === MP_PHOTO_STAGE; })[0];
   if (!main.length) return null;
-  var start = String(main[0].starts_on).slice(0, 10);
   var parts = main.map(function(c){
-    var from = String(c.starts_on).slice(0, 10);
-    var to   = String(c.ends_on || c.starts_on).slice(0, 10);
-    return { stage:c.stage, days: Math.max(1, mpDaysBetween(from, to) + 1) };
+    return { stage:c.stage, from:day(c.starts_on), to:day(c.ends_on || c.starts_on) };
   });
-  var total = parts.reduce(function(a, p){ return a + p.days; }, 0);
-  var ph = { on:false, start:0, days:1 };
-  if (photo){
-    var pf = String(photo.starts_on).slice(0, 10);
-    var pt = String(photo.ends_on || photo.starts_on).slice(0, 10);
-    ph = { on:true,
-           start: Math.max(0, Math.min(total - 1, mpDaysBetween(start, pf))),
-           days:  Math.max(1, mpDaysBetween(pf, pt) + 1) };
-    ph.days = Math.min(ph.days, total - ph.start);
-  }
+  var ph = photo
+    ? { stage:MP_PHOTO_STAGE, on:true, from:day(photo.starts_on), to:day(photo.ends_on || photo.starts_on) }
+    : { stage:MP_PHOTO_STAGE, on:false, from:parts[0].from, to:parts[0].from };
   var have = parts.map(function(p){ return p.stage; });
-  return { menuId:menuId, start:start, total:total, parts:parts, photo:ph,
+  return { menuId:menuId, parts:parts, photo:ph, was:{},
            skipped: MP_STAGES.filter(function(s){ return have.indexOf(s) < 0; }) };
 }
 function mpOpenTimeline(menuId, start, end){
@@ -1424,42 +1444,35 @@ function mpOpenTimeline(menuId, start, end){
   var saved = mpTlFromSaved(menuId);
   if (saved){ mpTl = saved; mpTimelineSheet(); return; }
   var built = mpBuildTimeline(start, end);
-  mpTl = { menuId:menuId, start:built.start, total:built.total, parts:built.parts, photo:built.photo, skipped:[] };
+  mpTl = { menuId:menuId, parts:built.parts, photo:built.photo, skipped:[], was:{} };
   mpTimelineSheet();
 }
 function mpTimelineSheet(){
   var m = mpMenus.filter(function(x){ return x.id === mpTl.menuId; })[0];
   mpSheet('Plan ' + (m ? m.name : ''), mpTimelineBody());
 }
-function mpTlEnd(){ return mpAddDays(mpTl.start, mpTl.total - 1); }
-function mpTlDayDate(off){ return mpAddDays(mpTl.start, Math.max(0, Math.min(mpTl.total - 1, off))); }
-function mpTlCuts(){
-  var out = [], acc = 0;
-  mpTl.parts.forEach(function(p){ acc += p.days; out.push(acc); });
-  return out;
-}
+
 function mpTimelineBody(){
-  var cuts = mpTlCuts(), total = mpTl.total, acc = 0;
+  var start = mpTlStart(), total = mpTlTotal();
+  var pos = function(p){
+    return 'left:' + ((mpDaysBetween(start, p.from) / total) * 100).toFixed(3) + '%;' +
+           'width:' + ((mpTlLen(p) / total) * 100).toFixed(3) + '%';
+  };
   var segs = mpTl.parts.map(function(p, i){
-    var left = (acc / total) * 100, width = (p.days / total) * 100;
-    acc += p.days;
-    return '<span class="mp-tl-seg s-' + p.stage.toLowerCase() + '" style="left:' + left.toFixed(3) + '%;width:' + width.toFixed(3) + '%">' +
+    return '<span class="mp-tl-seg s-' + p.stage.toLowerCase() + '" style="' + pos(p) + '" ' +
+      'onpointerdown="mpTlDown(event,' + i + ',&quot;part&quot;)" title="Drag to move this block">' +
       '<b>' + mpEsc(p.stage) + '</b></span>';
   }).join('');
-  var handles = mpTl.parts.slice(0, -1).map(function(p, i){
-    return '<span class="mp-tl-h" style="left:' + ((cuts[i] / total) * 100).toFixed(3) + '%" ' +
-      'onpointerdown="mpTlDown(event,' + i + ',\'cut\')" title="Drag to move this edge"></span>';
-  }).join('');
   var ph = mpTl.photo;
-  return '<div class="mp-hint">' + mpTl.total + ' days &mdash; ' + mpEsc(mpDateLabel(mpTl.start)) +
-      ' to ' + mpEsc(mpDateLabel(mpTlEnd())) + '. Drag any edge to change it. This is a suggestion, not a rule.</div>' +
+  return '<div class="mp-hint">' + total + ' days &mdash; ' + mpEsc(mpDateLabel(start)) +
+      ' to ' + mpEsc(mpDateLabel(mpTlEnd())) + '. Drag a block to move it, or set its dates below. ' +
+      'Each phase is on its own &mdash; changing one date changes only that phase.</div>' +
     '<div class="mp-tl">' +
-      '<div class="mp-tl-track" id="mp-tl-track">' + segs + handles + '</div>' +
+      '<div class="mp-tl-track" id="mp-tl-track">' + segs + '</div>' +
       '<div class="mp-tl-track photo" id="mp-tl-photo">' +
         (ph.on
-          ? '<span class="mp-tl-seg s-photoshoot" style="left:' + ((ph.start / mpTl.total) * 100).toFixed(3) + '%;width:' +
-              ((ph.days / mpTl.total) * 100).toFixed(3) + '%" onpointerdown="mpTlDown(event,-1,\'photo\')">' +
-            '<b>' + MP_PHOTO_STAGE + '</b></span>'
+          ? '<span class="mp-tl-seg s-photoshoot" style="' + pos(ph) + '" ' +
+            'onpointerdown="mpTlDown(event,-1,&quot;photo&quot;)"><b>' + MP_PHOTO_STAGE + '</b></span>'
           : '<span class="mp-tl-off">No photoshoot</span>') +
       '</div>' +
     '</div>' +
@@ -1483,29 +1496,27 @@ function mpTlDateCell(id, label, value, handler){
   '</label>';
 }
 function mpTlStageRows(){
-  var acc = 0;
   var rows = mpTl.parts.map(function(p, i){
-    var from = mpTlDayDate(acc), to = mpTlDayDate(acc + p.days - 1);
-    acc += p.days;
+    var n = mpTlLen(p);
     return '<div class="mp-stagerow wide">' +
       '<div class="mp-stagerow-t">' +
         '<i class="mp-swatch s-' + p.stage.toLowerCase() + '"></i>' +
         '<span class="mp-stage-n"><strong>' + mpEsc(p.stage) + '</strong>' +
-          '<em>' + p.days + ' day' + (p.days === 1 ? '' : 's') + '</em></span>' +
-        (mpTl.parts.length > 1 ? '<button class="mp-btn ghost small" onclick="mpTlSkip(\'' + p.stage + '\')">Skip</button>' : '') +
+          '<em>' + n + ' day' + (n === 1 ? '' : 's') + '</em></span>' +
+        (mpTl.parts.length > 1 ? '<button class="mp-btn ghost small" onclick="mpTlSkip(&quot;' + p.stage + '&quot;)">Skip</button>' : '') +
       '</div>' +
       '<div class="mp-tldates">' +
-        mpTlDateCell('mp-tl-f' + i, 'Starts',   from, 'mpTlSetDate(' + i + ',\'from\',this)') +
-        mpTlDateCell('mp-tl-t' + i, 'Finishes', to,   'mpTlSetDate(' + i + ',\'to\',this)') +
+        mpTlDateCell('mp-tl-f' + i, 'Starts',   p.from, 'mpTlSetDate(' + i + ',&quot;from&quot;,this)') +
+        mpTlDateCell('mp-tl-t' + i, 'Finishes', p.to,   'mpTlSetDate(' + i + ',&quot;to&quot;,this)') +
       '</div>' +
     '</div>';
   }).join('');
-  var ph = mpTl.photo;
+  var ph = mpTl.photo, pn = mpTlLen(ph);
   rows += '<div class="mp-stagerow wide">' +
     '<div class="mp-stagerow-t">' +
       '<i class="mp-swatch s-photoshoot"></i>' +
       '<span class="mp-stage-n"><strong>' + MP_PHOTO_STAGE + '</strong>' +
-        (ph.on ? '<em>' + ph.days + ' day' + (ph.days === 1 ? '' : 's') + ' &middot; can sit inside the others</em>'
+        (ph.on ? '<em>' + pn + ' day' + (pn === 1 ? '' : 's') + ' &middot; can sit inside the others</em>'
                : '<em>skipped</em>') + '</span>' +
       (ph.on
         ? '<button class="mp-btn ghost small" onclick="mpTlPhotoOff()">Skip</button>'
@@ -1513,85 +1524,37 @@ function mpTlStageRows(){
     '</div>' +
     (ph.on
       ? '<div class="mp-tldates">' +
-          mpTlDateCell('mp-tl-pf', 'Starts',   mpTlDayDate(ph.start),               'mpTlSetPhotoDate(\'from\',this)') +
-          mpTlDateCell('mp-tl-pt', 'Finishes', mpTlDayDate(ph.start + ph.days - 1), 'mpTlSetPhotoDate(\'to\',this)') +
+          mpTlDateCell('mp-tl-pf', 'Starts',   ph.from, 'mpTlSetDate(-1,&quot;from&quot;,this)') +
+          mpTlDateCell('mp-tl-pt', 'Finishes', ph.to,   'mpTlSetDate(-1,&quot;to&quot;,this)') +
         '</div>'
       : '') +
   '</div>';
   if (mpTl.skipped.length){
     rows += '<div class="mp-stage-skipped">' + mpTl.skipped.map(function(s){
-      return '<button class="mp-btn ghost small" onclick="mpTlUnskip(\'' + s + '\')">Add ' + mpEsc(s) + ' back</button>';
+      return '<button class="mp-btn ghost small" onclick="mpTlUnskip(&quot;' + s + '&quot;)">Add ' + mpEsc(s) + ' back</button>';
     }).join('') + '</div>';
   }
   return rows;
 }
-// ── typing a date instead of dragging one ──────────────────────────────────
-// The four stages run back to back, so a date is really a boundary: the day
-// Testing starts IS the day after Development ends. Moving one therefore moves
-// its neighbour, which is what a chef means by "give Development another week"
-// — the rest slides, nothing is silently lost. Refuses rather than mangles:
-// a stage can never be squeezed below a single day.
+// ── setting one date ───────────────────────────────────────────────────────
+// Only the block he touched moves. The single rule is that a phase cannot
+// finish before it starts; everything else — overlapping Testing with
+// Development, leaving three empty weeks before Costing — is his call to make.
 function mpTlSetDate(i, which, el){
   var v = el && el.value;
   if (!v){ mpTlRefresh(); return; }
-  var cuts = mpTlCuts();
-  var startOff = i === 0 ? 0 : cuts[i - 1];
+  var p = i < 0 ? mpTl.photo : mpTl.parts[i];
+  if (!p){ mpTlRefresh(); return; }
   if (which === 'from'){
-    if (i === 0){
-      // Moving the whole plan: everything keeps its length, the start shifts.
-      mpTl.start = v;
-    } else {
-      // The boundary between the stage before and this one.
-      var prevStart = i === 1 ? 0 : cuts[i - 2];
-      var newLen = mpDaysBetween(mpTlDayDate(prevStart), v);
-      if (newLen < 1){ mpToast(mpTl.parts[i - 1].stage + ' would have no days left. Pick a later date.', true); mpTlRefresh(); return; }
-      var diff = newLen - mpTl.parts[i - 1].days;
-      if (mpTl.parts[i].days - diff < 1){ mpToast(mpTl.parts[i].stage + ' would have no days left. Pick an earlier date.', true); mpTlRefresh(); return; }
-      mpTl.parts[i - 1].days = newLen;
-      mpTl.parts[i].days    -= diff;
-    }
+    if (v > p.to){ mpToast(p.stage + ' would finish before it starts. Move the finish date first.', true); mpTlRefresh(); return; }
+    p.from = v;
   } else {
-    var len = mpDaysBetween(mpTlDayDate(startOff), v) + 1;
-    if (len < 1){ mpToast('That is before ' + mpTl.parts[i].stage + ' starts.', true); mpTlRefresh(); return; }
-    var last = i === mpTl.parts.length - 1;
-    if (!last){
-      var d = len - mpTl.parts[i].days;
-      if (mpTl.parts[i + 1].days - d < 1){ mpToast(mpTl.parts[i + 1].stage + ' would have no days left. Pick an earlier date.', true); mpTlRefresh(); return; }
-      mpTl.parts[i + 1].days -= d;
-    }
-    mpTl.parts[i].days = len;
+    if (v < p.from){ mpToast(p.stage + ' would finish before it starts. Move the start date first.', true); mpTlRefresh(); return; }
+    p.to = v;
   }
-  mpTlResync();
-}
-// The photoshoot is the one that floats: it is allowed to sit inside the other
-// stages, so its two dates move only itself. Kept inside the plan's window.
-function mpTlSetPhotoDate(which, el){
-  var v = el && el.value;
-  if (!v){ mpTlRefresh(); return; }
-  var off = mpDaysBetween(mpTl.start, v);
-  if (which === 'from'){
-    mpTl.photo.start = Math.max(0, Math.min(mpTl.total - 1, off));
-    mpTl.photo.days  = Math.max(1, Math.min(mpTl.photo.days, mpTl.total - mpTl.photo.start));
-  } else {
-    var days = off - mpTl.photo.start + 1;
-    if (days < 1){ mpToast('That is before the photoshoot starts.', true); mpTlRefresh(); return; }
-    mpTl.photo.days = Math.min(days, mpTl.total - mpTl.photo.start);
-  }
-  mpTlResync();
-}
-// After any typed change: the total is whatever the stages now add up to, and
-// the photoshoot must still fit inside it.
-function mpTlResync(){
-  mpTl.total = mpTl.parts.reduce(function(a, p){ return a + p.days; }, 0);
-  var ph = mpTl.photo;
-  ph.start = Math.max(0, Math.min(ph.start, mpTl.total - 1));
-  ph.days  = Math.max(1, Math.min(ph.days, mpTl.total - ph.start));
   mpSheetDirty = true;
   mpTlRefresh();
 }
-
-// A full rebuild — for the changes that alter what is on screen (skipping a
-// stage, dropping the photoshoot). NOT for dragging.
 function mpTlRefresh(){
   var s = document.querySelector('#mp-sheet .mp-sheet-body');
   if (s) s.innerHTML = mpTimelineBody();
@@ -1600,38 +1563,35 @@ function mpTlRefresh(){
 // the very track the finger was being measured against — the first move read a
 // zero-width box and collapsed the stage to nothing.
 function mpTlPaint(){
+  var start = mpTlStart(), total = mpTlTotal();
+  var place = function(el, p){
+    if (!el) return;
+    el.style.left  = ((mpDaysBetween(start, p.from) / total) * 100).toFixed(3) + '%';
+    el.style.width = ((mpTlLen(p) / total) * 100).toFixed(3) + '%';
+  };
   var track = document.getElementById('mp-tl-track');
-  if (!track) return;
-  var total = mpTl.total, acc = 0;
-  var segs = track.querySelectorAll('.mp-tl-seg');
-  var hs   = track.querySelectorAll('.mp-tl-h');
-  mpTl.parts.forEach(function(p, i){
-    if (segs[i]){
-      segs[i].style.left  = ((acc / total) * 100).toFixed(3) + '%';
-      segs[i].style.width = ((p.days / total) * 100).toFixed(3) + '%';
-    }
-    acc += p.days;
-    if (hs[i]) hs[i].style.left = ((acc / total) * 100).toFixed(3) + '%';
-  });
-  var ph = document.querySelector('#mp-tl-photo .mp-tl-seg');
-  if (ph && mpTl.photo.on){
-    ph.style.left  = ((mpTl.photo.start / total) * 100).toFixed(3) + '%';
-    ph.style.width = ((mpTl.photo.days  / total) * 100).toFixed(3) + '%';
+  if (track){
+    var segs = track.querySelectorAll('.mp-tl-seg');
+    mpTl.parts.forEach(function(p, i){ place(segs[i], p); });
   }
+  if (mpTl.photo.on) place(document.querySelector('#mp-tl-photo .mp-tl-seg'), mpTl.photo);
   var list = document.getElementById('mp-stagelist');
   if (list) list.innerHTML = mpTlStageRows();
 }
 // ── dragging ───────────────────────────────────────────────────────────────
 // Same pointer-events habit as the calendar grip, so a finger works exactly
-// like a mouse. A boundary moves days from one stage to the next; the
-// photoshoot block slides whole, and is allowed to sit over anything.
+// like a mouse. A block slides whole, keeping its length — the dates below are
+// where a phase gets longer or shorter.
 let mpTlDrag = null;
 function mpTlDown(e, idx, what){
   if (e.button && e.button !== 0) return;
   e.preventDefault(); e.stopPropagation();
   var track = mpTlTrack(what);
   if (!track) return;
-  mpTlDrag = { idx:idx, what:what, grabbed:mpTlDayAt(e.clientX, track) - (what === 'photo' ? mpTl.photo.start : 0) };
+  var p = what === 'photo' ? mpTl.photo : mpTl.parts[idx];
+  var at = mpTlDayAt(e.clientX, track);
+  if (!p || at === null) return;
+  mpTlDrag = { idx:idx, what:what, grabbed: at - mpDaysBetween(mpTlStart(), p.from) };
   document.addEventListener('pointermove', mpTlMove, { passive:false });
   document.addEventListener('pointerup', mpTlUp, true);
   document.addEventListener('pointercancel', mpTlUp, true);
@@ -1640,7 +1600,7 @@ function mpTlTrack(what){ return document.getElementById(what === 'photo' ? 'mp-
 function mpTlDayAt(clientX, track){
   var box = track && track.getBoundingClientRect();
   if (!box || !box.width) return null;
-  return Math.round(((clientX - box.left) / box.width) * mpTl.total);
+  return Math.round(((clientX - box.left) / box.width) * mpTlTotal());
 }
 function mpTlMove(e){
   if (!mpTlDrag) return;
@@ -1649,20 +1609,11 @@ function mpTlMove(e){
   // how the finger ends up measured against an element that is no longer there.
   var day = mpTlDayAt(e.clientX, mpTlTrack(mpTlDrag.what));
   if (day === null) return;
-  if (mpTlDrag.what === 'photo'){
-    var ph = mpTl.photo;
-    ph.start = Math.max(0, Math.min(mpTl.total - ph.days, day - mpTlDrag.grabbed));
-  } else {
-    var i = mpTlDrag.idx, cuts = mpTlCuts();
-    var min = (i === 0 ? 0 : cuts[i - 1]) + 1;
-    var max = cuts[i + 1] - 1;
-    if (max < min) return;
-    day = Math.max(min, Math.min(max, day));
-    var delta = day - cuts[i];
-    if (!delta) return;
-    mpTl.parts[i].days += delta;
-    mpTl.parts[i + 1].days -= delta;
-  }
+  var p = mpTlDrag.what === 'photo' ? mpTl.photo : mpTl.parts[mpTlDrag.idx];
+  if (!p) return;
+  var delta = (day - mpTlDrag.grabbed) - mpDaysBetween(mpTlStart(), p.from);
+  if (!delta) return;
+  mpTlShift(p, delta);
   mpSheetDirty = true;
   mpTlPaint();
 }
@@ -1674,38 +1625,37 @@ function mpTlUp(){
   document.removeEventListener('pointercancel', mpTlUp, true);
 }
 // ── skipping ───────────────────────────────────────────────────────────────
+// A skipped stage keeps its dates in `was`, so adding it back puts it where it
+// was rather than guessing. Nothing else moves: the gap it leaves is a gap.
 function mpTlSkip(stage){
   var i = mpTl.parts.map(function(p){ return p.stage; }).indexOf(stage);
   if (i < 0 || mpTl.parts.length < 2) return;
-  var freed = mpTl.parts[i].days;
+  mpTl.was[stage] = { from:mpTl.parts[i].from, to:mpTl.parts[i].to };
   mpTl.parts.splice(i, 1);
-  var take = mpTl.parts[Math.max(0, i - 1)] || mpTl.parts[0];
-  take.days += freed;
   mpTl.skipped.push(stage);
   mpSheetDirty = true; mpTlRefresh();
 }
 function mpTlUnskip(stage){
   var k = mpTl.skipped.indexOf(stage);
   if (k < 0) return;
-  var big = mpTl.parts.slice().sort(function(a, b){ return b.days - a.days; })[0];
-  if (!big || big.days < 2){ mpToast('There aren’t enough days left to add a stage back.', true); return; }
-  var give = Math.max(1, Math.floor(big.days / 2));
-  big.days -= give;
+  var was = mpTl.was[stage];
+  if (!was){
+    // Never had dates: a week straight after whatever runs before it.
+    var want = MP_STAGES.indexOf(stage);
+    var before = mpTl.parts.filter(function(p){ return MP_STAGES.indexOf(p.stage) < want; });
+    var prev = before.length ? before[before.length - 1] : null;
+    var from = prev ? mpAddDays(prev.to, 1) : mpTlStart();
+    was = { from:from, to:mpAddDays(from, 6) };
+  }
   mpTl.skipped.splice(k, 1);
   // Back into its proper place in the order, not on the end.
-  var want = MP_STAGES.indexOf(stage);
-  var at = mpTl.parts.findIndex(function(p){ return MP_STAGES.indexOf(p.stage) > want; });
-  mpTl.parts.splice(at < 0 ? mpTl.parts.length : at, 0, { stage:stage, days:give });
+  var w = MP_STAGES.indexOf(stage);
+  var at = mpTl.parts.findIndex(function(p){ return MP_STAGES.indexOf(p.stage) > w; });
+  mpTl.parts.splice(at < 0 ? mpTl.parts.length : at, 0, { stage:stage, from:was.from, to:was.to });
   mpSheetDirty = true; mpTlRefresh();
 }
 function mpTlPhotoOff(){ mpTl.photo.on = false; mpSheetDirty = true; mpTlRefresh(); }
 function mpTlPhotoOn(){ mpTl.photo.on = true; mpSheetDirty = true; mpTlRefresh(); }
-function mpTlPhotoDays(n){
-  var ph = mpTl.photo;
-  ph.days = Math.max(1, Math.min(mpTl.total, ph.days + n));
-  ph.start = Math.max(0, Math.min(mpTl.total - ph.days, ph.start));
-  mpSheetDirty = true; mpTlPaint();
-}
 function mpTlCancel(){
   mpTl = null;
   if (mpIntake){ mpIntake.i++; mpNextIntakeStep(); return; }
@@ -1738,17 +1688,11 @@ async function mpSaveTimeline(btn){
         var del = await sb.from('menu_plan_calendar').delete().eq('id', old[i].id);
         if (mpErr(del, 'the plan')) return;
       }
-      var acc = 0, rows = [];
-      mpTl.parts.forEach(function(p){
-        rows.push({ menu_id:menuId, stage:p.stage, starts_on:mpTlDayDate(acc),
-                    ends_on:mpTlDayDate(acc + p.days - 1), updated_by:mpMe.name, updated_at:new Date().toISOString() });
-        acc += p.days;
+      // Each block writes its own two dates, exactly as they read on screen.
+      var rows = mpTlBlocks().map(function(p){
+        return { menu_id:menuId, stage:p.stage, starts_on:p.from, ends_on:p.to,
+                 updated_by:mpMe.name, updated_at:new Date().toISOString() };
       });
-      if (mpTl.photo.on){
-        rows.push({ menu_id:menuId, stage:MP_PHOTO_STAGE, starts_on:mpTlDayDate(mpTl.photo.start),
-                    ends_on:mpTlDayDate(mpTl.photo.start + mpTl.photo.days - 1),
-                    updated_by:mpMe.name, updated_at:new Date().toISOString() });
-      }
       if (rows.length){
         var ins = await sb.from('menu_plan_calendar').insert(rows);
         if (mpErr(ins, 'the plan')) return;
