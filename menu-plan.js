@@ -2553,6 +2553,13 @@ function mpItemScoreRows(item){
   }
   return rows;
 }
+// "That table isn't there yet" vs "the connection dropped" — PostgREST says the
+// first with 42P01, or PGRST205 when the schema cache has never seen it.
+function mpTableMissing(err){
+  var m = String((err && (err.message || err.code)) || '').toLowerCase();
+  return m.indexOf('does not exist') >= 0 || m.indexOf('42p01') >= 0 ||
+         m.indexOf('pgrst205') >= 0 || m.indexOf('schema cache') >= 0;
+}
 function mpMyScoreRow(item){
   return (mpTastingScores[item.id] || []).find(function(r){ return r.scored_by === mpMe.name; }) || null;
 }
@@ -2888,7 +2895,10 @@ async function mpSaveScore(sessionId, itemId){
       presentation_score: pres ? +pres : null,
       comment: note, updated_at: new Date().toISOString()
     }, { onConflict:'item_id,scored_by' });
-    if (res && res.error) mpScoresTable = false;    // the migration isn't run yet
+    // Only a MISSING TABLE drops us back to the shared row. A dropped
+    // connection must not silently downgrade us for the rest of the session —
+    // that is how one person's note would end up overwriting another's.
+    if (res && res.error && mpTableMissing(res.error)) mpScoresTable = false;
     else if (mpErr(res, 'the score')) return;
     // the outcome is one call on the dish, so it stays on the item row
     if (mpScoresTable){
