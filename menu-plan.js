@@ -1735,11 +1735,17 @@ function mpReviewPlan(menuId){
     (when ? '<div class="mp-hint">Live ' + mpEsc(mpDateLabel(when)) + ' &middot; ' + mpEsc(mpHowFar(when)) + '</div>' : '') +
     (stages.length
       ? '<div class="mp-stagelist">' + stages.map(function(c){
-          return '<div class="mp-stagerow">' +
+          // Tap the phase itself to move it. Going through "Change the plan" to
+          // shift one photoshoot was the long way round for the commonest job
+          // there is — the date moved, everything else stayed put.
+          var inner =
             '<i class="mp-swatch s-' + String(c.stage).toLowerCase() + '"></i>' +
             '<span class="mp-stage-n"><strong>' + mpEsc(c.stage) + '</strong>' +
-            '<em>' + mpEsc(mpDateLabel(c.starts_on)) + ' &rarr; ' + mpEsc(mpDateLabel(c.ends_on || c.starts_on)) + '</em></span>' +
-          '</div>';
+            '<em>' + mpEsc(mpDateLabel(c.starts_on)) + ' &rarr; ' + mpEsc(mpDateLabel(c.ends_on || c.starts_on)) + '</em></span>';
+          return mpCanAuthor()
+            ? '<button class="mp-stagerow tap" onclick="mpEditStage(\'' + c.id + '\')">' + inner +
+                '<span class="mp-stage-go">Change &rsaquo;</span></button>'
+            : '<div class="mp-stagerow">' + inner + '</div>';
         }).join('') + '</div>' +
         (m.plan_state === 'accepted'
           ? '<div class="mp-why">Francesco accepted this plan.</div>'
@@ -1755,6 +1761,51 @@ function mpReviewPlan(menuId){
     '</div>' +
     mpCommentBlock('menu', m.id, 'Talk about this one', true));
 }
+// ── moving one phase, on its own ───────────────────────────────────────────
+// One phase, its two dates, Save. It writes that single calendar row and
+// nothing else — the other phases are not read, not rewritten, not shifted.
+// This is the short way round for the job that comes up most: the photoshoot
+// moved, the rest of the plan did not.
+function mpEditStage(rowId){
+  var c = mpCal.filter(function(x){ return x.id === rowId; })[0];
+  if (!c) return;
+  if (!mpCanAuthor()){ mpToast('Only the chefs and Francesco change the dates.', true); return; }
+  var m = mpMenus.filter(function(x){ return x.id === c.menu_id; })[0];
+  var from = String(c.starts_on).slice(0, 10);
+  var to   = String(c.ends_on || c.starts_on).slice(0, 10);
+  mpSheet(c.stage,
+    '<div class="mp-hint">' + mpEsc(m ? m.name : '') + ' &middot; moving this changes ' +
+      '<strong>' + mpEsc(c.stage) + '</strong> only. The other phases stay where they are.</div>' +
+    '<div class="mp-tldates">' +
+      mpTlDateCell('mp-es-f', 'Starts',   from, '') +
+      mpTlDateCell('mp-es-t', 'Finishes', to,   '') +
+    '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpSaveStage(this,\'' + c.id + '\')">Save</button>' +
+      '<button class="mp-btn ghost" onclick="mpEditStageBack(\'' + c.menu_id + '\')">Cancel</button>' +
+    '</div>');
+}
+function mpEditStageBack(menuId){ mpCloseSheet(); mpReviewPlan(menuId); }
+async function mpSaveStage(btn, rowId){
+  var c = mpCal.filter(function(x){ return x.id === rowId; })[0];
+  if (!c) return;
+  var f = document.getElementById('mp-es-f'), t = document.getElementById('mp-es-t');
+  var from = f && f.value, to = t && t.value;
+  if (!from){ mpToast('It needs a start date.', true); return; }
+  if (!to) to = from;
+  if (to < from){ mpToast(c.stage + ' would finish before it starts. Check the two dates.', true); return; }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var res = await sb.from('menu_plan_calendar')
+      .update({ starts_on:from, ends_on:to, updated_at:new Date().toISOString(), updated_by:mpMe.name })
+      .eq('id', rowId);
+    if (mpErr(res, c.stage)) return;
+    await mpLoadAll();
+    mpToast(c.stage + ' moved');
+    mpCloseSheet(); mpRender(); mpReviewPlan(c.menu_id);
+  } finally { free(); }
+}
+
 async function mpAcceptPlan(menuId){
   var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
   if (!mpIsApprover() || !m) return;
@@ -4780,6 +4831,10 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-tld>span{font:600 10.5px 'Outfit',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-maroon);opacity:.7}
 .mp-tld-in{min-height:44px;padding:8px 10px;font:500 13.5px 'Outfit',sans-serif}
 @media(max-width:380px){.mp-tldates{grid-template-columns:1fr;margin-left:0}}
+/* a phase in the saved plan is tappable — that IS how you move it */
+.mp-stagerow.tap{display:flex;align-items:center;gap:9px;width:100%;min-height:56px;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 12px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-stagerow.tap:active{background:var(--mp-cream-l)}
+.mp-stage-go{margin-left:auto;font:600 12px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
 .mp-askbox:active{background:var(--mp-cream)}
 .mp-askbox.ask{border-style:solid;border-color:var(--mp-maroon);background:var(--mp-maroon)}
 .mp-askbox.ask .mp-askbox-q{color:#fff}
