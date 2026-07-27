@@ -127,6 +127,41 @@ end $$;
 create index if not exists menu_plan_menus_origin_idx on public.menu_plan_menus (origin, plan_state);
 
 
+-- ══ 2b. ON THE PLAN, OR IN THE LIST ═══════════════════════════════════════
+--
+-- Two different things live in this table and only one of them is work.
+--
+--   ON THE PLAN   someone decided to develop it. It shows on What's on.
+--   IN THE LIST   a menu the restaurant simply runs (à la carte, Business
+--                 Lunch, the Set Menus) or a night already in the diary
+--                 (Christmas Eve). Real, but nobody has started on it.
+--
+-- The 22 rows seeded from the Q4 marketing email are the second kind, so the
+-- module opens with nothing waiting and Danilo picks from the list — or types
+-- something new — as he and Francesco talk it through. Picking one is what
+-- moves it onto the plan.
+--
+-- Nothing is deleted to do this. To put all 22 back on the plan at any time:
+--   update public.menu_plan_menus set on_plan = true;
+--
+-- The backfill sits INSIDE the add-column check on purpose. It must run once,
+-- when the column first appears — never again, or a re-run would sweep
+-- everything they had since started back off the plan.
+
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'menu_plan_menus' and column_name = 'on_plan'
+  ) then
+    alter table public.menu_plan_menus add column on_plan boolean not null default true;
+    update public.menu_plan_menus set on_plan = false;   -- everything seeded so far is the list
+  end if;
+end $$;
+
+create index if not exists menu_plan_menus_onplan_idx on public.menu_plan_menus (on_plan);
+
+
 -- ══ 3. THE COST CONTROLLER'S NAME ═════════════════════════════════════════
 -- ahtwe@robertos.ae is Aung Htwe. 'Aht We' was a misreading of the email
 -- address; the FOH app has always had it right. One row, name field only —

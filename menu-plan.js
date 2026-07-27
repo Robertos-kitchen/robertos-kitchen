@@ -162,6 +162,7 @@ let mpTab      = 'home'; // home | plan | dishes | calendar | briefs | tastings
 // on a DB where menu-plan-front-door.sql has not been run yet.
 let mpHasStages   = true;  // menu_plan_calendar carries stage / starts_on / ends_on
 let mpHasRequests = true;  // menu_plan_menus carries origin / request_note / plan_state
+let mpHasOnPlan   = true;  // menu_plan_menus carries on_plan
 let mpIntake = null;       // the one-box flow while it is open
 let mpTl     = null;       // the timeline being dragged
 let mpBoardView = 'list';// list | board  (list is the phone default)
@@ -347,7 +348,8 @@ async function mpLoadAll(){
     // loudly if menu-plan-front-door.sql has not been run, and a failure here
     // is the signal — not an excuse to break the rest of the page.
     sb.from('menu_plan_calendar').select('id,stage,starts_on,ends_on').limit(1),
-    sb.from('menu_plan_menus').select('id,origin,plan_state,request_note,needed_by,requested_by').limit(1)
+    sb.from('menu_plan_menus').select('id,origin,plan_state,request_note,needed_by,requested_by').limit(1),
+    sb.from('menu_plan_menus').select('id,on_plan').limit(1)
   ]);
   mpMembers  = r[0].data || [];
   mpMenus    = r[1].data || [];
@@ -381,6 +383,7 @@ async function mpLoadAll(){
   });
   mpHasStages   = !!(r[12] && !r[12].error);
   mpHasRequests = !!(r[13] && !r[13].error);
+  mpHasOnPlan   = !!(r[14] && !r[14].error);
   mpLoaded = true;
   // A failed members load would empty the picker and lock everyone out — say so.
   if (r[0].error) mpToast('Could not load the team list. Check the connection.', true);
@@ -739,6 +742,33 @@ function mpWhenLive(m){
 function mpKnownDate(m){
   return (m && mpIsEventMenu(m)) ? mpMenuEventDate(m) : null;
 }
+// ══ ON THE PLAN, OR IN THE LIST ════════════════════════════════════════════
+// Two different things share this table. A menu ON THE PLAN is work someone
+// has decided to do — it shows on What's on. A menu in THE LIST is one the
+// restaurant simply runs (à la carte, Business Lunch, the Set Menus) or a date
+// already in the diary (Christmas Eve). It is not work until someone picks it,
+// so it stays off the home screen and waits in the intake box instead.
+//
+// Nothing is deleted to achieve that — it is one flag. Before the migration
+// adds the column, every menu counts as on the plan, which is exactly how the
+// module behaved before this existed.
+function mpOnPlan(m){ return !mpHasOnPlan || !m || m.on_plan !== false; }
+function mpCatalogueMenus(){
+  return mpMenus.filter(function(m){ return !mpOnPlan(m); })
+                .sort(function(a, b){ return (a.sort_order || 0) - (b.sort_order || 0); });
+}
+// Picking a thing out of the list is what puts it on the plan. It happens when
+// he commits — saves a timeline, or says he isn't sure yet — never when he is
+// only browsing, so backing out of the sheet leaves the plan as it was.
+async function mpPutOnPlan(menuId){
+  if (!mpHasOnPlan || !menuId) return true;
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m || mpOnPlan(m)) return true;
+  var res = await sb.from('menu_plan_menus')
+    .update({ on_plan:true, updated_at:new Date().toISOString(), updated_by:mpMe.name })
+    .eq('id', menuId);
+  return !mpErr(res, 'it');
+}
 function mpStagesFor(menuId){
   return mpCal.filter(function(c){ return c.menu_id === menuId && c.stage; })
               .sort(function(a, b){ return String(a.starts_on) < String(b.starts_on) ? -1 : 1; });
@@ -795,25 +825,30 @@ function mpHomeGroups(){
   var g = mpPlanGroups();
   var waiting = [], dated = [], undated = [], held = {};
   mpMenus.forEach(function(m){
+    if (!mpOnPlan(m)) return;
     if (mpIsRequested(m) && !mpStagesFor(m.id).length){ waiting.push(m); held[m.id] = true; }
   });
   waiting.sort(function(a, b){ return String(a.created_at) < String(b.created_at) ? 1 : -1; });
 
+  // Anything still in the list rather than on the plan is skipped everywhere
+  // below. A Set Menu group survives if ANY of its variants is on the plan —
+  // the row is the group, and the A/B/C switcher still reaches the others.
   g.campaigns.forEach(function(b){
-    var events = b.events.filter(function(m){ return !held[m.id]; });
-    var core   = (b.core && !held[b.core.id]) ? b.core : null;
+    var events = b.events.filter(function(m){ return !held[m.id] && mpOnPlan(m); });
+    var core   = (b.core && !held[b.core.id] && mpOnPlan(b.core)) ? b.core : null;
     if (!core && !events.length) return;
     dated.push({ type:'campaign', campaign:b.campaign, core:core, events:events,
       when: b.campaign.date_from ? String(b.campaign.date_from).slice(0,10) : (mpWhenLive(events[0]) || '') });
   });
   g.mains.forEach(function(row){
+    if (row.group ? !row.variants.some(mpOnPlan) : !mpOnPlan(row.menu)) return;
     if (!row.group && held[row.menu.id]) return;
     var m = row.group ? mpSelVariant(row) : row.menu;
     var when = mpWhenLive(m);
     (when ? dated : undated).push({ type:'row', row:row, menu:m, when:when || '' });
   });
   g.looseEvents.forEach(function(m){
-    if (held[m.id]) return;
+    if (held[m.id] || !mpOnPlan(m)) return;
     var when = mpWhenLive(m);
     (when ? dated : undated).push({ type:'row', row:{ menu:m }, menu:m, when:when || '' });
   });
@@ -924,7 +959,8 @@ function mpOpenIntake(seed){
       '<button class="mp-btn go" onclick="mpRunIntake(this)">Continue</button>' +
       (mpSpeechCtor() ? '<button class="mp-btn ghost" id="mpik-mic" onclick="mpDictate()">&#127908; Speak</button>' : '') +
       '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
-    '</div>');
+    '</div>' +
+    mpCatalogueBlock());
   setTimeout(function(){
     var t = document.getElementById('mpik-text');
     if (!t) return;
@@ -932,6 +968,57 @@ function mpOpenIntake(seed){
     try { t.focus(); } catch(e){}
   }, 60);
 }
+// ── the menus we already run ───────────────────────────────────────────────
+// Under the box, not instead of it. Typing is still the way in — this is for
+// the things that don't need describing, because they already exist: à la
+// carte, Business Lunch, the Set Menus, and the nights already in the diary.
+// Tapping one takes it straight to "how long have you got?" — there is nothing
+// to read back about a menu the app already holds, and no chance of ending up
+// with two à la cartes.
+function mpCatalogueBlock(){
+  var cat = mpCatalogueMenus();
+  if (!cat.length) return '';
+  return '<div class="mp-cat">' +
+    '<div class="mp-cat-h">Or pick one we already run</div>' +
+    '<input class="mp-in mp-cat-q" type="text" id="mpik-cat-q" placeholder="Start typing to narrow it down" ' +
+      'autocomplete="off" oninput="mpCatFilter()"/>' +
+    '<div class="mp-cat-list" id="mpik-cat-list">' +
+      cat.map(function(m){
+        var when = mpKnownDate(m);
+        return '<button type="button" class="mp-cat-row" data-n="' + mpEsc(String(m.name).toLowerCase()) + '" ' +
+          'onclick="mpPickFromCatalogue(\'' + m.id + '\')">' +
+          '<span class="mp-cat-n">' + mpEsc(m.name) + '</span>' +
+          (when ? '<span class="mp-cat-d">' + mpEsc(mpDateLabel(when)) + '</span>'
+                : '<span class="mp-cat-d quiet">' + mpEsc(m.change_cadence || '') + '</span>') +
+        '</button>';
+      }).join('') +
+    '</div>' +
+    '<div class="mp-cat-none" id="mpik-cat-none" style="display:none">Nothing by that name — write it in the box above instead.</div>' +
+  '</div>';
+}
+function mpCatFilter(){
+  var q = (document.getElementById('mpik-cat-q') || {}).value || '';
+  q = q.trim().toLowerCase();
+  var rows = document.querySelectorAll('#mpik-cat-list .mp-cat-row'), shown = 0;
+  for (var i = 0; i < rows.length; i++){
+    var hit = !q || rows[i].getAttribute('data-n').indexOf(q) >= 0;
+    rows[i].style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  }
+  var none = document.getElementById('mpik-cat-none');
+  if (none) none.style.display = shown ? 'none' : '';
+}
+// A menu the app already holds needs no read-back: its name, its kind and its
+// date are already right. Straight to the window question, or straight to the
+// timeline if the date is already in the diary.
+function mpPickFromCatalogue(menuId){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  mpIntake = { mode:'develop', raw:m.name, i:0,
+    items:[{ name:m.name, kind:mpMenuKind(m), menu_id:m.id, date:mpKnownDate(m) }] };
+  mpNextIntakeStep();
+}
+
 // Dictation if the browser offers it, silently absent if not. He works service
 // with one hand — talking to it beats typing on a wet phone.
 function mpDictate(){
@@ -1266,8 +1353,15 @@ function mpPickWindowDate(){
   if (v <= mpToday()){ mpToast('That date has already gone — pick a later one.', true); return; }
   mpOpenTimeline(mpIntake.items[mpIntake.i].menu_id, mpToday(), v);
 }
-function mpSkipWindow(){
-  // It stays on his list under "No date yet". That is a prompt, not a debt.
+async function mpSkipWindow(){
+  // It stays on his list under "No date yet". That is a prompt, not a debt —
+  // and "not sure when" is still a decision to do it, so it comes out of the
+  // list onto the plan just as a dated one would.
+  var it = mpIntake.items[mpIntake.i];
+  if (it && it.menu_id){
+    if (!(await mpPutOnPlan(it.menu_id))) return;
+    await mpLoadAll();
+  }
   mpIntake.i++; mpNextIntakeStep();
 }
 
@@ -1518,6 +1612,9 @@ async function mpSaveTimeline(btn){
     var upd = { launch_date:end, updated_at:new Date().toISOString(), updated_by:mpMe.name };
     if (mpMenuKind(m) === 'event') upd.event_date = end;
     if (mpHasRequests) upd.plan_state = mpIsApprover() ? 'accepted' : 'proposed';
+    // Planning it is what moves it out of the list and onto What's on. Same
+    // write, so it cannot half-happen.
+    if (mpHasOnPlan) upd.on_plan = true;
 
     if (mpHasStages){
       var old = mpStagesFor(menuId);
@@ -4604,6 +4701,17 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
    nothing he needs in the first ten seconds sits below the fold, and every
    tappable thing clears 44px. ══════════════════════════════════════════════ */
 .mp-askbox{display:block;width:100%;text-align:left;background:#fff;border:1.5px dashed var(--mp-line);border-radius:14px;padding:15px 16px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+/* the menus we already run — under the box, never instead of it */
+.mp-cat{margin-top:18px;padding-top:14px;border-top:1px solid var(--mp-line)}
+.mp-cat-h{font:600 12px 'Outfit',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-maroon);opacity:.75;margin-bottom:8px}
+.mp-cat-q{margin-bottom:8px}
+.mp-cat-list{max-height:266px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:6px}
+.mp-cat-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:44px;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 12px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-cat-row:active{background:var(--mp-cream-l)}
+.mp-cat-n{font:500 14px 'Outfit',sans-serif;color:var(--mp-ink)}
+.mp-cat-d{font:500 12px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-cat-d.quiet{opacity:.5;font-weight:400}
+.mp-cat-none{font:400 13px 'Outfit',sans-serif;color:var(--mp-ink);opacity:.7;padding:8px 2px}
 .mp-askbox:active{background:var(--mp-cream)}
 .mp-askbox.ask{border-style:solid;border-color:var(--mp-maroon);background:var(--mp-maroon)}
 .mp-askbox.ask .mp-askbox-q{color:#fff}
