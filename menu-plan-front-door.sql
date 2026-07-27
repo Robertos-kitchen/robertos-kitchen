@@ -53,7 +53,7 @@ alter table public.menu_plan_calendar add column if not exists ends_on   date;
 -- `stage is null or …` so every existing month-grid row still passes.
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_stage_chk') then
+  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_stage_chk' and conrelid = 'public.menu_plan_calendar'::regclass) then
     alter table public.menu_plan_calendar
       add constraint menu_plan_calendar_stage_chk
       check (stage is null or stage in ('Development','Testing','Approval','Costing','Photoshoot'));
@@ -63,7 +63,7 @@ end $$;
 -- A row is either a month square or a timeline block — never neither.
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_shape_chk') then
+  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_shape_chk' and conrelid = 'public.menu_plan_calendar'::regclass) then
     alter table public.menu_plan_calendar
       add constraint menu_plan_calendar_shape_chk
       check (month is not null or stage is not null);
@@ -74,7 +74,7 @@ end $$;
 -- it starts. Left permissive for the old rows, which have neither.
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_range_chk') then
+  if not exists (select 1 from pg_constraint where conname = 'menu_plan_calendar_range_chk' and conrelid = 'public.menu_plan_calendar'::regclass) then
     alter table public.menu_plan_calendar
       add constraint menu_plan_calendar_range_chk
       check (stage is null or (starts_on is not null and (ends_on is null or ends_on >= starts_on)));
@@ -113,11 +113,11 @@ alter table public.menu_plan_menus add column if not exists plan_state   text;
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'menu_plan_menus_origin_chk') then
+  if not exists (select 1 from pg_constraint where conname = 'menu_plan_menus_origin_chk' and conrelid = 'public.menu_plan_menus'::regclass) then
     alter table public.menu_plan_menus
       add constraint menu_plan_menus_origin_chk check (origin in ('self','requested'));
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'menu_plan_menus_planstate_chk') then
+  if not exists (select 1 from pg_constraint where conname = 'menu_plan_menus_planstate_chk' and conrelid = 'public.menu_plan_menus'::regclass) then
     alter table public.menu_plan_menus
       add constraint menu_plan_menus_planstate_chk
       check (plan_state is null or plan_state in ('proposed','accepted'));
