@@ -155,7 +155,10 @@ function mpFileSize(bytes){
   if (!bytes) return '';
   return bytes < 1024*1024 ? Math.max(1, Math.round(bytes/1024)) + ' KB' : (bytes/1048576).toFixed(1) + ' MB';
 }
-let mpTab      = 'home'; // home | plan | dishes | calendar | briefs | tastings
+// Dishes is the first thing he sees, because it is the only screen he touches
+// every day: add one, move one on, tag it to a menu. Everything else in this
+// module is somewhere he GOES, not somewhere he works.
+let mpTab      = 'dishes'; // dishes | briefs | home | plan | calendar | tastings
 
 // ── the new front door ──────────────────────────────────────────────────────
 // Two capabilities the app checks for rather than assumes, so it keeps working
