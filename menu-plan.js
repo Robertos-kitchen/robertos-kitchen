@@ -748,13 +748,26 @@ function mpCurrentStage(menuId){
   var next = st.filter(function(c){ return String(c.starts_on).slice(0,10) > t; })[0];
   return next ? { c:next, live:false } : null;
 }
+// The old month grid still holds something real for most of the 22: a Launch
+// square in September IS a commitment, even though it is not a timeline. Say
+// what it says rather than "no plan yet" next to a date that plainly exists.
+function mpLegacyLine(menuId){
+  var rows = mpCal.filter(function(c){ return c.menu_id === menuId && c.month && c.state; })
+                  .sort(function(a, b){ return String(a.month) < String(b.month) ? -1 : 1; });
+  if (!rows.length) return '';
+  var pick = rows.filter(function(c){ return c.state === 'Launch'; })[0] || rows[rows.length - 1];
+  return pick.state + ' ' + mpMonthLabel(String(pick.month).slice(0,10));
+}
 // ONE next action per thing. Never a list of what he owes.
 function mpNextAction(m){
   var stages = mpStagesFor(m.id);
+  var legacy = stages.length ? '' : mpLegacyLine(m.id);
   // Aung reads; he doesn't plan. Send him to the same sheet without the button.
-  if (!mpCanAuthor()) return { text: stages.length ? 'Planned' : 'No plan yet', label:'Look', go:"mpReviewPlan('" + m.id + "')" };
+  if (!mpCanAuthor()) return { text: stages.length ? 'Planned' : (legacy || 'No plan yet'), label:'Look', go:"mpReviewPlan('" + m.id + "')" };
   if (!stages.length){
-    return { text: mpIsRequested(m) ? 'Waiting on your dates and plan' : 'No plan yet',
+    return { text: mpIsRequested(m) ? 'Waiting on your dates and plan'
+                 : legacy ? legacy + ' — needs a timeline'
+                 : 'No plan yet',
              label:'Plan it', go:"mpPlanThing('" + m.id + "')" };
   }
   if (m.plan_state === 'proposed'){
@@ -1009,27 +1022,45 @@ async function mpAiUnderstand(text){
 // runs the same read-back screen and produces the same kind of list.
 const MP_STOP_RE  = /^(a|an|the|new|another|some|do|make|create|develop|building|build|start|write|need|needs|needed|want|we|i|to|for|of|plus|and|also|please)\b\s*/i;
 const MP_EVENT_RE = /\b(dinner|night|nights|eve|day|activation|event|party|week|gala|takeover|celebration|christmas|new year|guest chef|pop.?up)\b/i;
+// Months and seasons are thrown away before matching. They say WHEN, never
+// WHICH — leaving "Dec" in made "Christmas party menu for 12 Dec" line up with
+// "Christmas Eve · 24 Dec", which then took 24 December as its date.
+const MP_TIME_WORD = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|spring|summer|autumn|winter)$/;
 function mpWords(s){
   return String(s || '').toLowerCase()
     .replace(/[^a-zà-ÿ0-9 ]+/gi, ' ')
     .split(/\s+/)
-    .filter(function(w){ return w.length > 2 && !/^(the|and|for|new|menu|our|its)$/.test(w); });
+    .filter(function(w){ return w.length > 2 && !/^(the|and|for|new|menu|our|its|with)$/.test(w) && !MP_TIME_WORD.test(w); });
 }
-// Does this fragment name something already on the plan? Compares on the words
-// that carry meaning, so "the Bartolini dinner" finds "Bartolini Dinner · 2–3 Nov".
+// How many menu names use each word — so the matcher can tell a word that
+// picks one thing out ("bartolini") from one half the plan shares ("christmas").
+function mpWordOwners(){
+  var idx = {};
+  mpMenus.forEach(function(m){
+    var seen = {};
+    mpWords(m.name).forEach(function(w){ if (seen[w]) return; seen[w] = 1; idx[w] = (idx[w] || 0) + 1; });
+  });
+  return idx;
+}
+// Does this fragment name something already on the plan? It counts as a match
+// when two meaningful words line up, or when ONE word does that only that menu
+// uses. Anything looser claims the wrong menu, and claiming the wrong menu
+// hands him the wrong date.
 function mpMatchMenu(frag){
   var words = mpWords(frag);
   if (!words.length) return null;
-  var best = null, bestScore = 0;
+  var owners = mpWordOwners();
+  var best = null, bestHits = 0, bestRare = false;
   mpMenus.forEach(function(m){
-    var mw = mpWords(m.name);
-    if (!mw.length) return;
-    var hits = mw.filter(function(w){ return words.indexOf(w) >= 0; }).length;
-    if (!hits) return;
-    var score = hits / mw.length;
-    if (score > bestScore){ bestScore = score; best = m; }
+    var overlap = mpWords(m.name).filter(function(w){ return words.indexOf(w) >= 0; });
+    if (!overlap.length) return;
+    var rare = overlap.some(function(w){ return owners[w] === 1; });
+    if (overlap.length < 2 && !rare) return;
+    if (overlap.length > bestHits || (overlap.length === bestHits && rare && !bestRare)){
+      bestHits = overlap.length; bestRare = rare; best = m;
+    }
   });
-  return bestScore >= 0.5 ? best : null;
+  return best;
 }
 function mpFallbackUnderstand(text){
   var frags = String(text).split(/[\n;,•]|\s+\band\b\s+|\s+\+\s+/i)
@@ -1344,9 +1375,36 @@ function mpTlStageRows(){
   }
   return rows;
 }
+// A full rebuild — for the changes that alter what is on screen (skipping a
+// stage, dropping the photoshoot). NOT for dragging.
 function mpTlRefresh(){
   var s = document.querySelector('#mp-sheet .mp-sheet-body');
   if (s) s.innerHTML = mpTimelineBody();
+}
+// Dragging repaints in place instead. Rebuilding the sheet mid-drag threw away
+// the very track the finger was being measured against — the first move read a
+// zero-width box and collapsed the stage to nothing.
+function mpTlPaint(){
+  var track = document.getElementById('mp-tl-track');
+  if (!track) return;
+  var total = mpTl.total, acc = 0;
+  var segs = track.querySelectorAll('.mp-tl-seg');
+  var hs   = track.querySelectorAll('.mp-tl-h');
+  mpTl.parts.forEach(function(p, i){
+    if (segs[i]){
+      segs[i].style.left  = ((acc / total) * 100).toFixed(3) + '%';
+      segs[i].style.width = ((p.days / total) * 100).toFixed(3) + '%';
+    }
+    acc += p.days;
+    if (hs[i]) hs[i].style.left = ((acc / total) * 100).toFixed(3) + '%';
+  });
+  var ph = document.querySelector('#mp-tl-photo .mp-tl-seg');
+  if (ph && mpTl.photo.on){
+    ph.style.left  = ((mpTl.photo.start / total) * 100).toFixed(3) + '%';
+    ph.style.width = ((mpTl.photo.days  / total) * 100).toFixed(3) + '%';
+  }
+  var list = document.getElementById('mp-stagelist');
+  if (list) list.innerHTML = mpTlStageRows();
 }
 // ── dragging ───────────────────────────────────────────────────────────────
 // Same pointer-events habit as the calendar grip, so a finger works exactly
@@ -1356,22 +1414,26 @@ let mpTlDrag = null;
 function mpTlDown(e, idx, what){
   if (e.button && e.button !== 0) return;
   e.preventDefault(); e.stopPropagation();
-  var track = document.getElementById(what === 'photo' ? 'mp-tl-photo' : 'mp-tl-track');
+  var track = mpTlTrack(what);
   if (!track) return;
-  mpTlDrag = { idx:idx, what:what, track:track, grabbed:mpTlDayAt(e.clientX, track) - (what === 'photo' ? mpTl.photo.start : 0) };
+  mpTlDrag = { idx:idx, what:what, grabbed:mpTlDayAt(e.clientX, track) - (what === 'photo' ? mpTl.photo.start : 0) };
   document.addEventListener('pointermove', mpTlMove, { passive:false });
   document.addEventListener('pointerup', mpTlUp, true);
   document.addEventListener('pointercancel', mpTlUp, true);
 }
+function mpTlTrack(what){ return document.getElementById(what === 'photo' ? 'mp-tl-photo' : 'mp-tl-track'); }
 function mpTlDayAt(clientX, track){
-  var box = track.getBoundingClientRect();
-  if (!box.width) return 0;
+  var box = track && track.getBoundingClientRect();
+  if (!box || !box.width) return null;
   return Math.round(((clientX - box.left) / box.width) * mpTl.total);
 }
 function mpTlMove(e){
   if (!mpTlDrag) return;
   e.preventDefault();
-  var day = mpTlDayAt(e.clientX, mpTlDrag.track);
+  // Look the track up again every time. Holding a reference across a repaint is
+  // how the finger ends up measured against an element that is no longer there.
+  var day = mpTlDayAt(e.clientX, mpTlTrack(mpTlDrag.what));
+  if (day === null) return;
   if (mpTlDrag.what === 'photo'){
     var ph = mpTl.photo;
     ph.start = Math.max(0, Math.min(mpTl.total - ph.days, day - mpTlDrag.grabbed));
@@ -1387,7 +1449,7 @@ function mpTlMove(e){
     mpTl.parts[i + 1].days -= delta;
   }
   mpSheetDirty = true;
-  mpTlRefresh();
+  mpTlPaint();
 }
 function mpTlUp(){
   if (!mpTlDrag) return;
@@ -1427,7 +1489,7 @@ function mpTlPhotoDays(n){
   var ph = mpTl.photo;
   ph.days = Math.max(1, Math.min(mpTl.total, ph.days + n));
   ph.start = Math.max(0, Math.min(mpTl.total - ph.days, ph.start));
-  mpSheetDirty = true; mpTlRefresh();
+  mpSheetDirty = true; mpTlPaint();
 }
 function mpTlCancel(){
   mpTl = null;
@@ -1443,12 +1505,13 @@ async function mpSaveTimeline(btn){
   try {
     var end = mpTlEnd();
     // The ready-by date goes on the menu whichever way round the DB is, so the
-    // thing still shows up on his list with a date before the SQL is run.
-    var upd = { updated_at:new Date().toISOString(), updated_by:mpMe.name };
-    if (!mpWhenLive(m)){
-      upd.launch_date = end;
-      if (mpMenuKind(m) === 'event') upd.event_date = end;
-    }
+    // thing still shows up on his list with a date before the SQL is run. The
+    // window END is that date, always — he was just asked when it has to be
+    // ready and a stale seeded launch must not outrank his answer. For anything
+    // with a fixed day (Bartolini) the end already IS that day, so this moves
+    // nothing.
+    var upd = { launch_date:end, updated_at:new Date().toISOString(), updated_by:mpMe.name };
+    if (mpMenuKind(m) === 'event') upd.event_date = end;
     if (mpHasRequests) upd.plan_state = mpIsApprover() ? 'accepted' : 'proposed';
 
     if (mpHasStages){
@@ -4563,10 +4626,11 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 /* read-back chips — what the system understood, editable */
 .mp-chips{display:flex;flex-direction:column;gap:10px;margin-top:10px}
 .mp-chip{position:relative;background:#fff;border:1px solid var(--mp-line);border-radius:12px;padding:11px 12px}
-.mp-chip-name{font-size:15px;font-weight:600;margin-bottom:8px}
+/* room for the × so a 44px target doesn't sit on top of the name he's typing */
+.mp-chip-name{font-size:15px;font-weight:600;margin-bottom:8px;padding-right:46px}
 .mp-chip-kinds{margin-bottom:6px}
 .mp-chip-known{font-size:11.5px;color:var(--mp-mute);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.mp-chip-x{position:absolute;top:4px;right:6px;width:34px;height:34px;background:none;border:none;font-size:21px;line-height:1;color:var(--mp-mute);cursor:pointer}
+.mp-chip-x{position:absolute;top:2px;right:2px;width:44px;height:44px;background:none;border:none;font-size:21px;line-height:1;color:var(--mp-mute);cursor:pointer}
 
 /* how long have you got */
 .mp-windows{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0 4px}
@@ -4597,7 +4661,11 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-stage-n{flex:1;min-width:0}
 .mp-stage-n strong{display:block;font-size:13.5px;color:var(--mp-ink)}
 .mp-stage-n em{display:block;font-style:normal;font-size:11.5px;color:var(--mp-mute);margin-top:2px}
+/* Skip / − / + are the controls he uses most on this screen — they get a real
+   thumb-sized target, not the 33px the shared .small button gives them */
+.mp-stagerow .mp-btn{min-height:44px;min-width:44px;padding:8px 10px}
 .mp-stage-skipped{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px}
+.mp-stage-skipped .mp-btn{min-height:44px}
 .mp-swatch.s-development{background:var(--mp-develop)}
 .mp-swatch.s-testing{background:var(--mp-testing)}
 .mp-swatch.s-approval{background:var(--mp-approved)}
