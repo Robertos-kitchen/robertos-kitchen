@@ -21,7 +21,7 @@
 -- role: 'chef'            = add/edit dishes, calendar, briefs, tastings, comments
 --       'approver'        = the above PLUS approve / send back  (Francesco)
 --       'cost_controller' = opens a Costing dish and marks it Costed ✓ + notes
---                           the Simphony input (Aht We). Not a chef, not an approver.
+--                           the Simphony input (Aung). Not a chef, not an approver.
 create table if not exists public.menu_plan_members (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
@@ -47,6 +47,9 @@ create table if not exists public.menu_plan_menus (
   -- short tag shown in that dropdown. Both null for a standalone menu.
   menu_group     text,
   variant_label  text,
+  -- No longer used. There is one kitchen team with identical access (Danilo,
+  -- Antonio, Andrea) and no per-menu lead chef; the app neither writes nor
+  -- shows this. Kept only because this file never drops a column.
   lead_chef      text,
   testing_date   date,
   launch_date    date,
@@ -299,10 +302,10 @@ create policy mp_bucket_delete on storage.objects
 -- SEED (idempotent — safe to re-run)
 -- ══════════════════════════════════════════════════════════════════════════
 
--- who can use it. ⚠ afalcone@robertos.ae is INFERRED from the house pattern
--- (dvalla / astellacci / fguarracino) — confirm it before the first email send.
--- ⚠ 'Aht We' name spelling is INFERRED (the cost controller who gets the stock
--- take at ahtwe@robertos.ae) — confirm it before the first cost-sheet email.
+-- who can use it. All five addresses are confirmed, afalcone@robertos.ae
+-- included. The cost controller at ahtwe@robertos.ae is Aung Htwe — an earlier
+-- version of this file called him 'Aht We', which was a misreading of the email
+-- address. menu-plan-front-door.sql renames the row on a DB already seeded.
 insert into public.menu_plan_members (name, role, email, sort_order)
 select v.name, v.role, v.email, v.sort_order
 from (values
@@ -310,7 +313,7 @@ from (values
   ('Antonio Stellacci',       'chef',            'astellacci@robertos.ae',  20),
   ('Andrea Falcone',          'chef',            'afalcone@robertos.ae',    30),
   ('Francesco Guarracino',    'approver',        'fguarracino@robertos.ae', 40),
-  ('Aht We',                  'cost_controller', 'ahtwe@robertos.ae',       50)
+  ('Aung Htwe',               'cost_controller', 'ahtwe@robertos.ae',       50)
 ) as v(name, role, email, sort_order)
 where not exists (select 1 from public.menu_plan_members m where m.name = v.name);
 
@@ -318,7 +321,7 @@ where not exists (select 1 from public.menu_plan_members m where m.name = v.name
 -- Rows 130–220 are the Q4 slots named in the marketing email of 23 Jul 2026
 -- (Sep/Oct/Nov/Dec). 'Festive' (100) stays as the umbrella TAG for a dish that
 -- works across the whole of December; the seven December rows are the actual
--- sellable menus, each with its own price, structure and lead chef.
+-- sellable menus, each with its own price and structure.
 insert into public.menu_plan_menus (name, change_cadence, menu_group, variant_label, sort_order)
 select v.name, v.cadence, v.grp, v.variant, v.sort_order
 from (values
@@ -354,8 +357,8 @@ from (values
 where not exists (select 1 from public.menu_plan_menus m where m.name = v.name);
 
 -- Hard dates from the email. Only the dates the email actually states are set —
--- identity, structure, price and lead chef are deliberately left blank, because
--- those are what the three of them are meant to decide at the table.
+-- identity, structure and price are deliberately left blank, because those are
+-- what the three of them are meant to decide at the table.
 -- Alias the target table + qualify the right-hand columns: identity and
 -- launch_date exist on BOTH the table and the values list, so the unqualified
 -- names inside coalesce() were ambiguous (ERROR 42702). The SET targets on the
