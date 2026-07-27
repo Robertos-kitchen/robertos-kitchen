@@ -678,12 +678,17 @@ function mpRender(){
 }
 function mpGo(tab){ mpTab = tab; mpRender(); window.scrollTo(0,0); }
 
+// The subtitle on every tab except What's on. The first three lines only ever
+// show on a DB row left behind by the old whole-plan ceremony — nothing can set
+// those states any more. The last line is the one that actually renders, so it
+// says where the work is agreed instead of promising a submission that can
+// never happen.
 function mpStatusLine(){
   var s = (mpSprint && mpSprint.status) || 'draft';
   if (s === 'approved')          return 'Approved by ' + (mpSprint.approved_by || 'Francesco') + ' · ' + mpDateLabel(mpSprint.approved_at);
   if (s === 'submitted')         return 'Submitted ' + mpDateLabel(mpSprint.submitted_at) + ' · waiting for Francesco';
   if (s === 'changes_requested') return 'Francesco asked for changes — see the comments';
-  return 'Draft · not submitted yet';
+  return 'Each thing is agreed on What’s on';
 }
 
 // ══ 0. WHAT'S ON — the way in ══════════════════════════════════════════════
@@ -1735,7 +1740,7 @@ function mpRenderPlan(){
               '<span>' + mpEsc(t.label) + '</span><span class="mp-todo-go">&rsaquo;</span></button>';
           }).join('') + '</div>' +
           (todo.length > 3 ? '<div class="mp-progress-note">&hellip;and ' + (todo.length - 3) + ' more, whenever you&rsquo;re ready.</div>' : '')
-        : '<div class="mp-empty ok">You&rsquo;re all set — submit whenever you&rsquo;re ready.</div>') +
+        : '<div class="mp-empty ok">You&rsquo;re all set — nothing waiting on you here.</div>') +
     '</div>' +
 
     // ── the calendar, here for approval ──
@@ -1765,15 +1770,19 @@ function mpRenderPlan(){
   '</div>';
 }
 
-// The chef's guide: what to do, in order, and what happens after Submit. Folds
-// away once read, but stays reachable — no stress, nothing to hunt for.
+// The chef's guide: what to do, in order. Folds away once read, but stays
+// reachable — no stress, nothing to hunt for.
+// Rewritten with the front door: there is no whole-plan Submit any more, so the
+// old steps 3–5 (month grid → propose a sprint → submit it) were telling chefs
+// to go looking for a flow that no longer exists. Each thing is agreed on its
+// own now, on What's on.
 function mpGuideCard(){
   var steps = [
-    ['1', 'Add your dishes', 'Log every dish you develop in Dishes — even the ones that don’t work.'],
-    ['2', 'Write each menu', 'On Menus, give each one an identity, a structure and a price.'],
-    ['3', 'Set the calendar', 'On the grid below, say which month each menu is developed, tested, launched.'],
-    ['4', 'Propose dates & goal', 'Set the sprint’s start, end and how many dishes you’re aiming for.'],
-    ['5', 'Submit', 'Send it to Francesco. He reads it, comments, and approves — or sends it back.']
+    ['1', 'Start on What’s on', 'Everything the kitchen has already committed to is there, nearest first.'],
+    ['2', 'Plan one thing', 'Open it, say how long you’ve got, and the app lays out Development, Testing, Approval and Costing. Drag anything that looks wrong.'],
+    ['3', 'Francesco accepts it', 'He reads that one plan and accepts it, or writes to you in its thread. One thing at a time — nothing to submit.'],
+    ['4', 'Add your dishes', 'Log every dish you develop in Dishes — even the ones that don’t work.'],
+    ['5', 'Book a tasting', 'Score them together. Francesco approves a dish, then it goes to Aung for costing.']
   ];
   // Folded away for good once they close it — it is 48% of the first screen, and
   // it was reopening itself on every single visit. Same localStorage habit as
