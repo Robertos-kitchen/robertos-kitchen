@@ -91,6 +91,18 @@ const MP_DECISIONS = ['Approve','Rework','Reject'];
 // launch.
 const MP_STAGES = ['Development','Testing','Approval','Costing'];
 const MP_PHOTO_STAGE = 'Photoshoot';
+// The drag handle. It used to be ❦ — a floral heart, which reads as decoration,
+// not as "hold this and move the row". Drawn instead, in the app's own colour,
+// so it looks the same on every phone: emoji are rendered by the OS and each
+// one arrives in a different style nobody chose.
+const MP_GRIP_SVG =
+  '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" focusable="false">' +
+    '<g fill="currentColor">' +
+      '<circle cx="2" cy="3" r="1.35"/><circle cx="8" cy="3" r="1.35"/>' +
+      '<circle cx="2" cy="8" r="1.35"/><circle cx="8" cy="8" r="1.35"/>' +
+      '<circle cx="2" cy="13" r="1.35"/><circle cx="8" cy="13" r="1.35"/>' +
+    '</g>' +
+  '</svg>';
 const MP_ALL_STAGES = MP_STAGES.concat([MP_PHOTO_STAGE]);
 // How the app first splits a window. This is a PROPOSAL, never a rule — every
 // edge drags and every stage can be dropped.
@@ -2784,7 +2796,7 @@ function mpCalendarList(){
       .filter(function(x){ return x.i >= 0; })
       .sort(function(a,b){ return a.i - b.i; });
     return '<div class="mp-calrow" data-row="' + mpEsc(key) + '">' +
-      (canOrder ? '<span class="mp-grip" title="Drag to reorder — or tap to move it" onpointerdown="mpGripDown(event,\'' + mpEsc(key) + '\')">&#10086;</span>' : '') +
+      (canOrder ? '<span class="mp-grip" title="Drag to reorder — or tap to move it" onpointerdown="mpGripDown(event,\'' + mpEsc(key) + '\')">' + MP_GRIP_SVG + '</span>' : '') +
       '<div class="mp-calrow-h">' +
         (row.group
           ? '<span class="mp-cal-group"><button class="mp-cal-namebtn" onclick="mpGroupManage(\'' + mpEsc(row.group) + '\')">' + mpEsc(row.group) + '</button>' +
@@ -2792,7 +2804,7 @@ function mpCalendarList(){
               row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === menu.id ? ' selected' : '') + '>' + mpEsc(v.variant_label || v.name) + '</option>'; }).join('') +
             '</select></span>'
           : '<button class="mp-cal-namebtn" onclick="mpMenuActions(\'' + menu.id + '\')">' + mpEsc(menu.name) + '</button>') +
-        (mpCanAuthor() ? '<button class="mp-btn ghost small" onclick="mpMenuLifecycle(\'' + menu.id + '\')">&#128197; Schedule</button>' : '') +
+        (mpCanAuthor() ? '<button class="mp-btn ghost small mp-sched" onclick="mpMenuLifecycle(\'' + menu.id + '\')">Schedule</button>' : '') +
       '</div>' +
       '<div class="mp-calchips">' +
         (cells.length
@@ -4476,7 +4488,8 @@ const MP_STYLE = `<style id="mp-style">
 /* calendar LIST view */
 .mp-callist{display:flex;flex-direction:column;gap:8px}
 .mp-calrow{background:#fff;border:1px solid var(--mp-line);border-radius:11px;padding:11px 12px}
-.mp-calrow-h{margin-bottom:7px}
+.mp-calrow-h{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.mp-sched{margin-left:auto;flex:0 0 auto}
 .mp-calrow-h .mp-cal-namebtn{font-family:'Forum',Georgia,serif;font-size:17px;color:var(--mp-maroon);text-decoration:none;padding:0}
 .mp-calchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .mp-calchip{border:none;color:#fff;border-radius:20px;padding:6px 11px;font:600 11.5px 'Outfit',sans-serif;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -4665,7 +4678,8 @@ textarea.mp-in{resize:vertical;line-height:1.45}
 .mp-scorenote{font-size:12.5px;color:var(--mp-ink);margin-top:2px;line-height:1.4;white-space:pre-wrap}
 /* drag (or tap) a menu into the order you want */
 .mp-calrow{position:relative}
-.mp-grip{position:absolute;right:8px;top:8px;width:44px;height:44px;line-height:42px;text-align:center;border-radius:8px;background:var(--mp-cream-l);border:1px solid var(--mp-line);color:var(--mp-maroon);font-size:15px;cursor:grab;user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+.mp-grip{position:absolute;right:8px;top:8px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--mp-cream-l);border:1px solid var(--mp-line);color:var(--mp-maroon);opacity:.65;cursor:grab;user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+.mp-grip:active{opacity:1;cursor:grabbing}
 .mp-calrow.mp-dragging{background:var(--mp-cream-l);box-shadow:0 6px 18px rgba(69,2,7,.22);position:relative;z-index:50}
 body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-calrow-h{padding-right:56px}
