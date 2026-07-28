@@ -1864,189 +1864,99 @@ async function mpRunRequest(btn){
   } finally { free(); }
 }
 
-// ══ 1. THE PLAN ════════════════════════════════════════════════════════════
+// ══ PROGRESS ═══════════════════════════════════════════════════════════════
+// What progress actually means in this kitchen, in Francesco's own words: work
+// arrives as an idea and a rhythm, Danilo proposes dishes, they get tested —
+// "could be 1 dish or 15" — and approved ones go to costing. So progress is
+// dishes moving, menu by menu.
+//
+// It used to be a scoreboard: "60 tried / 30 approved" against a target nobody
+// set. That measured a sprint the kitchen does not run. Gone, with the tutorial
+// card that explained a flow that no longer exists and the year grid that the
+// Calendar tab already owns.
+function mpStageCounts(dishes){
+  var c = { Idea:0, Trying:0, Testing:0, Approved:0, Costing:0 };
+  dishes.forEach(function(d){ if (c[d.status] !== undefined) c[d.status]++; });
+  return c;
+}
+function mpCountChips(c){
+  return ['Idea','Trying','Testing','Approved','Costing'].filter(function(k){ return c[k]; })
+    .map(function(k){
+      return '<span class="mp-pchip s-' + k.toLowerCase() + '"><b>' + c[k] + '</b>' + k.toLowerCase() + '</span>';
+    }).join('');
+}
 function mpRenderPlan(){
-  var tried = mpTriedCount(), approved = mpApprovedCount();
-  var tT = (mpSprint && mpSprint.target_tried)    || 60;
-  var tA = (mpSprint && mpSprint.target_approved) || 30;
+  var all = mpStageCounts(mpDishes);
   var next = mpNextTasting();
-  var s = (mpSprint && mpSprint.status) || 'draft';
-  var isChef = mpMe && mpMe.role === 'chef';
-  var noDates = !mpSprint || (!mpSprint.start_date && !mpSprint.end_date);
 
-  // Next steps, worded as things TO DO (not deficits). Only MAIN menus are
-  // "written" — an event menu borrows its campaign's theme, so nagging a chef to
-  // give Christmas Eve an identity/structure/lead is exactly the busywork we cut.
-  var mainMenus = mpMenus.filter(function(m){ return !mpIsEventMenu(m); });
-  var menusWritten = mainMenus.filter(function(m){ return m.identity && m.structure; }).length;
-  var todo = [];
-  if (noDates) todo.push({ label:'Set my dates and dish goal', go:'plan-sprint' });
-  var noBrief = mainMenus.filter(function(m){ return !m.identity || !m.structure; });
-  if (noBrief.length) todo.push({ label:'Write ' + noBrief.length + ' menu' + (noBrief.length === 1 ? '' : 's') + ' — what it is and its structure', go:'briefs' });
-  var emptyRows = mainMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
-  if (emptyRows.length) todo.push({ label:'Put ' + emptyRows.length + ' menu' + (emptyRows.length === 1 ? '' : 's') + ' on the calendar', go:'calendar' });
-  var bareIdeas = mpBareIdeas();
-  if (bareIdeas.length) todo.push({ label:'Finish ' + bareIdeas.length + ' quick idea' + (bareIdeas.length === 1 ? '' : 's') + ' — just needs a section', go:'dishes' });
+  // A menu is worth a row once it has a dish on it. The rest are named at the
+  // bottom rather than hidden — an empty menu is a fact, not a failure.
+  var rows = mpMenus.map(function(m){ return { m:m, dishes:mpMenuDishPool(m.name) }; });
+  var withDishes = rows.filter(function(r){ return r.dishes.length; });
+  var empty      = rows.filter(function(r){ return !r.dishes.length && mpOnPlan(r.m); });
+  withDishes.sort(function(a, b){
+    var aw = mpWhenLive(a.m) || '9999', bw = mpWhenLive(b.m) || '9999';
+    return aw < bw ? -1 : aw > bw ? 1 : 0;
+  });
 
   return '<div class="mp-body">' +
 
-    (s === 'changes_requested'
-      ? '<div class="mp-banner warn"><strong>Francesco asked for changes.</strong> Read his comments below, fix what he asked, then submit again.</div>' : '') +
-    (s === 'approved'
-      ? '<div class="mp-banner ok"><strong>Plan approved.</strong> Keep developing dishes — that never stops.</div>' : '') +
-
-    // ── the guide (chefs only) ──
-    (isChef ? mpGuideCard() : '') +
-
-    // ── where you're at (lead with what's DONE, not what's missing) ──
+    // ── everything, at a glance ──
     '<div class="mp-card">' +
-      '<div class="mp-card-h">Where you&rsquo;re at</div>' +
+      '<div class="mp-card-h">Dishes right now</div>' +
       '<div class="mp-progress">' +
-        mpStat(mpDishes.length, 'dishes logged') +
-        mpStat(approved, 'approved') +
-        mpStat(menusWritten + ' / ' + mainMenus.length, 'menus written') +
-        mpStat(mpTastings.length, 'tasting' + (mpTastings.length === 1 ? '' : 's')) +
+        mpStat(mpDishes.length, 'in total') +
+        mpStat(all.Testing, 'testing') +
+        mpStat(all.Approved, 'approved') +
+        mpStat(all.Costing, 'costing') +
       '</div>' +
-      '<div class="mp-progress-note">Add things as they come — there&rsquo;s no rush.</div>' +
     '</div>' +
 
-    // ── the two bars ── (his own goal, phrased as ambition — not a scorecard)
-    '<div class="mp-card" id="plan-sprint">' +
-      '<div class="mp-card-h">' + (isChef ? 'My goal this season' : 'The sprint') + '</div>' +
-      (tried >= tT && approved >= tA
-        ? '<div class="mp-celebrate">&#127881; <strong>Goal hit.</strong> Both targets reached — keep going or ease off, your call.</div>'
-        : '') +
-      mpBar(isChef ? 'Dishes I’ve tried' : 'Dishes tried', tried, tT, 'var(--mp-trying)') +
-      mpBar(isChef ? 'Dishes approved' : 'Dishes approved', approved, tA, 'var(--mp-approved)') +
-      '<div class="mp-sprint-meta">' +
-        (mpSprint && (mpSprint.start_date || mpSprint.end_date)
-          ? (mpSprint.start_date ? mpEsc(mpDateLabel(mpSprint.start_date)) : '?') + ' → ' + (mpSprint.end_date ? mpEsc(mpDateLabel(mpSprint.end_date)) : '?')
-          : '<em>no dates set yet</em>') +
-      '</div>' +
-      (mpCanAuthor()
-        ? '<button class="mp-btn ghost" onclick="mpEditSprint()">' + (noDates ? 'Propose dates &amp; goal' : 'Edit dates &amp; goal') + '</button>'
+    // ── menu by menu ──
+    '<div class="mp-card">' +
+      '<div class="mp-card-h">Menu by menu</div>' +
+      (withDishes.length
+        ? withDishes.map(function(r){
+            var when = mpWhenLive(r.m);
+            var ready = r.dishes.filter(function(d){ return MP_RANK[d.status] >= 3; }).length;
+            return '<button class="mp-prow" onclick="mpMenuPage(\'' + r.m.id + '\')">' +
+              '<div class="mp-prow-t">' +
+                '<span class="mp-prow-n">' + mpEsc(r.m.name) + '</span>' +
+                (when ? '<span class="mp-prow-w">' + mpEsc(mpDateLabel(when)) + ' &middot; ' + mpEsc(mpHowFar(when)) + '</span>' : '') +
+              '</div>' +
+              '<div class="mp-prow-c">' + mpCountChips(mpStageCounts(r.dishes)) + '</div>' +
+              '<div class="mp-prow-s">' + ready + ' of ' + r.dishes.length + ' ready to go on it</div>' +
+            '</button>';
+          }).join('')
+        : '<div class="mp-empty">No dishes on any menu yet. They show up here as soon as one is tagged.</div>') +
+      (empty.length
+        ? '<div class="mp-progress-note">Nothing on yet: ' +
+            empty.map(function(r){ return mpEsc(r.m.name); }).join(' &middot; ') + '</div>'
         : '') +
     '</div>' +
 
-    // ── quick add ──
-    (mpCanAuthor() ? '<button class="mp-big" onclick="mpAddDish()">+ Add a dish</button>' : '') +
-
-    // ── next tasting ──
+    // ── the only date that matters day to day ──
     '<div class="mp-card">' +
       '<div class="mp-card-h">Next tasting</div>' +
       (next
-        ? '<div class="mp-next"><strong>' + mpEsc(mpDateLabel(next.session_date)) + (next.session_time ? ' · ' + mpEsc(next.session_time) : '') + '</strong>' +
-          (next.title ? ' · ' + mpEsc(next.title) : '') +
+        ? '<div class="mp-next"><strong>' + mpEsc(mpDateLabel(next.session_date)) + (next.session_time ? ' &middot; ' + mpEsc(next.session_time) : '') + '</strong>' +
+          (next.title ? ' &middot; ' + mpEsc(next.title) : '') +
           '<span>' + next.items.length + ' dish' + (next.items.length === 1 ? '' : 'es') + ' attached</span></div>'
         : '<div class="mp-empty">No tasting booked yet.</div>') +
       '<button class="mp-btn ghost" onclick="mpGo(\'tastings\')">Open tastings</button>' +
     '</div>' +
 
-    // ── next steps (gentle, capped at 3 — never a wall of deficits) ──
-    '<div class="mp-card">' +
-      '<div class="mp-card-h">Next steps</div>' +
-      (todo.length
-        ? '<div class="mp-todo">' + todo.slice(0, 3).map(function(t){
-            var go = t.go === 'plan-sprint' ? "document.getElementById('plan-sprint').scrollIntoView({behavior:'smooth'})" : "mpGo('" + t.go + "')";
-            return '<button class="mp-todo-row" onclick="' + go + '">' +
-              '<span>' + mpEsc(t.label) + '</span><span class="mp-todo-go">&rsaquo;</span></button>';
-          }).join('') + '</div>' +
-          (todo.length > 3 ? '<div class="mp-progress-note">&hellip;and ' + (todo.length - 3) + ' more, whenever you&rsquo;re ready.</div>' : '')
-        : '<div class="mp-empty ok">You&rsquo;re all set — nothing waiting on you here.</div>') +
-    '</div>' +
-
-    // ── the calendar, here for approval ──
-    '<div class="mp-card">' +
-      '<div class="mp-card-h">The year calendar</div>' +
-      '<div class="mp-hint">Tap any square to set what happens that month. Same grid as the Calendar tab.</div>' +
-      mpCalendarGrid() +
-      (mpCanAuthor() ? '<button class="mp-btn ghost" onclick="mpAddMenu()">+ Add a menu</button>' : '') +
-    '</div>' +
-
-    // ── the plan is agreed one thing at a time now ──
-    // The whole-plan Submit / Approve ceremony and the comment box that went
-    // with it are gone. Francesco asks for a thing, Danilo plans that thing,
-    // Francesco accepts that plan — all on What's on, per item, with the
-    // thread attached to the item rather than to a document nobody opens.
     (mpIsCostController()
-      ? '<div class="mp-card"><div class="mp-card-h">Your job</div><div class="mp-hint">Open the <button class="mp-link" onclick="mpGo(\'dishes\')">Dishes</button> tab, filter to <strong>Costing</strong>, review each cost sheet and mark it Costed.</div></div>'
-      : '<div class="mp-card">' +
-        '<div class="mp-card-h">Agreeing the work</div>' +
-        '<div class="mp-hint">Each menu and each event is agreed on its own, on ' +
-          '<button class="mp-link" onclick="mpGo(\'home\')">The Plan</button>' +
-          (mpIsApprover()
-            ? ' — ask for something, read the plan the kitchen sends back, accept it.'
-            : ' — give each one a timeline and Francesco accepts it there.') +
-        '</div>' +
-      '</div>') +
-  '</div>';
-}
-
-// The chef's guide: what to do, in order. Folds away once read, but stays
-// reachable — no stress, nothing to hunt for.
-// Rewritten with the front door: there is no whole-plan Submit any more, so the
-// old steps 3–5 (month grid → propose a sprint → submit it) were telling chefs
-// to go looking for a flow that no longer exists. Each thing is agreed on its
-// own now, on What's on.
-function mpGuideCard(){
-  var steps = [
-    ['1', 'Start on The Plan', 'Everything the kitchen is developing is there, nearest first.'],
-    ['2', 'Plan one thing', 'Open it, say how long you’ve got, and the app lays out Development, Testing, Approval and Costing. Drag anything that looks wrong.'],
-    ['3', 'Francesco accepts it', 'He reads that one plan and accepts it, or writes to you in its thread. One thing at a time — nothing to submit.'],
-    ['4', 'Add your dishes', 'Log every dish you develop in Dishes — even the ones that don’t work.'],
-    ['5', 'Book a tasting', 'Score them together. Francesco approves a dish, then it goes to Aung for costing.']
-  ];
-  // Folded away for good once they close it — it is 48% of the first screen, and
-  // it was reopening itself on every single visit. Same localStorage habit as
-  // the last-cadence / last-price / tap-your-name memories.
-  var open = mpGuideIsOpen();
-  return '<details class="mp-guide"' + (open ? ' open' : '') + ' ontoggle="mpGuideToggled(this)">' +
-    '<summary><span class="mp-guide-k">How this works</span><span class="mp-guide-hint">' + (open ? 'tap to hide' : 'tap to read') + '</span></summary>' +
-    '<div class="mp-guide-steps">' +
-      steps.map(function(s){
-        return '<div class="mp-guide-step"><span class="mp-guide-n">' + s[0] + '</span>' +
-          '<span><strong>' + mpEsc(s[1]) + '</strong><span>' + mpEsc(s[2]) + '</span></span></div>';
-      }).join('') +
-    '</div></details>';
-}
-function mpGuideIsOpen(){
-  try { return localStorage.getItem('menu-plan-guide') !== 'closed'; } catch(e){ return true; }
-}
-function mpGuideToggled(el){
-  try { localStorage.setItem('menu-plan-guide', el.open ? 'open' : 'closed'); } catch(e){}
-  var h = el.querySelector('.mp-guide-hint');
-  if (h) h.textContent = el.open ? 'tap to hide' : 'tap to read';
-}
-function mpBar(label, n, target, colour){
-  var pct = target > 0 ? Math.min(100, Math.round(n / target * 100)) : 0;
-  var hit = target > 0 && n >= target;
-  return '<div class="mp-bar-wrap' + (hit ? ' hit' : '') + '">' +
-    '<div class="mp-bar-top"><span>' + mpEsc(label) + '</span><strong>' + n + ' / ' + target + (hit ? ' <i class="mp-hitmark">&#10003;</i>' : '') + '</strong></div>' +
-    '<div class="mp-bar"><i style="width:' + pct + '%;background:' + (hit ? 'var(--mp-banked)' : colour) + '"></i></div>' +
+      ? '<div class="mp-card"><div class="mp-card-h">Your job</div><div class="mp-hint">Open ' +
+        '<button class="mp-link" onclick="mpGo(\'dishes\')">Dishes</button>, filter to <strong>Costing</strong>, ' +
+        'read each cost sheet and mark it Costed.</div></div>'
+      : '') +
   '</div>';
 }
 function mpStat(value, label){
   return '<div class="mp-stat"><b>' + mpEsc(String(value)) + '</b><span>' + mpEsc(label) + '</span></div>';
 }
 
-// Propose (chef) or edit (approver) the sprint dates + goals. One sheet, all
-// four fields at once — friendlier than four back-to-back prompts.
-function mpEditSprint(){
-  var s = mpSprint || {};
-  mpSheet(mpMe.role === 'chef' ? 'Propose your dates & goal' : 'Sprint dates & goal',
-    '<div class="mp-two">' +
-      '<div><label class="mp-lab">Start date</label><input class="mp-in" type="date" id="mps-start" value="' + mpEsc((s.start_date || '').slice(0,10)) + '"/></div>' +
-      '<div><label class="mp-lab">End date</label><input class="mp-in" type="date" id="mps-end" value="' + mpEsc((s.end_date || '').slice(0,10)) + '"/></div>' +
-    '</div>' +
-    '<div class="mp-two">' +
-      '<div><label class="mp-lab">Goal — dishes tried</label><input class="mp-in" type="number" inputmode="numeric" min="1" step="1" id="mps-tt" value="' + (s.target_tried || 60) + '"/></div>' +
-      '<div><label class="mp-lab">Goal — dishes approved</label><input class="mp-in" type="number" inputmode="numeric" min="1" step="1" id="mps-ta" value="' + (s.target_approved || 30) + '"/></div>' +
-    '</div>' +
-    '<div class="mp-sheet-actions">' +
-      '<button class="mp-btn go" onclick="mpSaveSprint()">Save</button>' +
-      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
-    '</div>');
-}
 // Checked before anything is written: a backwards date range and a goal of 0 or
 // -5 all used to save (or silently not save) and still show "✓ Sprint updated".
 function mpWholeNumber(id, what){
@@ -2081,49 +1991,6 @@ async function mpSaveSprint(){
   mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast('Sprint updated');
 }
 
-// The three below, and the email they send, are no longer reachable: the
-// whole-plan Submit / Approve ceremony was replaced by the per-item
-// request → plan → accept loop on What's on. Kept, unwired, so nothing that
-// still points at menu_plan_sprint.status breaks; nothing calls them.
-async function mpSubmitPlan(){
-  var ok = await mpConfirm('Submit the plan to Francesco?',
-    'He gets an email with the whole plan — calendar, menus and every dish — and can comment on each one. You can keep editing after you submit.',
-    'Submit');
-  if (!ok) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'submitted', submitted_by:mpMe.name, submitted_at:new Date().toISOString(),
-    updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the submission')) return;
-  await mpLoadAll(); mpRender();
-  mpToast('Submitted to Francesco');
-  mpEmailPlan('submitted');
-}
-async function mpApprovePlan(){
-  var ok = await mpConfirm('Approve this plan?',
-    'The team sees it marked approved. They can still add dishes — developing never stops.',
-    'Approve');
-  if (!ok) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'approved', approved_by:mpMe.name, approved_at:new Date().toISOString(),
-    updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the approval')) return;
-  await mpLoadAll(); mpRender(); mpToast('Plan approved');
-  mpEmailPlan('approved');
-}
-async function mpRequestChanges(){
-  var note = await mpPrompt('What needs changing?', 'textarea', '');
-  if (note === null || !String(note).trim()) return;
-  var a = await sb.from('menu_plan_comments').insert({ target_type:'plan', target_id:null, author:mpMe.name, body:String(note).trim() });
-  if (mpErr(a, 'the comment')) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'changes_requested', updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the request')) return;
-  await mpLoadAll(); mpRender(); mpToast('Sent back with your note');
-  mpEmailPlan('changes_requested', String(note).trim());
-}
 
 // ══ 2. DISH BANK ═══════════════════════════════════════════════════════════
 // A "bare" quick idea: fast to capture, but still owes a section/menus/
@@ -4342,98 +4209,6 @@ async function mpResolveComment(id){
   await mpLoadAll(); mpRender(); mpToast('Marked as done');
 }
 
-// ══ EMAIL SUMMARY ══════════════════════════════════════════════════════════
-// Reuses the generic send-stock-take mailer (to / cc / subject / html) so this
-// module needs NO new Edge Function deploy. Recipients come from
-// menu_plan_members — never a hardcoded list that can drift.
-async function mpEmailPlan(kind, note){
-  var approvers = mpMembers.filter(function(m){ return m.role === 'approver' && m.email; }).map(function(m){ return m.email; });
-  var chefs     = mpMembers.filter(function(m){ return m.role === 'chef'     && m.email; }).map(function(m){ return m.email; });
-  if (!approvers.length && !chefs.length){ mpToast('Saved, but no email addresses are set for the team.', true); return; }
-
-  var to = kind === 'submitted' ? approvers : chefs;
-  var cc = kind === 'submitted' ? chefs     : approvers;
-  var subject = kind === 'submitted'     ? "Menu Development Plan — submitted by " + mpMe.name
-              : kind === 'approved'      ? "Menu Development Plan — approved"
-              :                            "Menu Development Plan — changes requested";
-
-  try {
-    var r = await fetch(SUPABASE_URL + '/functions/v1/send-stock-take', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + SUPABASE_KEY },
-      body: JSON.stringify({ to:to, cc:cc, subject:subject, html: mpEmailHtml(kind, note) })
-    });
-    if (r.ok) mpToast('Emailed to ' + to.join(', '));
-    else mpToast('Saved in the app, but the email did not send.', true);
-  } catch(e){
-    mpToast('Saved in the app, but the email did not send.', true);
-  }
-}
-function mpEmailHtml(kind, note){
-  var tried = mpTriedCount(), approved = mpApprovedCount();
-  var head = kind === 'submitted'  ? mpEsc(mpMe.name) + ' submitted the Menu Development Plan.'
-           : kind === 'approved'   ? mpEsc(mpMe.name) + ' approved the Menu Development Plan.'
-           :                         mpEsc(mpMe.name) + ' asked for changes to the Menu Development Plan.';
-
-  var rows = mpMenus.map(function(m){
-    var cells = MP_MONTHS.map(function(mo){
-      var c = mpCellObj(m.id, mo.key);
-      var day = mpCellDayLabel(c);
-      return '<td style="border:1px solid #d8cbb6;padding:4px 5px;text-align:center;font-size:9px;' +
-        (c ? 'background:' + MP_CELL_HEX[c.state] + ';color:#fff;font-weight:700;' : 'color:#bbb;') + '">' +
-        (c ? MP_CELL_CODE[c.state] + (day ? '<br/>' + day : '') : '·') + '</td>';
-    }).join('');
-    return '<tr><td style="border:1px solid #d8cbb6;padding:4px 8px;font-size:11px;white-space:nowrap">' + mpEsc(m.name) + '</td>' + cells + '</tr>';
-  }).join('');
-
-  var briefs = mpMenus.map(function(m){
-    var files = mpFilesFor(m.id);
-    var docs = files.length
-      ? '<div style="margin-top:4px;font-size:11px">' + files.map(function(f){
-          return '&#128206; <a href="' + mpEsc(mpPublicUrl(f.file_path)) + '" style="color:#450207">' + mpEsc(f.file_name) + '</a>';
-        }).join(' &nbsp; ') + '</div>'
-      : '';
-    return '<tr>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px"><b>' + mpEsc(m.name) + '</b>' + docs + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.identity || '—') + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.structure || '—') + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.price || '—') + '</td>' +
-    '</tr>';
-  }).join('');
-
-  var bySection = {};
-  mpDishes.forEach(function(d){ (bySection[d.section] = bySection[d.section] || []).push(d); });
-  var dishes = Object.keys(bySection).sort().map(function(sec){
-    return '<p style="margin:12px 0 4px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#450207"><b>' + mpEsc(sec) + '</b></p>' +
-      '<ul style="margin:0 0 4px 18px;padding:0">' + bySection[sec].map(function(d){
-        return '<li style="font-size:12px;margin:2px 0">' + mpEsc(d.name_it) +
-          ' <span style="color:#8a7a62">— ' + mpEsc(d.status) + (d.selling_price ? ' · ' + mpEsc(d.selling_price) : '') + '</span></li>';
-      }).join('') + '</ul>';
-  }).join('');
-
-  return '<div style="font-family:Georgia,serif;color:#2C2422;max-width:820px">' +
-    '<h2 style="color:#450207;font-weight:400;margin:0 0 4px">Menu Development Plan</h2>' +
-    '<p style="font-size:13px;color:#6a5c4a;margin:0 0 16px">' + head + '</p>' +
-    (note ? '<div style="background:#F5EEE1;border-left:4px solid #FA4700;padding:10px 14px;font-size:13px;margin-bottom:16px">' + mpEsc(note) + '</div>' : '') +
-    '<p style="font-size:13px"><b>Sprint:</b> ' + tried + ' dishes tried (target ' + ((mpSprint && mpSprint.target_tried) || 60) + ') · ' +
-      approved + ' approved (target ' + ((mpSprint && mpSprint.target_approved) || 30) + ')</p>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The year</h3>' +
-    '<table style="border-collapse:collapse"><tr><th style="border:1px solid #d8cbb6;padding:4px 8px;font-size:10px">Menu</th>' +
-      MP_MONTHS.map(function(mo){ return '<th style="border:1px solid #d8cbb6;padding:4px 5px;font-size:10px">' + MP_MON_NAMES[mo.m] + '</th>'; }).join('') +
-    '</tr>' + rows + '</table>' +
-    '<p style="font-size:10px;color:#8a7a62">De develop · Te testing · Ph photoshoot · La launch · Li live · Ch changing</p>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The menus</h3>' +
-    '<table style="border-collapse:collapse;width:100%"><tr>' +
-      ['Menu','Identity','Structure','Price'].map(function(h){
-        return '<th style="border:1px solid #d8cbb6;padding:5px 8px;font-size:10px;text-align:left">' + h + '</th>'; }).join('') +
-    '</tr>' + briefs + '</table>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The dishes (' + mpDishes.length + ')</h3>' +
-    (dishes || '<p style="font-size:12px;color:#8a7a62">No dishes logged yet.</p>') +
-  '</div>';
-}
 const MP_CELL_HEX = { Develop:'#C08A55', Testing:'#3D6E9E', Photoshooting:'#8E5AA8', Launch:'#FA4700', Live:'#3F7A4B', Changing:'#450207' };
 
 // ══ SHEETS, CONFIRM, PROMPT ════════════════════════════════════════════════
@@ -4985,6 +4760,20 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-mp-d{font:400 13px 'Outfit',sans-serif;opacity:.75;margin-top:2px}
 .mp-mp-w{font:500 11.5px 'Outfit',sans-serif;color:var(--mp-maroon);opacity:.8;margin-top:3px}
 .mp-mp-acts{display:flex;gap:6px;margin-top:6px}
+/* Progress: one row per menu, dishes counted by stage */
+.mp-prow{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-prow:active{background:var(--mp-cream-l)}
+.mp-prow-t{display:flex;align-items:baseline;gap:10px}
+.mp-prow-n{font:600 14.5px 'Outfit',sans-serif;color:var(--mp-ink)}
+.mp-prow-w{margin-left:auto;font:500 11.5px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-prow-c{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mp-prow-s{font:400 12px 'Outfit',sans-serif;opacity:.65;margin-top:7px}
+.mp-pchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font:500 11.5px 'Outfit',sans-serif;background:var(--mp-cream-l);color:var(--mp-ink)}
+.mp-pchip b{font:700 12.5px 'Outfit',sans-serif}
+.mp-pchip.s-trying{background:#FBE8CC}
+.mp-pchip.s-testing{background:#D8E7F3}
+.mp-pchip.s-approved{background:#D6EBDC}
+.mp-pchip.s-costing{background:#E6DCEE}
 .mp-askbox:active{background:var(--mp-cream)}
 .mp-askbox.ask{border-style:solid;border-color:var(--mp-maroon);background:var(--mp-maroon)}
 .mp-askbox.ask .mp-askbox-q{color:#fff}
