@@ -3454,7 +3454,7 @@ function mpBriefInner(m){
     '<div class="mp-menu-actions">' +
       (mpCanAuthor() ? '<button class="mp-btn ghost" onclick="mpEditMenu(\'' + m.id + '\')">Edit</button>' +
         '<button class="mp-btn ghost" onclick="mpPickMenuFile(\'' + m.id + '\')">&#128206; Attach Word / PDF</button>' : '') +
-      '<button class="mp-btn ghost" onclick="mpMenuDishes(\'' + m.id + '\')">See its dishes (' + pool + ')</button>' +
+      '<button class="mp-btn go" onclick="mpMenuPage(\'' + m.id + '\')">See the menu (' + pool + ' dish' + (pool === 1 ? '' : 'es') + ')</button>' +
       (mpIsApprover()
         // Approved menus show the fact as text, not as a grey button whose only
         // explanation is a tooltip nobody on a phone can see.
@@ -3769,6 +3769,136 @@ function mpMenuDishes(id){
   if (!m) return;
   mpFilter = { section:'', menu:m.name, status:'', season:'', chef:'', q:'' };
   mpTab = 'dishes'; mpRender(); window.scrollTo(0,0);
+}
+
+// ══ THE MENU ITSELF ════════════════════════════════════════════════════════
+// One menu, on one page: what it is, and what it reads like with the dishes
+// currently in it. Nothing in the module showed this — you could tag dishes to
+// Family Brunch and never see Family Brunch. Sections come out in kitchen
+// order, and a dish that is not approved yet is still shown, just marked, so
+// he watches the menu fill up instead of waiting for it.
+function mpMenuPage(id){
+  var m = mpMenus.find(function(x){ return x.id === id; });
+  if (!m) return;
+  var pool = mpMenuDishPool(m.name);
+  var bySection = MP_SECTIONS.map(function(sec){
+    return { sec:sec, dishes: pool.filter(function(d){ return (d.section || 'Other') === sec; }) };
+  }).filter(function(g){ return g.dishes.length; });
+  var ready = pool.filter(function(d){ return MP_RANK[d.status] >= 3; }).length;
+
+  mpSheet(m.name,
+    // ── what it is ──
+    '<div class="mp-mp-id">' +
+      (m.identity
+        ? mpEsc(m.identity)
+        : '<span class="missing">No concept yet &mdash; one line: what is this menu?</span>') +
+      (m.structure ? '<div class="mp-mp-st">' + mpEsc(m.structure) + '</div>' : '') +
+      (m.price ? '<div class="mp-mp-st">' + mpEsc(m.price) + '</div>' : '') +
+    '</div>' +
+    (mpCanAuthor()
+      ? '<div class="mp-sheet-actions"><button class="mp-btn ghost" onclick="mpEditMenu(\'' + m.id + '\')">Edit what it is</button></div>'
+      : '') +
+
+    // ── the menu as it reads ──
+    '<div class="mp-mp-h">The menu' +
+      (pool.length ? '<em>' + ready + ' of ' + pool.length + ' approved</em>' : '') + '</div>' +
+    (bySection.length
+      ? '<div class="mp-mp-menu">' + bySection.map(function(g){
+          return '<div class="mp-mp-sec">' + mpEsc(g.sec) + '</div>' +
+            g.dishes.map(function(d){
+              var on = MP_RANK[d.status] >= 3;
+              return '<div class="mp-mp-dish' + (on ? '' : ' soft') + '">' +
+                '<div class="mp-mp-n">' + mpEsc(d.name_it || 'Untitled') +
+                  (d.selling_price ? '<span class="mp-mp-p">' + mpEsc(d.selling_price) + '</span>' : '') + '</div>' +
+                (d.description_en ? '<div class="mp-mp-d">' + mpEsc(d.description_en) + '</div>' : '') +
+                (on ? '' : '<div class="mp-mp-w">' + mpEsc(d.status) + ' &mdash; not approved yet</div>') +
+                (mpCanAuthor()
+                  ? '<div class="mp-mp-acts">' +
+                      '<button class="mp-btn ghost small" onclick="mpOpenDish(\'' + d.id + '\')">Open</button>' +
+                      '<button class="mp-btn ghost small" onclick="mpDropFromMenu(\'' + d.id + '\',\'' + m.id + '\')">Take off</button>' +
+                    '</div>'
+                  : '') +
+              '</div>';
+            }).join('');
+        }).join('') + '</div>'
+      : '<div class="mp-empty">Nothing on it yet. Put a dish on it below, and the menu builds itself here.</div>') +
+
+    // ── putting dishes on it ──
+    (mpCanAuthor()
+      ? '<div class="mp-sheet-actions">' +
+          '<button class="mp-btn go" onclick="mpAddToMenu(\'' + m.id + '\')">Put a dish on this menu</button>' +
+          '<button class="mp-btn ghost" onclick="mpCloseSheet()">Close</button>' +
+        '</div>'
+      : '<div class="mp-sheet-actions"><button class="mp-btn ghost" onclick="mpCloseSheet()">Close</button></div>') +
+    mpCommentBlock('menu', m.id, 'Talk about this menu', true));
+}
+// Pick from the dishes that exist, or start a new one — either way it lands on
+// this menu. Search, because by December there will be a lot of them.
+function mpAddToMenu(menuId){
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!m) return;
+  var off = mpDishes.filter(function(d){ return !(d.for_menus || []).includes(m.name); })
+                    .sort(function(a, b){ return String(a.name_it || '').localeCompare(String(b.name_it || '')); });
+  mpSheet('Put a dish on ' + m.name,
+    '<button class="mp-big" onclick="mpNewDishFor(\'' + m.id + '\')">+ A dish that doesn&rsquo;t exist yet</button>' +
+    (off.length
+      ? '<div class="mp-cat">' +
+          '<div class="mp-cat-h">Or one you have already logged</div>' +
+          '<input class="mp-in mp-cat-q" type="text" id="mpik-cat-q" placeholder="Start typing to narrow it down" ' +
+            'autocomplete="off" oninput="mpCatFilter()"/>' +
+          '<div class="mp-cat-list" id="mpik-cat-list">' +
+            off.map(function(d){
+              return '<button type="button" class="mp-cat-row" data-n="' + mpEsc(String(d.name_it || '').toLowerCase()) + '" ' +
+                'onclick="mpPutOnMenu(\'' + d.id + '\',\'' + m.id + '\')">' +
+                '<span class="mp-cat-n">' + mpEsc(d.name_it || 'Untitled') + '</span>' +
+                '<span class="mp-cat-d quiet">' + mpEsc(d.section || '') + '</span></button>';
+            }).join('') +
+          '</div>' +
+          '<div class="mp-cat-none" id="mpik-cat-none" style="display:none">Nothing by that name &mdash; add it as a new dish above.</div>' +
+        '</div>'
+      : '') +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn ghost" onclick="mpMenuPage(\'' + m.id + '\')">Back to the menu</button>' +
+    '</div>');
+}
+// A new dish started from a menu arrives already tagged to it. Reuses the
+// one-shot seed the Duplicate button already uses, so there is one way in.
+function mpNewDishFor(menuId){
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!m) return;
+  mpCloseSheet();
+  mpDuplicateSeed = { fromName:null, section:'', for_menus:[m.name], allergens:[], notes:'' };
+  mpDishForm(null);
+}
+async function mpPutOnMenu(dishId, menuId){
+  var d = mpDishes.find(function(x){ return x.id === dishId; });
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!d || !m) return;
+  var next = (d.for_menus || []).slice();
+  if (next.indexOf(m.name) < 0) next.push(m.name);
+  var res = await sb.from('menu_plan_dishes')
+    .update({ for_menus:next, updated_at:new Date().toISOString() }).eq('id', dishId);
+  if (mpErr(res, 'the dish')) return;
+  await mpLoadAll();
+  mpToast(d.name_it + ' is on ' + m.name);
+  mpMenuPage(menuId);
+}
+// Taking a dish off a menu never deletes the dish — it loses the tag and stays
+// in Dishes. Said out loud, because "Take off" next to a dish reads like delete.
+async function mpDropFromMenu(dishId, menuId){
+  var d = mpDishes.find(function(x){ return x.id === dishId; });
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!d || !m) return;
+  var ok = await mpConfirm('Take “' + d.name_it + '” off ' + m.name + '?',
+    'The dish stays in Dishes with everything on it — it just comes off this menu.', 'Take it off');
+  if (!ok) return;
+  var next = (d.for_menus || []).filter(function(x){ return x !== m.name; });
+  var res = await sb.from('menu_plan_dishes')
+    .update({ for_menus:next, updated_at:new Date().toISOString() }).eq('id', dishId);
+  if (mpErr(res, 'the dish')) return;
+  await mpLoadAll();
+  mpToast('Taken off ' + m.name);
+  mpMenuPage(menuId);
 }
 
 // ══ 5. TASTING SESSIONS ════════════════════════════════════════════════════
@@ -4839,6 +4969,22 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-stagerow.tap{display:flex;align-items:center;gap:9px;width:100%;min-height:56px;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 12px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
 .mp-stagerow.tap:active{background:var(--mp-cream-l)}
 .mp-stage-go{margin-left:auto;font:600 12px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+/* the menu itself — what it reads like with the dishes currently on it */
+.mp-mp-id{font:400 14.5px 'Outfit',sans-serif;color:var(--mp-ink);line-height:1.5;padding:2px 0 4px}
+.mp-mp-id .missing{opacity:.55;font-style:italic}
+.mp-mp-st{font:400 13px 'Outfit',sans-serif;opacity:.7;margin-top:3px}
+.mp-mp-h{display:flex;align-items:baseline;gap:8px;margin:16px 0 8px;font:600 12px 'Outfit',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--mp-maroon)}
+.mp-mp-h em{margin-left:auto;font:400 11.5px 'Outfit',sans-serif;text-transform:none;letter-spacing:0;opacity:.65}
+.mp-mp-menu{background:#fff;border:1px solid var(--mp-line);border-radius:12px;padding:14px 15px}
+.mp-mp-sec{font:600 11px 'Outfit',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--mp-maroon);opacity:.75;margin:14px 0 7px;padding-bottom:4px;border-bottom:1px solid var(--mp-line)}
+.mp-mp-sec:first-child{margin-top:0}
+.mp-mp-dish{padding:8px 0}
+.mp-mp-dish.soft{opacity:.62}
+.mp-mp-n{display:flex;gap:10px;font:600 15px 'Cormorant Garamond',Georgia,serif;color:var(--mp-ink)}
+.mp-mp-p{margin-left:auto;font:500 13px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-mp-d{font:400 13px 'Outfit',sans-serif;opacity:.75;margin-top:2px}
+.mp-mp-w{font:500 11.5px 'Outfit',sans-serif;color:var(--mp-maroon);opacity:.8;margin-top:3px}
+.mp-mp-acts{display:flex;gap:6px;margin-top:6px}
 .mp-askbox:active{background:var(--mp-cream)}
 .mp-askbox.ask{border-style:solid;border-color:var(--mp-maroon);background:var(--mp-maroon)}
 .mp-askbox.ask .mp-askbox-q{color:#fff}
