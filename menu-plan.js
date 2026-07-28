@@ -461,7 +461,14 @@ function mpOpenCommentCount(type, id){
 // The menu names a dish can be tagged for come from the menus table, so a new
 // menu (Bartolini) is instantly taggable with no redeploy. Grouped variants
 // (Set Menu A/B/C) are still tagged individually.
-function mpMenuTagOptions(){ return mpMenus.map(function(m){ return m.name; }); }
+// Only menus that are actually on the plan can be tagged, scheduled or listed.
+// A menu sitting in the pick-list is real but nobody has started it, so showing
+// it on the Calendar, on Menus, or in a dish's tags puts work on screen that
+// does not exist yet — the confusion Francesco caught: The Plan said nothing
+// had started while two other tabs were full.
+function mpMenuTagOptions(){
+  return mpMenus.filter(mpOnPlan).map(function(m){ return m.name; });
+}
 
 // ── menu grouping (Set Menu A/B/C collapse to one row + dropdown) ────────────
 // mpMenuRows() turns the flat menu list into display rows: a standalone menu is
@@ -469,11 +476,11 @@ function mpMenuTagOptions(){ return mpMenus.map(function(m){ return m.name; }); 
 // The calendar and the briefs both render from this, so grouping is defined once.
 function mpMenuRows(){
   var rows = [], seen = {};
-  mpMenus.forEach(function(m){
+  mpMenus.filter(mpOnPlan).forEach(function(m){
     if (m.menu_group){
       if (seen[m.menu_group]) return;
       seen[m.menu_group] = true;
-      var variants = mpMenus.filter(function(x){ return x.menu_group === m.menu_group; })
+      var variants = mpMenus.filter(function(x){ return x.menu_group === m.menu_group && mpOnPlan(x); })
         .sort(function(a,b){ return (a.variant_label || '') < (b.variant_label || '') ? -1 : 1; });
       rows.push({ group: m.menu_group, variants: variants, sort: m.sort_order || 0 });
     } else {
@@ -2767,7 +2774,7 @@ function mpRenderCalendar(){
     '<div class="mp-calhead">' +
       '<div class="mp-hint">' + (isList
         ? 'Each menu and when it happens. Tap a month to change it, or add one.' +
-          (mpCanAuthor() ? ' Drag the &#10086; to put the menus in the order you want — or tap it.' : '')
+          (mpCanAuthor() ? ' Drag the handle on the right to put them in the order you want — or tap it.' : '')
         : 'Rows are menus, columns are months. Tap a square to set it; tap a menu name to edit or delete.') + '</div>' +
       '<span class="mp-viewtog">' +
         '<button class="' + (isList ? 'on' : '') + '" onclick="mpSetCalView(\'list\')">List</button>' +
