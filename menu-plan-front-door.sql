@@ -131,7 +131,7 @@ create index if not exists menu_plan_menus_origin_idx on public.menu_plan_menus 
 --
 -- Two different things live in this table and only one of them is work.
 --
---   ON THE PLAN   someone decided to develop it. It shows on What's on.
+--   ON THE PLAN   someone decided to develop it. It shows on The Plan.
 --   IN THE LIST   a menu the restaurant simply runs (à la carte, Business
 --                 Lunch, the Set Menus) or a night already in the diary
 --                 (Christmas Eve). Real, but nobody has started on it.
