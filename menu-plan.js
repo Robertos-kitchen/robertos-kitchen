@@ -5336,6 +5336,12 @@ async function mpVoiceAiUnderstand(text){
       '· He will not use command words. "the branzino is done" and "branzino ok Francesco liked it" both ' +
       'mean the stage moved. Work out the intent from ordinary talk.\n' +
       '· If he says a dish name that is close to one on the list, it IS that dish — do not invent a new one.\n' +
+      '· He is a native ITALIAN speaker. When he speaks English it carries a strong Italian accent, and the ' +
+      'recogniser mishears it badly: "approved" arrives as "approvd" / "epruved" / "a proved", "delete" as ' +
+      '"dilit", "ready" as "redi". Decode it phonetically as an Italian would pronounce the English.\n' +
+      '· The transcript below was produced by a recogniser set to ' +
+      (mpVoiceIt() ? 'ITALIAN, so any ENGLISH words he used have been forced into Italian-looking spellings — read them back out loud in your head to recover them.'
+                   : 'ENGLISH, so any ITALIAN words he used (especially dish names) have been forced into English-looking spellings — read them back out loud in your head to recover them.') + '\n' +
       '\n' +
       '{"action": one of "add" | "status" | "attach" | "detach" | "edit" | "delete" | "unknown",\n' +
       ' "dish": the exact name from the "Dishes he already has" list if he is talking about one of those, else null,\n' +
@@ -5390,19 +5396,47 @@ async function mpVoiceAiUnderstand(text){
 // go through the same normaliser — written out longhand they silently never
 // match ("togli" normalises to "toli", "cancella" to "kansela"), which is a
 // bug that looks exactly like "it just didn't understand him".
+// Two words are the same word if they sound the same once normalised. Short
+// words must match exactly (mpSoundsLike refuses under 4 letters) or "on" and
+// "un" become the same instruction.
+function mpTokenLike(a, b){ return a === b || mpSoundsLike(a, b); }
+// Does this sentence contain any of these phrases — allowing for the accent?
+//
+// THE POINT OF THIS: he is Italian, and Chrome's English recogniser does not
+// handle Italian-accented English. "approved" comes back as "approvd",
+// "epruved", "a proved"; "delete" as "dilit". Matching those literally fails,
+// which is what "it doesn't fully recognise my accent" actually was — the DISH
+// names already matched by sound, but the command words did not. Now they do.
+function mpVHasPhrase(sentence, phrases){
+  var toks = String(sentence || '').split(' ').filter(Boolean);
+  if (!toks.length) return false;
+  for (var p = 0; p < phrases.length; p++){
+    var pw = mpVoiceNorm(phrases[p]).split(' ').filter(Boolean);
+    if (!pw.length) continue;
+    for (var i = 0; i + pw.length <= toks.length; i++){
+      var all = true;
+      for (var j = 0; j < pw.length; j++){
+        if (!mpTokenLike(pw[j], toks[i + j])){ all = false; break; }
+      }
+      if (all) return true;
+    }
+  }
+  return false;
+}
+// Kept for anything that still wants a plain regex.
 function mpVRe(words){
   var parts = words
     .map(function(w){ return mpVoiceNorm(w).replace(/ /g, '\\s+'); })
     .filter(function(w){ return !!w; });
   return new RegExp('(?:^|\\s)(?:' + parts.join('|') + ')(?:\\s|$)');
 }
-const MP_V_DELETE = mpVRe(['delete','deleted','remove it','get rid','bin it','cancella','cancellare','elimina','buttalo']);
-const MP_V_OFF    = mpVRe(['off','out','fuori','leva','levare','togli','togliere','toglie','via']);
-const MP_V_ON     = mpVRe(['on','onto','into','put','add','metti','mettere','mettiamo','aggiungi','aggiungere','va su','vanno']);
+const MP_V_DELETE = ['delete','deleted','remove it','get rid','bin it','cancella','cancellare','elimina','buttalo'];
+const MP_V_OFF    = ['off','out','fuori','leva','levare','togli','togliere','toglie','via'];
+const MP_V_ON     = ['on','onto','into','put','add','metti','mettere','mettiamo','aggiungi','aggiungere','va su','vanno'];
 // Deliberately STRICT, unlike the rest. Everything else here acts on a dish we
 // already hold; this one CREATES a row, so a stray verb in a sentence of
 // thinking-out-loud must not become a new dish.
-const MP_V_ADD    = mpVRe(['new dish','a new dish','add a dish','piatto nuovo','nuovo piatto','aggiungi piatto','aggiungiamo piatto']);
+const MP_V_ADD    = ['new dish','a new dish','add a dish','piatto nuovo','nuovo piatto','aggiungi piatto','aggiungiamo piatto'];
 const MP_V_STATUS_WORDS = {
   // "done / finito / pronto / ok / va bene" all mean the same thing in this
   // kitchen — nobody is going to say "set the status to Approved".
@@ -5414,8 +5448,12 @@ const MP_V_STATUS_WORDS = {
   Idea:     ['solo un idea','just an idea','only an idea','un idea']
 };
 const MP_V_STATUS = (function(){
+  // Each stage becomes a tester that matches by sound, so an accented "approved"
+  // still lands on Approved.
   var out = {};
-  for (var k in MP_V_STATUS_WORDS) out[k] = mpVRe(MP_V_STATUS_WORDS[k]);
+  Object.keys(MP_V_STATUS_WORDS).forEach(function(k){
+    out[k] = { test: function(n){ return mpVHasPhrase(n, MP_V_STATUS_WORDS[k]); } };
+  });
   return out;
 })();
 // The offline read. It is not a phrase book — it looks for a dish it recognises
@@ -5435,12 +5473,12 @@ function mpVoiceFallback(text){
   // dishes share a word with one he already has ("new dish, sea urchin
   // SPAGHETTI" against an existing "SPAGHETTI al riccio"), and without this the
   // app reads a brand-new dish as an edit to the old one.
-  var saysNew = MP_V_ADD.test(n);
-  if (saysNew)                                      out.action = 'add';
-  else if (MP_V_DELETE.test(n) && namesADish)       out.action = 'delete';
-  else if (namesADish && menu && MP_V_OFF.test(n))  out.action = 'detach';
-  else if (namesADish && menu && MP_V_ON.test(n))   out.action = 'attach';
-  else if (namesADish && out.status)                out.action = 'status';
+  var saysNew = mpVHasPhrase(n, MP_V_ADD);
+  if (saysNew)                                                out.action = 'add';
+  else if (mpVHasPhrase(n, MP_V_DELETE) && namesADish)        out.action = 'delete';
+  else if (namesADish && menu && mpVHasPhrase(n, MP_V_OFF))   out.action = 'detach';
+  else if (namesADish && menu && mpVHasPhrase(n, MP_V_ON))    out.action = 'attach';
+  else if (namesADish && out.status)                          out.action = 'status';
   // Either he said "new dish", or he is talking about something we do not hold
   // while naming a menu — both mean a dish that needs creating.
   if (out.action === 'add' || (out.action === 'unknown' && !namesADish && menu)){
@@ -5512,12 +5550,33 @@ function mpLev(a, b){
 // Close enough to be the same word once you allow for a bad transcription:
 // about one slip in four characters, and short words must match nearly exactly
 // (otherwise "mare" matches "carne" and the wrong dish gets changed).
+// The consonant skeleton. An Italian accent moves the VOWELS almost entirely —
+// "delete" arrives as "dilit", "approved" as "epruved" — while the consonants
+// survive: dlt = dlt, prvd = prvd. Edit distance alone scores those as far
+// apart because it weighs a vowel like any other letter, which is exactly why
+// English commands were failing for him while Italian ones worked.
+function mpSkeleton(s){ return String(s || '').replace(/[aeiou]/g, ''); }
 function mpSoundsLike(a, b){
   if (!a || !b) return false;
   if (a === b) return true;
+  // Short words must match exactly, or "on" and "un" become one instruction.
   if (a.length < 4 || b.length < 4) return false;
-  var d = mpLev(a, b), longest = Math.max(a.length, b.length);
-  return d <= Math.max(1, Math.floor(longest / 4));
+  var longest = Math.max(a.length, b.length);
+  var sa = mpSkeleton(a), sb = mpSkeleton(b);
+  // Short words (4–5 letters) are where the wrong-dish accidents live: one
+  // letter apart is most of the word. "carne" and "carte" are one edit apart
+  // and are NOT the same thing, so a short word must also agree on its
+  // consonants. ("mare"/"more" do agree, and genuinely do sound alike.)
+  // …and on the last letter, because in Italian the final vowel is where the
+  // meaning lives: "pesce" (fish) against "pesca" (peach) is one edit and the
+  // same consonants, and putting a peach in the fish section is the kind of
+  // wrong this whole matcher exists to avoid.
+  if (longest <= 5) return mpLev(a, b) <= 1 && sa === sb && a.slice(-1) === b.slice(-1);
+  if (mpLev(a, b) <= Math.round(longest / 3)) return true;
+  // Longer words get a second chance on the skeleton alone — this is what
+  // rescues "delete"/"dilit" and "approved"/"epruved". Three consonants
+  // minimum, so it can never fire on something as thin as "mr".
+  return sa.length >= 3 && sa === sb;
 }
 // Words worth matching on — the noise words of BOTH languages dropped, so
 // "di/de/the/al/con/with" never carry a match on their own.
