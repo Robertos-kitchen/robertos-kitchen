@@ -4961,9 +4961,15 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 
 const MP_VOICE_LANGS = [{ code:'en-GB', label:'EN' }, { code:'it-IT', label:'IT' }];
 const MP_VOICE_LANG_KEY = 'menu-plan-voice-lang';
+// Italian is the DEFAULT, and that is a deliberate choice, not a preference.
+// He mixes the two languages whatever this is set to, so the only question is
+// which half survives the transcription — and the half that must survive is the
+// dish name, which is always Italian. An English recogniser turns "riccio" into
+// something unrecognisable; an Italian one mangles "is approved" instead, and a
+// mangled command is recoverable from context where a mangled dish name is not.
 let mpVoiceLang = (function(){
-  try { var v = localStorage.getItem(MP_VOICE_LANG_KEY); return v === 'it-IT' ? 'it-IT' : 'en-GB'; }
-  catch(e){ return 'en-GB'; }
+  try { var v = localStorage.getItem(MP_VOICE_LANG_KEY); return v === 'en-GB' ? 'en-GB' : 'it-IT'; }
+  catch(e){ return 'it-IT'; }
 })();
 let mpVRec = null, mpVFinal = '', mpVInterim = '', mpVIntent = null, mpVUndo = null, mpVUndoTimer = null;
 
@@ -5013,16 +5019,19 @@ function mpVoiceSampleDish(){
 }
 function mpVoiceGuideHtml(){
   var menu = mpVoiceSampleMenu(), dish = mpVoiceSampleDish(), it = mpVoiceIt();
+  // Written the way they actually speak — half Italian, half English, no
+  // command words. If the examples were tidy sentences he would think he had to
+  // say tidy sentences, and that is the thing that makes people stop using it.
   var lines = it ? [
     ['Aggiungere',  'Piatto nuovo, ' + dish + ', per ' + menu],
-    ['Cambiare',    dish + ' è approvato'],
-    ['Togliere',    'Togli ' + dish + ' da ' + menu],
+    ['Cambiare',    dish + ' is ready, finito'],
+    ['Togliere',    'Togli ' + dish + ' from ' + menu],
     ['Cancellare',  'Cancella ' + dish]
   ] : [
-    ['To add',      'New dish, ' + dish + ', for ' + menu],
-    ['To change',   dish + ' is approved'],
+    ['To add',      'Piatto nuovo, ' + dish + ', for ' + menu],
+    ['To change',   dish + ' is done, ready for testing'],
     ['To take off', 'Take ' + dish + ' off ' + menu],
-    ['To delete',   'Delete ' + dish]
+    ['To delete',   'Cancella ' + dish]
   ];
   return '<div class="mp-vguide">' +
     '<div class="mp-vguide-h">' + (it ? 'Prova a dire' : 'Try saying') + '</div>' +
@@ -5030,6 +5039,9 @@ function mpVoiceGuideHtml(){
       lines.map(function(l){
         return '<div><b>' + mpEsc(l[0]) + '</b> &mdash; &ldquo;' + mpEsc(l[1]) + '&rdquo;</div>';
       }).join('') +
+      '<div style="margin-top:8px;color:#8a7a62">' + (it
+        ? 'Non devi dirlo così — dillo come viene.'
+        : 'You don’t have to say it like this — say it however it comes out.') + '</div>' +
     '</div></div>';
 }
 // The three-line version, always on screen above the live text. Not a tutorial:
@@ -5074,6 +5086,12 @@ function mpVoicePaint(){
         return '<button type="button" class="mp-vlang' + (mpVoiceLang === L.code ? ' on' : '') + '" ' +
           'onclick="mpSetVoiceLang(\'' + L.code + '\')">' + L.label + '</button>';
       }).join('') +
+    '</div>' +
+    // Not a mode he has to get right. He mixes the two languages either way and
+    // the app copes; this only tips the ear one way or the other.
+    '<div class="mp-fine" style="margin:-4px 0 10px">' + (it
+      ? 'Mischia pure italiano e inglese — capisco lo stesso. Scegli solo quella che parli di più.'
+      : 'Mix Italian and English however you like — it still understands. This just picks which one it leans on.') +
     '</div>' +
     mpVoiceStepsHtml() +
     '<div class="mp-vlive empty" id="mp-vlive">' + (it ? 'Ti ascolto…' : 'Listening…') + '</div>' +
@@ -5243,8 +5261,21 @@ async function mpVoiceUnderstand(text){
 async function mpVoiceAiUnderstand(text){
   try {
     var sys =
-      'A chef is talking to his menu-planning app, in English or Italian. Turn ONE spoken instruction ' +
-      'into ONE JSON object and reply with the object and nothing else.\n' +
+      'A chef in an Italian restaurant in Dubai is talking to his menu-planning app. Turn ONE spoken ' +
+      'instruction into ONE JSON object and reply with the object and nothing else.\n' +
+      '\n' +
+      'HOW HE TALKS — read this before anything else:\n' +
+      '· His English is not strong. Expect broken grammar, missing words, wrong tenses, no punctuation. ' +
+      'Judge what he MEANT, never what the sentence technically says.\n' +
+      '· He mixes Italian and English in one sentence — "piatto nuovo, spaghetti al riccio, is ready for ' +
+      'testing". That is normal, not an error.\n' +
+      '· This is phone dictation, so the words arrive mangled, ESPECIALLY the Italian dish names: ' +
+      '"spaghetti al ritchie the mare" is "Spaghetti al riccio di mare". Read the transcript for SOUND, ' +
+      'not spelling, and match it to the dish list below — the list is right, the transcript is not.\n' +
+      '· He will not use command words. "the branzino is done" and "branzino ok Francesco liked it" both ' +
+      'mean the stage moved. Work out the intent from ordinary talk.\n' +
+      '· If he says a dish name that is close to one on the list, it IS that dish — do not invent a new one.\n' +
+      '\n' +
       '{"action": one of "add" | "status" | "attach" | "detach" | "edit" | "delete" | "unknown",\n' +
       ' "dish": the exact name from the "Dishes he already has" list if he is talking about one of those, else null,\n' +
       ' "name": for "add" only — the new dish name in his own words (keep it in Italian if he said it in Italian),\n' +
@@ -5290,65 +5321,188 @@ async function mpVoiceAiUnderstand(text){
 // The proxy will be down sometimes and the mic still has to do something
 // honest. This reads the few phrasings that carry their own meaning in both
 // languages; anything else comes back "unknown", which is a real answer.
-const MP_V_DELETE = /\b(delete|remove entirely|get rid of|bin it|cancella|elimina|togli del tutto)\b/i;
-const MP_V_DETACH = /\b(take .* off|off the|remove .* from|togli .* da|leva .* da)\b/i;
-const MP_V_ATTACH = /\b(put .* on|add .* to|goes on|metti .* (su|in)|aggiungi .* a)\b/i;
-const MP_V_ADD    = /\b(new dish|add a dish|piatto nuovo|nuovo piatto|aggiungi piatto)\b/i;
-const MP_V_STATUS = {
-  Approved:/\b(approved|approvato|approvata|ok(?:ay)?ed)\b/i,
-  Testing: /\b(testing|ready to (test|taste)|da provare in prova|in prova)\b/i,
-  Trying:  /\b(trying|working on it|ci sto lavorando|da provare)\b/i,
-  Costing: /\b(costing|cost sheet|costo|costare)\b/i,
-  Retired: /\b(retired|off the table|ritirato|fuori menu)\b/i,
-  Idea:    /\b(just an idea|only an idea|solo un.?idea)\b/i
+// These run on the SOUND-normalised sentence, not the raw one, so a mangled
+// transcript still trips them ("aprovato", "approvatto", "finito" all land).
+// They are deliberately generous: this only ever proposes, and he reads the
+// read-back card before anything is written.
+// These are matched against the SOUND-normalised sentence, so the patterns must
+// go through the same normaliser — written out longhand they silently never
+// match ("togli" normalises to "toli", "cancella" to "kansela"), which is a
+// bug that looks exactly like "it just didn't understand him".
+function mpVRe(words){
+  var parts = words
+    .map(function(w){ return mpVoiceNorm(w).replace(/ /g, '\\s+'); })
+    .filter(function(w){ return !!w; });
+  return new RegExp('(?:^|\\s)(?:' + parts.join('|') + ')(?:\\s|$)');
+}
+const MP_V_DELETE = mpVRe(['delete','deleted','remove it','get rid','bin it','cancella','cancellare','elimina','buttalo']);
+const MP_V_OFF    = mpVRe(['off','out','fuori','leva','levare','togli','togliere','toglie','via']);
+const MP_V_ON     = mpVRe(['on','onto','into','put','add','metti','mettere','mettiamo','aggiungi','aggiungere','va su','vanno']);
+// Deliberately STRICT, unlike the rest. Everything else here acts on a dish we
+// already hold; this one CREATES a row, so a stray verb in a sentence of
+// thinking-out-loud must not become a new dish.
+const MP_V_ADD    = mpVRe(['new dish','a new dish','add a dish','piatto nuovo','nuovo piatto','aggiungi piatto','aggiungiamo piatto']);
+const MP_V_STATUS_WORDS = {
+  // "done / finito / pronto / ok / va bene" all mean the same thing in this
+  // kitchen — nobody is going to say "set the status to Approved".
+  Approved: ['approved','approvato','approvata','okay','ok','va bene','piaciuto','gli e piaciuto'],
+  Testing:  ['testing','test','tasting','prova','provare','proviamo','assaggio','assaggiare','pronto','pronta','finito','finita','done','ready'],
+  Trying:   ['trying','ci lavoro','lavorando','provando','in corso'],
+  Costing:  ['costing','cost','costo','costare','price','prezzo'],
+  Retired:  ['retired','ritirato','ritirata','fuori menu','levato'],
+  Idea:     ['solo un idea','just an idea','only an idea','un idea']
 };
+const MP_V_STATUS = (function(){
+  var out = {};
+  for (var k in MP_V_STATUS_WORDS) out[k] = mpVRe(MP_V_STATUS_WORDS[k]);
+  return out;
+})();
+// The offline read. It is not a phrase book — it looks for a dish it recognises
+// and a word that says what to do with it, in whichever language that word
+// arrived in, and gives up honestly when it finds neither.
 function mpVoiceFallback(text){
-  var s = String(text || '');
+  var s = String(text || ''), n = mpVoiceNorm(s);
   var menu = mpMatchMenu(s);
   var out = { action:'unknown', dish:null, name:'', menu:menu ? menu.name : null,
               section:null, status:null, description:null, notes:null, allergens:[] };
-  for (var k in MP_V_STATUS){ if (MP_V_STATUS[k].test(s)){ out.status = k; out.action = 'status'; break; } }
-  if (MP_V_DELETE.test(s))      out.action = 'delete';
-  else if (MP_V_DETACH.test(s) && menu) out.action = 'detach';
-  else if (MP_V_ATTACH.test(s) && menu && out.action !== 'status') out.action = 'attach';
-  else if (MP_V_ADD.test(s)){
+  var known = mpVoiceFindDishes(s);          // does he name a dish we already hold?
+  var namesADish = known.length > 0;
+
+  for (var k in MP_V_STATUS){ if (MP_V_STATUS[k].test(n)){ out.status = k; break; } }
+
+  // "New dish / piatto nuovo" wins over everything, and it has to: half his new
+  // dishes share a word with one he already has ("new dish, sea urchin
+  // SPAGHETTI" against an existing "SPAGHETTI al riccio"), and without this the
+  // app reads a brand-new dish as an edit to the old one.
+  var saysNew = MP_V_ADD.test(n);
+  if (saysNew)                                      out.action = 'add';
+  else if (MP_V_DELETE.test(n) && namesADish)       out.action = 'delete';
+  else if (namesADish && menu && MP_V_OFF.test(n))  out.action = 'detach';
+  else if (namesADish && menu && MP_V_ON.test(n))   out.action = 'attach';
+  else if (namesADish && out.status)                out.action = 'status';
+  // Either he said "new dish", or he is talking about something we do not hold
+  // while naming a menu — both mean a dish that needs creating.
+  if (out.action === 'add' || (out.action === 'unknown' && !namesADish && menu)){
+    // He is talking about something we do not hold — so it is a new dish. Strip
+    // the lead-in and the trailing "for <menu>" and keep his own words as the
+    // name; he can correct it on the read-back.
     out.action = 'add';
-    out.name = s.replace(MP_V_ADD, '').replace(/^[\s,.:;-]+/, '')
-                .split(/\bfor\b|\bper\b/i)[0].replace(/\s+/g,' ').trim().slice(0, MP_MAX_NAME);
+    out.name = s.replace(/^[^a-zà-ÿ]*/i, '')
+      .replace(/^(new dish|a new dish|add a dish|piatto nuovo|nuovo piatto|aggiungi(?: il)? piatto|facciamo|voglio fare)\b/i, '')
+      .split(/\bfor\b|\bper\b|\bsul\b|\bsu\b/i)[0]
+      .replace(/^[\s,.:;-]+/, '').replace(/[\s,.:;-]+$/, '')
+      .replace(/\s+/g, ' ').trim().slice(0, MP_MAX_NAME);
     if (!out.name) out.action = 'unknown';
   }
-  if (out.action === 'unknown') return out;
-  if (out.action !== 'add') out.dish = s;      // mpVoiceFindDishes does the matching
+  // Anything that got this far still 'unknown' — a dish named with nothing
+  // decipherable to do with it, or plain thinking-out-loud — stays unknown on
+  // purpose. It ends at "I didn't get that", which changes nothing.
+  if (out.action !== 'unknown' && out.action !== 'add') out.dish = s;   // matched again by mpVoiceFindDishes
+  if (out.action !== 'status') out.status = out.action === 'add' ? out.status : null;
   return out;
 }
 
 // ── which dish did he mean ─────────────────────────────────────────────────
-// Exact name first. Then a contains-match. Then meaningful-word overlap, best
-// score wins — but ONLY if it wins outright. A tie comes back as a list for him
-// to pick from, because changing the wrong dish is worse than one extra tap.
+// THE HARD PART, and the reason this is not a simple string compare.
+//
+// Two things are true about this kitchen: their English is not strong, and they
+// speak Italian and English in the same sentence ("piatto nuovo, spaghetti al
+// riccio, is ready for testing"). On top of that, phone dictation mangles the
+// word that matters most — the dish name — because it is an Italian noun being
+// guessed at by a recogniser. "Spaghetti al riccio di mare" comes back as
+// "spaghetti al ritchie the mare", "spagetti al riccio dimare", "spaghetti
+// alriccio". A literal match finds none of those.
+//
+// So the matcher listens for how a word SOUNDS, not how it was spelled. It
+// still refuses to pick between two — it just gets far closer to the shortlist.
+
+// Strip a word down to roughly the sounds in it, so the Italian and the
+// mis-heard English collapse onto the same key: accents dropped, doubled
+// letters flattened (riccio → ricio), and the spellings that differ between the
+// two languages folded together (ch/c/q → k, gli → li, gn → n, z → s, ph → f).
+function mpVoiceNorm(s){
+  var t = String(s || '').toLowerCase();
+  // accents off: è/é/ì → e/e/i, so "è approvato" and "e approvato" are one word
+  t = t.normalize ? t.normalize('NFD').replace(/[̀-ͯ]/g, '') : t;
+  return t
+    .replace(/[^a-z ]+/g, ' ')
+    .replace(/ph/g, 'f').replace(/gli/g, 'li').replace(/gn/g, 'n')
+    .replace(/ch/g, 'k').replace(/c/g, 'k').replace(/q/g, 'k')
+    .replace(/z/g, 's').replace(/w/g, 'v').replace(/y/g, 'i').replace(/h/g, '')
+    .replace(/(.)\1+/g, '$1')          // riccio → ricio, spagghetti → spagheti
+    .replace(/\s+/g, ' ').trim();
+}
+// Ordinary edit distance, capped — the strings here are dish names, not essays.
+function mpLev(a, b){
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  var prev = [], cur = [], i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++){
+    cur[0] = i;
+    for (j = 1; j <= b.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a.charAt(i-1) === b.charAt(j-1) ? 0 : 1));
+    }
+    for (j = 0; j <= b.length; j++) prev[j] = cur[j];
+  }
+  return prev[b.length];
+}
+// Close enough to be the same word once you allow for a bad transcription:
+// about one slip in four characters, and short words must match nearly exactly
+// (otherwise "mare" matches "carne" and the wrong dish gets changed).
+function mpSoundsLike(a, b){
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  var d = mpLev(a, b), longest = Math.max(a.length, b.length);
+  return d <= Math.max(1, Math.floor(longest / 4));
+}
+// Words worth matching on — the noise words of BOTH languages dropped, so
+// "di/de/the/al/con/with" never carry a match on their own.
+const MP_V_NOISE = /^(the|and|for|with|new|dish|menu|our|its|di|de|da|del|della|al|alla|allo|ai|con|in|su|un|una|uno|il|lo|la|le|gli|piatto|nuovo|nuova|questo|questa)$/;
+function mpVoiceTokens(s){
+  return mpVoiceNorm(s).split(' ').filter(function(w){ return w.length > 2 && !MP_V_NOISE.test(w); });
+}
 function mpVoiceFindDishes(frag){
   var live = mpDishes.filter(function(d){ return d && d.name_it; });
-  var q = String(frag || '').toLowerCase().trim();
-  if (!q) return [];
-  var exact = live.filter(function(d){ return d.name_it.toLowerCase() === q; });
+  var raw = String(frag || '').toLowerCase().trim();
+  if (!raw) return [];
+
+  // 1. said it exactly
+  var exact = live.filter(function(d){ return d.name_it.toLowerCase() === raw; });
   if (exact.length) return exact;
-  var has = live.filter(function(d){ return q.indexOf(d.name_it.toLowerCase()) >= 0; });
-  if (has.length === 1) return has;
-  if (has.length > 1){
-    // he said something containing several dish names — longest name is the
-    // most specific, but keep the rest so he can correct it
-    return has.sort(function(a,b){ return b.name_it.length - a.name_it.length; }).slice(0, 6);
-  }
-  var words = mpWords(q);
-  if (!words.length) return [];
+
+  // 2. the whole name sits inside the sentence, allowing for the transcription
+  //    running words together ("alriccio") — compare on sound, spaces removed
+  var qFlat = mpVoiceNorm(raw).replace(/ /g,'');
+  var inside = live.filter(function(d){ return qFlat.indexOf(mpVoiceNorm(d.name_it).replace(/ /g,'')) >= 0; });
+  if (inside.length === 1) return inside;
+  if (inside.length > 1) return inside.sort(function(a,b){ return b.name_it.length - a.name_it.length; }).slice(0, 6);
+
+  // 3. word by word, by sound. Each dish scores the number of its own words it
+  //    can hear in what he said, weighted so a long distinctive word ("riccio",
+  //    "finocchio") counts for more than a short common one.
+  var qt = mpVoiceTokens(raw);
+  if (!qt.length) return [];
   var scored = live.map(function(d){
-    var overlap = mpWords(d.name_it).filter(function(w){ return words.indexOf(w) >= 0; });
-    return { d:d, n:overlap.length };
-  }).filter(function(x){ return x.n > 0; }).sort(function(a,b){ return b.n - a.n; });
+    var dt = mpVoiceTokens(d.name_it), score = 0;
+    dt.forEach(function(w){
+      var hit = qt.some(function(q){ return mpSoundsLike(w, q); });
+      if (hit) score += Math.min(w.length, 9);
+    });
+    return { d:d, score:score, need:dt.length };
+  }).filter(function(x){
+    // at least one solid word heard — a single 3-letter coincidence is not a match
+    return x.score >= 5;
+  }).sort(function(a,b){ return b.score - a.score; });
   if (!scored.length) return [];
-  var top = scored[0].n;
-  var winners = scored.filter(function(x){ return x.n === top; });
-  return winners.slice(0, 6).map(function(x){ return x.d; });
+
+  // Outright winner only. Anything within a whisker of the top is offered as a
+  // choice instead — changing the wrong dish is worse than one extra tap.
+  var top = scored[0].score;
+  var close = scored.filter(function(x){ return x.score >= top - 2; });
+  return close.slice(0, 6).map(function(x){ return x.d; });
 }
 
 // ══ THE READ-BACK — the mic never writes without this screen ═══════════════
