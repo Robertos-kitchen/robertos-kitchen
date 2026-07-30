@@ -4972,6 +4972,9 @@ let mpVoiceLang = (function(){
   catch(e){ return 'it-IT'; }
 })();
 let mpVRec = null, mpVFinal = '', mpVInterim = '', mpVIntent = null, mpVUndo = null, mpVUndoTimer = null;
+// Everything he has finished saying this session, banked outside the recogniser
+// so that no restart — and no language switch — can take it away from him.
+let mpVCommitted = '', mpVRestarts = 0, mpVLastSaid = '';
 
 function mpVoiceSupported(){ return !!mpSpeechCtor(); }
 // The mic belongs to the people who author work. A cost controller reviews; it
@@ -4994,11 +4997,13 @@ function mpSetVoiceLang(code){
   mpVoiceLang = code === 'it-IT' ? 'it-IT' : 'en-GB';
   try { localStorage.setItem(MP_VOICE_LANG_KEY, mpVoiceLang); } catch(e){}
   // Switching language mid-sentence restarts the ear, otherwise it keeps
-  // listening in the language he just rejected.
+  // listening in the language he just rejected. What he has ALREADY said is
+  // kept — switching language is him fixing the app, and it must not cost him
+  // the sentence he just got out.
   var listening = !!mpVRec;
-  if (listening){ mpVoiceStopEar(); mpVFinal = ''; mpVInterim = ''; }
+  if (listening){ mpVoiceStopEar(); mpVInterim = ''; mpVRestarts = 0; }
   mpVoicePaint();
-  if (listening) mpVoiceStartEar();
+  if (listening){ mpVoiceStartEar(); mpVoiceShowText(); }
 }
 
 // ── the guide ──────────────────────────────────────────────────────────────
@@ -5074,7 +5079,7 @@ function mpVoiceStart(){
     mpToast('Voice needs Android Chrome. On iPhone, tap a box and use the keyboard mic.', true); return;
   }
   if (!mpCanAuthor()){ mpToast('Voice adds and changes dishes — your access is review only.', true); return; }
-  mpVFinal = ''; mpVInterim = ''; mpVIntent = null;
+  mpVFinal = ''; mpVInterim = ''; mpVCommitted = ''; mpVRestarts = 0; mpVIntent = null;
   mpVoicePaint();
   mpVoiceStartEar();
 }
@@ -5097,6 +5102,7 @@ function mpVoicePaint(){
     '<div class="mp-vlive empty" id="mp-vlive">' + (it ? 'Ti ascolto…' : 'Listening…') + '</div>' +
     '<div class="mp-sheet-actions">' +
       '<button class="mp-btn go" id="mp-vdone" onclick="mpVoiceDone(this)">' + (it ? 'Fatto' : 'Done') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpVoiceTypeInstead(mpVFinal)">' + (it ? 'Scrivilo' : 'Type it') + '</button>' +
       '<button class="mp-btn ghost" onclick="mpVoiceCancel()">' + (it ? 'Annulla' : 'Cancel') + '</button>' +
     '</div>' +
     mpVoiceGuideHtml());
@@ -5109,20 +5115,40 @@ function mpVoiceStartEar(){
   mpVRec.continuous = true;
   mpVRec.interimResults = true;
   mpVRec.maxAlternatives = 1;
+  // ⚠ THE ONE THAT MADE IT USELESS. Android's recogniser ends itself at every
+  // pause, and each restart hands back a FRESH `ev.results` that starts empty.
+  // Rebuilding mpVFinal from ev.results alone therefore wiped everything he had
+  // already said the moment he stopped to think — he watched his own sentence
+  // disappear. So finished speech is banked in mpVCommitted, which no restart
+  // can touch, and ev.results only ever rebuilds the CURRENT burst on top of it.
   mpVRec.onresult = function(ev){
-    mpVFinal = ''; mpVInterim = '';
-    for (var i = 0; i < ev.results.length; i++){
+    var fin = '', int = '';
+    for (var i = ev.resultIndex || 0; i < ev.results.length; i++){
       var r = ev.results[i];
-      if (r.isFinal) mpVFinal += r[0].transcript + ' '; else mpVInterim += r[0].transcript;
+      if (r.isFinal) fin += r[0].transcript + ' '; else int += r[0].transcript;
     }
+    if (fin) mpVCommitted += fin;                 // banked — survives every restart
+    mpVFinal = mpVCommitted;
+    mpVInterim = int;
     mpVoiceShowText();
   };
-  // Android's recogniser ends itself on a long silence. He has not finished —
-  // he is thinking — so it goes straight back on until he taps Done or Cancel.
-  mpVRec.onend = function(){ if (mpVRec) { try { mpVRec.start(); } catch(e){} } };
+  // Back on after every pause, until he taps Done or Cancel. The restart is
+  // deferred: calling start() synchronously inside onend throws InvalidStateError
+  // on Chrome and the ear never comes back. The counter is a dead-mic backstop —
+  // without it a permanently failing recogniser spins forever.
+  mpVRec.onend = function(){
+    if (!mpVRec) return;                          // he stopped it himself
+    if (++mpVRestarts > 60){ mpVoiceStopEar(); return; }
+    setTimeout(function(){
+      if (!mpVRec) return;
+      try { mpVRec.start(); } catch(e){}
+    }, 250);
+  };
   mpVRec.onerror = function(ev){
     var e = ev && ev.error;
-    if (e === 'no-speech' || e === 'aborted') return;         // silence is not a failure
+    // Silence is not a failure, and neither is the restart churn — onend brings
+    // it back. Only a real fault is worth interrupting him for.
+    if (e === 'no-speech' || e === 'aborted' || e === 'audio-capture') return;
     mpVoiceStopEar();
     mpToast(e === 'not-allowed'
       ? 'The microphone is blocked — allow it for this site in Chrome, then try again.'
@@ -5152,6 +5178,39 @@ async function mpVoiceDone(btn){
     mpToast(mpVoiceIt() ? 'Non ho sentito niente — riprova.' : 'I didn’t hear anything — try again.', true);
     return;
   }
+  return mpVoiceProcess(said, btn);
+}
+
+// Typing is the way through when the microphone is having a bad day — a noisy
+// pass, a bad line, an accent the recogniser refuses. Everything downstream is
+// identical, so he gets the same read-back and the same one-tap save; only the
+// way the words arrived is different. Without this, a mic that mishears him
+// leaves him with nothing, which is how a tool loses someone for good.
+function mpVoiceTypeInstead(seed){
+  var it = mpVoiceIt();
+  mpVoiceStopEar();
+  mpSheet(it ? 'Scrivilo' : 'Type it',
+    '<div class="mp-hint">' + (it
+      ? 'Scrivilo come lo diresti — italiano, inglese, come viene. Non salvo niente finché non controlli.'
+      : 'Write it the way you would say it — Italian, English, however it comes. Nothing is saved until you check it.') + '</div>' +
+    '<textarea class="mp-in" id="mpv-typed" rows="3" maxlength="' + MP_MAX_NOTE + '">' + mpEsc(seed || '') + '</textarea>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpVoiceRunTyped(this)">' + (it ? 'Continua' : 'Continue') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpVoiceStart()">' + (it ? 'Torna alla voce' : 'Back to talking') + '</button>' +
+    '</div>' +
+    mpVoiceGuideHtml());
+  setTimeout(function(){ var el = document.getElementById('mpv-typed'); if (el) el.focus(); }, 60);
+}
+function mpVoiceRunTyped(btn){
+  var el = document.getElementById('mpv-typed');
+  var said = ((el && el.value) || '').replace(/\s+/g,' ').trim();
+  if (!said){ mpToast(mpVoiceIt() ? 'Scrivi qualcosa prima.' : 'Write something first.', true); return; }
+  return mpVoiceProcess(said, btn);
+}
+
+// One pipeline, whether the words were spoken or typed.
+async function mpVoiceProcess(said, btn){
+  mpVLastSaid = said;                      // so "type it instead" opens on his own words
   var free = mpLock(btn); if (!free) return;
   try {
     var intent = await mpVoiceUnderstand(said);
@@ -5181,6 +5240,8 @@ function mpVoiceStuck(said){
     mpVoiceGuideHtml() +
     '<div class="mp-sheet-actions">' +
       '<button class="mp-btn go" onclick="mpVoiceStart()">' + (it ? 'Riprova' : 'Try again') + '</button>' +
+      // His words are already there — fixing two letters beats saying it a third time.
+      '<button class="mp-btn ghost" onclick="mpVoiceTypeInstead(mpVLastSaid)">' + (it ? 'Scrivilo' : 'Type it') + '</button>' +
       '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (it ? 'Chiudi' : 'Close') + '</button>' +
     '</div>');
 }
