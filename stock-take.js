@@ -30,6 +30,10 @@ function stIsSuper(){ return !!(stUser && STOCK_SUPER[stUser.emp_id]); }
 // Locking/unlocking a finalized month is Aung's call alone (his code, 0000) —
 // not shared with the other admin codes, so it can't be triggered by mistake.
 function stCanLock(){ return !!(stUser && stUser.emp_id==='0000'); }
+// The month-vs-month comparison is a cost-controller tool, not a counting tool:
+// only Aung's code (0000) sees it, so a counter is never shown last month's
+// number while counting (which would anchor them into "confirming" it).
+function stCanCompare(){ return !!(stUser && stUser.emp_id==='0000'); }
 
 // Previous-month reference (the grey "Last month: …" line + last-month closing
 // total) is BUILT but hidden for now. Flip to true to switch it back on — planned
@@ -101,8 +105,12 @@ function stRefKey(it){
   if(c) return 'c:'+c.toLowerCase();
   return 'n:'+String(it.name||'').trim().toLowerCase();
 }
-// the small grey "Last month: …" line under an item (empty if no prior count)
+// the small grey "Last month: …" line under an item (empty if no prior count).
+// Still gated on STOCK_SHOW_PREV even though the comparison tool now loads the
+// same data for Aung — he gets the numbers in the compare panel, NOT next to the
+// count boxes, so nothing on the counting screen changes for anybody.
 function stPrevText(it){
+  if(!STOCK_SHOW_PREV) return '';
   var r = stPrevRef[stRefKey(it)];
   if(!r) return '';
   return '<div class="st-prev">Last month: '+stEsc(String(r.qty))+(r.unit?' '+stEsc(r.unit):'')+' · '+stMoney(r.value)+'</div>';
@@ -164,7 +172,10 @@ async function stLoadCounts(){
 // gross-up in qty + value as they did in the report. Read-only — no realtime. ──
 async function stLoadPrevMonth(){
   stPrevRef = {}; stPrevTotal = 0; stPrevMonth = null; stPrevLabel = '';
-  if(!STOCK_SHOW_PREV) return;   // feature built but hidden — flip STOCK_SHOW_PREV to re-enable
+  // Loaded when the per-item reference is switched on (STOCK_SHOW_PREV) OR when
+  // Aung is signed in and needs the compare panel. Nobody else pays for the
+  // extra two queries, and no prior number reaches the counting screen.
+  if(!STOCK_SHOW_PREV && !stCanCompare()) return;
   if(!stMonth) return;
   var sres = await sb.from('stock_take_sheets').select('month')
     .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).lt('month',stMonth)
@@ -188,7 +199,11 @@ async function stLoadPrevMonth(){
     var price = stPriceForUnit(it, c.unit);
     var qtyShown = stIsYield(it) ? stEffQtyRound(it, c.qty) : Number(c.qty);   // grossed-up purchase weight
     var val = price * stEffQty(it, c.qty);
-    stPrevRef[stRefKey(it)] = { qty:qtyShown, unit:c.unit||it.unit||'', value:val };
+    // name/group carried too: an item counted last month can be MISSING from this
+    // month's uploaded list entirely, and the compare panel still has to name it.
+    var k = stRefKey(it), ex = stPrevRef[k];
+    if(ex){ ex.qty += qtyShown; ex.value += val; }   // same article twice in a list — sum, never overwrite
+    else stPrevRef[k] = { qty:qtyShown, unit:c.unit||it.unit||'', value:val, name:it.name||'', group:it.item_group||'Other' };
     stPrevTotal += val;
   });
 }
@@ -228,7 +243,13 @@ async function stSignIn(){
   var id = inp ? (inp.value||'').trim() : '';
   if(!id){ if(inp) inp.focus(); return; }
   // super-user passcode (e.g. 1212) — access without any staff/roster record
-  if(STOCK_SUPER[id]){ stUser = { emp_id:id, name:STOCK_SUPER[id] }; stRender(); return; }
+  if(STOCK_SUPER[id]){
+    stUser = { emp_id:id, name:STOCK_SUPER[id] };
+    // Aung's compare panel needs last month's sheet, which wasn't loaded before
+    // he identified himself. Fetch it once, here, then draw.
+    if(stCanCompare() && !stPrevMonth) await stLoadPrevMonth();
+    stRender(); return;
+  }
   var res = await sb.from('staff').select('id,name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
   var staff = res.data && res.data[0];
   if(!staff){
@@ -395,7 +416,40 @@ function stInjectCss(){
     '.st-btn:hover{background:#fbf4e6}'+
     '.st-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999}'+
     '.st-modal-box{background:#fff;border-radius:12px;padding:18px;width:90%;max-width:360px}'+
-    '.st-modal input{width:100%;height:38px;border:1px solid #c9a84c;border-radius:8px;padding:0 10px;font-size:14px;box-sizing:border-box}';
+    '.st-modal input{width:100%;height:38px;border:1px solid #c9a84c;border-radius:8px;padding:0 10px;font-size:14px;box-sizing:border-box}'+
+    // ── month-vs-month comparison panel (cost controller only) ──
+    '.st-cmp-wrap{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;z-index:99999;padding:16px;overflow:auto}'+
+    '.st-cmp-box{background:#faf5ec;border-radius:12px;width:100%;max-width:1000px;padding:16px;box-sizing:border-box}'+
+    '.st-cmp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}'+
+    '.st-cmp-title{font-family:Georgia,serif;font-size:20px;color:#410207}'+
+    '.st-cmp-sub{font-size:12px;color:#7a6a55;margin-top:3px;line-height:1.45;max-width:640px}'+
+    '.st-cmp-sub b{color:#410207}'+
+    '.st-cmp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}'+
+    '.st-cmp-card{background:#fff;border:1px solid #e3d5bb;border-radius:10px;padding:10px 12px}'+
+    '.st-cmp-card.up{background:#f1f8f3;border-color:#bcd9c6}'+
+    '.st-cmp-card.down{background:#fdf1f1;border-color:#e3bcbc}'+
+    '.st-cmp-num{font-family:Georgia,serif;font-size:19px;color:#410207;font-variant-numeric:tabular-nums}'+
+    '.st-cmp-lbl{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#8a7a55;margin-top:2px}'+
+    '.st-cmp-warn{background:#fdf6e3;border:1px solid #d9c07a;border-radius:9px;padding:9px 11px;font-size:12px;color:#5a4a2a;line-height:1.45;margin-bottom:10px}'+
+    '.st-cmp-ctrl{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px;font-size:13px;color:#5a4a2a}'+
+    '.st-cmp-ctrl label{display:flex;align-items:center;gap:6px}'+
+    '.st-cmp-ctrl .st-input{width:90px;height:32px}'+
+    '.st-cmp-count{font-size:12px;color:#8a7a55;margin-bottom:8px}'+
+    '.st-cmp-scroll{overflow-x:auto;border:1px solid #e3d5bb;border-radius:10px;background:#fff}'+
+    '.st-cmp-tbl{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}'+
+    '.st-cmp-tbl th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#f5ede0;background:#410207;padding:7px 9px;position:sticky;top:0}'+
+    '.st-cmp-tbl th.r,.st-cmp-tbl td.r{text-align:right}'+
+    '.st-cmp-tbl td{padding:7px 9px;border-bottom:1px solid #eee2cf;vertical-align:top;font-variant-numeric:tabular-nums}'+
+    '.st-cmp-tbl tr.lvl-big td{background:#fdf0f0}'+
+    '.st-cmp-tbl tr.lvl-big td:first-child{box-shadow:inset 4px 0 0 #7a1218}'+
+    '.st-cmp-tbl tr.lvl-watch td{background:#fdf8ea}'+
+    '.st-cmp-tbl tr.lvl-watch td:first-child{box-shadow:inset 4px 0 0 #c9a84c}'+
+    '.st-cmp-name{font-weight:600;color:#2a1a10}'+
+    '.st-cmp-grp{font-size:11px;color:#9a8a6a;margin-top:2px}'+
+    '.st-cmp-note{color:#7a1218}'+
+    '.st-cmp-sm{font-size:11px;color:#8a7a55}'+
+    '.st-cmp-tbl td.neg b{color:#7a1218}'+
+    '.st-cmp-tbl td.pos b{color:#1d7a4a}';
   document.head.appendChild(s);
 }
 
@@ -426,7 +480,7 @@ function stRender(){
       '<div class="ops-card dark"><div class="ops-num" id="st-grand">'+stMoney(stGrandTotal())+'</div><div class="ops-label">Counted value (all)</div></div>'+
       '<div class="ops-card"><div class="ops-num"><span id="st-counted">'+stCountedCount()+'</span> / '+stItems.length+'</div><div class="ops-label">Items counted</div></div>'+
     '</div>'+
-    (stPrevTotal>0 ? '<div class="st-prevtotal">Last month ('+stEsc(stPrevLabel)+') closing value: <b>'+stMoney(stPrevTotal)+'</b> · shown per item below for reference</div>' : '')+
+    (STOCK_SHOW_PREV && stPrevTotal>0 ? '<div class="st-prevtotal">Last month ('+stEsc(stPrevLabel)+') closing value: <b>'+stMoney(stPrevTotal)+'</b> · shown per item below for reference</div>' : '')+
     '<div class="st-toolbar">'+
       '<input class="check-input" id="st-search" placeholder="Search items…" value="'+stEsc(stSearch)+'" oninput="stOnSearch(this.value)" style="flex:1;min-width:140px">'+
       '<button class="check-select" id="st-cat-btn" onclick="stShowCatFilter()" style="text-align:left;cursor:pointer">'+stEsc(stCatLabelText())+' ▾</button>'+
@@ -448,6 +502,7 @@ function stRender(){
         '<button class="report-btn" onclick="stExportExcel()">Download Excel</button>'+
         '<button class="report-btn" onclick="stPrint()">Print</button>'+
         (stIsSuper() && !stIsLocked() ?'<button class="report-btn st-danger" onclick="stClearAllCounts()">Clear all counts</button>':'')+
+        (stCanCompare() ? '<button class="report-btn" onclick="stShowCompare()">📊 Compare with last month</button>' : '')+
         (stCanLock() ? (stIsLocked()
           ? '<button class="report-btn" onclick="stUnlockMonth()">🔓 Unlock this month</button>'
           : '<button class="report-btn" onclick="stLockMonth()">🔒 Lock this month</button>') : '')+
@@ -782,6 +837,207 @@ async function stSendEmail(mode){
     if(r.ok){ var m=document.getElementById('st-send-modal'); if(m) m.remove(); if(typeof kToast==='function') kToast('✓ Sent to Aung ('+(mode==='excel'?'Excel':'digital')+').'); else alert('Sent.'); }
     else if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+(d.error||r.status); }
   }catch(e){ if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+e.message; } }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// COMPARE WITH LAST MONTH — cost controller only (code 0000).
+//
+// WHAT IT IS: last month's CLOSING count vs this month's CLOSING count, per
+// item, ranked by the size of the money difference. It answers "what moved a
+// lot, and what looks wrong?" so Aung can challenge a number BEFORE he keys the
+// month into his system.
+//
+// WHAT IT IS NOT: usage, consumption, wastage or loss. This app holds counts
+// only — no purchases and no sales — so a difference here is a MOVEMENT, not a
+// variance. The panel says so in words, on screen and in the Excel, because a
+// "shortage" read off a movement is exactly the kind of number that gets
+// repeated in a meeting as fact.
+//
+// Items are matched across months by article code (falling back to name), the
+// same stable key the per-item reference line uses — so a monthly re-upload
+// with new row ids still lines up. Three cases get called out by name rather
+// than buried as a big minus:
+//   · not counted  — on this month's list, counted last month, still blank now
+//   · not on list  — counted last month, missing from this month's upload
+//   · new          — counted this month with no last-month count to compare to
+// ══════════════════════════════════════════════════════════════════════════
+
+var stCmpMinAed = 500;        // money materiality: ignore movements smaller than this
+var stCmpOnlyFlagged = true;  // show just the ones over the threshold
+
+// per-item current + previous, unioned across both months
+function stCompareRows(){
+  var cur = {};
+  stItems.forEach(function(it){
+    var k = stRefKey(it);
+    var e = cur[k];
+    if(!e) e = cur[k] = { name:it.name||'', group:it.item_group||'Other', unit:stItemUnit(it), qty:0, val:0, counted:false };
+    var c = stCounts[it.id];
+    if(c && c.qty!=null){ e.qty += Number(stDisplayQty(it))||0; e.val += stLineValue(it); e.counted = true; }
+  });
+  var keys = {};
+  Object.keys(cur).forEach(function(k){ keys[k]=1; });
+  Object.keys(stPrevRef).forEach(function(k){ keys[k]=1; });
+  var rows = Object.keys(keys).map(function(k){
+    var c = cur[k], p = stPrevRef[k];
+    var prevVal = p ? p.value : 0;
+    var curVal  = c ? c.val : 0;
+    var d = Math.round((curVal - prevVal)*100)/100;
+    var status = '';
+    if(!c)                        status = 'notlist';   // counted last month, not in this month's upload
+    else if(p && !c.counted)      status = 'notcount';  // on the list, counted last month, blank now
+    else if(!p && c.counted)      status = 'new';       // nothing to compare against
+    return {
+      key:k,
+      name: (c && c.name) || (p && p.name) || k,
+      group:(c && c.group)|| (p && p.group)|| 'Other',
+      unit: (c && c.unit) || (p && p.unit) || '',
+      prevQty: p ? p.qty : null,  prevVal: prevVal,
+      curQty:  (c && c.counted) ? c.qty : null,  curVal: curVal,
+      dVal: d,
+      dPct: prevVal>0 ? (d/prevVal)*100 : null,
+      status: status
+    };
+  });
+  rows.sort(function(a,b){ return Math.abs(b.dVal)-Math.abs(a.dVal); });
+  return rows;
+}
+// '' = not worth Aung's time · 'watch' = over the threshold · 'big' = 3× over it.
+// A missing count is judged on what the item was WORTH last month, not on the
+// swing, so a forgotten AED 4,000 line can't hide behind a small percentage.
+function stCmpLevel(r){
+  var m = Number(stCmpMinAed)||0;
+  if(r.status==='notcount' || r.status==='notlist') return r.prevVal>=m ? 'big' : (r.prevVal>0?'watch':'');
+  var a = Math.abs(r.dVal);
+  if(a >= m*3) return 'big';
+  if(a >= m)   return 'watch';
+  return '';
+}
+function stCmpNote(r){
+  if(r.status==='notlist')  return 'not on this month\'s list';
+  if(r.status==='notcount') return 'not counted this month';
+  if(r.status==='new')      return 'no count last month';
+  return '';
+}
+function stCmpPct(r){
+  if(r.dPct==null) return '—';
+  var v = Math.round(r.dPct);
+  return (v>0?'+':'')+v+'%';
+}
+function stCmpMoneySigned(n){
+  var s = (n>0?'+':(n<0?'−':''));
+  return s+'AED '+Math.abs(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function stShowCompare(){
+  if(!stCanCompare()){ if(typeof kToast==='function') kToast('The month comparison is for the cost controller\'s code (0000).', true); return; }
+  var old=document.getElementById('st-cmp-modal'); if(old) old.remove();
+  var box=document.createElement('div');
+  box.id='st-cmp-modal';
+  box.className='st-cmp-wrap';
+  if(!stPrevMonth){
+    box.innerHTML='<div class="st-cmp-box" onclick="event.stopPropagation()">'+
+      '<div class="st-cmp-head"><div><div class="st-cmp-title">Compare with last month</div></div>'+
+      '<button class="report-btn" onclick="document.getElementById(\'st-cmp-modal\').remove()">Close</button></div>'+
+      '<div class="report-no-data">There is no earlier stock take in the system yet, so there is nothing to compare '+stEsc(stMonth||'')+' against. The comparison will work from next month.</div></div>';
+  } else {
+    box.innerHTML='<div class="st-cmp-box" onclick="event.stopPropagation()">'+
+      '<div class="st-cmp-head">'+
+        '<div><div class="st-cmp-title">'+stEsc(stPrevLabel)+' → this month</div>'+
+        '<div class="st-cmp-sub">Closing count vs closing count. This is <b>movement</b>, not usage or loss — this app holds counts only, not purchases or sales.</div></div>'+
+        '<button class="report-btn" onclick="document.getElementById(\'st-cmp-modal\').remove()">Close</button>'+
+      '</div>'+
+      '<div id="st-cmp-body" class="st-cmp-body"></div>'+
+    '</div>';
+  }
+  box.addEventListener('click', function(){ box.remove(); });
+  document.body.appendChild(box);
+  if(stPrevMonth) stRenderCompare();
+}
+
+function stRenderCompare(){
+  var el = document.getElementById('st-cmp-body'); if(!el) return;
+  var rows = stCompareRows();
+  var curTotal = stGrandTotal();
+  var dTotal = Math.round((curTotal - stPrevTotal)*100)/100;
+  var dPct = stPrevTotal>0 ? Math.round((dTotal/stPrevTotal)*100) : null;
+  var flagged = rows.filter(function(r){ return stCmpLevel(r)!==''; });
+  var shown = stCmpOnlyFlagged ? flagged : rows;
+  var uncounted = stItems.length - stCountedCount();
+
+  var head =
+    '<div class="st-cmp-cards">'+
+      '<div class="st-cmp-card"><div class="st-cmp-num">'+stMoney(stPrevTotal)+'</div><div class="st-cmp-lbl">'+stEsc(stPrevLabel)+' closing</div></div>'+
+      '<div class="st-cmp-card"><div class="st-cmp-num">'+stMoney(curTotal)+'</div><div class="st-cmp-lbl">This month so far</div></div>'+
+      '<div class="st-cmp-card '+(dTotal<0?'down':'up')+'"><div class="st-cmp-num">'+stCmpMoneySigned(dTotal)+'</div>'+
+        '<div class="st-cmp-lbl">Difference'+(dPct==null?'':' · '+(dPct>0?'+':'')+dPct+'%')+'</div></div>'+
+    '</div>'+
+    (uncounted>0 ? '<div class="st-cmp-warn">⚠ '+uncounted+' of '+stItems.length+' items are still not counted this month, so the difference above will keep moving. Read the list below as work-in-progress until the count is finished.</div>' : '')+
+    '<div class="st-cmp-ctrl">'+
+      '<label>Flag movements of at least <input class="st-input" id="st-cmp-min" inputmode="decimal" value="'+stEsc(String(stCmpMinAed))+'" onchange="stCmpSetMin(this.value)"> AED</label>'+
+      '<label><input type="checkbox" id="st-cmp-only"'+(stCmpOnlyFlagged?' checked':'')+' onchange="stCmpSetOnly(this.checked)"> Show flagged only</label>'+
+      '<button class="report-btn" onclick="stCompareExcel()">Download comparison (Excel)</button>'+
+    '</div>'+
+    '<div class="st-cmp-count">'+flagged.length+' item'+(flagged.length===1?'':'s')+' over AED '+(Number(stCmpMinAed)||0).toLocaleString('en-US')+' · showing '+shown.length+' of '+rows.length+'</div>';
+
+  var body = shown.length
+    ? '<div class="st-cmp-scroll"><table class="st-cmp-tbl"><thead><tr>'+
+        '<th>Item</th><th class="r">'+stEsc(stPrevLabel)+'</th><th class="r">This month</th><th class="r">Difference</th><th class="r">%</th></tr></thead><tbody>'+
+      shown.map(function(r){
+        var lvl = stCmpLevel(r), note = stCmpNote(r);
+        return '<tr class="lvl-'+(lvl||'none')+'">'+
+          '<td><div class="st-cmp-name">'+stEsc(r.name)+'</div>'+
+            '<div class="st-cmp-grp">'+stEsc(r.group)+(note?' · <b class="st-cmp-note">'+stEsc(note)+'</b>':'')+'</div></td>'+
+          '<td class="r">'+(r.prevQty==null?'—':stEsc(String(r.prevQty))+' '+stEsc(r.unit)+'<div class="st-cmp-sm">'+stMoney(r.prevVal)+'</div>')+'</td>'+
+          '<td class="r">'+(r.curQty==null?'—':stEsc(String(r.curQty))+' '+stEsc(r.unit)+'<div class="st-cmp-sm">'+stMoney(r.curVal)+'</div>')+'</td>'+
+          '<td class="r '+(r.dVal<0?'neg':'pos')+'"><b>'+stCmpMoneySigned(r.dVal)+'</b></td>'+
+          '<td class="r">'+stCmpPct(r)+'</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>'
+    : '<div class="report-no-data">Nothing moved by AED '+(Number(stCmpMinAed)||0).toLocaleString('en-US')+' or more. Lower the threshold, or untick "flagged only" to see every item.</div>';
+
+  el.innerHTML = head + body;
+}
+function stCmpSetMin(v){
+  var n = Number(String(v||'').replace(',','.'));
+  if(isNaN(n) || n<0){ if(typeof kToast==='function') kToast('"'+v+'" is not a number — threshold left at AED '+stCmpMinAed+'.', true); }
+  else stCmpMinAed = n;
+  stRenderCompare();
+}
+function stCmpSetOnly(on){ stCmpOnlyFlagged = !!on; stRenderCompare(); }
+
+// Excel of the comparison — every item, flagged ones first, with the movement
+// caveat written into the sheet so it can't travel without it.
+function stCompareAoa(){
+  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var rows = stCompareRows();
+  var curTotal = stGrandTotal();
+  var aoa = [["ROBERTO'S DIFC"], ['Kitchen Stock Take — '+stPrevLabel+' vs '+monLabel],
+    ['Closing count vs closing count. This is movement between two counts — NOT usage, wastage or loss.'], [],
+    [stPrevLabel+' closing value', Math.round(stPrevTotal*100)/100],
+    [monLabel+' counted value', Math.round(curTotal*100)/100],
+    ['Difference', Math.round((curTotal-stPrevTotal)*100)/100],
+    ['Flag threshold (AED)', Number(stCmpMinAed)||0],
+    ['Items not yet counted this month', stItems.length-stCountedCount()], [],
+    ['Flag','Item Group','Article Name','Unit',stPrevLabel+' Qty',stPrevLabel+' Value','This Month Qty','This Month Value','Difference','% Change','Note']];
+  rows.forEach(function(r){
+    var lvl = stCmpLevel(r);
+    aoa.push([ lvl==='big'?'REVIEW':(lvl==='watch'?'watch':''), r.group, r.name, r.unit,
+      r.prevQty==null?'':r.prevQty, Math.round(r.prevVal*100)/100,
+      r.curQty==null?'':r.curQty,  Math.round(r.curVal*100)/100,
+      r.dVal, r.dPct==null?'':Math.round(r.dPct), stCmpNote(r) ]);
+  });
+  return aoa;
+}
+async function stCompareExcel(){
+  try{
+    await stLoadXLSX();
+    var ws = XLSX.utils.aoa_to_sheet(stCompareAoa());
+    ws['!cols'] = [{wch:8},{wch:20},{wch:42},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14},{wch:10},{wch:26}];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Comparison');
+    XLSX.writeFile(wb, "Roberto's Kitchen Stock Take comparison "+stPrevMonth+" vs "+stMonth+".xlsx");
+  }catch(e){ if(typeof kToast==='function') kToast('Could not build the comparison Excel: '+e.message, true); else alert('Could not build Excel: '+e.message); }
 }
 
 // ── employee-ID gate / signed-in chip (shared by full + empty states) ──
