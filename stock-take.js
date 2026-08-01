@@ -56,9 +56,59 @@ function stYieldFactor(it){ return stIsYield(it)?STOCK_YIELD:0; }
 function stEffQty(it, qty){ var f=stYieldFactor(it); var q=Number(qty)||0; return f? q/(1-f) : q; }
 function stEffQtyRound(it, qty){ return Math.round(stEffQty(it,qty)*1000)/1000; }
 
+// ══ COUNT KEY — a stock take is identified by the DATE it was counted ══════
+// The `month` column is the count's KEY, not a calendar month. It holds a full
+// date, 'YYYY-MM-DD', so the kitchen can be counted at ANY cadence — monthly
+// today, but weekly, twice-monthly or daily would need no further change (the
+// bar already counts twice a month). Each date is its own record: uploading a
+// list for a NEW date starts a new count and cannot touch an earlier one.
+//
+// Rows created before August 2026 carry the old month label ('YYYY-MM'). Both
+// forms are accepted everywhere below, and a month label is treated as that
+// month's LAST DAY — which is what it always meant — so old and new sort and
+// compare correctly even before the relabelling migration is run. Keep this
+// tolerance: it is what stops a half-migrated database showing "Invalid Date".
+function stKeyIsDate(k){ return /^\d{4}-\d{2}-\d{2}$/.test(String(k||'')); }
+function stKeyIsMonth(k){ return /^\d{4}-\d{2}$/.test(String(k||'')); }
+// the real calendar date a key stands for (month label -> that month's last day)
+function stKeyDate(k){
+  k = String(k||'');
+  if(stKeyIsDate(k)) return new Date(k+'T12:00:00');
+  if(stKeyIsMonth(k)){ var p=k.split('-'); return new Date(+p[0], +p[1], 0, 12); }   // day 0 of next month = last day of this one
+  return null;
+}
+// "31 July 2026" for a dated count, "July 2026" for an old month-labelled one
+function stPeriodLabel(k){
+  var d = stKeyDate(k); if(!d) return String(k||'');
+  return stKeyIsDate(k)
+    ? d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})
+    : d.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+}
+function stPeriodShort(k){
+  var d = stKeyDate(k); if(!d) return String(k||'');
+  return stKeyIsDate(k)
+    ? d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})
+    : d.toLocaleDateString('en-GB',{month:'short',year:'numeric'});
+}
+// whole days between two keys — used to say "15 days" instead of implying a month
+function stKeyGapDays(a, b){
+  var da=stKeyDate(a), db=stKeyDate(b);
+  if(!da||!db) return null;
+  return Math.round(Math.abs(da-db)/86400000);
+}
+// newest first, by the real date — NOT by the key as text. A legacy month label
+// ('2026-07' = 31 July) sorts before a mid-month count of the same month
+// ('2026-07-15') as text, which would open the wrong count.
+function stSortKeysDesc(rows){
+  return (rows||[]).slice().sort(function(a,b){
+    var da=stKeyDate(a.month), db=stKeyDate(b.month);
+    return (db?db.getTime():0) - (da?da.getTime():0);
+  });
+}
+
 // ── state ──
 var stSheet   = null;        // { month, status, ... }
-var stMonth   = null;        // 'YYYY-MM'
+var stMonth   = null;        // the current count's key — 'YYYY-MM-DD' (or legacy 'YYYY-MM')
 var stItems   = [];          // [{id,item_group,code,name,unit,price,units,is_added}]
 var stCounts  = {};          // item_id -> { qty, unit, counted_by, counted_by_name }
 var stUser    = null;        // { emp_id, name }  (null until signed in)
@@ -72,8 +122,10 @@ var stChannel = null;
 // ── previous-month reference (read-only): what each item closed at last month ──
 var stPrevRef   = {};        // ref-key -> { qty, unit, value }
 var stPrevTotal = 0;         // previous month's closing total value
-var stPrevMonth = null;      // 'YYYY-MM' of the previous sheet (null if none)
-var stPrevLabel = '';        // e.g. 'May 2026'
+var stPrevMonth = null;      // key of the count being compared against (null if none)
+var stPrevLabel = '';        // e.g. '30 June 2026'
+var stPrevOptions = [];      // every earlier count available to compare against, newest first
+var stPrevChoice  = null;    // { key } when Aung picked one himself (else the most recent)
 
 function stMoney(n){ return 'AED ' + (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function stEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -119,9 +171,8 @@ function stPrevText(it){
 // ── data load ──
 async function stLoadSheet(){
   var res = await sb.from('stock_take_sheets').select('*')
-    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT)
-    .order('month',{ascending:false}).limit(1);
-  stSheet = (res.data && res.data[0]) || null;
+    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT);
+  stSheet = stSortKeysDesc(res.data)[0] || null;   // latest by real date, see stSortKeysDesc
   stMonth = stSheet ? stSheet.month : null;
 }
 // Page through PostgREST's 1000-rows-per-request cap. WITHOUT this, a month with
@@ -170,6 +221,20 @@ async function stLoadCounts(){
 // ── previous-month reference: load the most recent EARLIER sheet (same dept) and
 // build a per-item lookup of what it closed at. Yield items carry the same 30%
 // gross-up in qty + value as they did in the report. Read-only — no realtime. ──
+// Every earlier count, newest first — "earlier" decided on the real date, since
+// a .lt() on the text would treat 15 July as later than the July month-end.
+async function stLoadPrevOptions(){
+  stPrevOptions = [];
+  if(!stMonth) return;
+  var now = stKeyDate(stMonth); if(!now) return;
+  var res = await sb.from('stock_take_sheets').select('month')
+    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT);
+  stSortKeysDesc(res.data).forEach(function(s){
+    var d = stKeyDate(s.month);
+    if(d && d.getTime() < now.getTime()) stPrevOptions.push({ key:s.month });
+  });
+  if(stPrevChoice && !stPrevOptions.some(function(o){ return o.key===stPrevChoice.key; })) stPrevChoice = null;
+}
 async function stLoadPrevMonth(){
   stPrevRef = {}; stPrevTotal = 0; stPrevMonth = null; stPrevLabel = '';
   // Loaded when the per-item reference is switched on (STOCK_SHOW_PREV) OR when
@@ -177,13 +242,15 @@ async function stLoadPrevMonth(){
   // extra two queries, and no prior number reaches the counting screen.
   if(!STOCK_SHOW_PREV && !stCanCompare()) return;
   if(!stMonth) return;
-  var sres = await sb.from('stock_take_sheets').select('month')
-    .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).lt('month',stMonth)
-    .order('month',{ascending:false}).limit(1);
-  var prev = sres.data && sres.data[0];
-  if(!prev) return;
-  stPrevMonth = prev.month;
-  stPrevLabel = new Date(stPrevMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  await stLoadPrevOptions();
+  // Default = the count immediately before this one, whatever the gap. Aung can
+  // pick any earlier count instead.
+  var chosen = null;
+  if(stPrevChoice) chosen = stPrevOptions.find(function(o){ return o.key===stPrevChoice.key; });
+  if(!chosen) chosen = stPrevOptions[0];
+  if(!chosen) return;
+  stPrevMonth = chosen.key;
+  stPrevLabel = stPeriodLabel(stPrevMonth);
   var ires = await stFetchAllPaged(function(){
     return sb.from('stock_take_items').select('id,code,name,item_group,unit,price,units')
       .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stPrevMonth).eq('active',true);
@@ -469,7 +536,7 @@ function stRender(){
           : '<div class="report-no-data">Enter your employee ID, then ask an admin to upload this month\'s list.</div>');
     return;
   }
-  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var monLabel = stPeriodLabel(stMonth);
 
   var gate = stGateHtml();
 
@@ -504,7 +571,7 @@ function stRender(){
         '<button class="report-btn" onclick="stExportExcel()">Download Excel</button>'+
         '<button class="report-btn" onclick="stPrint()">Print</button>'+
         (stIsSuper() && !stIsLocked() ?'<button class="report-btn st-danger" onclick="stClearAllCounts()">Clear all counts</button>':'')+
-        (stCanCompare() ? '<button class="report-btn" onclick="stShowCompare()">📊 Compare with last month</button>' : '')+
+        (stCanCompare() ? '<button class="report-btn" onclick="stShowCompare()">📊 Compare with previous count</button>' : '')+
         (stCanLock() ? (stIsLocked()
           ? '<button class="report-btn" onclick="stUnlockMonth()">🔓 Unlock this month</button>'
           : '<button class="report-btn" onclick="stLockMonth()">🔒 Lock this month</button>') : '')+
@@ -650,22 +717,22 @@ function stOnSort(v){ stSortBy=v; stRenderRows(); }
 async function stLockMonth(){
   if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can lock a month.', true); return; }
   if(!stSheet){ return; }
-  if(!confirm('Lock '+stMonth+'?\n\nNobody will be able to enter, add, or clear counts until an admin unlocks it again.')) return;
+  if(!confirm('Lock '+stPeriodLabel(stMonth)+'?\n\nNobody will be able to enter, add, or clear counts until an admin unlocks it again.')) return;
   var res=await sb.from('stock_take_sheets').update({ locked:true, locked_by:stUser.emp_id, locked_by_name:stUser.name, locked_at:new Date().toISOString() }).eq('id', stSheet.id);
   if(res.error){ if(typeof kToast==='function') kToast('Could not lock: '+res.error.message, true); return; }
   stSheet.locked=true; stSheet.locked_by_name=stUser.name;
   stRender();
-  if(typeof kToast==='function') kToast('🔒 '+stMonth+' is now locked.');
+  if(typeof kToast==='function') kToast('🔒 '+stPeriodLabel(stMonth)+' is now locked.');
 }
 async function stUnlockMonth(){
   if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can unlock a month.', true); return; }
   if(!stSheet){ return; }
-  if(!confirm('Unlock '+stMonth+'?\n\nCounts can be entered, added to, or cleared again until it is re-locked.')) return;
+  if(!confirm('Unlock '+stPeriodLabel(stMonth)+'?\n\nCounts can be entered, added to, or cleared again until it is re-locked.')) return;
   var res=await sb.from('stock_take_sheets').update({ locked:false }).eq('id', stSheet.id);
   if(res.error){ if(typeof kToast==='function') kToast('Could not unlock: '+res.error.message, true); return; }
   stSheet.locked=false;
   stRender();
-  if(typeof kToast==='function') kToast('🔓 '+stMonth+' unlocked.');
+  if(typeof kToast==='function') kToast('🔓 '+stPeriodLabel(stMonth)+' unlocked.');
 }
 
 // wipe EVERY quantity entered for this month (all counters) — confirmed first
@@ -674,12 +741,12 @@ async function stClearAllCounts(){
   if(!stIsSuper()){ if(typeof kToast==='function') kToast('Only an admin code (1212 / 0000 / 2468) can clear all counts.', true); return; }
   if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — unlock it first to clear counts.', true); return; }
   if(!stCountedCount()){ if(typeof kToast==='function') kToast('Nothing counted yet.'); return; }
-  if(!confirm('Clear ALL counts for '+stMonth+'?\n\nThis erases every quantity entered this month — by everyone — and cannot be undone. The item list stays.')) return;
+  if(!confirm('Clear ALL counts for '+stPeriodLabel(stMonth)+'?\n\nThis erases every quantity entered in this count — by everyone — and cannot be undone. The item list stays.')) return;
   var res=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth);
   if(res && res.error){ if(typeof kToast==='function') kToast('Could not clear counts: '+res.error.message, true); return; }
   stCounts={};
   stRender();
-  if(typeof kToast==='function') kToast('✓ All counts cleared for '+stMonth+'.');
+  if(typeof kToast==='function') kToast('✓ All counts cleared for '+stPeriodLabel(stMonth)+'.');
 }
 function stFocusRow(itemId, on){ var r=document.getElementById('st-row-'+itemId); if(r) r.classList.toggle('active', on); }
 function stPickUnit(itemId, unit){ stUnitSel[itemId]=unit; stUpdateRowUI(itemId); stRenderTotals(); if(stCounts[itemId]&&stCounts[itemId].qty!=null) stSetQty(itemId, stCounts[itemId].qty); }
@@ -724,7 +791,7 @@ async function stAddItem(){
 
 // ── build printable / emailable HTML ──
 function stReportHtml(){
-  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var monLabel = stPeriodLabel(stMonth);
   var byCat = {};
   stItems.forEach(function(it){ var c=stCounts[it.id]; if(!c||c.qty==null) return;
     (byCat[it.item_group||'Other']=byCat[it.item_group||'Other']||[]).push(it); });
@@ -760,7 +827,7 @@ function stReportHtml(){
 
 // ── Excel export (matches the cost controller's layout so it drops back in) ──
 function stExcelAoa(){
-  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var monLabel = stPeriodLabel(stMonth);
   var aoa = [["ROBERTO'S DIFC"], ['Stock Take List - Kitchen — '+monLabel], [],
     ['Item Group','Article','Article Name','Unit','Ave.Price','Qty','Total Value']];
   var grand = 0;
@@ -823,7 +890,7 @@ function stReviewSend(){
 }
 async function stSendEmail(mode){
   var statusEl=document.getElementById('st-send-status');
-  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var monLabel = stPeriodLabel(stMonth);
   var body={ to:STOCK_EMAIL_TO, cc:STOCK_EMAIL_CC, subject:'Kitchen Stock Take — '+monLabel };
   try{
     if(statusEl){ statusEl.style.color='#8a7a55'; statusEl.textContent='Sending…'; }
@@ -916,15 +983,27 @@ function stCmpLevel(r){
   return '';
 }
 function stCmpNote(r){
-  if(r.status==='notlist')  return 'not on this month\'s list';
-  if(r.status==='notcount') return 'not counted this month';
-  if(r.status==='new')      return 'no count last month';
+  if(r.status==='notlist')  return 'not on this count\'s list';
+  if(r.status==='notcount') return 'not counted this time';
+  if(r.status==='new')      return 'no earlier count';
   return '';
 }
 function stCmpPct(r){
   if(r.dPct==null) return '—';
   var v = Math.round(r.dPct);
   return (v>0?'+':'')+v+'%';
+}
+// Say the real gap in words. The kitchen counts monthly today, but the moment it
+// counts fortnightly "last month" would be wrong — and a 15-day movement read as
+// a monthly one is a doubled number.
+function stCmpGapText(){
+  var d = stKeyGapDays(stPrevMonth, stMonth);
+  if(d==null) return '';
+  if(d===0)  return 'Same day.';
+  if(d===1)  return '1 day apart.';
+  if(d<28)   return d+' days apart.';
+  if(d<32)   return 'About a month apart ('+d+' days).';
+  return d+' days apart ('+(Math.round(d/30.4*10)/10)+' months).';
 }
 function stCmpMoneySigned(n){
   var s = (n>0?'+':(n<0?'−':''));
@@ -939,14 +1018,14 @@ function stShowCompare(){
   box.className='st-cmp-wrap';
   if(!stPrevMonth){
     box.innerHTML='<div class="st-cmp-box" onclick="event.stopPropagation()">'+
-      '<div class="st-cmp-head"><div><div class="st-cmp-title">Compare with last month</div></div>'+
+      '<div class="st-cmp-head"><div><div class="st-cmp-title">Compare with previous count</div></div>'+
       '<button class="report-btn" onclick="document.getElementById(\'st-cmp-modal\').remove()">Close</button></div>'+
-      '<div class="report-no-data">There is no earlier stock take in the system yet, so there is nothing to compare '+stEsc(stMonth||'')+' against. The comparison will work from next month.</div></div>';
+      '<div class="report-no-data">There is no earlier stock take in the system yet, so there is nothing to compare '+stEsc(stPeriodLabel(stMonth))+' against. The comparison will work from the next count onwards.</div></div>';
   } else {
     box.innerHTML='<div class="st-cmp-box" onclick="event.stopPropagation()">'+
       '<div class="st-cmp-head">'+
-        '<div><div class="st-cmp-title">'+stEsc(stPrevLabel)+' → this month</div>'+
-        '<div class="st-cmp-sub">Closing count vs closing count. This is <b>movement</b>, not usage or loss — this app holds counts only, not purchases or sales.</div></div>'+
+        '<div><div class="st-cmp-title">'+stEsc(stPrevLabel)+' → '+stEsc(stPeriodLabel(stMonth))+'</div>'+
+        '<div class="st-cmp-sub">'+stEsc(stCmpGapText())+' Count vs count. This is <b>movement</b>, not usage or loss — this app holds counts only, not purchases or sales.</div></div>'+
         '<button class="report-btn" onclick="document.getElementById(\'st-cmp-modal\').remove()">Close</button>'+
       '</div>'+
       '<div id="st-cmp-body" class="st-cmp-body"></div>'+
@@ -970,12 +1049,18 @@ function stRenderCompare(){
   var head =
     '<div class="st-cmp-cards">'+
       '<div class="st-cmp-card"><div class="st-cmp-num">'+stMoney(stPrevTotal)+'</div><div class="st-cmp-lbl">'+stEsc(stPrevLabel)+' closing</div></div>'+
-      '<div class="st-cmp-card"><div class="st-cmp-num">'+stMoney(curTotal)+'</div><div class="st-cmp-lbl">This month so far</div></div>'+
+      '<div class="st-cmp-card"><div class="st-cmp-num">'+stMoney(curTotal)+'</div><div class="st-cmp-lbl">This count so far</div></div>'+
       '<div class="st-cmp-card '+(dTotal<0?'down':'up')+'"><div class="st-cmp-num">'+stCmpMoneySigned(dTotal)+'</div>'+
         '<div class="st-cmp-lbl">Difference'+(dPct==null?'':' · '+(dPct>0?'+':'')+dPct+'%')+'</div></div>'+
     '</div>'+
-    (uncounted>0 ? '<div class="st-cmp-warn">⚠ '+uncounted+' of '+stItems.length+' items are still not counted this month, so the difference above will keep moving. Read the list below as work-in-progress until the count is finished.</div>' : '')+
+    (uncounted>0 ? '<div class="st-cmp-warn">⚠ '+uncounted+' of '+stItems.length+' items are still not counted, so the difference above will keep moving. Read the list below as work-in-progress until the count is finished.</div>' : '')+
     '<div class="st-cmp-ctrl">'+
+      (stPrevOptions.length>1 ? '<label>Compare against '+
+        '<select class="st-select" style="height:32px" onchange="stCmpSetPrev(this.value)">'+
+          stPrevOptions.map(function(o,i){
+            return '<option value="'+i+'"'+(o.key===stPrevMonth?' selected':'')+'>'+stEsc(stPeriodShort(o.key))+(i===0?' — previous count':'')+'</option>';
+          }).join('')+
+        '</select></label>' : '')+
       '<label>Flag movements of at least <input class="st-input" id="st-cmp-min" inputmode="decimal" value="'+stEsc(String(stCmpMinAed))+'" onchange="stCmpSetMin(this.value)"> AED</label>'+
       '<label><input type="checkbox" id="st-cmp-only"'+(stCmpOnlyFlagged?' checked':'')+' onchange="stCmpSetOnly(this.checked)"> Show flagged only</label>'+
       '<button class="report-btn" onclick="stCompareExcel()">Download comparison (Excel)</button>'+
@@ -984,7 +1069,7 @@ function stRenderCompare(){
 
   var body = shown.length
     ? '<div class="st-cmp-scroll"><table class="st-cmp-tbl"><thead><tr>'+
-        '<th>Item</th><th class="r">'+stEsc(stPrevLabel)+'</th><th class="r">This month</th><th class="r">Difference</th><th class="r">%</th></tr></thead><tbody>'+
+        '<th>Item</th><th class="r">'+stEsc(stPeriodShort(stPrevMonth))+'</th><th class="r">'+stEsc(stPeriodShort(stMonth))+'</th><th class="r">Difference</th><th class="r">%</th></tr></thead><tbody>'+
       shown.map(function(r){
         var lvl = stCmpLevel(r), note = stCmpNote(r);
         return '<tr class="lvl-'+(lvl||'none')+'">'+
@@ -1007,11 +1092,23 @@ function stCmpSetMin(v){
   stRenderCompare();
 }
 function stCmpSetOnly(on){ stCmpOnlyFlagged = !!on; stRenderCompare(); }
+// Pick a different earlier count to compare against — re-reads that count's
+// numbers, so the panel says so rather than showing the old ones.
+async function stCmpSetPrev(idx){
+  var o = stPrevOptions[parseInt(idx,10)]; if(!o) return;
+  stPrevChoice = { key:o.key };
+  var el = document.getElementById('st-cmp-body');
+  if(el) el.innerHTML = '<div class="report-no-data">Loading '+stEsc(stPeriodLabel(o.key))+'…</div>';
+  await stLoadPrevMonth();
+  var head = document.querySelector('#st-cmp-modal .st-cmp-title');
+  if(head) head.textContent = stPeriodLabel(stPrevMonth)+' → '+stPeriodLabel(stMonth);
+  stRenderCompare();
+}
 
 // Excel of the comparison — every item, flagged ones first, with the movement
 // caveat written into the sheet so it can't travel without it.
 function stCompareAoa(){
-  var monLabel = new Date(stMonth+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var monLabel = stPeriodLabel(stMonth);
   var rows = stCompareRows();
   var curTotal = stGrandTotal();
   var aoa = [["ROBERTO'S DIFC"], ['Kitchen Stock Take — '+stPrevLabel+' vs '+monLabel],
@@ -1020,8 +1117,8 @@ function stCompareAoa(){
     [monLabel+' counted value', Math.round(curTotal*100)/100],
     ['Difference', Math.round((curTotal-stPrevTotal)*100)/100],
     ['Flag threshold (AED)', Number(stCmpMinAed)||0],
-    ['Items not yet counted this month', stItems.length-stCountedCount()], [],
-    ['Flag','Item Group','Article Name','Unit',stPrevLabel+' Qty',stPrevLabel+' Value','This Month Qty','This Month Value','Difference','% Change','Note']];
+    ['Items not yet counted', stItems.length-stCountedCount()], [],
+    ['Flag','Item Group','Article Name','Unit',stPrevLabel+' Qty',stPrevLabel+' Value',monLabel+' Qty',monLabel+' Value','Difference','% Change','Note']];
   rows.forEach(function(r){
     var lvl = stCmpLevel(r);
     aoa.push([ lvl==='big'?'REVIEW':(lvl==='watch'?'watch':''), r.group, r.name, r.unit,
@@ -1059,7 +1156,19 @@ function stLoadXLSX(){
   if(typeof lazyLoad==='function') return lazyLoad(url);
   return new Promise(function(res,rej){ var s=document.createElement('script'); s.src=url; s.onload=res; s.onerror=rej; document.body.appendChild(s); });
 }
-// guess 'YYYY-MM' from a dd.mm.yyyy in the first rows (e.g. "as of 31.05.2026")
+function stToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Guess the COUNT DATE from the dd.mm.yyyy the cost controller puts in the first
+// rows (e.g. "as of 31.05.2026") — that date IS the count, so a mid-month sheet
+// lands on its own day instead of colliding with the month-end one.
+function stGuessDate(rows){
+  for(var r=0;r<Math.min(6,rows.length);r++){
+    var line=(rows[r]||[]).join(' ');
+    var m=line.match(/(\d{2})[.\/](\d{2})[.\/](\d{4})/);
+    if(m) return m[3]+'-'+m[2]+'-'+m[1];
+  }
+  return stToday();
+}
+// legacy month guesser — kept only so nothing else that may call it breaks
 function stGuessMonth(rows){
   for(var r=0;r<Math.min(6,rows.length);r++){
     var line=(rows[r]||[]).join(' ');
@@ -1079,14 +1188,15 @@ function stShowUpload(){
     '<div style="font-weight:700;color:#410207;margin-bottom:6px">Upload month\'s stock take</div>'+
     '<div style="font-size:12px;color:#8a7a55;margin-bottom:10px">Pick the Excel file the cost controller sent (.xls or .xlsx). It becomes this month\'s count sheet.</div>'+
     '<input type="file" id="st-up-file" accept=".xls,.xlsx" style="width:100%;margin-bottom:10px" onchange="stUploadPreview()">'+
-    '<label style="font-size:12px;color:#8a7a55">Month</label>'+
-    '<input class="check-input" id="st-up-month" type="month" style="width:100%;height:38px;margin:4px 0 12px">'+
+    '<label style="font-size:12px;color:#8a7a55">Date counted</label>'+
+    '<input class="check-input" id="st-up-month" type="date" style="width:100%;height:38px;margin:4px 0 4px">'+
+    '<div style="font-size:11px;color:#8a7a55;margin-bottom:10px;line-height:1.4">Each date is a separate count kept for good. Counting twice in a month? Use the real date of each one — the earlier count is never touched.</div>'+
     '<div id="st-up-status" style="font-size:12px;color:#7a1218;min-height:16px;margin-bottom:8px"></div>'+
     '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="report-btn" onclick="document.getElementById(\'st-up-modal\').remove()">Cancel</button>'+
     '<button class="report-btn" id="st-up-go" onclick="stHandleUpload()">Upload</button></div></div>';
   box.addEventListener('click', function(){ box.remove(); });
   document.body.appendChild(box);
-  var d=new Date(); document.getElementById('st-up-month').value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  document.getElementById('st-up-month').value=stToday();
 }
 // peek at the chosen file to auto-fill the month + an item-count preview
 async function stUploadPreview(){
@@ -1096,9 +1206,9 @@ async function stUploadPreview(){
     statusEl.style.color='#8a7a55'; statusEl.textContent='Reading…';
     await stLoadXLSX();
     var rows=stReadRows(await f.arrayBuffer());
-    var guess=stGuessMonth(rows); var monthEl=document.getElementById('st-up-month'); if(guess) monthEl.value=guess;
+    var guess=stGuessDate(rows); var monthEl=document.getElementById('st-up-month'); if(guess) monthEl.value=guess;
     var items=stParseRows(rows);
-    statusEl.textContent=items.length?(items.length+' items found for '+monthEl.value+'.'):'No items found — is this the right file?';
+    statusEl.textContent=items.length?(items.length+' items found for '+stPeriodLabel(monthEl.value)+'.'):'No items found — is this the right file?';
   }catch(e){ statusEl.style.color='#7a1218'; statusEl.textContent='Could not read: '+e.message; }
 }
 function stReadRows(buf){
@@ -1135,23 +1245,36 @@ async function stHandleUpload(){
     statusEl.style.color='#8a7a55'; statusEl.textContent='Reading file…';
     await stLoadXLSX();
     var rows=stReadRows(await f.arrayBuffer());
-    var month=document.getElementById('st-up-month').value||stGuessMonth(rows);
+    var month=document.getElementById('st-up-month').value||stGuessDate(rows);
     var items=stParseRows(rows);
     if(!items.length){ statusEl.style.color='#7a1218'; statusEl.textContent='No items found — is this the right file?'; return; }
-    statusEl.textContent='Saving '+items.length+' items for '+month+'…';
+    statusEl.textContent='Saving '+items.length+' items for '+stPeriodLabel(month)+'…';
     await stApplyUpload(month, items, f.name);
     var m=document.getElementById('st-up-modal'); if(m) m.remove();
-    if(typeof kToast==='function') kToast('✓ Loaded '+items.length+' items for '+month+'.');
+    if(typeof kToast==='function') kToast('✓ Loaded '+items.length+' items for '+stPeriodLabel(month)+'.');
   }catch(e){
     if(String(e.message)==='cancelled'){ statusEl.textContent='Cancelled.'; return; }
     statusEl.style.color='#7a1218'; statusEl.textContent='Upload failed: '+e.message;
   }
 }
 async function stApplyUpload(month, items, filename){
+  var lbl = stPeriodLabel(month);
   var existing=await sb.from('stock_take_sheets').select('id,locked').eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month).limit(1);
   if(existing.data && existing.data.length){
-    if(existing.data[0].locked) throw new Error(month+' is LOCKED — an admin must unlock it before it can be replaced.');
-    if(!confirm('A stock take for '+month+' already exists. Replacing it clears any counts already entered for that month. Continue?')) throw new Error('cancelled');
+    if(existing.data[0].locked) throw new Error(lbl+' is LOCKED — an admin must unlock it before it can be replaced.');
+    // ANTI-WIPE GUARD. Replacing a count that people have already entered numbers
+    // into destroys their work, and a confirm dialog is not protection — it is one
+    // tap on a busy night. Counted work can only be replaced by deliberately
+    // clearing it first. If this is a SECOND count of the period the right answer
+    // is a different date, which keeps both.
+    var cRes=await sb.from('stock_take_counts').select('id',{count:'exact',head:true})
+      .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',month);
+    if(cRes.error) throw new Error('Could not check the existing count: '+cRes.error.message);
+    if(cRes.count>0) throw new Error(
+      lbl+' already has '+cRes.count+' quantities entered, so it will not be overwritten.\n\n'+
+      'If this is a NEW count, change "Date counted" to the day it was counted — the '+lbl+' count is then kept as well.\n\n'+
+      'If you really do mean to replace '+lbl+', use "Clear all counts" first.');
+    if(!confirm('A stock take for '+lbl+' already exists, with nothing counted yet. Replace its item list?')) throw new Error('cancelled');
   }
   // supabase-js never throws — check each destructive step's .error and abort
   // BEFORE the next one, so a blocked delete can't leave the month half-wiped
