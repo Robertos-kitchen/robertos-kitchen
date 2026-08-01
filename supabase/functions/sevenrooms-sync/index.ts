@@ -59,6 +59,146 @@ async function fetchReservations(token: string, venueGroupId: string | undefined
   return all;
 }
 
+// ---- GUEST PROFILE (shared by ?guest= and ?guests=) ----------------------
+// The aggregates the SevenRooms CLIENT profile shows -- total spend, visits,
+// covers, average per cover, no-shows, cancellations -- plus the tags a manager
+// needs on the floor ("Cigar Lover", "Don't move from this table") and the note
+// on file.
+//
+// WHY THIS EXISTS: those aggregates are NOT on the reservation object -- the
+// reservation only ever carries ITS OWN check, never the guest's history -- so a
+// lifetime figure can only come from the client record. Verified 28 Jul against
+// the live book:
+//
+// (Correcting an earlier note here that said "?spend= returns zero pos_tickets on
+// every date tested". That is no longer true and reading it would send the next
+// person the wrong way: re-probed 28 Jul, every trading night 18-25 Jul came back
+// with real per-booking checks -- 24 Jul had 67 bookings / 73 tickets / AED
+// 69,153.80. What IS true is that the most recent night can be empty: 27 Jul read
+// zero on 28 Jul. SevenRooms links the checks on a delay; treat a blank latest
+// night as "not posted yet", not as "no money".)
+// of 25 guests on 27 Jul, 8 were repeat guests and all 8 carried real spend
+// (top AED42,386 / 145 visits). First-timers legitimately read 0.
+//
+// READ THE VENUE FIGURES, NOT THE GROUP TOTALS. This is the whole trap. The
+// client record's top-level total_spend / total_visits are GROUP-wide and come
+// from a different source than the profile page the hosts read. For the guest
+// booked in on 28 Jul the two disagreed badly -- group said 70 visits /
+// AED22,259, the SevenRooms page said 47 / AED62,715 -- and shipping the group
+// number would have put a figure on a manager's screen that contradicts
+// SevenRooms. venue_stats[venue_id] reconciles to the page EXACTLY on every
+// field (47 visits, AED62,715 net, AED72,275.60 gross, AED482.42 per cover,
+// AED1,393.67 per visit, 16 no-shows, 12 cancellations), so that is what this
+// returns whenever the caller says which venue it is asking about. The venue id
+// comes off the booking, never hardcoded here.
+//
+// PRIVACY -- the point of doing this server-side. The client record holds
+// email, both phone numbers, home address, birthday, loyalty ids and the
+// marketing opt-ins. NONE of that is returned. Only the counting fields, the
+// tags, and the guest note a host would read off the booking. The browser is
+// never handed a guest record it could leak. The raw venue_stats block is also
+// withheld: alongside the counting fields it lists booked_by_names, every host
+// and channel that ever took a booking for this guest.
+
+// Tags are the most useful thing on the panel and the hardest thing to read out
+// of this API. VERIFIED SHAPE (28 Jul, live book): client_tags is an array where
+// each TAG is itself a small array of parts, and the parts vary in number:
+//   ["Custom Local Marketing Segmentation","CopyCustomAutotag16","Reservation Within the Past 7 Days","#BDE7FD"]
+//   ["Nationalities","Levantine","#88a5f5"]
+//   ["Group All Guests","#0ABCC2"]
+// The last part is the swatch colour and the part BEFORE it is what SevenRooms
+// prints on the profile. A first attempt flattened these and returned the group
+// name and the hex colour as if they were tags ("Nationalities", "#88a5f5") --
+// hence the read-the-last-part rule rather than a blind recursive flatten. Some
+// venues encode the same thing as one "a##b##Name##colour" string, and older
+// records use {tag_name_display}, so all three shapes are handled. Anything
+// unreadable is dropped rather than rendered as "[object Object]", which is
+// exactly what leaked into the daysheet note on 23 Jul.
+const srIsColour = (s: unknown) => typeof s === "string" && /^#[0-9A-Fa-f]{3,8}$/.test(s.trim());
+
+function srPickPart(parts: string[]): string {
+  const p = parts.map((x) => String(x == null ? "" : x).trim()).filter(Boolean);
+  while (p.length && srIsColour(p[p.length - 1])) p.pop();
+  return p.length ? p[p.length - 1] : "";
+}
+
+function srOneTag(v: unknown, depth = 0): string {
+  if (v == null || depth > 3) return "";
+  if (typeof v === "string") return srPickPart(v.indexOf("##") > -1 ? v.split("##") : [v]);
+  if (Array.isArray(v)) return srPickPart(v.map((x) => typeof x === "string" ? x : srOneTag(x, depth + 1)));
+  if (typeof v === "object") {
+    const o = v as any;
+    const named = o.tag_name_display || o.tag_name || o.name || o.display_name;
+    return typeof named === "string" ? named.trim() : "";
+  }
+  return "";
+}
+
+function srTagList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((t) => srOneTag(t)).filter(Boolean);
+  const one = srOneTag(v);
+  return one ? [one] : [];
+}
+
+async function guestProfile(
+  token: string,
+  venueGroupId: string | undefined,
+  id: string,
+  venueId: string | null,
+) {
+  const vgq = venueGroupId ? `?venue_group_id=${encodeURIComponent(venueGroupId)}` : "";
+  const r = await fetch(`${SR_BASE}/clients/${encodeURIComponent(id)}${vgq}`, {
+    method: "GET",
+    headers: { "Authorization": token, "Accept": "application/json" },
+  });
+  if (!r.ok) throw new Error(`Client fetch failed: ${r.status}`);
+  const body = await r.json();
+  const c = body?.data?.results?.[0] ?? body?.data ?? body;
+  if (!c || typeof c !== "object") throw new Error("No client record");
+
+  // Each tag arrives as a COMMA-JOINED list ("Cigar Lover, DON'T MOVE FROM THIS
+  // TABLE, Rumba Regular"), so the parts are split out or the panel renders one
+  // enormous tag. A tag containing a real comma cannot survive this -- but it
+  // cannot survive SevenRooms' own encoding either, which is what joined them.
+  const tags: string[] = [];
+  for (const raw of [...srTagList(c.client_tags), ...srTagList(c.tags), ...srTagList(c.member_groups)]) {
+    for (const t of String(raw).split(/\s*,\s*/)) {
+      const s = t.trim();
+      if (s && tags.indexOf(s) === -1) tags.push(s);
+    }
+  }
+
+  const num = (v: unknown) => { const n = Number(v); return isFinite(n) ? n : 0; };
+  const vstats = (venueId && c.venue_stats && typeof c.venue_stats === "object")
+    ? (c.venue_stats as any)[venueId] : null;
+  const s: any = vstats || c;
+  return {
+    id: c.id || id,
+    // `scope` rides along so the app -- and anyone reading this later -- can
+    // tell which of the two measures they are looking at, instead of the silent
+    // mismatch that started this.
+    scope: vstats ? "venue" : "group",
+    visits: num(s.total_visits),
+    covers: num(s.total_covers),
+    spend: num(s.total_spend),
+    gross: num(s.gross_total) || null,
+    per_cover: num(s.total_spend_per_cover),
+    per_visit: num(s.total_spend_per_visit),
+    noshows: num(s.total_noshows),
+    cancellations: num(s.total_cancellations),
+    // Only the venue block carries this, and it is the single most useful line
+    // on the panel: when they were last in tells a manager more than any
+    // average does.
+    last_visit: vstats ? (vstats.last_visit_date || null) : null,
+    rating: num(s.avg_rating) || null,
+    // The "Client Notes" line off the profile -- an allergy or a standing
+    // preference belongs in front of the manager. private_notes is deliberately
+    // NOT returned: it is the hosts' internal commentary.
+    note: c.notes ? String(c.notes).replace(/\s+/g, " ").trim() : null,
+    tags,
+    first_seen: c.created || null,
+  };
+}
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -227,22 +367,61 @@ serve(async (req) => {
     //   * email, address, loyalty and the marketing opt-ins are never returned.
     // The FOH side gates the whole module per user (app_users.modules), but the
     // masking happens HERE so the browser is never handed data it shouldn't hold.
+    //
+    // ---- &include=all : the cancellations and no-shows, ON REQUEST ----------
+    // Added 31 Jul 2026 for the FOH Reservation Reports module (Nicole's
+    // cancellation list and no-show rate).
+    //
+    // THE BACKGROUND. SevenRooms sends us every cancellation and no-show in
+    // full -- name, time, table, party size, channel, phone, client id, the lot.
+    // This mode threw them away, because it was written to put TONIGHT'S SERVICE
+    // on a manager's screen and a cancelled table is not part of tonight's
+    // service. Reconciled 30 Jul 2026: the raw feed held 55 rows (45 COMPLETE,
+    // 8 NO_SHOW, 2 CANCELED) and this mode returned 45. The 10 were never
+    // missing from SevenRooms; we dropped them.
+    //
+    // WHY A FLAG AND NOT A CHANGE. The Reservations book, the closing report and
+    // the Live-now strip all read this mode and all mean "the night that
+    // happened". Returning cancellations to them unasked would inflate every
+    // count on every one of those screens. So the default is byte-for-byte what
+    // it always was, and a caller has to ask.
+    //
+    // WHAT THE FLAG DOES *NOT* DO: it never adds a cancelled or no-show booking
+    // to `covers` or to any figure in `totals` or `areas`. Those keep counting
+    // the night that actually happened, so a caller who passes the flag and then
+    // reads totals gets the same numbers as one who did not. The extra rows
+    // arrive with state "cancelled" / "noshow" and are the caller's to count.
+    //
+    // `includes_cancelled` IS THE POINT OF THE ECHO. An older deployment of this
+    // function ignores an unknown query parameter and answers 200 with a normal
+    // payload -- so a no-show report built against it would print "0 no-shows"
+    // and look like good news. The app checks this field and refuses to draw the
+    // report unless it is true. Do not remove it: silence would become a zero.
     const daysheet = reqUrl.searchParams.get("daysheet");
     if (daysheet) {
+      const includeAll = String(reqUrl.searchParams.get("include") || "").toLowerCase() === "all";
       const rows = await fetchReservations(token, venueGroupId, daysheet, daysheet);
       const SEATED_NOW = new Set(["ARRIVED", "SEATED"]);
       const DONE = new Set(["COMPLETE", "PAID"]);
+      const NOSHOW = new Set(["NO_SHOW"]);
       const out: any[] = [];
       let covers = 0, seatedPax = 0, upcomingPax = 0, completedPax = 0;
       for (const r of rows) {
         const st = String(r.status || "").toUpperCase();
-        if (EXCLUDE.has(st)) continue;                  // drop cancel / no-show
+        const dropped = EXCLUDE.has(st);                 // cancel / no-show
+        if (dropped && !includeAll) continue;
         const pax = Number(r.max_guests) || 0;
-        const state = DONE.has(st) ? "completed" : SEATED_NOW.has(st) ? "seated" : "upcoming";
-        covers += pax;
-        if (state === "completed") completedPax += pax;
-        else if (state === "seated") seatedPax += pax;
-        else upcomingPax += pax;
+        const state = dropped
+          ? (NOSHOW.has(st) ? "noshow" : "cancelled")
+          : (DONE.has(st) ? "completed" : SEATED_NOW.has(st) ? "seated" : "upcoming");
+        // A booking that never happened is not a cover. Every total below stays
+        // exactly as it was before this flag existed.
+        if (!dropped) {
+          covers += pax;
+          if (state === "completed") completedPax += pax;
+          else if (state === "seated") seatedPax += pax;
+          else upcomingPax += pax;
+        }
         // The note a host would read off the booking. SevenRooms spreads this over
         // several fields and any of them can be empty, so join whichever exist and
         // label them the way the SevenRooms grid does. Line breaks are collapsed:
@@ -263,10 +442,33 @@ serve(async (req) => {
           : (r.table_numbers ? [String(r.table_numbers)] : []);
         // Money only if a check is actually linked -- an unlinked booking must show
         // blank, never a misleading 0.
+        //
+        // TWO figures, and the difference matters (found 28 Jul 2026 while building
+        // the Reservations spend column for Nicole):
+        //   subtotal = the MENU-PRICE total. Menu prices in Dubai are tax-inclusive,
+        //              so this is the GROSS the guest actually paid, and it is the
+        //              only figure that sits on the verified stack -- net = / 1.225
+        //              (10% service + 7% municipality on net, 5% VAT on net+SC).
+        //   total    = subtotal plus whatever extra was added on the check (tips).
+        //              It does NOT hold a constant relationship to subtotal -- on
+        //              24 Jul, per booking, 388 -> 390 and 262.40 -> 278.40, and the
+        //              night's implied multiplier moved 1.010 / 1.049 / 1.012 across
+        //              23-25 Jul. Dividing IT by 1.225 gives a net that is quietly
+        //              wrong by the size of the tip, which is exactly the kind of
+        //              number that ends up in a report.
+        // So `gross` (subtotal) is what the app shows and divides. `spend` keeps its
+        // old meaning so nothing already reading it changes underneath.
         const tickets = Array.isArray(r.pos_tickets) ? r.pos_tickets : [];
-        let posTotal = 0;
-        for (const t of tickets) posTotal += Number(t.total) || 0;
+        let posTotal = 0, posSubtotal = 0;
+        for (const t of tickets) {
+          posTotal += Number(t.total) || 0;
+          posSubtotal += Number(t.subtotal) || 0;
+        }
         const spend = posTotal || Number(r.total_payment) || Number(r.onsite_payment_total) || 0;
+        // total_payment reconciles to subtotal (verified 24 Jul: both 69,153.80 for
+        // the night), so it is the right fallback when a booking carries payment
+        // without an itemised ticket.
+        const gross = posSubtotal || Number(r.total_payment) || Number(r.onsite_payment_total) || 0;
         const phone = String(r.phone_number || "").replace(/\D/g, "");
         out.push({
           time: String(r.real_datetime_of_slot || "").slice(11, 16) || String(r.arrival_time || ""),
@@ -296,6 +498,7 @@ serve(async (req) => {
           created: r.created || null,
           minimum: Number(r.min_price) || null,
           spend: spend || null,
+          gross: gross || null,
           served_by: r.served_by || null,
           phone_last4: phone ? phone.slice(-4) : null,
           // The key the FOH name-tap uses to ask ?guest= for this guest's
@@ -314,176 +517,105 @@ serve(async (req) => {
       out.sort((a, b) => String(a.time).localeCompare(String(b.time)));
       // Per-seating-area counts -- the "PIEMONTE (9 reservations) - 33 covers"
       // header line the hosts read off the SevenRooms day view.
+      // A cancelled table occupied no seating area, so it is not counted here
+      // either -- see the &include=all note above: the extra rows never move a
+      // number that already existed.
       const areaMap: Record<string, { area: string; reservations: number; covers: number }> = {};
       for (const r of out) {
+        if (r.state === "cancelled" || r.state === "noshow") continue;
         const k = r.area || "Any Seating Area";
         (areaMap[k] ||= { area: k, reservations: 0, covers: 0 });
         areaMap[k].reservations++;
         areaMap[k].covers += r.pax;
       }
+      // Night money totals -- counted over the bookings that ACTUALLY carry a
+      // linked check, and the counts are returned alongside so the app can say how
+      // much of the night the figure covers. This total is always SHORT of the
+      // Simphony night: a walk-in served without a booking has no reservation to
+      // hang a check on. Measured against rev_daily 20-25 Jul 2026 it ran 83-98%
+      // of Simphony net and the gap moved night to night, so it must never be
+      // presented as the night's revenue. The app labels it; do not strip that.
+      let grossTotal = 0, coversWithMoney = 0, bookingsWithMoney = 0;
+      for (const r of out) {
+        if (r.state === "cancelled" || r.state === "noshow") continue;
+        if (!r.gross) continue;
+        grossTotal += r.gross;
+        coversWithMoney += r.pax;
+        bookingsWithMoney++;
+      }
+      // Counted, not out.length: with &include=all the array also carries the
+      // cancellations and no-shows, and "Reservations" on the FOH screen means
+      // the night that happened. Without the flag these are identical.
+      const served = out.filter((r) => r.state !== "cancelled" && r.state !== "noshow");
       return new Response(JSON.stringify({
         ok: true, date: daysheet,
+        // Echoed so a caller can tell "this deployment honoured the flag" from
+        // "this deployment is older and ignored it". See the note above.
+        includes_cancelled: includeAll,
         totals: {
-          reservations: out.length, covers,
+          reservations: served.length, covers,
           upcoming: upcomingPax, seated: seatedPax, completed: completedPax,
+          gross: grossTotal || null,
+          covers_with_money: coversWithMoney || null,
+          bookings_with_money: bookingsWithMoney || null,
         },
         areas: Object.values(areaMap).sort((a, b) => b.covers - a.covers),
         reservations: out,
       }), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
-    // ---- GUEST PROFILE MODE: one guest's history, for the FOH name tap -------
-    // ?guest=<client id> -> the aggregates the SevenRooms CLIENT profile shows --
-    // total spend, visits, covers, average per cover, no-shows, cancellations --
-    // plus the tags a manager needs on the floor ("Cigar Lover", "Don't move
-    // from this table"). The daysheet hands the FOH module the id, so the app
-    // never has to search for a guest: it asks for exactly the one whose name
-    // was tapped.
-    //
-    // WHY THIS EXISTS: those aggregates are NOT on the reservation object --
-    // ?spend= returns zero pos_tickets on every date tested -- so a lifetime
-    // figure can only come from the client record. Verified 28 Jul against the
-    // live book: of 25 guests on 27 Jul, 8 were repeat guests and all 8 carried
-    // real spend (top AED42,386 / 145 visits). First-timers legitimately read 0.
-    //
-    // READ THE VENUE FIGURES, NOT THE GROUP TOTALS. This is the whole trap.
-    // The client record's top-level total_spend / total_visits are GROUP-wide
-    // and come from a different source than the profile page the hosts read.
-    // For the guest booked in on 28 Jul the two disagreed badly -- group said
-    // 70 visits / AED22,259, the SevenRooms page said 47 / AED62,715 -- and
-    // shipping the group number would have put a figure on a manager's screen
-    // that contradicts SevenRooms. `venue_stats[venue_id]` reconciles to the
-    // page EXACTLY on every field (47 visits, AED62,715 net, AED72,275.60
-    // gross, AED482.42 per cover, AED1,393.67 per visit, 16 no-shows, 12
-    // cancellations), so that is what this returns whenever the caller says
-    // which venue it is asking about. ?venue= comes from the booking itself.
-    //
-    // PRIVACY -- the point of doing this server-side. The client record holds
-    // email, both phone numbers, home address, birthday, loyalty ids and the
-    // marketing opt-ins. NONE of that is returned. Only the counting fields,
-    // the tags, and the guest note a host would read off the booking. The
-    // browser is never handed a guest record it could leak.
+    // ---- GUEST PROFILE MODE: one guest, for the FOH name tap -----------------
+    // ?guest=<client id>&venue=<venue id> -> that guest's history. See
+    // guestProfile() above for what is and is not returned, and why the venue
+    // figures are the only ones safe to show.
     const guest = reqUrl.searchParams.get("guest");
     if (guest) {
-      const vgq = venueGroupId ? `?venue_group_id=${encodeURIComponent(venueGroupId)}` : "";
-      const r = await fetch(`${SR_BASE}/clients/${encodeURIComponent(guest)}${vgq}`, {
-        method: "GET",
-        headers: { "Authorization": token, "Accept": "application/json" },
+      const p = await guestProfile(token, venueGroupId, guest, reqUrl.searchParams.get("venue"));
+      return new Response(JSON.stringify({ ok: true, ...p }), {
+        headers: { ...cors, "Content-Type": "application/json" },
       });
-      if (!r.ok) throw new Error(`Client fetch failed: ${r.status}`);
-      const body = await r.json();
-      const c = body?.data?.results?.[0] ?? body?.data ?? body;
-      if (!c || typeof c !== "object") throw new Error("No client record");
-      // Tags are the most useful thing on this panel for a floor manager
-      // ("Cigar Lover", "Don't move from this table") and the hardest thing to
-      // read out of this API. Verified 28 Jul: a first pass that assumed an
-      // array of {tag_name} objects returned EMPTY for all 14 guests on the
-      // book, while the SevenRooms UI showed tags on the same profiles -- so
-      // the shape is one of the others below. Rather than guess again:
-      //   * plain string                      -> itself
-      //   * "groupid##Group##tag##Tag" hash   -> the last segment (SevenRooms'
-      //     own encoding; the display name is always last)
-      //   * {tag_name_display|tag_name|name}  -> that field
-      //   * object keyed by tag group         -> walk the values
-      // Anything unreadable is dropped rather than rendered as "[object
-      // Object]", which is exactly what leaked into the daysheet note on 23 Jul.
-      // VERIFIED SHAPE (28 Jul, live book): client_tags is an array where each
-      // TAG is itself a small array of parts, and the parts vary in number:
-      //   ["Custom Local Marketing Segmentation","CopyCustomAutotag16","Reservation Within the Past 7 Days","#BDE7FD"]
-      //   ["Nationalities","Levantine","#88a5f5"]
-      //   ["Group All Guests","#0ABCC2"]
-      // The last part is the swatch colour and the part BEFORE it is what
-      // SevenRooms prints on the profile. A first attempt flattened these and
-      // returned the group name and the hex colour as if they were tags
-      // ("Nationalities", "#88a5f5") -- hence the read-the-last-part rule below
-      // rather than a blind recursive flatten.
-      const isColour = (s: unknown) => typeof s === "string" && /^#[0-9A-Fa-f]{3,8}$/.test(s.trim());
-      const oneTag = (v: unknown, depth = 0): string => {
-        if (v == null || depth > 3) return "";
-        if (typeof v === "string") {
-          // Some venues encode the same thing as one "a##b##Name##colour" string.
-          const parts = v.indexOf("##") > -1 ? v.split("##") : [v];
-          return pickPart(parts);
-        }
-        if (Array.isArray(v)) return pickPart(v.map((x) => typeof x === "string" ? x : oneTag(x, depth + 1)));
-        if (typeof v === "object") {
-          const o = v as any;
-          const named = o.tag_name_display || o.tag_name || o.name || o.display_name;
-          return typeof named === "string" ? named.trim() : "";
-        }
-        return "";
-      };
-      // Drop the trailing colour, then take what's left at the end -- the
-      // display name. A tag that is nothing but a colour is not a tag.
-      const pickPart = (parts: string[]): string => {
-        const p = parts.map((x) => String(x == null ? "" : x).trim()).filter(Boolean);
-        while (p.length && isColour(p[p.length - 1])) p.pop();
-        return p.length ? p[p.length - 1] : "";
-      };
-      const tagNames = (v: unknown): string[] =>
-        Array.isArray(v) ? v.map((t) => oneTag(t)).filter(Boolean) : (oneTag(v) ? [oneTag(v)] : []);
-      // ...and one more layer: what comes back per tag is itself a COMMA-JOINED
-      // list ("Cigar Lover, DON'T MOVE FROM THIS TABLE, Rumba Regular"), so the
-      // parts have to be split out or the panel renders one enormous tag.
-      // A tag containing a real comma can't survive this -- but it can't survive
-      // SevenRooms' own encoding either, which is what joined them.
-      const tags: string[] = [];
-      for (const raw of [...tagNames(c.client_tags), ...tagNames(c.tags), ...tagNames(c.member_groups)]) {
-        for (const t of String(raw).split(/\s*,\s*/)) {
-          const s = t.trim();
-          if (s && tags.indexOf(s) === -1) tags.push(s);
-        }
-      }
-      // If the walk STILL finds nothing, say what the raw fields actually were
-      // so this can be settled without another deploy. Types and lengths only --
-      // never the values, which could carry a guest's name.
-      const shapeOf = (v: unknown) =>
-        v == null ? "null" : Array.isArray(v) ? `array(${v.length})` : typeof v === "object" ? `object(${Object.keys(v as any).length})` : typeof v;
-      const tags_shape = tags.length ? undefined : {
-        client_tags: shapeOf(c.client_tags),
-        tags: shapeOf(c.tags),
-        member_groups: shapeOf(c.member_groups),
-        client_tags_first_keys: Array.isArray(c.client_tags) && c.client_tags[0] && typeof c.client_tags[0] === "object"
-          ? Object.keys(c.client_tags[0]) : undefined,
-        tags_first_keys: Array.isArray(c.tags) && c.tags[0] && typeof c.tags[0] === "object"
-          ? Object.keys(c.tags[0]) : undefined,
-      };
-      const num = (v: unknown) => { const n = Number(v); return isFinite(n) ? n : 0; };
-      // Venue figures when the caller said which venue, group totals otherwise.
-      // `scope` rides along in the payload so the app -- and anyone reading this
-      // later -- can tell which of the two they are looking at, instead of the
-      // silent mismatch that started this.
+    }
+
+    // ---- GUEST BATCH MODE: the whole book's guests in ONE call ----------------
+    // ?guests=<id,id,id>&venue=<venue id> -> { guests: { id: profile } }
+    //
+    // Asked for by Francesco 28 Jul: the Reservations table shows each guest's
+    // last visit and average spend per person, and the print brief needs the
+    // same for every booking on the night. Doing that per row would mean one
+    // request per booking -- 47 on last Sunday -- from a phone on the floor.
+    // One call instead, and the app caches the answer for the date.
+    //
+    // Chunked rather than one big Promise.all: a busy night would otherwise open
+    // 47 simultaneous connections to SevenRooms and invite a rate-limit, which
+    // would fail the whole brief instead of one guest. A guest whose record
+    // cannot be read is simply absent from the map -- the app already renders a
+    // row with no history, so a partial answer degrades instead of breaking.
+    const guests = reqUrl.searchParams.get("guests");
+    if (guests) {
+      const seen: Record<string, boolean> = {};
+      const ids = guests.split(",").map((s) => s.trim()).filter((s) => {
+        if (!s || seen[s]) return false;      // the same guest can hold two
+        seen[s] = true;                        // bookings on one night
+        return true;
+      }).slice(0, 120);                        // hard cap: no unbounded fan-out
       const venueId = reqUrl.searchParams.get("venue");
-      const vstats = (venueId && c.venue_stats && typeof c.venue_stats === "object")
-        ? (c.venue_stats as any)[venueId] : null;
-      const s: any = vstats || c;
+      const out: Record<string, unknown> = {};
+      let failed = 0;
+      for (let i = 0; i < ids.length; i += 8) {
+        const chunk = ids.slice(i, i + 8);
+        const res = await Promise.all(chunk.map((id) =>
+          guestProfile(token, venueGroupId, id, venueId).catch(() => null)
+        ));
+        chunk.forEach((id, j) => { if (res[j]) out[id] = res[j]; else failed++; });
+      }
       return new Response(JSON.stringify({
         ok: true,
-        id: c.id || guest,
-        scope: vstats ? "venue" : "group",
-        visits: num(s.total_visits),
-        covers: num(s.total_covers),
-        spend: num(s.total_spend),
-        gross: num(s.gross_total) || null,
-        per_cover: num(s.total_spend_per_cover),
-        per_visit: num(s.total_spend_per_visit),
-        noshows: num(s.total_noshows),
-        cancellations: num(s.total_cancellations),
-        // Only the venue block carries this, and it is the single most useful
-        // line on the panel: "last in on 3 Feb" tells a manager more than any
-        // average does.
-        last_visit: vstats ? (vstats.last_visit_date || null) : null,
-        rating: num(s.avg_rating) || null,
-        // The "Client Notes" line off the profile -- an allergy or a standing
-        // preference belongs in front of the manager. private_notes is
-        // deliberately NOT returned: it is the hosts' internal commentary.
-        note: c.notes ? String(c.notes).replace(/\s+/g, " ").trim() : null,
-        tags,
-        tags_shape,
-        // The raw venue_stats block is NOT returned: alongside the counting
-        // fields it lists booked_by_names -- every host and channel that ever
-        // took a booking for this guest -- which the floor has no need of.
-        first_seen: c.created || null,
+        requested: ids.length,
+        returned: Object.keys(out).length,
+        // Named so a partial answer is visible to the caller rather than
+        // silently looking like "these guests have no history".
+        failed,
+        guests: out,
       }), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
