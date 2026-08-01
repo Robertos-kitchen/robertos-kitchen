@@ -140,11 +140,81 @@ function srTagList(v: unknown): string[] {
   return one ? [one] : [];
 }
 
+// ---- PAST VISITS OFF THE CLIENT RECORD -----------------------------------
+// SevenRooms' own profile screen carries a per-visit "Reservation History" tab
+// (date, venue, status/spend, notes), so the list exists on their side. What is
+// NOT documented is whether /clients returns it, under what key -- the API docs
+// portal is account-gated. Rather than hard-code a guess that silently returns
+// nothing the day they rename it, this FINDS the list: any array on the record
+// whose entries carry something date-shaped and something booking-shaped.
+//
+// Nothing here fabricates a visit. If SevenRooms sends no list, this returns []
+// and the app says so rather than showing an empty box that reads as "no
+// history" -- a guest with 63 visits showing nothing would be a lie, and the
+// hosts would stop trusting the panel.
+const SR_D_KEYS = ["date", "date_arrival", "arrival_time", "reservation_date", "visit_date", "datetime", "created"];
+const SR_V_KEYS = ["venue_name", "venue", "venue_id", "status", "max_guests", "total_spend", "spend"];
+
+function srDateOf(o: any): string | null {
+  for (const k of SR_D_KEYS) {
+    const v = o?.[k];
+    if (typeof v === "string" && /\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/.test(v)) {
+      const iso = v.match(/\d{4}-\d{2}-\d{2}/);
+      if (iso) return iso[0];
+      const dmy = v.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+    }
+  }
+  return null;
+}
+
+function srFindVisits(c: any): any[] {
+  let best: any[] = [];
+  const walk = (o: any, depth = 0) => {
+    if (!o || typeof o !== "object" || depth > 3) return;
+    if (Array.isArray(o)) {
+      // A list of objects that each carry a date AND at least one booking-ish
+      // field is a reservation history. A list of tags or ids is not.
+      const rows = o.filter((x) => x && typeof x === "object" && srDateOf(x) &&
+        SR_V_KEYS.some((k) => x[k] != null));
+      if (rows.length > best.length) best = rows;
+      for (const x of o.slice(0, 3)) walk(x, depth + 1);
+      return;
+    }
+    for (const k of Object.keys(o)) walk(o[k], depth + 1);
+  };
+  walk(c);
+  return best;
+}
+
+// One visit, flattened to only what the floor needs. No email, phone or any
+// other identifier rides along -- same privacy rule as the rest of ?guest=.
+function srVisitRow(r: any, num: (v: unknown) => number) {
+  const st = String(r.status || "").toUpperCase();
+  return {
+    date: srDateOf(r),
+    venue: r.venue_name || r.venue_group_name || null,
+    covers: num(r.max_guests) || num(r.arrived_guests) || null,
+    // SevenRooms shows a cancelled visit as "Canceled" with no spend, and the
+    // hosts read that as information -- a guest who books and cancels is a
+    // different guest from one who never came. Kept, flagged, never counted.
+    status: st || null,
+    cancelled: st.indexOf("CANCEL") > -1 || st.indexOf("NO_SHOW") > -1 || st.indexOf("NOSHOW") > -1,
+    spend: num(r.total_spend) || num(r.spend) || num(r.check_total) || 0,
+    tables: Array.isArray(r.table_numbers) ? r.table_numbers.join(", ") : (r.table_numbers || null),
+  };
+}
+
 async function guestProfile(
   token: string,
   venueGroupId: string | undefined,
   id: string,
   venueId: string | null,
+  // Visit lists are for the ONE guest whose panel is open. The batch mode below
+  // reads every guest on the night in a single call, and 35 guests x 12 visits
+  // would multiply that payload for a list nothing on the table renders --
+  // straight onto the module's first paint, on a phone, on the floor.
+  withVisits = false,
 ) {
   const vgq = venueGroupId ? `?venue_group_id=${encodeURIComponent(venueGroupId)}` : "";
   const r = await fetch(`${SR_BASE}/clients/${encodeURIComponent(id)}${vgq}`, {
@@ -169,6 +239,7 @@ async function guestProfile(
   }
 
   const num = (v: unknown) => { const n = Number(v); return isFinite(n) ? n : 0; };
+  const visitList = withVisits ? srFindVisits(c) : [];
   const vstats = (venueId && c.venue_stats && typeof c.venue_stats === "object")
     ? (c.venue_stats as any)[venueId] : null;
   const s: any = vstats || c;
@@ -197,6 +268,20 @@ async function guestProfile(
     note: c.notes ? String(c.notes).replace(/\s+/g, " ").trim() : null,
     tags,
     first_seen: c.created || null,
+    // The per-visit history behind the "Last here" cell. Newest first, and the
+    // caller decides how many to show -- the app asks for 3, but capping at the
+    // source would make this useless for anything else later.
+    //
+    // `visits_have` distinguishes "SevenRooms sent no list" from "this guest
+    // has never been", which look identical once the array is empty. The app
+    // needs that difference to avoid telling a 63-visit guest they have no
+    // history if the API shape ever moves.
+    visits_have: visitList.length > 0,
+    visits_recent: visitList
+      .map((r) => srVisitRow(r, num))
+      .filter((v) => v.date)
+      .sort((a, b) => (a.date! < b.date! ? 1 : a.date! > b.date! ? -1 : 0))
+      .slice(0, 12),
   };
 }
 serve(async (req) => {
@@ -568,9 +653,44 @@ serve(async (req) => {
     // ?guest=<client id>&venue=<venue id> -> that guest's history. See
     // guestProfile() above for what is and is not returned, and why the venue
     // figures are the only ones safe to show.
+    // ---- GUEST RECORD SHAPE PROBE: ?guestkeys=<client id> --------------------
+    // Not used by the app. It exists because SevenRooms' API docs are behind an
+    // account login, so the only way to know what /clients actually returns is
+    // to ask it. Prints FIELD NAMES and array sizes only -- never a value, so it
+    // cannot leak a guest. If the visits list ever comes back empty for a guest
+    // who plainly has history, this says whether the list is absent or just
+    // under a name the finder does not recognise.
+    const guestKeys = reqUrl.searchParams.get("guestkeys");
+    if (guestKeys) {
+      const vgq = venueGroupId ? `?venue_group_id=${encodeURIComponent(venueGroupId)}` : "";
+      const rk = await fetch(`${SR_BASE}/clients/${encodeURIComponent(guestKeys)}${vgq}`, {
+        method: "GET", headers: { "Authorization": token, "Accept": "application/json" },
+      });
+      const bk = await rk.json();
+      const ck = bk?.data?.results?.[0] ?? bk?.data ?? bk;
+      const arrays: Record<string, any> = {};
+      for (const k of Object.keys(ck || {})) {
+        const v = (ck as any)[k];
+        if (Array.isArray(v)) {
+          arrays[k] = {
+            length: v.length,
+            // First entry's KEYS only. A reservation history announces itself by
+            // carrying a date field; this is what tells us which array it is.
+            first_row_keys: v[0] && typeof v[0] === "object" ? Object.keys(v[0]) : typeof v[0],
+          };
+        }
+      }
+      return new Response(JSON.stringify({
+        ok: true, status: rk.status,
+        record_keys: Object.keys(ck || {}),
+        arrays,
+        found_by_finder: srFindVisits(ck).length,
+      }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     const guest = reqUrl.searchParams.get("guest");
     if (guest) {
-      const p = await guestProfile(token, venueGroupId, guest, reqUrl.searchParams.get("venue"));
+      const p = await guestProfile(token, venueGroupId, guest, reqUrl.searchParams.get("venue"), true);
       return new Response(JSON.stringify({ ok: true, ...p }), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
