@@ -198,7 +198,9 @@ async function stLoadPrevMonth(){
     var c = countByItem[it.id]; if(!c) return;
     var price = stPriceForUnit(it, c.unit);
     var qtyShown = stIsYield(it) ? stEffQtyRound(it, c.qty) : Number(c.qty);   // grossed-up purchase weight
-    var val = price * stEffQty(it, c.qty);
+    // rounded per line, same as stLineValue, so the prior-month side of every
+    // comparison ties to the fil too
+    var val = Math.round(price * stEffQty(it, c.qty) * 100)/100;
     // name/group carried too: an item counted last month can be MISSING from this
     // month's uploaded list entirely, and the compare panel still has to name it.
     var k = stRefKey(it), ex = stPrevRef[k];
