@@ -688,6 +688,61 @@ serve(async (req) => {
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- WHERE DOES A GUEST'S VISIT HISTORY LIVE? ?visitprobe=<client id> ----
+    // Settled 1 Aug 2026 by ?guestkeys= above: /clients/{id} returns 63 fields
+    // and NOT ONE of them is a reservation list -- so the per-visit history the
+    // hosts read on the SevenRooms profile screen comes from somewhere else.
+    // This asks every plausible somewhere in one call and reports what answers.
+    //
+    // Field names and row counts only, never a value. Deliberately kept after
+    // the answer is known: the next person to ask "can we get X from SevenRooms"
+    // should re-run this rather than guess, because the docs are account-gated.
+    const visitProbe = reqUrl.searchParams.get("visitprobe");
+    if (visitProbe) {
+      const vg = venueGroupId || "";
+      const id = encodeURIComponent(visitProbe);
+      // A date window on the /reservations attempts because that endpoint has
+      // always demanded one -- without it a 400 would look like "no such filter"
+      // when it really means "you forgot the dates".
+      const win = "from_date=2015-01-01&to_date=2026-12-31";
+      const candidates = [
+        `/clients/${id}/reservations`,
+        `/clients/${id}/visits`,
+        `/clients/${id}/reservation_history`,
+        `/clients/${id}/history`,
+        `/reservations?client_id=${id}&${win}`,
+        `/reservations?venue_group_client_id=${id}&${win}`,
+        `/reservations?client=${id}&${win}`,
+        `/reservations?client_id=${id}`,
+      ];
+      const results: any[] = [];
+      for (const path of candidates) {
+        const url = new URL(SR_BASE + path);
+        if (vg && !url.searchParams.get("venue_group_id")) url.searchParams.set("venue_group_id", vg);
+        try {
+          const r = await fetch(url.toString(), {
+            method: "GET", headers: { Authorization: token, Accept: "application/json" },
+          });
+          let rows: any = null, sampleKeys: any = null;
+          if (r.ok) {
+            const b = await r.json();
+            const d = b?.data ?? b;
+            const arr = Array.isArray(d) ? d : (Array.isArray(d?.results) ? d.results : null);
+            rows = arr ? arr.length : null;
+            sampleKeys = arr && arr[0] && typeof arr[0] === "object" ? Object.keys(arr[0]).slice(0, 25) : null;
+          }
+          results.push({ path: path.replace(id, "<id>"), status: r.status, ok: r.ok, rows, sampleKeys });
+        } catch (e) {
+          results.push({ path: path.replace(id, "<id>"), status: "threw", error: String(e).slice(0, 120) });
+        }
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        answered: results.filter((x) => x.ok && x.rows).map((x) => x.path),
+        results,
+      }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     const guest = reqUrl.searchParams.get("guest");
     if (guest) {
       const p = await guestProfile(token, venueGroupId, guest, reqUrl.searchParams.get("venue"), true);
