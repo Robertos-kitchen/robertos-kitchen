@@ -115,6 +115,7 @@ var stUser    = null;        // { emp_id, name }  (null until signed in)
 var stSearch  = '';
 var stCatFilters = [];       // [] = all categories, else list of item_group names to show
 var stCountFilter = '';      // '' | 'counted' | 'uncounted' — which items to show
+var stKindFilter = '';       // '' = everything | 'ingredient' | 'batch' (see stMatchesKind)
 var stSortBy = '';           // '' | 'value' — highest value first, to spot mis-entries fast
 var stUnitSel = {};          // item_id -> chosen unit (for 2-unit items)
 var stChannel = null;
@@ -406,10 +407,46 @@ async function stAddQty(itemId, value){
   if(addBox){ addBox.value=''; }   // clear, ready for the next person
 }
 
+// ── ingredients vs batches ───────────────────────────────────────────────
+// The cost controller's list already separates them: an in-house preparation
+// sits in an item group starting "Batch Recipe" ("Batch Recipe (Food)", 191 of
+// July's 700 items; "Batch Recipe (Bar)"). Everything else is a bought
+// ingredient. Splitting the two means a chef counting the walk-in isn't
+// scrolling past 191 prep items to find the beef.
+//
+// ADDED ITEMS APPEAR IN BOTH VIEWS. The "+ Add missing item" ones were typed in
+// by hand and nobody classified them, and July's 23 are genuinely mixed —
+// Ravioli, Cook spinach, Caccio Pepe butter are preps; Kelp, Mix nuts, Amalfi
+// lemon are ingredients. Guessing would drop items off whichever list they were
+// guessed out of, and an item nobody sees is an item nobody counts. Showing one
+// twice costs a glance; missing one costs the count.
+function stIsBatch(it){ return /^batch recipe/i.test(String(it.item_group||'')); }
+function stIsUnclassified(it){ return !!it.is_added; }
+function stMatchesKind(it){
+  if(stKindFilter==='batch')      return stIsBatch(it) || stIsUnclassified(it);
+  if(stKindFilter==='ingredient') return !stIsBatch(it);
+  return true;
+}
+// only offer the toggle where the list actually has both kinds
+function stSheetHasBatches(){ return stItems.some(stIsBatch); }
+// how much of the CURRENT view is done — "126 of 192 counted" beats a whole-sheet
+// number when someone is working through just the batches.
+function stKindProgress(){
+  var shown=0, done=0;
+  stItems.forEach(function(it){
+    if(!stMatchesKind(it)) return;
+    if(stCatFilters.length && stCatFilters.indexOf(it.item_group||'Other')===-1) return;
+    shown++;
+    var c=stCounts[it.id]; if(c && c.qty!=null) done++;
+  });
+  return { shown:shown, counted:done };
+}
+
 // ── derived ──
 function stFilteredItems(){
   var q = stSearch.toLowerCase();
   var out = stItems.filter(function(it){
+    if(!stMatchesKind(it)) return false;
     if(stCatFilters.length && stCatFilters.indexOf(it.item_group||'Other')===-1) return false;
     var c=stCounts[it.id], counted = !!(c && c.qty!=null);
     if(stCountFilter==='counted' && !counted) return false;
@@ -430,12 +467,23 @@ function stDisplayQty(it){ var c=stCounts[it.id]; if(!c||c.qty==null) return nul
 function stLineValue(it){ var c = stCounts[it.id]; if(!c||c.qty==null) return 0; return Math.round(stDisplayQty(it)*stItemPrice(it)*100)/100; }
 function stGrandTotal(){ var t=0; stItems.forEach(function(it){ t+=stLineValue(it); }); return t; }
 function stCountedCount(){ var n=0; stItems.forEach(function(it){ var c=stCounts[it.id]; if(c&&c.qty!=null) n++; }); return n; }
-function stCategoryTotal(){ var t=0; stItems.forEach(function(it){ if(!stCatFilters.length||stCatFilters.indexOf(it.item_group||'Other')>-1) t+=stLineValue(it); }); return t; }
+// Total for what the category + ingredient/batch filters are showing, so the
+// number under the toolbar always describes the list underneath it.
+function stCategoryTotal(){ var t=0; stItems.forEach(function(it){ if(!stMatchesKind(it)) return; if(!stCatFilters.length||stCatFilters.indexOf(it.item_group||'Other')>-1) t+=stLineValue(it); }); return t; }
 // label for the category bar: "All categories" · a single name · "N categories"
 function stCatLabelText(){
   if(!stCatFilters.length) return 'All categories';
   if(stCatFilters.length===1) return stCatFilters[0];
   return stCatFilters.length+' categories';
+}
+// The line under the toolbar: what you are looking at, and how much of THIS
+// list is done. The whole-sheet "418 / 700" at the top can't answer that once
+// someone is working through only the batches.
+function stViewLabelText(){
+  var kind = stKindFilter==='batch' ? 'Batches' : stKindFilter==='ingredient' ? 'Ingredients' : '';
+  var base = [kind, stCatLabelText()].filter(Boolean).join(' · ');
+  var p = stKindProgress();
+  return base + ' · ' + p.counted + ' of ' + p.shown + ' counted';
 }
 // once the cost controller finalizes a month, it's locked — no more entering/adjusting/clearing counts
 function stIsLocked(){ return !!(stSheet && stSheet.locked); }
@@ -453,7 +501,10 @@ function stInjectCss(){
     '.st-who b{color:#410207}'+
     '.st-toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:0 14px;margin:8px 0}'+
     '.st-toolbar .check-input,.st-toolbar .check-select{height:36px}'+
-    '.st-catbar{display:flex;align-items:center;justify-content:space-between;padding:8px 14px 2px;font-size:13px}'+
+    '.st-kindbar{display:flex;gap:8px;padding:8px 14px 0}'+
+    '.st-kindbtn{flex:1;min-height:42px;border:1px solid #c9a84c;background:#fff;color:#7a1218;font-weight:700;font-size:13px;border-radius:10px;cursor:pointer;padding:4px 6px}'+
+    '.st-kindbtn.active{background:#410207;color:#f5ede0;border-color:#410207}'+
+    '.st-catbar{display:flex;align-items:center;justify-content:space-between;padding:8px 14px 2px;font-size:13px;gap:10px;flex-wrap:wrap}'+
     '.st-catbar b{color:#410207}'+
     '.st-cat{background:#410207;color:#f5ede0;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;padding:6px 14px;margin-top:6px}'+
     '.st-row{padding:9px 14px;border-bottom:1px solid #e8ddc9;transition:background .12s}'+
@@ -564,7 +615,14 @@ function stRender(){
       '</select>'+
       (stIsSuper()?'<button class="report-btn" onclick="stShowUpload()">Upload month</button>':'')+
     '</div>'+
-    '<div class="st-catbar"><span id="st-catlabel">'+stEsc(stCatLabelText())+'</span>'+
+    // Ingredients / Batches — only where the list actually holds both kinds, so
+    // a sheet without prep items never grows a control that does nothing.
+    (stSheetHasBatches() ? '<div class="st-kindbar">'+
+      [['','Everything'],['ingredient','Ingredients'],['batch','Batches']].map(function(k){
+        return '<button class="st-kindbtn'+(stKindFilter===k[0]?' active':'')+'" onclick="stOnKind(\''+k[0]+'\')">'+k[1]+'</button>';
+      }).join('')+
+    '</div>' : '')+
+    '<div class="st-catbar"><span id="st-catlabel">'+stEsc(stViewLabelText())+'</span>'+
       '<span class="st-muted">category total <b id="st-catsub">'+stMoney(stCategoryTotal())+'</b></span></div>'+
     (stUser? '<div class="st-actions">'+
         '<button class="report-btn" onclick="stReviewSend()">Email to Aung</button>'+
@@ -666,7 +724,9 @@ function stRenderTotals(){
   var g=document.getElementById('st-grand'); if(g) g.textContent = stMoney(stGrandTotal());
   var n=document.getElementById('st-counted'); if(n) n.textContent = stCountedCount();
   var s=document.getElementById('st-catsub'); if(s) s.textContent = stMoney(stCategoryTotal());
-  var l=document.getElementById('st-catlabel'); if(l) l.textContent = stCatLabelText();
+  // the view line carries the "x of y counted" progress, so it has to refresh on
+  // every saved count, not just on a re-render
+  var l=document.getElementById('st-catlabel'); if(l) l.textContent = stViewLabelText();
   var b=document.getElementById('st-cat-btn'); if(b) b.textContent = stCatLabelText()+' ▾';
 }
 
@@ -710,6 +770,7 @@ function stApplyCatFilter(btn){
   stRenderRows(); stRenderTotals();
 }
 function stOnCountFilter(v){ stCountFilter=v; stRenderRows(); }
+function stOnKind(v){ stKindFilter=v; stRender(); }
 function stOnSort(v){ stSortBy=v; stRenderRows(); }
 // ── lock / unlock a finalized month: once locked, nobody can enter, add-to,
 // clear, add-missing-item, or re-upload over this month. Email/Excel/Print
