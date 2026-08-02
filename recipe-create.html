@@ -824,11 +824,19 @@ var SECTIONS = ['Crudo','Antipasti','Salad / Soup','Pizza','Pasta','Main','Desse
    Written on the same sheet as the ingredients. Nothing opens: four boxes that
    grow as you type. A recipe with no method saves perfectly well — the boxes are
    simply empty, and an empty one is never shown as a problem. */
+/* the shape that is STORED, which is wider than the shape that is SHOWN */
+var MKEYS = ['mise','method','order','plating'];
+
+/* One box. It was four — mise en place, method, to order, plating — split by when
+   the work happens in the day. Francesco's call on 2 August: he writes the method and
+   nothing else, and three boxes nobody fills are three boxes to scroll past on every
+   recipe. Not one of the eight recipes written so far had used them.
+
+   The keys stay in the stored shape (see emptyMethod) so anything written before is
+   still read and still printed by the pass card — dropping a box must never quietly
+   delete what somebody typed into it. */
 var MSEC = [
-  { k:'mise',    t:'Mise en place', p:'What has to be ready before service — cut, soaked, blanched, portioned.' },
-  { k:'method',  t:'Method',        p:'How it is made, step by step.' },
-  { k:'order',   t:'To order',      p:'What happens when the ticket comes in.' },
-  { k:'plating', t:'Plating',       p:'How it goes on the plate — where everything sits, what garnishes it.' }
+  { k:'method', t:'Method', p:'How it is made, step by step.' }
 ];
 /* ───────── the floor's half of the same recipe ─────────
    Everything the Food Bible page prints, written HERE, by the chef, on the same sheet
@@ -933,7 +941,10 @@ function normMethod(m){
   var out = emptyMethod();
   if (typeof m === 'string') { out.method = m; return out; }
   if (m && typeof m === 'object'){
-    MSEC.forEach(function(s){ if (typeof m[s.k] === 'string') out[s.k] = m[s.k]; });
+    /* MKEYS, not MSEC: the sheet only SHOWS Method now, but anything written under the
+       old headings is still carried through a save. A box disappearing off a screen
+       must never delete what somebody typed into it. */
+    MKEYS.forEach(function(k){ if (typeof m[k] === 'string') out[k] = m[k]; });
     FSEC.forEach(function(s){ if (typeof m[s.k] === 'string') out[s.k] = m[s.k]; });
     if (typeof m.code === 'string') out.code = m.code;
     /* only cutlery this restaurant actually sets — anything else came from a bad
@@ -959,20 +970,12 @@ function hasMethod(m){ return MSEC.some(function(s){ return (m && m[s.k] || '').
 function parseMethod(text){
   var out = emptyMethod();
   if (!text) return out;
-  var cur = 'method', hit = false, buf = { mise:[], method:[], order:[], plating:[] };
-  String(text).split(/\r?\n/).forEach(function(raw){
-    var l = raw.trim(), h = null;
-    if (/^mise[\s-]*en[\s-]*place\b[\s:.-]*$/i.test(l))                       h = 'mise';
-    else if (/^plating(\s+method)?\b[\s:.-]*$/i.test(l))                      h = 'plating';
-    else if (/^(to\s+order|à\s*la\s*minute|a\s*la\s*minute|pick[\s-]?up|on\s+order|service)\b[\s:.-]*$/i.test(l)) h = 'order';
-    else if (/^(preparation\s+)?method\b[\s:.-]*$/i.test(l))                  h = 'method';
-    if (h){ cur = h; hit = true; return; }
-    buf[cur].push(raw);
-  });
-  if (!hit){ out.method = String(text).trim(); return out; }
-  MSEC.forEach(function(s){
-    out[s.k] = buf[s.k].join('\n').replace(/\n{3,}/g,'\n\n').trim();
-  });
+  /* It used to deal the lines out under the four headings. There is one box now, so
+     the whole thing goes into it — his own headings kept exactly as he typed them,
+     because they are part of what he wrote. Splitting into boxes that no longer exist
+     would have binned everything his workbooks put under "Mise en Place" and
+     "Plating Method", which is most of what they say. */
+  out.method = String(text).replace(/\r/g,'').replace(/\n{3,}/g,'\n\n').trim();
   return out;
 }
 
@@ -3063,7 +3066,7 @@ function methodInner(){
   var ph = S.photos || [];
   return '<div class="mhd">How it is made</div>' +
     '<div class="msub">Written here, saved with the recipe, and read off the same sheet at the pass. ' +
-      'Leave anything you don’t use empty — nothing here has to be filled in.</div>' +
+      'It can be left empty — a recipe with no method saves perfectly well.</div>' +
     MSEC.map(function(s){
       var v = (S.method && S.method[s.k]) || '';
       return '<div class="msec">' +
