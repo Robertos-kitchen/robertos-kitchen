@@ -1180,7 +1180,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
     <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
-    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
+    <button class="home-tile compact" onclick="openRecipeCreate()"><span class="home-code">RCP</span><span><span class="home-name">Write a dish</span><span class="home-meta">Ingredients, method, allergens, photo</span></span></button>
+    <button class="home-tile compact" onclick="openRecipeCard()"><span class="home-code">PASS</span><span><span class="home-name">How it&rsquo;s made</span><span class="home-meta">The station card &mdash; dish and its batches</span></span></button>
+    <button class="home-tile compact" onclick="openFoodBible()"><span class="home-code">FOH</span><span><span class="home-name">For the floor</span><span class="home-meta">One dish, one A4 &mdash; the Food Bible</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
   </div>
@@ -1249,7 +1251,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="order-view" class="ops-view" style="display:none"></div>
 <div id="fish-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
+<!-- Three recipe screens, one live record. Each is filled the first time its tile is
+     opened and then left alone, so a half-written recipe survives a trip to another
+     screen and back. -->
 <div id="recipes-view" class="ops-view" style="display:none"></div>
+<div id="recipecard-view" class="ops-view" style="display:none"></div>
+<div id="foodbible-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1284,8 +1291,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <script src="market-list.js?v=1784460000"></script>
 <script src="fish-display.js?v=1786000000"></script>
-<!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
-     on demand to keep cold-boot light on the always-on screens. -->
+<!-- closing-report.js / team.js are large and open rarely; load them on demand to
+     keep cold-boot light on the always-on screens. -->
 <script>
   window._lazyLoaded = window._lazyLoaded || {};
   window.lazyLoad = function(src){
@@ -1297,8 +1304,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     });
     return window._lazyLoaded[src];
   };
-  // Recipe data needed by app.js's renderRecipes(); fetched on demand.
-  window.LAZY_RECIPES = 'recipes.js?v=1784460000';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
   function openClosingReport(){ lazyLoad('closing-report.js?v=1784570000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
@@ -1321,7 +1326,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1786250000"></script>
+<script src="app.js?v=1786400000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

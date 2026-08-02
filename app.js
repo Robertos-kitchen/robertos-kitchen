@@ -144,7 +144,6 @@ const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 let STATIONS = [];
 let state = {};
 let chefChecks = [];
-let activeRecipeId = null;
 let activeCheckStation = null;
 let activeStation = PASS_KEY;
 let activeFilter = null;
@@ -1359,77 +1358,14 @@ async function applyReports(){
 }
 
 // â”€â”€ RECIPES â”€â”€
-function recipeItems(){return Array.isArray(window.RECIPES)?window.RECIPES:[];}
+// escHtml stays here — 23 other places in this file use it.
 function escHtml(v){return String(v??'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
-function recipeQualityLabel(q){
-  return {good:'Full recipe',ingredients_only:'Ingredients only',needs_cleanup:'Needs cleanup',menu_text:'Menu text'}[q]||q;
-}
-function recipeOptions(field,label){
-  return [`<option value="">All ${label}</option>`,...[...new Set(recipeItems().map(r=>r[field]||'Unsorted'))].sort().map(v=>`<option value="${escHtml(v)}">${escHtml(v)}</option>`)].join('');
-}
-function recipeRowsFiltered(){
-  const q=(document.getElementById('recipe-search')?.value||'').toLowerCase();
-  const menu=document.getElementById('recipe-menu')?.value||'';
-  const station=document.getElementById('recipe-station')?.value||'';
-  const quality=document.getElementById('recipe-quality')?.value||'';
-  return recipeItems().filter(r=>{
-    const text=[r.title,r.sourceFile,r.menu,r.category,r.station,(r.ingredients||[]).join(' '),(r.method||[]).join(' ')].join(' ').toLowerCase();
-    return (!q||text.includes(q))&&(!menu||r.menu===menu)&&(!station||r.station===station)&&(!quality||r.quality===quality);
-  });
-}
-function renderRecipes(){
-  document.getElementById('recipes-view').innerHTML=`
-    <div class="ops-title">Recipes</div>
-    <div class="ops-subtitle">${recipeItems().length} extracted recipe records · searchable library</div>
-    <div class="order-toolbar">
-      <div class="report-filter-grid">
-        <div class="check-field"><div class="check-label">Search recipe</div><input class="check-input" id="recipe-search" placeholder="Ricciola, basil oil, tiramisu..." oninput="renderRecipeRows()"></div>
-        <div class="check-field"><div class="check-label">Menu</div><select class="check-select" id="recipe-menu" onchange="renderRecipeRows()">${recipeOptions('menu','menus')}</select></div>
-        <div class="check-field"><div class="check-label">Station</div><select class="check-select" id="recipe-station" onchange="renderRecipeRows()">${recipeOptions('station','stations')}</select></div>
-        <div class="check-field"><div class="check-label">Status</div><select class="check-select" id="recipe-quality" onchange="renderRecipeRows()"><option value="">All statuses</option><option value="good">Full recipe</option><option value="ingredients_only">Ingredients only</option><option value="needs_cleanup">Needs cleanup</option><option value="menu_text">Menu text</option></select></div>
-      </div>
-    </div>
-    <div class="recipe-layout">
-      <div id="recipe-list" class="recipe-list"></div>
-      <div id="recipe-detail" class="recipe-detail"></div>
-    </div>`;
-  renderRecipeRows();
-}
-function renderRecipeRows(){
-  const rows=recipeRowsFiltered();
-  if(!rows.find(r=>r.id===activeRecipeId))activeRecipeId=rows[0]?.id||null;
-  const list=rows.length?rows.slice(0,220).map(r=>`
-    <button class="recipe-row${r.id===activeRecipeId?' active':''}" onclick="selectRecipe('${r.id}')">
-      <div class="recipe-title">${escHtml(r.title)}</div>
-      <div class="recipe-meta">${escHtml(r.menu)} · ${escHtml(r.category)} · ${escHtml(r.station)}</div>
-      <span class="recipe-quality ${escHtml(r.quality)}">${recipeQualityLabel(r.quality)}</span>
-    </button>`).join(''):`<div class="recipe-empty">No recipes match these filters</div>`;
-  document.getElementById('recipe-list').innerHTML=list+(rows.length>220?`<div class="recipe-empty">Showing first 220 recipes. Use search or filters to narrow the list.</div>`:'');
-  renderRecipeDetail();
-}
-function selectRecipe(id){
-  activeRecipeId=id;
-  renderRecipeRows();
-}
-function renderRecipeDetail(){
-  const el=document.getElementById('recipe-detail');
-  const r=recipeItems().find(x=>x.id===activeRecipeId);
-  if(!r){el.innerHTML='<div class="recipe-empty">Select a recipe to view details</div>';return;}
-  const ingredients=(r.ingredients||[]).length?(r.ingredients||[]).map(x=>`<li>${escHtml(x)}</li>`).join(''):'<li>Ingredient detail needs cleanup from source file.</li>';
-  const method=(r.method||[]).length?(r.method||[]).map(x=>`<li>${escHtml(x)}</li>`).join(''):'<li>Method not available in extracted sheet yet.</li>';
-  const notes=(r.notes||[]).length?`<div style="grid-column:1/-1"><div class="recipe-section-title">Notes</div><ul>${r.notes.map(x=>`<li>${escHtml(x)}</li>`).join('')}</ul></div>`:'';
-  el.innerHTML=`
-    <div class="recipe-detail-head">
-      <div class="recipe-detail-title">${escHtml(r.title)}</div>
-      <div class="recipe-detail-meta">${escHtml(r.menu)} · ${escHtml(r.category)} · ${escHtml(r.station)} · ${recipeQualityLabel(r.quality)}</div>
-    </div>
-    <div class="recipe-detail-body">
-      <div><div class="recipe-section-title">Ingredients</div><ul>${ingredients}</ul></div>
-      <div><div class="recipe-section-title">Method</div><ol>${method}</ol></div>
-      ${notes}
-    </div>
-    <div class="recipe-source">Source: ${escHtml(r.sourceFile)} · ${escHtml(r.relativePath)}</div>`;
-}
+
+// The old Recipes library — a searchable dump of 524 extracted sheets, most of them
+// with no method at all — was replaced on 2 Aug 2026 by three screens that share ONE
+// live record: write the dish, how it is made, for the floor. Each is its own page
+// and its own tile on the home screen. See openRecipeCreate / openRecipeCard /
+// openFoodBible below; the data file recipes.js is gone with it.
 
 // â”€â”€ REPORT VIEW â”€â”€
 async function loadReport() {
@@ -1899,7 +1835,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2185,27 +2121,59 @@ function openReports(){
   renderReports();
 }
 function openOrderInventory(){ openMarketList(); }
-function openRecipes(){
+// â”€â”€ RECIPES â€” three screens, one record â”€â”€
+// The dish is written once and read by the pass and the floor. Each screen gets its
+// own tile and its own view, so any of the three is one tap from home â€” nobody has
+// to go "into recipes" and then hunt for the right one.
+//
+// Each is a page of its own, shown in its view. It is only built the first time that
+// tile is opened, and then left alone: rebuilding it on every open would throw away a
+// half-written recipe, which is the one thing this module must never do.
+function openRecipeScreen(viewId, page, label){
   activeStation=RECIPES_KEY;
   hideAllPages();
-  document.getElementById('recipes-view').style.display='block';
+  var v=document.getElementById(viewId);
+  if(v){
+    v.style.display='block';
+    if(!v.firstChild){
+      var f=document.createElement('iframe');
+      f.src=page; f.title=label; f.loading='eager';
+      f.style.cssText='display:block;width:100%;height:100%;border:none;background:var(--sabbia)';
+      v.style.cssText='padding:0;display:block';
+      v.appendChild(f);
+    }
+  }
   document.querySelector('.footer-bar').style.display='flex';
-  document.getElementById('foot-label').textContent='Recipes';
-  if(Array.isArray(window.RECIPES)){ renderRecipes(); return; }
-  // First open: pull the recipe data on demand, then render.
-  var rv=document.getElementById('recipes-view');
-  if(rv) rv.innerHTML='<div style="padding:40px;text-align:center;opacity:.6">Loading recipes…</div>';
-  lazyLoad(window.LAZY_RECIPES||'recipes.js')
-    .then(function(){ renderRecipes(); })
-    .catch(function(){ if(rv) rv.innerHTML='<div style="padding:40px;text-align:center;opacity:.6">Could not load recipes. Check the connection and try again.</div>'; });
+  document.getElementById('foot-label').textContent=label;
+  fitRecipeScreen();
 }
+// The header wraps on a phone and the footer is a different height on a tablet, so a
+// fixed "100vh minus 116px" is wrong on most devices — it either leaves a dead strip
+// or pushes the last line under the footer bar. Measure where the view actually
+// starts and how tall the footer actually is, every time it opens and on every turn
+// of the screen.
+function fitRecipeScreen(){
+  var v=['recipes-view','recipecard-view','foodbible-view']
+    .map(function(id){return document.getElementById(id);})
+    .filter(function(el){return el&&el.style.display==='block';})[0];
+  if(!v) return;
+  var foot=document.querySelector('.footer-bar');
+  var footH=(foot&&getComputedStyle(foot).display!=='none')?foot.getBoundingClientRect().height:0;
+  var h=window.innerHeight - v.getBoundingClientRect().top - footH;
+  v.style.height=Math.max(320,Math.round(h))+'px';
+}
+window.addEventListener('resize', fitRecipeScreen);
+window.addEventListener('orientationchange', function(){ setTimeout(fitRecipeScreen, 250); });
+function openRecipeCreate(){ openRecipeScreen('recipes-view','recipe-create.html?embed=1','Write a dish'); }
+function openRecipeCard(){ openRecipeScreen('recipecard-view','recipe-card.html?embed=1','How it’s made'); }
+function openFoodBible(){ openRecipeScreen('foodbible-view','food-bible.html?embed=1','For the floor'); }
 
 // â”€â”€ SWITCH STATION â”€â”€
 function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
