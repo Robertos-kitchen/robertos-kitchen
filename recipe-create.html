@@ -1005,6 +1005,10 @@ if (IS_DEV_HOST){
   window.addEventListener('DOMContentLoaded', function(){
     var b = document.createElement('div');
     b.textContent = DEV_READ_ONLY ? 'DEV · read-only' : 'DEV · WRITES ON';
+    /* It sat at bottom:8px, which is on top of the costing bar — the badge is the
+       one thing on the page allowed to cover the sheet, and it was covering the
+       numbers instead. It rides above the bar, whatever height the bar is. */
+    b.id = 'devbadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;padding:5px 12px;border-radius:14px;' +
       'font:700 11px/1.3 system-ui,sans-serif;letter-spacing:.4px;cursor:pointer;color:#fff;' +
       'box-shadow:0 2px 8px rgba(0,0,0,.25);background:' + (DEV_READ_ONLY ? '#6B1F2A' : '#B00020');
@@ -3262,6 +3266,8 @@ function padForFoot(){
   var f = $('foot');
   var h = (f && f.style.display !== 'none') ? f.getBoundingClientRect().height : 0;
   document.body.style.paddingBottom = h ? (Math.round(h) + 14) + 'px' : '';
+  var dev = document.getElementById('devbadge');
+  if (dev) dev.style.bottom = (h ? Math.round(h) + 8 : 8) + 'px';
 }
 window.addEventListener('resize', padForFoot);
 
