@@ -2400,8 +2400,15 @@ function rowHTML(r, i){
     '</optgroup></select>';
 
   var fix = r.opts.length ? null : didYouMean(r.word);
+  /* Burrata on the sheet twice is two lines, two costs, and both of them count. It is
+     nearly always two goes at typing the same thing rather than a deliberate split —
+     so it is said, on both lines, and never changed for him: a dish that really does
+     use olive oil in two places is a normal dish. */
+  var twice = r.code ? S.rows.filter(function(x){ return x.code === r.code; }).length : 0;
   /* one short line, never a paragraph — the sheet must read at a glance */
-  var sub = (it && it.myBatch && it.problem)
+  var sub = twice > 1        ? '<i class="many">on this sheet ' + (twice===2?'twice':twice+' times') +
+                               ' — both lines are counted in the cost</i>'
+          : (it && it.myBatch && it.problem)
                                ? '<i class="stale">no cost yet — '+esc(it.problem)+'</i>'
           : (it && it.myBatch) ? '<i class="one">'+fmt(it.price)+' a '+(it.unit==='pcs'?'piece':it.unit)+', from what goes in it</i>'
           : noPriceYet(it)     ? '<i class="stale">no price on the July list — costs more than shown</i>'
@@ -3026,7 +3033,13 @@ document.addEventListener('change', function(e){
       if (!r.typedUnit && r.qty != null && baseOf(_it) !== 'pcs'){ r.bare = r.qty; r.qty = null; }
       if (baseOf(_it) === 'pcs'){ r.bare = null; r.noMeasure = false; }
     }
-    redrawRow(+i); foot(); swapbar();
+    /* the "on this sheet twice" note lives on BOTH lines, and the other one is not
+       the row being redrawn — so when a pick creates or clears a pair, the sheet is
+       drawn, not the row. Everything else stays a single-row redraw. */
+    var pair = r.code && S.rows.filter(function(x){ return x.code === r.code; }).length > 1;
+    var wasPair = oldCode && S.rows.filter(function(x){ return x.code === oldCode; }).length === 1;
+    if (pair || wasPair) rows(); else redrawRow(+i);
+    foot(); swapbar();
     var next = -1;                                          /* stay in the Ingredient column */
     for (var k=+i+1;k<S.rows.length;k++) if (!S.rows[k].code){ next=k; break; }
     if (next > -1){ var s = document.querySelector('.prod[data-i="'+next+'"]'); if (s) s.focus(); }
