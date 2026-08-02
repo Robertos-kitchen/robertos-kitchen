@@ -164,6 +164,13 @@ td.per{font-size:11px;color:var(--vino-light);white-space:nowrap}
 .addbox .why{font-size:11.5px;color:var(--vino-light);line-height:1.55;margin-top:10px}
 .addbox .why b{color:var(--vino)}
 .addbox .err{font-size:12px;color:var(--attn);margin-top:8px;font-weight:600}
+.mrm{font-family:var(--sans);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  background:none;border:none;color:var(--vino);opacity:.5;cursor:pointer;padding:4px 2px;white-space:nowrap}
+.mrm:hover{opacity:1;text-decoration:underline}
+.mrm:disabled{opacity:.3;cursor:default;text-decoration:none}
+/* on a phone the sheet rows wrap and Remove lands on its own line — give it a thumb */
+@media (pointer:coarse){ .mrm{padding:12px 10px;font-size:12px} }
+.lnote .bad{color:#8d1f1f}
 .mine{display:inline-block;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;background:var(--oliva);color:#fff;border-radius:2px;padding:2px 6px;margin-right:6px;vertical-align:1px}
 .lnote{padding:13px 16px;font-size:12px;color:var(--vino-light);line-height:1.6}
 .lnote b{color:var(--vino)}
@@ -1204,6 +1211,106 @@ function loadSaved(){
     .catch(function(e){ S.saved=[]; S.listErr = e.message; });
 }
 
+/* ───────── the ingredients he added himself ─────────
+   Aung's list is the stock take and nothing else. This is the short list of things
+   that are not on it — tap water, a dough, something bought mid-month before the
+   sheet caught up.
+
+   It used to live in memory for one sitting. That is why the form's promise —
+   "it joins your list for every recipe" — was not true, and it mattered far more
+   than it looked: a line with no ingredient makes the WHOLE batch carry no cost,
+   so water inside Porcini stock quietly emptied the cost of every dish built on
+   it. It is a table now. */
+var MINE_ERR = null;
+
+function fromMineRow(r){
+  var p = Number(r.price) || 0;
+  return { code:r.code, name:r.name, group:r.group_name || 'Added by you',
+           unit:r.unit, price:p, units:[{ unit:r.unit, price:p }], mine:true, rowId:r.id };
+}
+/* Aung's sheet always wins. The moment his stock take carries the same code his
+   price takes over and this row is ignored — which is exactly what the add form
+   says on screen, and it has to be true or the sheet is pricing off an old number. */
+function loadMine(){
+  return sb('ingredients?venue_id=eq.robertos-difc&archived=is.false&select=*&order=created_at')
+    .then(function(list){
+      var have = {};
+      ING.forEach(function(i){ have[String(i.code).toLowerCase()] = 1; });
+      (list||[]).forEach(function(r){
+        if (have[String(r.code).toLowerCase()]) return;      /* Aung has it, or it is already loaded */
+        ING.push(fromMineRow(r));
+      });
+      MINE_ERR = null;
+      var ni = $('nitems'); if (ni) ni.textContent = ING.length;
+    })
+    .catch(function(e){ MINE_ERR = e.message; });
+}
+/* Not a counter. A counter restarts at 1 every time the page loads, so the second
+   sitting mints MINE-1 again and writes it over the first one. */
+function mintCode(){
+  var s = 'MINE-', A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (var i=0;i<6;i++) s += A.charAt(Math.floor(Math.random()*A.length));
+  return s;
+}
+function saveMine(it){
+  return sb('ingredients', { method:'POST', body:{
+      code:it.code, name:it.name, group_name:it.group, unit:it.unit, price:it.price } })
+    .then(function(rows){ var r = rows && rows[0]; if (r) it.rowId = r.id; return it; });
+}
+/* Plain words for what the database says back */
+function minePlain(msg){
+  msg = String(msg||'');
+  if (/ingredients_name_live|duplicate key.*name/i.test(msg))
+    return 'Something on your list is already called that — use that one instead of adding it twice.';
+  if (/ingredients_code_live|duplicate key/i.test(msg))
+    return 'That code is already on your list.';
+  if (/relation .*ingredients.* does not exist|PGRST205/i.test(msg))
+    return 'The ingredients table is not there yet, so this cannot be kept.';
+  if (/row-level security/i.test(msg))
+    return 'The database would not accept it.';
+  if (/Failed to fetch|NetworkError/i.test(msg))
+    return 'No connection to the database.';
+  return msg;
+}
+/* Removing one is archiving it, the same as a recipe — but an ingredient that a
+   saved recipe is USING must not vanish, because that recipe would go straight back
+   to carrying no cost. So the recipes are asked first, and named. */
+function mineInUse(code){
+  /* the names come back with the query, not out of S.saved — that list is only loaded
+     once you have opened Saved recipes, so relying on it turned "Vitello Tonnato and
+     Polletto are using it" into a bare "1 saved recipe", which tells you nothing about
+     what to go and fix. recipe_lines points at recipes twice, so the join is named. */
+  return sb('recipe_lines?stock_code=eq.' + encodeURIComponent(code) +
+            '&select=recipe_id,recipes!recipe_lines_recipe_id_fkey(name,archived)')
+    .then(function(rows){
+      var seen = {}, names = [];
+      (rows||[]).forEach(function(r){
+        var rec = r.recipes;
+        if (!r.recipe_id || seen[r.recipe_id] || (rec && rec.archived)) return;
+        seen[r.recipe_id] = 1;
+        names.push((rec && rec.name) || 'a recipe');
+      });
+      return { n:names.length, names:names };
+    });
+}
+/* Re-running search() on a row is how a new ingredient becomes pickable in the sheet
+   you already have open. On its own it also THROWS AWAY whatever that row had picked,
+   if the pick does not happen to match the words typed — openRecipe hit the same trap
+   and repairs it the same way: put the picked item back on the front of the list. */
+function refreshOpts(){
+  (S.rows||[]).forEach(function(r){
+    r.opts = search(r.word);
+    if (r.code && !itemOf(r)){
+      var hit = pool().filter(function(i){ return i.code === r.code; })[0];
+      if (hit) r.opts = [hit].concat(r.opts);
+    }
+  });
+}
+function archiveMine(it){
+  return sb('ingredients?id=eq.'+it.rowId, { method:'PATCH', prefer:'return=minimal',
+    body:{ archived:true, updated_at:new Date().toISOString() } });
+}
+
 function openRecipe(id){
   /* two requests, not a join — recipe_lines points at recipes twice (its own, and a linked batch) */
   return loadBatches().then(function(){ return Promise.all([
@@ -1888,7 +1995,7 @@ function render(){
         'when his next stock take carries that code, <b>his price takes over automatically</b>.</div>' +
         '<div class="err" id="ae"></div></div>' +
       '<table class="sheet"><thead><tr><th>Code</th><th>Ingredient</th><th>Group</th>' +
-        '<th class="n">Price</th><th>Per</th><th class="n">Works out at</th><th class="n">Used in</th></tr>' +
+        '<th class="n">Price</th><th>Per</th><th class="n">Works out at</th><th class="n">Used in</th><th></th></tr>' +
         '<tbody id="ltb"></tbody></table><div class="lnote" id="lnote"></div>';
     var draw = function(){
       var q = $('lq').value.trim(), g = $('lg').value, ty = $('lt').value;
@@ -1911,7 +2018,12 @@ function render(){
           '<td class="per">'+esc(i.unit)+'</td>' +
           '<td class="money">'+(per==null ? '<span class="per" style="color:var(--attn)">unit not readable</span>'
                                             : fmt(per)+' <span class="per">/'+p.base+'</span>')+'</td>' +
-          '<td class="money">'+(used?'<b>'+used+'</b>':'<span class="per">—</span>')+'</td></tr>';
+          '<td class="money">'+(used?'<b>'+used+'</b>':'<span class="per">—</span>')+'</td>' +
+          /* Only the ones you added. Aung's stock take is his — nothing on this screen
+             can touch it. Removing yours archives it, the same as a recipe. */
+          '<td class="x">'+(i.mine && i.rowId
+            ? '<button class="mrm" data-mrm="'+esc(i.code)+'">Remove</button>'
+            : '')+'</td></tr>';
       }).join('');
       $('lnote').innerHTML = list.length + ' of ' + ING.length + ' shown' + (list.length>300 ? ' (first 300)' : '') +
         '. <b>Works out at</b> is the price per kilo or litre once the pack is opened up — ' +
@@ -1919,7 +2031,15 @@ function render(){
         (unread ? '<b>'+unread+'</b> have a unit the app can\'t read; those are listed for Aung rather than guessed. ' : '') +
         '<br><br><b>This list is Aung\'s newest stock take, and nothing else.</b> Earlier months are not used at all. ' +
         'When a stock take drops an item, any recipe using it carries no cost for that line and asks you to point ' +
-        'at what replaces it — an old price is a wrong price.';
+        'at what replaces it — an old price is a wrong price.' +
+        /* Say plainly whether the things he adds are being kept. This screen used to
+           promise it and not do it. */
+        (MINE_ERR
+          ? '<br><br><b class="bad">Your own ingredients cannot be read right now</b> — ' + esc(minePlain(MINE_ERR)) +
+            ' Anything you add will work for this sitting and will not come back. Say so before you rely on it.'
+          : '<br><br><b>Anything you add here is kept</b> and is on your list every time you open this screen, ' +
+            'marked <span class="mine">yours</span>. If Aung\'s next stock take carries the same code, ' +
+            '<b>his price takes over</b> and yours is ignored.');
     };
     if (S.find){                                     /* came from a row — land on that item */
       var hit = pool().filter(function(i){ return i.code === S.find; })[0];
@@ -2338,8 +2458,8 @@ function rowHTML(r, i){
       '<div class="f"><label>&nbsp;</label><label class="freebox">' +
         '<input type="checkbox" data-i="'+i+'" data-f="afr"'+(r.addFree?' checked':'')+'> costs nothing (water, ice)</label></div>' +
       '<div class="f"><label>&nbsp;</label><div>' +
-        '<button class="okb" data-addok="'+i+'">Add it</button> ' +
-        '<button class="cxb" data-addno="'+i+'">Cancel</button></div></div>' +
+        '<button class="okb" data-addok="'+i+'"'+(r.addBusy?' disabled':'')+'>'+(r.addBusy?'Adding…':'Add it')+'</button> ' +
+        '<button class="cxb" data-addno="'+i+'"'+(r.addBusy?' disabled':'')+'>Cancel</button></div></div>' +
       '<div class="exp">It joins your list for every recipe, marked as yours. ' +
         'Give it a real price or say it is free — there is no third answer, because a missing price ' +
         'makes every dish that uses it look cheaper than it is.' +
@@ -2356,7 +2476,8 @@ function rowHTML(r, i){
     '</div></td></tr>';
   return main + drop;
 }
-var MINE = 0;
+/* the session counter is gone — see mintCode(). It restarted at 1 every load, so the
+   second sitting minted MINE-1 again on top of the first one. */
 function wireAdd(draw){
   var b = $('ab'); if (!b) return;
   b.onclick = function(){
@@ -2369,17 +2490,31 @@ function wireAdd(draw){
     if (isNaN(price) || price < 0){ err.textContent = 'That price is not a number.'; $('ap').focus(); return; }
     if (code && ING.some(function(i){ return i.code === code; })){
       err.textContent = 'Code ' + code + ' is already on Aung\u2019s list \u2014 search for it instead of adding it twice.'; return; }
-    if (!code) code = 'NEW-' + (++MINE);
-    ING.push({ code:code, name:nm, group:grp, unit:unit, price:price, units:[], mine:true });
-    S.rows.forEach(function(r){ r.opts = search(r.word); });   /* it becomes pickable in the recipe at once */
-    $('an').value=''; $('ac').value=''; $('ap').value='';
-    err.style.color = 'var(--oliva)';
-    err.textContent = nm + ' added' + (price === 0 ? ' at no cost' : ' at ' + price.toFixed(2) + ' per ' + unit.toLowerCase()) +
-                      '. You can use it in a recipe now.';
-    setTimeout(function(){ if($('ae')){ $('ae').textContent=''; $('ae').style.color=''; } }, 5000);
-    $('nitems').textContent = ING.length;
-    draw();
-    $('an').focus();
+    if (ING.some(function(i){ return i.name.toLowerCase() === nm.toLowerCase(); })){
+      err.textContent = 'There is already something called \u201c' + nm + '\u201d on the list \u2014 use that one.'; return; }
+    if (!code) code = mintCode();
+    var it = { code:code, name:nm, group:grp, unit:unit, price:price,
+               units:[{ unit:unit, price:price }], mine:true };
+    /* It goes to the database FIRST. Putting it on screen and saving quietly behind
+       it is how the old version lied: it looked added, worked all sitting, and was
+       gone the next morning. If this fails he is told, and nothing pretends. */
+    b.disabled = true; var was = b.textContent; b.textContent = 'Adding\u2026';
+    err.style.color = ''; err.textContent = '';
+    saveMine(it).then(function(){
+      ING.push(it);
+      refreshOpts();                                           /* pickable in the recipe at once */
+      $('an').value=''; $('ac').value=''; $('ap').value='';
+      err.style.color = 'var(--oliva)';
+      err.textContent = nm + ' added \u2713' + (price === 0 ? ' at no cost' : ' at ' + price.toFixed(2) + ' per ' + unit.toLowerCase()) +
+                        '. It is on your list for every recipe from now on.';
+      setTimeout(function(){ if($('ae')){ $('ae').textContent=''; $('ae').style.color=''; } }, 6000);
+      $('nitems').textContent = ING.length;
+      draw();
+      $('an').focus();
+    }).catch(function(e){
+      err.style.color = '';
+      err.textContent = 'Not added \u2014 ' + minePlain(e.message) + ' Nothing was lost, what you typed is still here.';
+    }).then(function(){ b.disabled = false; b.textContent = was; });
   };
 }
 function rows(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); if (typeof fitBar==='function') fitBar(); }
@@ -3013,27 +3148,38 @@ document.addEventListener('click', function(e){
                   ? 'There is already something called "'+nm+'" on the list — pick that one.'
               : null;
     if (rr.addErr){ redrawRow(j); return; }
-    MINE++;
-    var it = { code:'MINE-'+MINE, name:nm, group:'Added by you', unit:un, price:pr,
+    /* Saved before it is used, not after. The line is about to point at this code,
+       and a code pointing at nothing is the whole bug: it costs the batch nothing
+       and takes the dish's food cost down with it. */
+    var it = { code:mintCode(), name:nm, group:'Added by you', unit:un, price:pr,
                units:[{ unit:un, price:pr }], mine:true };
-    ING.push(it);
-    var ni = $('nitems'); if (ni) ni.textContent = ING.length;
-    rr.opts = [it].concat(rr.opts); rr.code = it.code; rr.loose = false; rr.adding = false; rr.addErr = null;
-    /* He wrote "0.5 L", then said this thing is sold by the litre — so litres is the
-       answer, not the column default. Falling through to defUnit() turned 0.5 L into
-       0.5 ml: a cost a thousand times too small on the sheet he is pricing from, and
-       a thousand times too small again on the card somebody cooks from. */
-    var want = rr.unit || rr.typedUnit, allow = unitsFor(it);
-    if (want && allow.indexOf(want) > -1) rr.unit = want;
-    else {
-      rr.unit = defUnit(it);
-      /* He wrote litres and then said this is sold by the kilo. Those are different
-         measurements and turning one into the other quietly is how 0.5 L became
-         0.5 g. Same answer as picking a mismatched item off Aung's list: say so,
-         and make him put the number back. */
-      if (want && want !== '?' && rr.qty != null){ rr.mismatch = want; rr.qty = null; }
-    }
-    redrawRow(j); foot(); return;
+    rr.addBusy = true; rr.addErr = null; redrawRow(j);
+    saveMine(it).then(function(){
+      ING.push(it);
+      var ni = $('nitems'); if (ni) ni.textContent = ING.length;
+      rr.opts = [it].concat(rr.opts); rr.code = it.code; rr.loose = false;
+      rr.adding = false; rr.addErr = null; rr.addBusy = false;
+      /* He wrote "0.5 L", then said this thing is sold by the litre — so litres is the
+         answer, not the column default. Falling through to defUnit() turned 0.5 L into
+         0.5 ml: a cost a thousand times too small on the sheet he is pricing from, and
+         a thousand times too small again on the card somebody cooks from. */
+      var want = rr.unit || rr.typedUnit, allow = unitsFor(it);
+      if (want && allow.indexOf(want) > -1) rr.unit = want;
+      else {
+        rr.unit = defUnit(it);
+        /* He wrote litres and then said this is sold by the kilo. Those are different
+           measurements and turning one into the other quietly is how 0.5 L became
+           0.5 g. Same answer as picking a mismatched item off Aung's list: say so,
+           and make him put the number back. */
+        if (want && want !== '?' && rr.qty != null){ rr.mismatch = want; rr.qty = null; }
+      }
+      redrawRow(j); foot();
+    }).catch(function(err){
+      rr.addBusy = false;
+      rr.addErr = 'Not added — ' + minePlain(err.message) + ' What you typed is still here.';
+      redrawRow(j);
+    });
+    return;
   }
   var rm = e.target.closest('[data-rm]');
   if (rm){ S.rows.splice(+rm.dataset.rm,1); rows(); foot(); }
@@ -3148,6 +3294,41 @@ document.addEventListener('click', function(e){
   }
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
+
+  /* Removing one of your own ingredients. A saved recipe that is USING it must not
+     lose it — that recipe would go straight back to carrying no cost, which is the
+     exact thing this table was added to stop. So the recipes are asked first, and
+     if any of them hold it the button says which ones instead of doing it. */
+  var mrm = e.target.closest('[data-mrm]');
+  if (mrm){
+    var mcode = mrm.dataset.mrm, mit = ING.filter(function(i){ return i.code === mcode; })[0];
+    if (!mit || !mit.rowId) return;
+    var note = $('ae'); if (note){ note.style.color=''; note.textContent = 'Checking what uses it…'; }
+    mrm.disabled = true;
+    var here = (S.rows||[]).filter(function(r){ return r.code === mcode; }).length;
+    mineInUse(mcode).then(function(u){
+      if (here || u.n){
+        var who = u.names.slice(0,4).join(', ') + (u.names.length>4 ? ' and '+(u.names.length-4)+' more' : '');
+        if (note) note.innerHTML = '<b>' + esc(mit.name) + ' is being used, so it stays.</b> ' +
+          (here ? 'It is on the sheet you have open' + (u.n ? ', and in ' : '.') : '') +
+          (u.n ? esc(who) + '.' : '') +
+          ' Take it off those first — if it went now, every one of them would go back to carrying no cost.';
+        mrm.disabled = false; return;
+      }
+      return archiveMine(mit).then(function(){
+        var ix = ING.indexOf(mit); if (ix > -1) ING.splice(ix,1);
+        refreshOpts();
+        var ni = $('nitems'); if (ni) ni.textContent = ING.length;
+        render();                                    /* the row goes — then say so on the fresh screen */
+        var n2 = $('ae');
+        if (n2){ n2.style.color='var(--oliva)'; n2.textContent = mit.name + ' removed ✓ — nothing is destroyed, it is only off your list.'; }
+      });
+    }).catch(function(err){
+      if (note) note.textContent = 'Not removed — ' + minePlain(err.message);
+      mrm.disabled = false;
+    });
+    return;
+  }
 
   var rmr = e.target.closest('[data-rmr]');           /* put a recipe away — reversible */
   if (rmr){
@@ -3370,6 +3551,13 @@ if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
 
 render();
 fitBar();
+/* Your own ingredients come in before anything is drawn from the sheet, so a recipe
+   opened by ?id= finds them already on the list and its lines keep their cost. */
+loadMine().then(function(){
+  refreshOpts();
+  if (S.step === 'sheet'){ rows(); foot(); }
+  if (S.step === 'list') render();
+});
 loadBatches().then(function(){ if (S.step==='sheet'){ rows(); } foot(); });
 
 function flash(msg, bad){
