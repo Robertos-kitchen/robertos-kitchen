@@ -234,7 +234,7 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow:hover{border-color:rgba(64,2,7,.45);background:rgba(232,217,199,.25)}
 .srow.on{border-color:var(--vino);background:rgba(232,217,199,.35)}
 .srow.gone{opacity:.65;background:rgba(232,217,199,.2)}
-.sopen{display:flex;align-items:baseline;gap:12px;flex:1 1 auto;text-align:left;background:none;border:none;padding:6px 0;cursor:pointer;font:inherit;color:inherit}
+.sopen{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;flex:1 1 auto;text-align:left;background:none;border:none;padding:6px 0;cursor:pointer;font:inherit;color:inherit}
 .srow .sn{font-family:var(--serif);font-size:18px;flex:0 0 auto}
 .srow .sm{font-family:var(--sans);font-size:12px;opacity:.6;flex:1 1 auto}
 .srow .sd{font-family:var(--sans);font-size:11px;opacity:.45;flex:0 0 auto}
@@ -1943,11 +1943,22 @@ function render(){
       '<div class="tip" style="margin:9px 0 16px">The dish and its batches, built from the bottom up so ' +
         'every batch exists before the dish points at it. You see exactly what will be made before anything is.</div>' +
       F.recipes.map(function(f,i){
+        /* These workbooks get made by copying the last one, and the tab gets renamed
+           while "Recipe Name:" inside it does not. Filetto di Wagyu still says
+           Branzino in that cell. The cell is what we read, and it is usually right —
+           but when the two disagree the dish is about to be saved under a name that
+           belongs to another dish, so say so here, before anything is created. */
+        var tab = String(f.where||'').replace(/^R\s*-\s*/i,'').replace(/\s+/g,' ').trim().toLowerCase();
+        var nm  = String(f.name||'').replace(/^R\s*-\s*/i,'').replace(/\s+/g,' ').trim().toLowerCase();
+        var odd = tab && nm && tab.indexOf(nm) < 0 && nm.indexOf(tab) < 0;
         return '<div class="srow"><button class="sopen" data-take="'+i+'">' +
           '<span class="sn">'+esc(f.name||'(no name)')+'</span>' +
           '<span class="sm">'+(f.kind==='batch'?'batch recipe':'main recipe')+
             (f.cat?' · '+esc(f.cat):'')+' · '+f.lines.length+' ingredient'+(f.lines.length===1?'':'s')+
-            (f.method?' · has the method':'')+'</span></button></div>';
+            (f.method?' · has the method':'')+'</span>' +
+          (odd ? '<span class="sm warn">The sheet is called <b>'+esc(f.where)+'</b> but its Recipe Name says <b>' +
+                 esc(f.name)+'</b>. Open it and check the name before you save it.</span>' : '') +
+          '</button></div>';
       }).join('') +
       '<button class="newr" id="pickfile">Bring in a different file</button></div>';
   }
