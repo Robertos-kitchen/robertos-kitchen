@@ -197,6 +197,9 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .foot .l{font-size:9px;letter-spacing:2px;text-transform:uppercase;opacity:.72}
 .foot .v{font-family:var(--serif);font-size:26px;line-height:1.05}
 .foot .v small{font-family:var(--sans);font-size:10px;letter-spacing:1px;opacity:.7}
+/* a cost that is knowably short says so on its own face, not only in a note below */
+.foot .v .atleast{font-family:var(--sans);font-size:9px;letter-spacing:1.6px;text-transform:uppercase;
+  opacity:.75;display:block;line-height:1.2;margin-bottom:1px}
 .foot .grp{display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap}
 .foot .todo{background:rgba(232,217,199,.22);border-radius:3px;padding:6px 10px;font-size:11.5px;line-height:1.4}
 .foot .ok{background:rgba(75,81,40,.45);border-radius:3px;padding:6px 10px;font-size:11.5px}
@@ -596,9 +599,30 @@ function splitLine(text){
     /* no commas: start a new ingredient where a number is followed by more words
        ("1 kg flour 200 gr sugar"), but not at a trailing quantity ("seabass 200 gr") */
     var segs = line.replace(/(\S)\s+(?=\d[\d.\/]*\s*[a-z]*\s+\S)/gi, "$1\u0001").split("\u0001");
+    /* …"but not at a trailing quantity" was the intent, and it did not hold: in
+       "seabass 200 gr" the unit's own letters stood in for the words the lookahead
+       was looking for, so it split there too and left a second row called "gr"
+       carrying the 200. A piece that is nothing but an amount is the amount of the
+       piece before it — put it back, and "seabass 200 gr" is one ingredient again. */
+    var ONLYQTY = new RegExp("^(?:"+NUM+")[ ]*(?:"+UNITRE+")?$", "i");
+    segs = segs.reduce(function(a, x){
+      if (a.length && ONLYQTY.test(x.trim())) a[a.length-1] = a[a.length-1].trim() + ' ' + x.trim();
+      else a.push(x);
+      return a;
+    }, []);
     segs.forEach(function(seg){
       var p = parseQty(seg), toks = words(p.name), i = 0, first = true;
       if (!toks.length && p.qty!=null) return;
+      /* A quantity names ONE thing. "0.1 kg salt table fine" is one ingredient, and
+         splitting it word by word made three rows — salt, table, fine — two of them
+         junk that saved with the recipe unless he spotted them. Word-splitting is
+         still right for the way he actually dumps a list ("olive oil lemon garlic
+         parsley salt"), and that has no quantity in front of it, so use that as the
+         line: with a number, take the rest whole; without one, split. */
+      if (p.qty != null){
+        out.push({ raw:seg.trim(), name:p.name, qty:p.qty, unit:p.unit });
+        return;
+      }
       while (i < toks.length){
         var took = null;
         for (var c=0;c<COMPOUNDS.length;c++){
@@ -686,6 +710,9 @@ function unitsFor(it){
 }
 function defUnit(it){ return unitsFor(it)[0]; }
 function qtyInBase(q,u){ var t = TOBASE[String(u).toLowerCase()]; return t ? q*t[1] : q; }
+/* which of the three things a new ingredient is sold by, given what he wrote on the
+   line — so the "add your own" form opens on litres when the line says litres */
+function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[0] : 'kg'; }
 
 /* ───────── state ───────── */
 var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
@@ -932,7 +959,10 @@ function linesFor(recipeId, rowsArr){
 function saveRecipe(){
   var head = {
     kind: S.kind, name: S.name.trim(), section: S.section || null,
-    makes_qty: S.makesQty, makes_unit: S.makesUnit || (S.kind==='main' ? 'portions' : null),
+    /* The picker shows kg selected and the panel says "PER KG", but `S.makesUnit` is
+       only set on change — so accepting the default saved nothing, and the pass card
+       then read "Makes 4" with no unit at all. Save what the screen says. */
+    makes_qty: S.makesQty, makes_unit: S.makesUnit || (S.kind==='main' ? 'portions' : 'kg'),
     menu_price: S.kind==='main' ? S.price : null,
     method: normMethod(S.method), photos: S.photos || [],
     /* only what he ticked on THIS recipe. What a batch brings is worked out live from
@@ -1193,11 +1223,21 @@ function mkRow(part){
   if (part.unit === '?'){               /* a tablespoon / a clove / a pinch is not a measurement */
     r.noMeasure = true; r.qty = null; r.unit = null;
   } else if (part.unit){                /* keep what the chef wrote if this item can be measured that way */
-    var allowed = unitsFor(it);
-    r.unit = allowed.indexOf(part.unit) > -1 ? part.unit
-           : (part.unit==='kg'&&allowed.indexOf('g')>-1) ? 'kg'
-           : (part.unit==='L'&&allowed.indexOf('ml')>-1) ? 'L' : null;
-    if (!r.unit && it){ r.mismatch = part.unit; r.qty = null; }   /* never reinterpret 2 pcs as 2 g */
+    if (!it){
+      /* Nothing is picked yet, so there is nothing to check the unit against — and
+         `unitsFor(null)` answers "g / kg" for everything, which is a guess, not a
+         check. Throwing the unit away here is what turned "5 L water" into a bare 5
+         while the sheet went on showing "g", and what later let "0.5 L" be re-read as
+         0.5 ml once the ingredient was added. Keep exactly what he wrote. It is
+         checked properly the moment an ingredient is picked, and only then. */
+      r.unit = part.unit;
+    } else {
+      var allowed = unitsFor(it);
+      r.unit = allowed.indexOf(part.unit) > -1 ? part.unit
+             : (part.unit==='kg'&&allowed.indexOf('g')>-1) ? 'kg'
+             : (part.unit==='L'&&allowed.indexOf('ml')>-1) ? 'L' : null;
+      if (!r.unit){ r.mismatch = part.unit; r.qty = null; }   /* never reinterpret 2 pcs as 2 g */
+    }
   } else if (part.qty != null && it && baseOf(it) !== 'pcs'){
     /* "1 lemon" — a bare count of something sold by weight. One gram is not what he meant. */
     r.bare = part.qty; r.qty = null;
@@ -2422,11 +2462,29 @@ function cutInner(){
 }
 /* Blank fields are the phase we are in, not a fault — so this counts, once, quietly,
    and never marks the recipe as unfinished. */
+/* Written and "fits on the page" are two different questions, and this line used to
+   answer only the first — it said everything was written while four of its own word
+   budgets were in the red underneath it, and the field that gets pushed onto the
+   second sheet is the allergen strip. Answer both. */
+function fohOver(m){
+  return FSEC.filter(function(s){
+    var v = (m && m[s.k]) || '';
+    if (!String(v).trim()) return false;
+    return s.lmax ? linesIn(v) > s.lmax : wordsIn(v) > s.wmax;
+  }).map(function(s){ return s.t; });
+}
 function fohState(m){
-  var miss = fohMissing(m);
-  if (!miss.length) return '<div class="fstate done">Every part of the floor’s page is written.</div>';
+  var miss = fohMissing(m), over = fohOver(m);
+  var overLine = over.length
+    ? ' <b class="over">Too long for one A4: ' + over.map(esc).join(', ') + '</b> — ' +
+      'the page runs onto a second sheet and the allergens go with it.'
+    : '';
+  if (!miss.length)
+    return '<div class="fstate' + (over.length ? '' : ' done') + '">' +
+      (over.length ? 'Every part of the floor’s page is written.' + overLine
+                   : 'Every part of the floor’s page is written.') + '</div>';
   return '<div class="fstate">Not written yet: <b>' + miss.map(esc).join('</b>, <b>') + '</b>. ' +
-    'The page prints without them — each one just says so in its place.</div>';
+    'The page prints without them — each one just says so in its place.' + overLine + '</div>';
 }
 
 /* one field on the floor's screen — empty says so plainly rather than disappearing,
@@ -2573,24 +2631,29 @@ function drawMethod(){
   var m = $('mth'); if (!m) return;
   m.innerHTML = methodInner(); wireMethod();
 }
+/* Nothing typed into these boxes may depend on `S.method` already existing. It used
+   to, and the throw was silent: the words stayed on the screen and never reached the
+   record. One line, in front of every write, so no route into this sheet can ever
+   swallow a method again. */
+function mth(){ if (!S.method) S.method = emptyMethod(); return S.method; }
 function wireMethod(){
   MSEC.forEach(function(s){
     var t = $('m-'+s.k); if (!t) return;
     grow(t);
-    t.addEventListener('input', function(){ S.method[s.k] = this.value; grow(this); });
+    t.addEventListener('input', function(){ mth()[s.k] = this.value; grow(this); });
   });
   /* the floor's fields carry a live length against what one A4 actually holds */
   FSEC.forEach(function(s){
     var t = $('m-'+s.k); if (!t) return;
     grow(t);
     t.addEventListener('input', function(){
-      S.method[s.k] = this.value; grow(this);
+      mth()[s.k] = this.value; grow(this);
       var w = $('wc-'+s.k); if (w) w.innerHTML = budget(s, this.value);
       drawFohState();
     });
   });
   var c = $('m-code');
-  if (c) c.addEventListener('input', function(){ S.method.code = this.value; });
+  if (c) c.addEventListener('input', function(){ mth().code = this.value; });
 }
 function drawFohState(){
   var f = document.querySelector('.fstate');
@@ -2644,19 +2707,26 @@ function foot(){
   var each = mk ? t.total / mk : null;              /* per portion, or per kg / L / piece */
   var net  = S.price ? S.price/1.225 : null;
   var fc   = (net && each != null) ? each/net*100 : null;
+  /* When a batch in this dish carries no cost, or an ingredient has no price on the
+     stock take, every one of these figures is a FLOOR, not the number. It used to be
+     printed in the same type as a finished one with the reason underneath, and 15.3%
+     against a real 23.6% is the kind of figure a menu gets priced on. Say "at least"
+     on the face of it, so the number can never be read as settled. */
+  var short_ = !!(t.badBatch.length || t.noPrice || t.noProd || t.noQty);
+  var least  = function(v){ return short_ ? '<span class="atleast">at least</span> ' + v : v; };
   var mu   = S.makesUnit || (S.kind==='main' ? 'portions' : 'kg');
   var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(S.makesQty==null?'':S.makesQty)+'">';
   var muSel = '<select class="mu" id="mu">' + ['kg','L','pcs'].map(function(u){
                 return '<option value="'+u+'"'+(mu===u?' selected':'')+'>'+u+'</option>'; }).join('') + '</select>';
   $('foot').innerHTML = '<div class="in"><div class="grp">' +
-    '<div><div class="l">Cost</div><div class="v">'+fmt(t.total)+' <small>AED</small></div></div>' +
+    '<div><div class="l">Cost</div><div class="v">'+least(fmt(t.total))+' <small>AED</small></div></div>' +
     (S.kind==='main'
       ? '<div><div class="l">Makes</div><div class="v">'+mkIn+' <small>PORTIONS</small></div></div>' +
-        '<div><div class="l">Each portion</div><div class="v">'+(each==null?'—':fmt(each))+' <small>AED</small></div></div>' +
+        '<div><div class="l">Each portion</div><div class="v">'+(each==null?'—':least(fmt(each)))+' <small>AED</small></div></div>' +
         '<div><div class="l">Menu price</div><div class="v"><input class="pr" id="pr" inputmode="decimal" placeholder="—" value="'+(S.price==null?'':S.price)+'"></div></div>' +
-        '<div><div class="l">Food cost</div><div class="v">'+(fc==null?'—':fmt(fc,1)+'%')+'</div></div>'
+        '<div><div class="l">Food cost</div><div class="v">'+(fc==null?'—':least(fmt(fc,1)+'%'))+'</div></div>'
       : '<div><div class="l">Makes</div><div class="v">'+mkIn+' '+muSel+'</div></div>' +
-        '<div><div class="l">Per '+mu.replace('pcs','piece')+'</div><div class="v">'+(each==null?'—':fmt(each))+' <small>AED</small></div></div>') +
+        '<div><div class="l">Per '+mu.replace('pcs','piece')+'</div><div class="v">'+(each==null?'—':least(fmt(each)))+' <small>AED</small></div></div>') +
     '</div>' +
     (mk==null
       ? '<div class="todo">'+(S.kind==='batch'
@@ -2703,7 +2773,12 @@ document.addEventListener('change', function(e){
   var r = S.rows[+i];
   if (t.classList.contains('prod') && (t.value === '__add' || t.value === '__batch')){
     var act = t.value; t.value = r.code || '';        /* the dropdown is not the answer, it starts one */
-    if (act === '__add'){ r.adding = true; r.adj = false; redrawRow(+i);
+    /* Open the form on the unit he already wrote. It defaulted to kg, so "0.5 L" met
+       a form that said "sold by kg" and the litres were quietly re-read as grams. */
+    if (act === '__add'){
+      r.adding = true; r.adj = false;
+      if (!r.addUnit) r.addUnit = soldByOf(r.unit || r.typedUnit);
+      redrawRow(+i);
       var f = document.querySelector('[data-i="'+i+'"][data-f="anm"]'); if (f){ f.focus(); f.select(); }
     } else makeBatchFor(+i);
     return;
@@ -2775,7 +2850,22 @@ document.addEventListener('keydown', function(e){
 });
 document.addEventListener('click', function(e){
   var k = e.target.closest('[data-k]');
-  if (k){ S.kind=k.dataset.k; S.step='write'; render(); return; }
+  if (k){
+    /* Two things went wrong here, and both of them lost a whole recipe.
+       1. Coming back to this screen after a save and writing something else PATCHED
+          the recipe just saved — same row, new name, its lines and its method gone —
+          because `S.id` was still set and Save is "id ? update : insert". Choosing
+          what to make again is starting a new recipe; say so.
+       2. `S.method` starts as null and only `newRecipe()` ever made it an object, so
+          on the FIRST recipe of every visit typing into Mise en place / Method threw,
+          the text stayed on screen, and Save wrote an empty method. It looked like it
+          had worked right up until the recipe was reopened.
+       An unsaved sheet is left alone, so changing your mind between main and batch
+       still keeps what you have typed. */
+    if (S.id) newRecipe();
+    if (!S.method) S.method = emptyMethod();
+    S.kind=k.dataset.k; S.step='write'; render(); return;
+  }
   var cf = e.target.closest('[data-fix]');                   /* accept a spelling fix, on the write screen */
   if (cf){
     var idx = +cf.dataset.fix, to = cf.dataset.to;
@@ -2842,7 +2932,20 @@ document.addEventListener('click', function(e){
     ING.push(it);
     var ni = $('nitems'); if (ni) ni.textContent = ING.length;
     rr.opts = [it].concat(rr.opts); rr.code = it.code; rr.loose = false; rr.adding = false; rr.addErr = null;
-    if (unitsFor(it).indexOf(rr.unit) < 0) rr.unit = defUnit(it);
+    /* He wrote "0.5 L", then said this thing is sold by the litre — so litres is the
+       answer, not the column default. Falling through to defUnit() turned 0.5 L into
+       0.5 ml: a cost a thousand times too small on the sheet he is pricing from, and
+       a thousand times too small again on the card somebody cooks from. */
+    var want = rr.unit || rr.typedUnit, allow = unitsFor(it);
+    if (want && allow.indexOf(want) > -1) rr.unit = want;
+    else {
+      rr.unit = defUnit(it);
+      /* He wrote litres and then said this is sold by the kilo. Those are different
+         measurements and turning one into the other quietly is how 0.5 L became
+         0.5 g. Same answer as picking a mismatched item off Aung's list: say so,
+         and make him put the number back. */
+      if (want && want !== '?' && rr.qty != null){ rr.mismatch = want; rr.qty = null; }
+    }
     redrawRow(j); foot(); return;
   }
   var rm = e.target.closest('[data-rm]');

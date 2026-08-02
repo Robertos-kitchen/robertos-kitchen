@@ -126,6 +126,35 @@ function safeName(name){
   return out;
 }
 
+/* ── the house standard ──
+   Katarina's files already follow one — Roberto's_2026_Canape_Cortile — but they
+   arrive off a download, so they come with " (1)" and " (2)" stuck on the end, and
+   "Set Menu" carries a space where every other separator is an underscore. Left
+   alone, the folder ends up with Cortile twice under two names and nobody can tell
+   which one the printer got.
+
+   The standard, then:  Roberto's_YEAR_Category_Variant.pdf
+     · parts separated by  _   · words inside a part joined by  -
+     · every word capitalised  · no download suffix
+
+   The year is never invented. A file that arrives without one keeps whatever it
+   has, because a wrong year on a menu is worse than a missing one. */
+function titlePart(part){
+  return part.trim().replace(/\s+/g,'-').split('-').filter(Boolean)
+    .map(function(w){ return w.charAt(0).toUpperCase() + w.slice(1); }).join('-');
+}
+function brandName(name){
+  var ext = (String(name).match(/\.[A-Za-z0-9]+$/) || ['.pdf'])[0];
+  var base = String(name).slice(0, name.length - ext.length);
+  base = base.replace(/\s*\(\d+\)\s*$/,'').trim();          /* the download suffix */
+  var parts = base.split('_').map(titlePart).filter(Boolean);
+  if (!parts.length) return safeName(name);
+  /* keep the house prefix, but never guess a year that is not there */
+  if (!/^roberto'?s$/i.test(parts[0])) parts.unshift("Roberto's");
+  else parts[0] = "Roberto's";
+  return safeName(parts.join('_') + ext.toLowerCase());
+}
+
 /* ── DEV-site write protection ──
    The same files serve DEV and LIVE against ONE production project, and this
    page is opened on its own so it never loads app.js's guard. app.js only ever
@@ -221,7 +250,7 @@ function upload(file){
           'bottom left of the app and enter the schedule PIN to upload for real.';
     render(); return;
   }
-  var key = safeName(file.name);
+  var key = brandName(file.name);
   renamed = (key !== file.name) ? { from:file.name, to:key } : null;
   err = null; progress = 0; render();
   var xhr = new XMLHttpRequest();
