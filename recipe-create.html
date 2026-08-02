@@ -1573,6 +1573,23 @@ function rowCost(r){
   var c = qtyInBase(r.qty, r.unit || defUnit(it)) * bp.v;
   return c / ((r.yield||100)/100) * (1 + (r.waste||0)/100);
 }
+/* the one sentence that shows what the two boxes actually did, live */
+function ywSum(r){
+  var raw = rowCostRaw(r), net = rowCost(r);
+  /* the numbers only when there ARE numbers: "— AED becomes — AED" is worse than
+     saying nothing, and a line pointing at an unfinished batch has no cost at all */
+  if (raw == null || net == null) return 'This line carries no cost yet, so there is nothing to show for it.';
+  return 'Here that is <b>' + fmt(raw) + ' AED</b> → <b>' + fmt(net) + ' AED</b>.';
+}
+/* What the line costs BEFORE yield and waste — the quantity that actually goes in the
+   dish, at list price. Only used to show, side by side, what the two boxes did: they
+   move the COST, never the quantity, and that was never said anywhere on screen. */
+function rowCostRaw(r){
+  if (isStale(r)) return null;
+  var it = itemOf(r); if (!it || !r.qty) return null;
+  var bp = basePrice(it); if (!bp) return null;
+  return qtyInBase(r.qty, r.unit || defUnit(it)) * bp.v;
+}
 function totals(){
   var t=0, noProd=0, noQty=0, noPrice=0, badBatch=[];
   S.rows.forEach(function(r){
@@ -2693,7 +2710,20 @@ function rowHTML(r, i){
       '<div class="f"><label>Waste %</label><div class="bx">' +
         '<input class="dcell" data-i="'+i+'" data-f="waste" inputmode="decimal" value="'+r.waste+'"><span class="pc">%</span></div></div>' +
       '<div class="exp"><b>Yield</b> — what\'s left after you clean it. 4 kg octopus in, 2.4 kg out, that\'s 60.<br>' +
-      '<b>Waste</b> — what you lose on top: trim, spillage, the plate that comes back.</div>' +
+      '<b>Waste</b> — what you lose on top: trim, spillage, the plate that comes back.' +
+      /* This is the part nobody could see, and it is the whole point of the two
+         boxes. Without it a chef reasonably reads them as changing the recipe. */
+      '<br><br><b>These change the COST only — never the quantity.</b> The line still says ' +
+      /* String(), not num() — num() in this file is the PARSER, not a formatter. The
+         quantity is shown exactly as it is stored, because that is what the pass card
+         will print and the two must not differ by a rounding. */
+      (r.qty == null ? 'what you typed' : '<b>' + esc(String(r.qty)) + ' ' + esc(r.unit || '') + '</b>') +
+      ', and that is what the section cooks from on the pass card. What the costing carries ' +
+      'is the buying quantity — what has to be ordered to end up with that much on the plate.' +
+      /* the numbers only when there ARE numbers: "— AED becomes — AED" is worse than
+         saying nothing, and a line pointing at an unfinished batch has no cost at all */
+      ' <span id="yw-'+i+'">' + ywSum(r) + '</span>' +
+      '</div>' +
     '</div></td></tr>';
   return main + drop;
 }
@@ -3356,6 +3386,7 @@ document.addEventListener('input', function(e){
   var tr = $('tb').querySelectorAll('tr.main')[+i];
   var c = rowCost(r), td = tr.querySelector('td.money');
   td.textContent = fmt(c); td.className = 'money' + (c==null?' zero':'');
+  var sum = $('yw-'+i); if (sum) sum.innerHTML = ywSum(r);
   foot();
 });
 document.addEventListener('keydown', function(e){
