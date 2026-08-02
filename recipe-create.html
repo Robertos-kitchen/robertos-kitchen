@@ -200,7 +200,26 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .addline input:focus{border-style:solid;border-color:var(--vino);background:#fff}
 
 .foot{position:fixed;bottom:0;left:0;right:0;background:var(--vino);color:var(--cream);z-index:30}
-.foot .in{max-width:1040px;margin:0 auto;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+/* shut: one slim line, so the sheet is whole */
+.foot .slim{max-width:1040px;margin:0 auto;padding:0 16px;min-height:52px;display:flex;align-items:center;
+  gap:20px;flex-wrap:wrap;cursor:pointer}
+.foot .slim .sv{font-family:var(--serif);font-size:20px;line-height:1;white-space:nowrap}
+.foot .slim .sv small{font-family:var(--sans);font-size:9px;letter-spacing:1.6px;opacity:.7}
+.foot .slim .sflag{font-family:var(--sans);font-size:11px;background:rgba(232,217,199,.22);
+  border-radius:3px;padding:5px 9px;line-height:1.3}
+.foot .slim .sopenb{margin-left:auto;font-family:var(--sans);font-size:10px;letter-spacing:1.6px;
+  text-transform:uppercase;opacity:.8;white-space:nowrap}
+.foot .slim:hover .sopenb{opacity:1;text-decoration:underline}
+.sshut{position:absolute;right:14px;top:10px;background:rgba(245,237,224,.14);border:none;border-radius:4px;
+  color:var(--cream);font-family:var(--sans);font-size:10px;letter-spacing:1.6px;text-transform:uppercase;
+  padding:10px 12px;cursor:pointer}
+.sshut:hover{background:rgba(245,237,224,.28)}
+/* a thumb, not a mouse — and on a phone the open panel is 340px of an 812px screen,
+   so the way out of it is the one control that must never be fiddly */
+/* both, on purpose: pointer:coarse is the honest test but cannot be proved on a
+   desktop at phone width, and a 33px target shipping unverified is how it stays 33px */
+@media (pointer:coarse),(max-width:640px){ .sshut{padding:14px 14px;font-size:11px} .foot .slim{min-height:60px} }
+.foot .in{position:relative;max-width:1040px;margin:0 auto;padding:11px 130px 11px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .foot .l{font-size:9px;letter-spacing:2px;text-transform:uppercase;opacity:.72}
 .foot .v{font-family:var(--serif);font-size:26px;line-height:1.05}
 .foot .v small{font-family:var(--sans);font-size:10px;letter-spacing:1px;opacity:.7}
@@ -795,6 +814,9 @@ function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[
 /* ───────── state ───────── */
 var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
           id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null, menus:[],
+      /* put away by default: writing a recipe is reading the rows, and the sheet
+         being whole matters more than a number he looks at when he prices it */
+      footShut:(function(){ try{ return localStorage.getItem('rcpFoot') !== 'open'; }catch(x){ return true; } })(),
           method:null, photos:[], allergens:[] };
 var SECTIONS = ['Crudo','Antipasti','Salad / Soup','Pizza','Pasta','Main','Dessert','Canapé','Prep'];
 
@@ -2077,6 +2099,7 @@ function runWorkbook(){
 function render(){
   var w = $('wrap'), b = $('act');
   $('foot').style.display = S.step==='sheet' ? 'block' : 'none';
+  if (S.step !== 'sheet') document.body.style.paddingBottom = '';   /* only the sheet sits under the bar */
   $('tolist').textContent  = S.step==='list'  ? 'Back to the recipe' : "Aung's list";
   $('tosaved').textContent = S.step==='saved' ? 'Back to the recipe' : 'Saved recipes';
   $('bty').style.display = S.kind ? 'inline-block' : 'none';
@@ -3160,10 +3183,39 @@ function foot(){
   var short_ = !!(t.badBatch.length || t.noPrice || t.noProd || t.noQty);
   var least  = function(v){ return short_ ? '<span class="atleast">at least</span> ' + v : v; };
   var mu   = S.makesUnit || (S.kind==='main' ? 'portions' : 'kg');
+  /* the one thing that must survive being collapsed: a number that is knowably short,
+     or a batch with no "makes", is not something to hide behind a tap */
+  var needsSaying = (mk==null) ? (S.kind==='batch' ? 'no “makes” yet' : 'no portions yet')
+                  : t.badBatch.length ? t.badBatch.length + ' batch' + (t.badBatch.length===1?'':'es') + ' with no cost'
+                  : t.noPrice ? t.noPrice + ' with no price'
+                  : t.noProd ? t.noProd + ' without an ingredient'
+                  : '';
   var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(S.makesQty==null?'':S.makesQty)+'">';
   var muSel = '<select class="mu" id="mu">' + ['kg','L','pcs'].map(function(u){
                 return '<option value="'+u+'"'+(mu===u?' selected':'')+'>'+u+'</option>'; }).join('') + '</select>';
-  $('foot').innerHTML = '<div class="in"><div class="grp">' +
+  /* ── out of the way while he works ──
+     This bar is fixed to the bottom, and open it is two hundred pixels of the sheet
+     he cannot see. A chef writing a recipe is reading the rows, not the food cost —
+     so it sits as one slim line and opens when he wants it, which is when he is
+     pricing rather than when he is typing.
+
+     The line still carries the two numbers worth a glance, cost and food cost, so
+     collapsing it never means losing sight of where the dish is. */
+  var f = $('foot');
+  f.classList.toggle('shut', !!S.footShut);
+  if (S.footShut){
+    f.innerHTML = '<div class="slim" id="footopen">' +
+      '<span class="sv">'+(short_?'at least ':'')+fmt(t.total)+' <small>AED</small></span>' +
+      (S.kind==='main'
+        ? '<span class="sv">'+(fc==null?'—':(short_?'at least ':'')+fmt(fc,1)+'%')+' <small>FOOD COST</small></span>'
+        : '<span class="sv">'+(each==null?'—':(short_?'at least ':'')+fmt(each))+' <small>PER '+esc(mu.replace('pcs','PIECE').toUpperCase())+'</small></span>') +
+      (needsSaying ? '<span class="sflag">'+needsSaying+'</span>' : '') +
+      '<span class="sopenb">Open the costing ▲</span></div>';
+    padForFoot();
+    drawAlg();
+    return;
+  }
+  f.innerHTML = '<div class="in"><div class="grp">' +
     '<div><div class="l">Cost</div><div class="v">'+least(fmt(t.total))+' <small>AED</small></div></div>' +
     (S.kind==='main'
       ? '<div><div class="l">Makes</div><div class="v">'+mkIn+' <small>PORTIONS</small></div></div>' +
@@ -3192,7 +3244,9 @@ function foot(){
       : (t.badBatch.length || t.noPrice) ? ''
       : '<div class="ok">All '+S.rows.length+' done'+
         (S.kind==='batch' ? (mk ? ' · ready to link into any recipe' : '') : '')+'</div>') +
+    '<button class="sshut" id="footshut">Put it away ▼</button>' +
     '</div>';
+  padForFoot();
   liveInput('pr', function(v){ S.price   = parseFloat(v)||null; });
   liveInput('mk', function(v){ S.makesQty = parseFloat(v)||null; });
   var ms = $('mu');
@@ -3201,6 +3255,16 @@ function foot(){
      is worked out from the rows, so it has to be redrawn whenever they change */
   drawAlg();
 }
+/* Fixed to the bottom means the last rows of the sheet live underneath it. Measure
+   the real bar and keep exactly that much clear — a guessed constant is how the last
+   ingredient ends up hidden the day the bar wraps to a second line. */
+function padForFoot(){
+  var f = $('foot');
+  var h = (f && f.style.display !== 'none') ? f.getBoundingClientRect().height : 0;
+  document.body.style.paddingBottom = h ? (Math.round(h) + 14) + 'px' : '';
+}
+window.addEventListener('resize', padForFoot);
+
 /* re-render the footer without losing the cursor */
 function liveInput(id, set){
   var e = $(id); if (!e) return;
@@ -3535,6 +3599,11 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
+
+  /* the costing bar, out of the way or back. Remembered for the session, because a
+     chef who put it away meant it and should not have to put it away on every recipe */
+  if (e.target.closest('#footopen')){ S.footShut = false; try{ localStorage.setItem('rcpFoot','open'); }catch(x){} foot(); return; }
+  if (e.target.id === 'footshut'){ S.footShut = true;  try{ localStorage.setItem('rcpFoot','shut'); }catch(x){} foot(); return; }
 
   /* tick / untick a menu — held in the sheet, written when the recipe is saved, so
      it goes with everything else rather than being a separate thing to remember */
