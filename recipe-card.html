@@ -1,0 +1,839 @@
+<title>Kitchen Recipe Card — three layouts</title>
+<style>
+/* Roberto's house palette — the project's own tokens, not invented here.
+   Cormorant Garamond and DM Sans cannot be loaded on a hosted page, so the
+   nearest honest stand-ins are used: Georgia for the display face, the system
+   humanist sans for text. The real module keeps the brand faces. */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--vino-light:#7a1218;
+  --oliva:#4b5128;--oro:#ba9b02;--ink:#2a1a10;--cream:#f5ede0;
+  --serif:Georgia,'Times New Roman',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color-scheme:light;
+}
+/* This is a brand surface: it commits to Sabbia and Vino in either OS theme,
+   the way the app itself does on the pass. The tokens are held, not inverted. */
+:root[data-theme="dark"],:root[data-theme="light"]{color-scheme:light}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
+  -webkit-font-smoothing:antialiased}
+:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ═══ the front page — three doors, so nothing has to be hunted for ═══ */
+.front{max-width:1080px;margin:0 auto;padding:44px 20px 80px}
+.eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--vino-light);margin-bottom:14px}
+.lede{font-family:var(--serif);font-size:clamp(32px,6vw,50px);line-height:1.08;color:var(--vino);
+  margin:0 0 18px;text-wrap:balance;font-weight:400}
+.stand{font-size:15.5px;line-height:1.7;color:var(--ink);max-width:62ch;margin:0 0 8px}
+.stand b{color:var(--vino)}
+.doors{display:grid;gap:16px;margin-top:34px;grid-template-columns:1fr}
+@media (min-width:820px){.doors{grid-template-columns:repeat(3,1fr)}}
+.door{display:flex;flex-direction:column;gap:10px;text-align:left;background:var(--cream);
+  border:1px solid var(--sabbia-dark);border-radius:9px;padding:22px 20px 20px;cursor:pointer;
+  font-family:var(--sans);color:inherit;transition:border-color .15s,transform .15s}
+.door:hover{border-color:var(--vino);transform:translateY(-2px)}
+.door .k{font-size:10.5px;letter-spacing:2.6px;text-transform:uppercase;color:var(--oliva)}
+.door .t{font-family:var(--serif);font-size:29px;line-height:1.1;color:var(--vino)}
+.door .who{font-size:12.5px;letter-spacing:.3px;color:var(--vino-light);line-height:1.5}
+.door .d{font-size:14px;line-height:1.65;color:var(--ink)}
+.door .go{margin-top:auto;padding-top:14px;font-size:11px;letter-spacing:1.8px;
+  text-transform:uppercase;font-weight:700;color:var(--vino)}
+.foot{margin-top:38px;padding-top:20px;border-top:1px solid var(--sabbia-dark);
+  font-size:13px;line-height:1.75;color:var(--vino-light);max-width:66ch}
+.foot b{color:var(--vino)}
+
+/* ═══ the menu, read from the database ═══ */
+.load{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
+  padding:20px 18px;font-size:14.5px;line-height:1.7;color:var(--vino-light);margin-top:28px}
+.load.bad{border-color:var(--vino);color:var(--vino)}
+.stale{margin-top:20px;padding:11px 14px;border-left:3px solid var(--oro);background:rgba(186,155,2,.09);
+  font-size:13px;line-height:1.6;color:var(--vino-light)}
+.stale b{color:var(--vino)}
+.menu{margin-top:30px;display:flex;flex-direction:column}
+.msec{font-size:10px;letter-spacing:2.8px;text-transform:uppercase;color:var(--oliva);
+  margin:22px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--sabbia-dark)}
+.msec:first-child{margin-top:0}
+.dish{display:flex;align-items:baseline;gap:14px;width:100%;text-align:left;background:none;
+  border:none;border-bottom:1px solid rgba(207,192,173,.6);padding:15px 4px;cursor:pointer;
+  font-family:var(--sans);color:inherit;min-height:56px}
+.dish:hover{background:var(--cream)}
+.dish .dn{font-family:var(--serif);font-size:23px;color:var(--vino);line-height:1.15}
+/* What is still missing, said on the row — so nobody opens a card expecting a method
+   that was never written, and so the gaps are visible without hunting. */
+.dish .dgap{font-size:11.5px;letter-spacing:.3px;color:#a3907a}
+.dish .dgap.ok{color:var(--oliva)}
+.dish .dgo{margin-left:auto;font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;
+  font-weight:700;color:var(--vino);white-space:nowrap}
+
+/* ═══ the bar inside a layout ═══ */
+.top{background:var(--vino);color:var(--cream);position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;gap:6px;padding:0 8px;overflow-x:auto}
+.top .home{background:none;border:none;color:var(--cream);font-family:var(--sans);font-size:12px;
+  letter-spacing:1.2px;padding:0 14px;height:52px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+.top .sw{display:flex;gap:0;margin-left:auto;flex:0 0 auto}
+.top .sw button{background:none;border:none;color:rgba(245,237,224,.6);font-family:var(--sans);
+  font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;padding:0 14px;height:52px;
+  cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.top .sw button.on{color:var(--cream);border-bottom-color:var(--oro)}
+.why{background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark);
+  padding:12px 18px;font-size:13px;color:var(--vino-light);line-height:1.6}
+.why b{color:var(--vino)}
+.why i{font-style:italic}
+
+/* ═══ shared recipe furniture ═══ */
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 90px}
+.hdr{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px 18px}
+.rname{font-family:var(--serif);font-size:clamp(30px,5.4vw,42px);line-height:1.05;color:var(--vino);text-wrap:balance}
+.rsec{font-size:10.5px;letter-spacing:2.4px;text-transform:uppercase;color:var(--vino-light);padding-bottom:8px}
+.meta{font-size:13px;color:var(--vino-light);margin-top:9px;line-height:1.6}
+.rule{height:1px;background:var(--sabbia-dark);margin:18px 0}
+.h{font-family:var(--serif);font-size:24px;color:var(--vino);margin:0 0 10px;text-wrap:balance}
+.h .sm{font-family:var(--sans);font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--vino-light);margin-left:10px;vertical-align:2px}
+.card{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;padding:20px 18px;margin-bottom:16px}
+.photos{display:flex;gap:10px;overflow-x:auto;margin:16px 0 2px;padding-bottom:4px}
+.ph{flex:0 0 auto;width:190px;height:130px;border-radius:6px;border:1px dashed var(--sabbia-dark);
+  background:var(--sabbia-light);display:flex;align-items:center;justify-content:center;text-align:center;
+  font-size:11.5px;color:#a3907a;padding:10px;line-height:1.55}
+.none{font-size:13px;color:#8a7a62;line-height:1.6}
+
+.ing{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.ing td{padding:12px 8px;border-bottom:1px solid var(--sabbia-dark);vertical-align:top;font-size:15.5px;line-height:1.45}
+.ing tr:last-child td{border-bottom:none}
+.ing .q{width:78px;text-align:right;font-weight:700;color:var(--vino);white-space:nowrap}
+.ing .u{width:58px;font-size:12.5px;color:var(--vino-light);padding-top:15px}
+.ing .u .miss{display:inline-block;font-size:10px;letter-spacing:.6px;color:var(--vino);
+  background:rgba(65,2,7,.07);border:1px solid rgba(65,2,7,.3);border-radius:3px;
+  padding:2px 5px;line-height:1.3;white-space:nowrap}
+.ing tr.gap .n{color:var(--vino-light)}
+.btag{display:inline-block;font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--oliva);
+  border:1px solid rgba(75,81,40,.42);border-radius:3px;padding:2px 6px;margin-left:9px;vertical-align:1px;white-space:nowrap}
+.ing tr.sub{cursor:pointer}
+.ing tr.sub:hover .n{color:var(--vino)}
+.caret{display:inline-block;color:var(--oliva);font-size:12px;width:15px}
+.subpane{background:var(--sabbia-light);border-left:3px solid var(--oliva)}
+.subpane td{padding:15px 16px 20px}
+
+.step{display:flex;gap:14px;padding:9px 0;line-height:1.65;font-size:15.5px}
+.step .no{flex:0 0 26px;font-variant-numeric:tabular-nums;color:var(--vino-light);font-size:12.5px;padding-top:3px;font-weight:700}
+.btn{background:var(--vino);color:var(--cream);border:none;border-radius:4px;font-family:var(--sans);font-size:11px;
+  letter-spacing:1.6px;text-transform:uppercase;font-weight:700;padding:0 18px;height:46px;cursor:pointer}
+.btn.ghost{background:none;color:var(--vino);border:1.5px solid var(--sabbia-dark)}
+.btn:disabled{opacity:.4;cursor:default}
+
+.port{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:18px 0 2px}
+.port .lab{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light)}
+.stp{display:flex;align-items:center;border:1.5px solid var(--sabbia-dark);border-radius:6px;background:#fff;overflow:hidden}
+.stp button{width:48px;height:46px;border:none;background:none;font-size:21px;color:var(--vino);cursor:pointer;font-family:var(--sans);line-height:1}
+.stp .v{min-width:60px;text-align:center;font-size:17px;font-weight:700;color:var(--vino);font-variant-numeric:tabular-nums}
+.scaled{font-size:12.5px;color:var(--oliva)}
+
+/* The dish and its batches are two different things and must never look alike:
+   the dish is the serif name in Vino, the batches are smaller and carry the same
+   olive mark they carry on the ingredient line. */
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 15px;align-items:center}
+.tabs button{flex:0 0 auto;background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:5px;
+  padding:0 15px;height:46px;font-family:var(--sans);font-size:13.5px;color:var(--vino);cursor:pointer;white-space:nowrap}
+.tabs button.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.tabs .t-dish{font-family:var(--serif);font-size:19px;padding:0 18px}
+.tabs .t-batch{border-style:dashed;border-color:rgba(75,81,40,.45);color:var(--oliva);background:none}
+.tabs .t-batch.on{background:var(--oliva);color:var(--cream);border-style:solid;border-color:var(--oliva)}
+.tsep{flex:0 0 auto;font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:#a3907a;padding:0 4px}
+.kind{align-self:center;font-size:9.5px;letter-spacing:2px;text-transform:uppercase;font-weight:700;
+  border-radius:3px;padding:5px 9px;white-space:nowrap;margin-bottom:5px}
+.k-dish{background:var(--vino);color:var(--cream)}
+.k-batch{background:none;color:var(--oliva);border:1px solid rgba(75,81,40,.5)}
+.parent{display:block;background:none;border:none;font-family:var(--sans);font-size:13px;color:var(--vino-light);
+  cursor:pointer;padding:6px 0 12px;text-align:left;min-height:40px}
+.parent:hover{color:var(--vino)}
+/* a batch line, marked the same on every screen */
+.bline .n{border-left:3px solid var(--oliva);padding-left:11px;margin-left:-2px}
+tr.sub[data-jump]{cursor:pointer}
+tr.sub[data-jump]:hover td{background:var(--sabbia-light)}
+.cols{display:block}
+
+/* the station's photos and its steps */
+.pstrip{margin:18px 0 0}
+.frame{display:flex;flex-direction:column;justify-content:center;gap:6px;width:100%;max-width:300px;height:190px;
+  border:1px dashed var(--sabbia-dark);border-radius:7px;background:var(--sabbia-light);cursor:pointer;
+  font-family:var(--sans);text-align:center;padding:14px;transition:height .2s,max-width .2s}
+.frame.big{max-width:100%;height:min(58vh,460px)}
+.frame[disabled]{cursor:default;opacity:.85}
+/* a real photo off the create screen — the plate, or the cut nobody can describe */
+.pstrip{display:flex;gap:10px;flex-wrap:wrap}
+.shot{position:relative;flex:0 0 auto;width:300px;max-width:100%;border:1px solid var(--sabbia-dark);
+  border-radius:7px;overflow:hidden;padding:0;background:var(--sabbia-light);cursor:pointer;
+  transition:width .2s}
+.shot img{display:block;width:100%;height:190px;object-fit:cover}
+.shot.big{width:100%}
+.shot.big img{height:auto;max-height:min(58vh,520px);object-fit:contain;background:var(--cream)}
+.shot .fh{position:absolute;left:0;right:0;bottom:0;background:rgba(65,2,7,.72);color:var(--cream);
+  font-size:11px;letter-spacing:.4px;padding:6px 8px}
+img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px solid var(--sabbia-dark);flex:0 0 auto}
+.frame .fl{font-family:var(--serif);font-size:19px;color:var(--vino)}
+.frame .fh{font-size:11.5px;letter-spacing:.4px;color:#a3907a}
+.sstep{display:flex;gap:14px;padding:11px 0;line-height:1.6;font-size:17px;border-bottom:1px solid rgba(207,192,173,.55)}
+.sstep:last-child{border-bottom:none}
+.sstep .no{flex:0 0 26px;font-variant-numeric:tabular-nums;color:var(--vino-light);font-size:12.5px;padding-top:4px;font-weight:700}
+
+.tick{display:flex;gap:14px;padding:13px 12px;border-bottom:1px solid var(--sabbia-dark);cursor:pointer;
+  line-height:1.55;font-size:17px;align-items:flex-start;min-height:50px;border-radius:4px}
+.tick:hover{background:var(--sabbia-light)}
+.tick .bx{flex:0 0 27px;height:27px;border:2px solid var(--sabbia-dark);border-radius:4px;margin-top:1px;
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;background:#fff}
+.tick.done .bx{background:var(--oliva);border-color:var(--oliva)}
+.tick.done .tx{color:#9d8f7d;text-decoration:line-through;text-decoration-color:rgba(157,143,125,.5)}
+.prog{font-size:12px;color:var(--vino-light);margin-left:auto;font-family:var(--sans)}
+
+.gwrap{max-width:760px;margin:0 auto;padding:22px 18px 130px}
+.gbar{height:4px;background:var(--sabbia-dark);border-radius:2px;overflow:hidden;margin-bottom:24px}
+.gbar i{display:block;height:100%;background:var(--vino);transition:width .25s}
+.gcount{font-size:10.5px;letter-spacing:2.6px;text-transform:uppercase;color:var(--vino-light);margin-bottom:15px}
+.gtext{font-family:var(--serif);font-size:clamp(26px,5.2vw,34px);line-height:1.3;color:var(--ink);text-wrap:balance}
+.gph{width:100%;height:200px;border-radius:7px;border:1px dashed var(--sabbia-dark);background:var(--sabbia-light);
+  display:flex;align-items:center;justify-content:center;font-size:11.5px;color:#a3907a;margin-top:26px;text-align:center;padding:14px}
+.gnav{position:fixed;left:0;right:0;bottom:0;background:var(--cream);border-top:1px solid var(--sabbia-dark);
+  padding:12px 16px;display:flex;gap:10px;z-index:20}
+.gnav .btn{flex:1;max-width:280px}
+
+@media (min-width:1024px){
+  .cols{display:grid;grid-template-columns:340px minmax(0,1fr);gap:28px;align-items:start}
+  .cols .left{position:sticky;top:74px}
+}
+@media (pointer:coarse){
+  .step{font-size:16.5px}
+  .sstep{font-size:18px;padding:13px 0}
+  .ing td{padding:15px 8px;font-size:16.5px}
+  .tick{font-size:18px;min-height:58px}
+}
+/* the whole set is in the page, hidden, so nothing is rebuilt when he hits print */
+#psheet{display:none}
+.pblock{break-inside:avoid;page-break-inside:avoid;margin-bottom:26px}
+.pkind{font-size:9px;letter-spacing:2.4px;text-transform:uppercase;color:#555;margin-bottom:3px}
+.pname{font-family:var(--serif);font-size:27px;line-height:1.1;margin-bottom:3px}
+.pmeta{font-size:11.5px;color:#444;margin-bottom:12px}
+
+/* ── allergens ──
+   Not a chip row. At the pass this is read at arm's length in a hurry, so it is one
+   line of words with a rule beside it, and the batch each one came from sits under
+   the word rather than in a tooltip nobody hovers with wet hands. */
+.alg{display:flex;gap:14px;align-items:flex-start;margin:16px 0 0;padding:13px 15px;
+  background:rgba(64,2,7,.05);border-left:3px solid var(--vino);border-radius:0 6px 6px 0}
+.algl{flex:0 0 auto;font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;
+  font-weight:700;color:var(--vino);padding-top:3px}
+.algv{font-size:15px;line-height:1.55;color:var(--ink);display:flex;flex-wrap:wrap;gap:4px 16px}
+.algi{font-weight:600}
+.algs{display:block;font-size:10.5px;font-weight:400;letter-spacing:.2px;color:var(--vino-light)}
+.alg.none{background:none;border-left-color:var(--sabbia-dark)}
+.alg.none .algv{display:block;font-size:12.5px;color:#8a7a62;font-weight:400}
+.alg.none .algl{color:#8a7a62}
+@media (max-width:520px){ .alg{display:block} .algl{display:block;margin-bottom:5px} }
+
+@media print{
+  @page{margin:14mm}
+  /* Ask for the colour, then never depend on it: Chrome and Edge default
+     "Background graphics" to OFF, and the allergen line is the one block on this
+     card that must not quietly disappear. So in print it is rebuilt out of ink —
+     black on white, boxed, bold — and comes out right whichever way that box is left. */
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .alg{background:none!important;border:2px solid #000;border-left:2px solid #000;
+    border-radius:0;padding:8px 10px;margin:12px 0}
+  .algl,.algi,.algv{color:#000!important}
+  .algv{font-size:12pt}
+  .algs{color:#333!important;font-size:9pt}
+  .alg.none{border:1px dashed #000}
+  .alg.none .algv,.alg.none .algl{color:#000!important}
+  .top,.why,.gnav,.noprint,.stp,.port,.parent,.tabs,.frame{display:none!important}
+  /* a real photo earns its ink on a section sheet; the empty placeholder does not */
+  .shot{width:70mm!important;border:1px solid #999}
+  .shot img{height:48mm}
+  .shot .fh{display:none}
+  body{background:#fff;color:#000}
+  .wrap,.gwrap{max-width:none;padding:0}
+  .card{background:none;border:none;border-bottom:1px solid #ccc;border-radius:0;padding:0 0 14px;margin-bottom:18px}
+  .cols{display:block}.ph,.gph{display:none}
+  .rname,.pname,.h{color:#000}
+  .ing td{font-size:12pt;padding:6px 6px}
+  .ing .q{color:#000}
+  .sstep,.step{font-size:11.5pt;padding:5px 0}
+  .bline .n{border-left:2px solid #000}
+  .kind{border:1px solid #000;background:none!important;color:#000!important}
+  /* one component, or the whole folder page */
+  body.printall .pcur{display:none}
+  body.printall #psheet{display:block}
+}
+</style>
+
+<div id="root"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Branzino Carpaccio and its five batches — real, out of Chef Andrea's own
+   Branzino.xlsx. One record; three layouts read it. No cost on any of them.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var U = { GRM:'g', ML:'ml', PCS:'pcs', PINCH:'pinch' };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE RECORD. Nothing on this page is written here — every dish, batch, step,
+   allergen and photo is read from the recipe the chef saved on the create
+   screen. There is no copy of a recipe on this side to fall out of step with
+   the kitchen, because there is no recipe on this side at all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var SNAPSHOT = {"at":"2026-08-02T05:47:15.911Z","recipes":[{"id":"ccf841b5-df60-459f-bc60-ab992171118f","venue_id":"robertos-difc","dept":"kitchen","kind":"main","name":"Burrata","section":"Antipasti","makes_qty":1,"makes_unit":"portions","menu_price":115,"pos_key":null,"pos_name":null,"method":{},"photos":[],"allergens":[],"notes":null,"archived":false,"created_by":null,"created_by_name":null,"created_at":"2026-08-01T11:18:04.140776+00:00","updated_at":"2026-08-01T11:18:03.563+00:00"},{"id":"d2b3791d-6524-4c8b-9b36-4e4d842ddaf2","venue_id":"robertos-difc","dept":"kitchen","kind":"batch","name":"Flour Mix","section":"Antipasti","makes_qty":1.1,"makes_unit":"kg","menu_price":null,"pos_key":null,"pos_name":null,"method":{},"photos":[],"allergens":[],"notes":null,"archived":false,"created_by":null,"created_by_name":null,"created_at":"2026-08-01T11:06:34.643153+00:00","updated_at":"2026-08-01T11:06:34.195+00:00"},{"id":"aed75825-d766-43f3-8401-c891f9ff2332","venue_id":"robertos-difc","dept":"kitchen","kind":"main","name":"Vitello Tonnato","section":"Antipasti","makes_qty":1,"makes_unit":"portions","menu_price":89,"pos_key":null,"pos_name":null,"method":{},"photos":[],"allergens":[],"notes":null,"archived":false,"created_by":null,"created_by_name":null,"created_at":"2026-08-01T12:09:59.890949+00:00","updated_at":"2026-08-01T12:09:59.397+00:00"},{"id":"64190cb3-84d2-4215-b3fe-070803c79319","venue_id":"robertos-difc","dept":"kitchen","kind":"batch","name":"cooked veal","section":"Prep","makes_qty":1.246,"makes_unit":"kg","menu_price":null,"pos_key":null,"pos_name":null,"method":{},"photos":[],"allergens":[],"notes":null,"archived":false,"created_by":null,"created_by_name":null,"created_at":"2026-08-01T12:09:44.726733+00:00","updated_at":"2026-08-01T12:11:02.186+00:00"},{"id":"03838047-1cf8-4d5d-adc1-5af65669179f","venue_id":"robertos-difc","dept":"kitchen","kind":"batch","name":"Tonnata sauce","section":"Prep","makes_qty":1.295,"makes_unit":"kg","menu_price":null,"pos_key":null,"pos_name":null,"method":{},"photos":[],"allergens":[],"notes":null,"archived":false,"created_by":null,"created_by_name":null,"created_at":"2026-08-01T12:09:39.675385+00:00","updated_at":"2026-08-01T12:09:39.675385+00:00"}],"lines":[{"id":"1087e513-19a0-4d42-b103-8e55abfcf8ce","recipe_id":"d2b3791d-6524-4c8b-9b36-4e4d842ddaf2","position":0,"typed_text":"0.4 kg Flour Semolina 25Kg -Italy","stock_code":"4012057","stock_name":"Flour Semolina Re-Milled 25Kg","child_recipe_id":null,"qty":0.4,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:06:35.427051+00:00"},{"id":"80c08a48-2ae3-4621-ac28-613d87c80cf3","recipe_id":"d2b3791d-6524-4c8b-9b36-4e4d842ddaf2","position":1,"typed_text":"0.6 kg Flour Farina Type 00 Blue -Italy","stock_code":"4012052","stock_name":"Flour Farina Type 00 Blue -Italy","child_recipe_id":null,"qty":0.6,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:06:35.427051+00:00"},{"id":"caad163d-9a03-451d-9470-79ae90162051","recipe_id":"d2b3791d-6524-4c8b-9b36-4e4d842ddaf2","position":2,"typed_text":"0.1 kg Salt Table Fine (12x1Kg) -Nezo","stock_code":"4017138","stock_name":"Salt Table Fine (12x1Kg) -Nezo","child_recipe_id":null,"qty":0.1,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:06:35.427051+00:00"},{"id":"e9d9571b-63d7-492e-88c9-8df4731d86dd","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":0,"typed_text":"0.05 kg Tomato Datterino Red -Italy","stock_code":"4029093","stock_name":"Tomato Datterino Red -Italy","child_recipe_id":null,"qty":0.05,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"1fb8ccd5-c3c9-439b-961c-2e70c912376c","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":1,"typed_text":"0.05 kg Tomato Datterino Yellow -Italy","stock_code":"4029104","stock_name":"Tomato Datterino Yellow -Italy","child_recipe_id":null,"qty":0.05,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"6650a58a-48bf-4e11-a344-179ca174fa96","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":2,"typed_text":"0.05 kg Tomato Green","stock_code":"4029094","stock_name":"Tomato Green","child_recipe_id":null,"qty":0.05,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"39828855-da6d-4750-b5c5-420d3c5683e3","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":3,"typed_text":"0.1 kg Uzbek Tomato -Pink Paradise","stock_code":"4029178","stock_name":"Uzbek Tomato -Pink Paradise","child_recipe_id":null,"qty":0.1,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"03ac056a-2f76-4a53-8979-9c40a4b9fd90","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":4,"typed_text":"0.03 kg Basil Cyprus","stock_code":"4029158","stock_name":"Basil Cyprus","child_recipe_id":null,"qty":0.03,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"91200181-0751-4ee7-b92f-3cf57728bc7e","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":5,"typed_text":"0.03 kg Olive Pitted Black Leccino 1.8Kg","stock_code":"4017081","stock_name":"Olive Pitted Black Leccino 1.8Kg","child_recipe_id":null,"qty":0.03,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"26e8fd86-fc1d-44cf-afe6-066caded35d2","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":6,"typed_text":"0.125 kg Burrata 125gm","stock_code":"4014003","stock_name":"Burrata 125gm","child_recipe_id":null,"qty":0.125,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"bf05b533-52fa-4010-938a-fc0730fe8b21","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":7,"typed_text":"0.08 kg Pappa al pomodoro","stock_code":"4010051","stock_name":"RF Pappa Pomodoro (PA)","child_recipe_id":null,"qty":0.08,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"2988485d-3751-4fc9-888f-46bc92147657","recipe_id":"ccf841b5-df60-459f-bc60-ab992171118f","position":8,"typed_text":"0.005 L Basil oil","stock_code":"4010126","stock_name":"RF Basil Oil (PA)","child_recipe_id":null,"qty":0.2,"unit":"g","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T11:18:04.989723+00:00"},{"id":"b93857ef-560c-4b57-a5e9-5b0b2d4fee03","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":0,"typed_text":"1 R - Homemade mayo","stock_code":"4010148","stock_name":"RF Homemade Mayo (PA)","child_recipe_id":null,"qty":null,"unit":"g","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"472aa3a1-dddc-4e53-a8ed-2c34a0149b7d","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":1,"typed_text":"0.27 kg Tuna in Olive Oil 1.73Kg","stock_code":null,"stock_name":null,"child_recipe_id":null,"qty":0.27,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"74d83350-b0bc-43c2-ba5f-a66d328ba9aa","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":2,"typed_text":"0.005 kg Anchovy Fillets In Oil 680gm","stock_code":"4017005","stock_name":"Anchovy Fillets In Oil 680gm","child_recipe_id":null,"qty":0.005,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"94d1f1d3-5714-4d3f-a752-98c5d54a0039","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":3,"typed_text":"0.008 kg Caper In Salt 1Kg -Italy","stock_code":null,"stock_name":null,"child_recipe_id":null,"qty":0.008,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"34904cc2-2e5e-4bda-904f-29a677cd4908","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":4,"typed_text":"0.007 kg Mustard Whole Grain 200gm -Percheron","stock_code":null,"stock_name":null,"child_recipe_id":null,"qty":0.007,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"3d4ef58b-f570-4622-bd52-dba88712faee","recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","position":5,"typed_text":"0.005 L Vinegar White Grape De Nigris 5Ltr","stock_code":null,"stock_name":null,"child_recipe_id":null,"qty":0.005,"unit":null,"trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:09:40.131902+00:00"},{"id":"b17de30e-b288-49f1-8691-09e51fe3cedb","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":0,"typed_text":"0.03 kg R - Tonnata sauce","stock_code":null,"stock_name":null,"child_recipe_id":"03838047-1cf8-4d5d-adc1-5af65669179f","qty":0.03,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"092a31e4-280f-4b9f-90e4-b8c2d9da1266","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":1,"typed_text":"0.11 kg R- Cooked veal","stock_code":null,"stock_name":null,"child_recipe_id":"64190cb3-84d2-4215-b3fe-070803c79319","qty":0.11,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"baafe532-3233-4017-9454-04215822888b","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":2,"typed_text":"0.005 kg R- Capers powder","stock_code":null,"stock_name":null,"child_recipe_id":null,"qty":0.005,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"5520b95b-8414-4532-a9ae-7174bc6f0d45","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":3,"typed_text":"0.003 kg Caper Leaves in Olive Oil 100gm -France","stock_code":"4017217","stock_name":"Caper Leaves in Olive Oil 900gm -UAE","child_recipe_id":null,"qty":0.003,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"2a91fc82-b4b6-4c96-96c8-bad12a74c168","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":4,"typed_text":"0.005 L Olive Oil Extra Virgin 500ml -Dono Dorato Oil","stock_code":"4018008","stock_name":"Olive Oil Extra Virgin 500ml -Dono Dorato Oil","child_recipe_id":null,"qty":0.005,"unit":"L","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"58e59c57-6932-4f7a-afab-1be310c9a6ba","recipe_id":"aed75825-d766-43f3-8401-c891f9ff2332","position":5,"typed_text":"0.01 kg Celery -Australia","stock_code":"4029032","stock_name":"Celery -Australia","child_recipe_id":null,"qty":0.01,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:10:00.685485+00:00"},{"id":"4d7fed7b-de10-47de-845a-0c7a52fc5362","recipe_id":"64190cb3-84d2-4215-b3fe-070803c79319","position":0,"typed_text":"1.2 kg Veal Eye Round Holstein White Milk 1.2Kg Frozen -Italy","stock_code":"4022103","stock_name":"Veal Holstein Eye Round White Milk 1.2Kg Frozen -Netherlands","child_recipe_id":null,"qty":1.2,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:11:03.382348+00:00"},{"id":"808dbd45-131a-4701-a455-59b4360fe490","recipe_id":"64190cb3-84d2-4215-b3fe-070803c79319","position":1,"typed_text":"0.02 L Olive Oil Extra Virgin 5Ltr -Greece Taverna","stock_code":"4018009","stock_name":"Olive Oil Extra Virgin 5Ltr -Greece Taverna","child_recipe_id":null,"qty":0.02,"unit":"L","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:11:03.382348+00:00"},{"id":"ed26a328-7087-45c3-905f-68641c141666","recipe_id":"64190cb3-84d2-4215-b3fe-070803c79319","position":2,"typed_text":"0.02 kg Rosemary Loose Cyprus","stock_code":"4027032","stock_name":"Rosemary Loose Cyprus","child_recipe_id":null,"qty":0.02,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:11:03.382348+00:00"},{"id":"f578231d-2580-483c-8486-444760828586","recipe_id":"64190cb3-84d2-4215-b3fe-070803c79319","position":3,"typed_text":"0.006 kg Salt Table Fine (12x1Kg) -Nezo","stock_code":"4017138","stock_name":"Salt Table Fine (12x1Kg) -Nezo","child_recipe_id":null,"qty":0.006,"unit":"kg","trim_on":false,"yield_pct":null,"waste_pct":null,"created_at":"2026-08-01T12:11:03.382348+00:00"}]};
+var SNAP = (typeof SNAPSHOT !== 'undefined') ? SNAPSHOT : null;
+var frozen = false;                    /* true once the live read has been refused */
+
+/* Read the recipes. Opened from the kitchen this is the live database. Opened from a
+   hosted link — where a page is not allowed to call an outside host — the same code
+   answers out of the snapshot built into the file, and the page says so at the top.
+   Never a silent fallback: a card showing last week's recipe without admitting it is
+   worse than one that will not open. */
+function sb(path){
+  if (frozen) return Promise.resolve(local(path));
+  return fetch(SB_URL + '/rest/v1/' + path, {
+    headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY }
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP ' + r.status)); });
+    return r.json();
+  }).catch(function(e){
+    if (!SNAP) throw e;
+    frozen = true;
+    return local(path);
+  });
+}
+/* Answers exactly the handful of queries these cards ask, and nothing else — an
+   almost-right query language would be a worse bug than no fallback at all. */
+function local(path){
+  var q = path.split('?'), table = q[0];
+  var p = {};
+  (q[1] || '').split('&').forEach(function(kv){
+    var i = kv.indexOf('='); if (i > 0) p[kv.slice(0,i)] = kv.slice(i+1);
+  });
+  function ids(v){
+    if (/^eq\./.test(v)) return [v.slice(3)];
+    if (/^in\.\(/.test(v)) return v.slice(4,-1).split(',');
+    return null;
+  }
+  var rows = (table === 'recipes' ? SNAP.recipes : SNAP.lines).slice();
+  if (p.id){ var w = ids(p.id); rows = rows.filter(function(r){ return w.indexOf(r.id) > -1; }); }
+  if (p.recipe_id){ var w2 = ids(p.recipe_id); rows = rows.filter(function(r){ return w2.indexOf(r.recipe_id) > -1; }); }
+  if (p.kind === 'eq.main') rows = rows.filter(function(r){ return r.kind === 'main'; });
+  if (p.archived === 'is.false') rows = rows.filter(function(r){ return !r.archived; });
+  if (p.order === 'section,name') rows.sort(function(a,b){
+    return (a.section||'').localeCompare(b.section||'') || (a.name||'').localeCompare(b.name||''); });
+  return rows;
+}
+
+var R = null, SUBS = {}, MENU = [], loadErr = null, busy = false;
+
+/* The method is four boxes of typed text on the create screen. A step is a line.
+   Nothing is inferred beyond that — a blank line is not a step, and a section the
+   chef left empty simply does not appear. */
+function toSteps(m){
+  var out = { mise:[], method:[], order:[], plating:[] };
+  ['mise','method','order','plating'].forEach(function(k){
+    out[k] = String((m && m[k]) || '').split(/\r?\n/)
+      .map(function(x){ return x.trim(); }).filter(Boolean);
+  });
+  return out;
+}
+/* A line is either something off Aung's stock list or a batch made in-house.
+   `child_recipe_id` is the only thing that tells them apart, and it is the same
+   link the create screen wrote — never a name match. */
+function toLines(rows){
+  return (rows || []).slice()
+    .sort(function(a,b){ return (a.position||0) - (b.position||0); })
+    .map(function(l){
+      return { q:l.qty, u:l.unit, n:l.stock_name || l.typed_text || '(unnamed)',
+               sub:l.child_recipe_id };
+    });
+}
+function shape(rec, lines){
+  return { id:rec.id, name:rec.name || 'Untitled', section:rec.section || '',
+    by:rec.created_by_name || '', kind:rec.kind,
+    makes:{ qty:rec.makes_qty, unit:rec.makes_unit || (rec.kind==='main'?'portion':'') },
+    allergens:rec.allergens || [], photos:rec.photos || [],
+    method:toSteps(rec.method), lines:toLines(lines) };
+}
+
+/* Pull the dish and, in one more round trip, every batch inside it — including
+   batches inside those batches. Two queries, not one per batch: a card opened at
+   the pass on kitchen wifi cannot afford a waterfall. */
+function loadRecipe(id){
+  var dish = null;
+  return Promise.all([
+    sb('recipes?id=eq.' + id + '&select=*'),
+    sb('recipe_lines?recipe_id=eq.' + id + '&select=*')
+  ]).then(function(res){
+    if (!res[0].length) throw new Error('that recipe is no longer there');
+    dish = shape(res[0][0], res[1]);
+    return gather(dish.lines.map(function(l){ return l.sub; }).filter(Boolean), {});
+  }).then(function(subs){
+    R = dish; SUBS = subs;
+  });
+}
+function gather(ids, acc){
+  ids = ids.filter(function(id){ return id && !acc[id]; });
+  if (!ids.length) return Promise.resolve(acc);
+  var inList = '(' + ids.join(',') + ')';
+  return Promise.all([
+    sb('recipes?id=in.' + inList + '&select=*'),
+    sb('recipe_lines?recipe_id=in.' + inList + '&select=*')
+  ]).then(function(res){
+    var byRecipe = {};
+    res[1].forEach(function(l){ (byRecipe[l.recipe_id] = byRecipe[l.recipe_id] || []).push(l); });
+    var next = [];
+    res[0].forEach(function(rec){
+      acc[rec.id] = shape(rec, byRecipe[rec.id] || []);
+      acc[rec.id].lines.forEach(function(l){ if (l.sub) next.push(l.sub); });
+    });
+    return gather(next, acc);      /* a batch inside a batch, however deep */
+  });
+}
+function loadMenu(){
+  return sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,menu_price,method,allergens,photos&order=section,name')
+    .then(function(rows){ MENU = rows; });
+}
+
+var MS = [ {k:'mise',t:'Mise en place'}, {k:'method',t:'Method'}, {k:'order',t:'To order'}, {k:'plating',t:'Plating'} ];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function unit(u){ return U[u] || (u||'').toLowerCase(); }
+/* Two decimals is right for 1.25 kg and catastrophic for 0.002 kg, which rounds to a
+   flat "0" on a card somebody is cooking from. Never print a zero for something that
+   is actually in the dish: keep adding places until a real number appears. */
+function num(n){
+  if (n == null) return '';
+  var d = 2;
+  while (d < 6 && Math.abs(n) > 0 && Math.round(n * Math.pow(10,d)) === 0) d++;
+  return String(Math.round(n * Math.pow(10,d)) / Math.pow(10,d));
+}
+/* A chef weighs 20 g, not 0.02 kg. The recipe is stored in whatever unit it was typed
+   in; this only changes how it READS, and only downwards, so nothing is ever rounded
+   away — 1.25 kg stays 1.25 kg. */
+function show(q, u){
+  u = unit(u);
+  if (q == null) return { q:'', u:u };
+  if (u === 'kg' && Math.abs(q) < 1)  return { q:num(q*1000), u:'g'  };
+  if ((u === 'l' || u === 'ltr') && Math.abs(q) < 1) return { q:num(q*1000), u:'ml' };
+  return { q:num(q), u:u };
+}
+function steps(m){ var o=[]; MS.forEach(function(s){ if(m[s.k]&&m[s.k].length) o.push({t:s.t,list:m[s.k]}); }); return o; }
+function flat(m){ var o=[]; steps(m).forEach(function(g){ g.list.forEach(function(x){ o.push({g:g.t,x:x}); }); }); return o; }
+
+/* A batch line is named by the batch itself, never by what was typed to find it.
+   The typed line still reads "0.03 kg R - Tonnata sauce" — the quantity is already
+   in its own column, so using it here printed the amount twice and carried a stock
+   code into a chef's ingredient list. The batch's real name is the only truth here. */
+function lineName(l){
+  if (l.sub && SUBS[l.sub]) return SUBS[l.sub].name;
+  /* When an ingredient never matched Aung's list there is no stock name, so the raw
+     line the chef typed is all there is — and it starts with the quantity, which is
+     already in its own column. "5 g   0.005 kg R- Capers powder" is how that reads
+     on the card. Strip a leading amount, and only a leading amount. */
+  return String(l.n || '').replace(/^\s*\d+(?:[.,]\d+)?\s*[a-zA-Z]{0,4}\s+(?=\S)/, '').trim() || l.n;
+}
+
+/* mode: 'expand' opens the batch under the row (the card) · 'switch' jumps to it
+   (the station) · anything else leaves the row alone. A batch line is marked the
+   same way everywhere, so "this one is made separately" reads identically on
+   every screen. */
+function ingRows(lines,m,mode){
+  var exp = mode==='expand', jump = mode==='switch';
+  return lines.map(function(l,i){
+    var isB = !!l.sub;
+    var cls = (isB?'bline ':'') + (isB&&(exp||jump)?'sub':'');
+    var d = show(l.q==null?null:l.q*(m||1), l.u);
+    /* A number with no unit, or an ingredient with no number at all, is not something
+       to print quietly on a card somebody is cooking from — it looks like a decision
+       when it is a gap. Say which it is, and where to go and fix it. */
+    var gap = (l.q == null) ? 'no quantity yet'
+            : (!d.u ? 'no unit yet' : '');
+    return '<tr class="'+cls.trim()+(gap?' gap':'')+'" data-i="'+i+'"'+(isB&&jump?' data-jump="'+l.sub+'"':'')+'>' +
+      '<td class="q">'+esc(d.q)+'</td>' +
+      '<td class="u">'+(gap ? '<span class="miss" title="fix it on the create screen">'+esc(gap)+'</span>'
+                            : esc(d.u))+'</td>' +
+      '<td class="n">'+(isB&&exp?'<span class="caret">&#9654;</span>':'')+esc(lineName(l)) +
+        (isB?'<span class="btag">Batch</span>':'')+'</td></tr>' +
+      (isB&&exp ? '<tr class="subpane" id="sp-'+i+'" style="display:none"><td colspan="3">'+subInner(l.sub)+'</td></tr>' : '');
+  }).join('');
+}
+
+/* ── the top line: the dish, then its batches, told apart ── */
+function switcher(){
+  var subs = compList().slice(1);
+  return '<div class="tabs noprint">' +
+    '<button data-comp="dish" class="t-dish'+(comp==='dish'?' on':'')+'">'+esc(R.name)+'</button>' +
+    '<span class="tsep">made from</span>' +
+    subs.map(function(x){
+      return '<button data-comp="'+x.k+'" class="t-batch'+(x.k===comp?' on':'')+'">'+esc(x.n)+'</button>'; }).join('') +
+  '</div>';
+}
+
+/* what this batch is for, and how much of it one plate takes */
+function usedLine(){
+  var l = R.lines.filter(function(x){ return x.sub===comp; })[0];
+  if (!l) return 'Not used in this dish.';
+  var d = show(l.q, l.u);
+  return 'One portion of ' + R.name + ' takes ' + d.q + ' ' + d.u + ' of it.';
+}
+function subInner(key){
+  var s = SUBS[key]; if(!s) return '';
+  return '<div class="h" style="font-size:19px">'+esc(s.name)+'<span class="sm">Makes '+num(s.makes.qty)+' '+esc(s.makes.unit)+'</span></div>' +
+    '<table class="ing">'+ingRows(s.lines,1,false)+'</table>' +
+    steps(s.method).map(function(g){
+      return '<div style="margin-top:16px"><div class="h" style="font-size:17px">'+esc(g.t)+'</div>' +
+        g.list.map(function(x,i){ return '<div class="step"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('') +
+      '</div>'; }).join('');
+}
+/* ── allergens ──
+   Same fourteen, same keys, same words as the recipe sheet and the Food Bible page.
+   Matched by key: matching by the word is how "Shellfish" here and "Crustaceans"
+   there silently stopped meeting, and it failed by showing nothing, which reads as
+   safe. The person plating is the last pair of eyes before a guest eats it, so this
+   is on the station card, not only on the layout nobody chose. */
+var ALLERGENS = [
+  { k:'gluten',    t:'Gluten' },      { k:'crustacean', t:'Crustaceans' },
+  { k:'egg',       t:'Egg' },         { k:'fish',       t:'Fish' },
+  { k:'peanut',    t:'Peanuts' },     { k:'soy',        t:'Soya' },
+  { k:'milk',      t:'Milk' },        { k:'nuts',       t:'Tree nuts' },
+  { k:'celery',    t:'Celery' },      { k:'mustard',    t:'Mustard' },
+  { k:'sesame',    t:'Sesame' },      { k:'sulphites',  t:'Sulphites' },
+  { k:'lupin',     t:'Lupin' },       { k:'mollusc',    t:'Molluscs' }
+];
+function algName(k){
+  var a = ALLERGENS.filter(function(x){ return x.k === k; })[0];
+  return a ? a.t : k;
+}
+/* What a component carries: its own ticks, plus everything each batch inside it
+   carries — named by the batch, so it can be checked where it was actually ticked
+   instead of sending someone hunting through five sheets. */
+function algFor(key){
+  var out = [];
+  function add(k, from){
+    var e = out.filter(function(x){ return x.k === k; })[0];
+    if (e){ if (from && e.from.indexOf(from) < 0) e.from.push(from); return; }
+    out.push({ k:k, from: from ? [from] : [] });
+  }
+  var c = (key === 'dish') ? R : SUBS[key];
+  if (!c) return out;
+  (c.allergens || []).forEach(function(k){ add(k, null); });
+  if (key === 'dish') R.lines.forEach(function(l){
+    var s = l.sub && SUBS[l.sub]; if (!s) return;
+    (s.allergens || []).forEach(function(k){ add(k, s.name); });
+  });
+  var ord = ALLERGENS.map(function(a){ return a.k; });
+  out.sort(function(a,b){ return ord.indexOf(a.k) - ord.indexOf(b.k); });
+  return out;
+}
+function algBar(key){
+  var l = algFor(key);
+  return '<div class="alg' + (l.length ? '' : ' none') + '">' +
+    '<span class="algl">Allergens</span>' +
+    (l.length
+      ? '<div class="algv">' + l.map(function(x){
+          return '<span class="algi">' + esc(algName(x.k)) +
+            (x.from.length ? '<span class="algs">from ' + esc(x.from.join('; ')) + '</span>' : '') +
+          '</span>'; }).join('') + '</div>'
+      : '<div class="algv">Nothing ticked on this recipe — <b>this card cannot answer an allergy ' +
+        'question.</b> The chef ticks them where the recipe is written; nothing here is worked ' +
+        'out from an ingredient’s name.</div>') +
+  '</div>';
+}
+function allergenHTML(){ return algBar('dish'); }
+function compList(){
+  var l=[{k:'dish',n:'The dish'}];
+  R.lines.forEach(function(x){ if(x.sub&&SUBS[x.sub]) l.push({k:x.sub,n:SUBS[x.sub].name}); });
+  return l;
+}
+
+/* ═══ A — the card ═══ */
+var portions = 1;
+function viewCard(){
+  return '<div class="wrap">' +
+    '<div class="hdr"><div class="rname">'+esc(R.name)+'</div><div class="rsec">'+esc(R.section)+'</div></div>' +
+    '<div class="meta">Makes '+num(R.makes.qty)+' '+esc(R.makes.unit)+' &nbsp;·&nbsp; '+esc(R.by)+'</div>' +
+    '<div class="photos">' + ((R.photos || []).length
+      ? R.photos.map(function(p){ return '<img class="ph" src="'+esc(p.u||p)+'" alt="'+esc(R.name)+'">'; }).join('')
+      : '<div class="ph">No photo yet.<br>Added on the create screen.</div>') + '</div>' +
+    '<div class="port noprint"><span class="lab">Cook for</span>' +
+      '<div class="stp"><button data-p="-1" aria-label="fewer portions">&minus;</button>' +
+      '<span class="v">'+portions+'</span><button data-p="1" aria-label="more portions">+</button></div>' +
+      '<span class="lab">'+(portions===1?'portion':'portions')+'</span>' +
+      (portions>1?'<span class="scaled">every quantity below is &times;'+portions+'</span>':'') +
+    '</div>' +
+    '<div class="rule"></div>' +
+    '<div class="card"><div class="h">Ingredients<span class="sm">tap a batch to open it here</span></div>' +
+      '<table class="ing">'+ingRows(R.lines,portions,'expand')+'</table></div>' +
+    (steps(R.method).length
+      ? steps(R.method).map(function(g){
+          return '<div class="card"><div class="h">'+esc(g.t)+'</div>' +
+            g.list.map(function(x,i){ return '<div class="step"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('') +
+          '</div>'; }).join('')
+      : '<div class="card"><div class="h">Method</div>'+stepsHTML([])+'</div>') +
+    '<div class="card">'+allergenHTML()+'</div>' +
+    '<div class="noprint"><button class="btn ghost" id="print">Print this card</button></div>' +
+  '</div>';
+}
+
+/* ═══ B — the station ═══ */
+var comp='dish', mult=1, photoOpen=null;
+function current(){ return comp==='dish' ? {name:R.name,lines:R.lines,method:R.method,makes:R.makes} : SUBS[comp]; }
+function viewStation(){
+  var c=current(), fl=flat(c.method), onDish = (comp==='dish');
+  return '<div class="wrap">' +
+    '<div class="pcur">' +
+    switcher() +
+    (onDish ? '' : '<button class="parent" data-comp="dish">&larr; Part of '+esc(R.name)+'</button>') +
+    '<div class="hdr"><div class="rname">'+esc(c.name)+'</div>' +
+      '<span class="kind '+(onDish?'k-dish':'k-batch')+'">'+(onDish?'The dish':'A batch')+'</span></div>' +
+    '<div class="meta">'+esc(onDish ? R.section : 'Made ahead, then used in the dish')+' &nbsp;·&nbsp; ' +
+      'Makes '+num(c.makes.qty*(onDish?1:mult))+' '+esc(c.makes.unit)+
+      (!onDish&&mult>1?' &nbsp;·&nbsp; batch &times;'+mult:'')+'</div>' +
+    (onDish ? '' : '<div class="meta">'+esc(usedLine())+'</div>') +
+    /* above the photo and the ingredients, on whichever component is open — the
+       question gets asked at the pass, with the ticket in someone's hand */
+    algBar(comp) +
+    photoStrip(c) +
+    '<div class="rule"></div>' +
+    '<div class="cols">' +
+      '<div class="left"><div class="card"><div class="h">Ingredients' +
+        (onDish?'<span class="sm">tap a batch to open it</span>':'')+'</div>' +
+        (comp!=='dish' ? '<div class="port noprint" style="margin-top:0"><span class="lab">Batch</span>' +
+          '<div class="stp"><button data-m="-1" aria-label="smaller batch">&minus;</button><span class="v">&times;'+mult+'</span>' +
+          '<button data-m="1" aria-label="bigger batch">+</button></div></div>' : '') +
+        '<table class="ing">'+ingRows(c.lines,onDish?1:mult,onDish?'switch':false)+'</table></div></div>' +
+      '<div><div class="card"><div class="h">Steps</div>' + stepsHTML(fl) + '</div></div>' +
+    '</div>' +
+    '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap">' +
+      '<button class="btn ghost" data-print="one">Print ' + esc(onDish ? 'the dish' : 'this batch') + '</button>' +
+      '<button class="btn ghost" data-print="all">Print the dish and all its batches</button>' +
+    '</div>' +
+    '</div>' +          /* ends .pcur */
+    printSheet() +
+  '</div>';
+}
+
+function stepsHTML(fl){
+  /* An empty box under a heading called "Steps" reads as a recipe with no steps.
+     It is a recipe nobody has written the method for yet, which is a different
+     thing and has somewhere to be fixed. */
+  if (!fl.length) return '<div class="none"><b>The method has not been written yet.</b><br>' +
+    'The ingredients are here because they came off the stock take. Mise en place, method, ' +
+    'to order and plating are written on the create screen and appear here the moment they are saved.</div>';
+  return fl.map(function(s,i){
+    var head=(i===0||fl[i-1].g!==s.g)?'<div class="h" style="font-size:17px;margin:18px 0 6px">'+esc(s.g)+'</div>':'';
+    return head+'<div class="sstep"><span class="no">'+(i+1)+'</span><span>'+esc(s.x)+'</span></div>';
+  }).join('');
+}
+
+/* ── paper ──
+   Two different jobs, so two buttons. "Print this batch" is the sheet that gets
+   taped up at the section. "Print the dish and all its batches" is the folder
+   page you hand someone being trained — the dish is useless on paper on its own,
+   because every line of it is a batch. The whole set is always in the page,
+   hidden on screen, so printing never has to rebuild or reload anything. */
+function printSheet(){
+  var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes}}]
+    .concat(compList().slice(1).map(function(x){ return {k:x.k, c:SUBS[x.k]}; }));
+  return '<div id="psheet">' + all.map(function(a){
+    var onDish = a.k==='dish', c = a.c;
+    var used = R.lines.filter(function(l){ return l.sub===a.k; })[0];
+    return '<div class="pblock">' +
+      '<div class="pkind">'+(onDish?'The dish':'A batch of '+esc(R.name))+'</div>' +
+      '<div class="pname">'+esc(c.name)+'</div>' +
+      '<div class="pmeta">'+(onDish?esc(R.section)+' · ':'')+'Makes '+num(c.makes.qty)+' '+esc(c.makes.unit)+
+        (used?' · one portion takes '+show(used.q,used.u).q+' '+show(used.q,used.u).u:'')+'</div>' +
+      algBar(a.k) +
+      '<table class="ing">'+ingRows(c.lines,1,false)+'</table>' +
+      stepsHTML(flat(c.method)) +
+    '</div>'; }).join('') + '</div>';
+}
+
+/* ── the photos, on the component they belong to ──
+   The plated dish and the pickled radish are two different pictures, so the strip
+   belongs to whichever component is open, not to the recipe as a whole. Tap one
+   and it opens full width where it stands — nothing covers the steps. */
+function photoStrip(c){
+  var isOpen = (photoOpen === comp);
+  var what = comp==='dish' ? 'The plated dish' : 'The finished batch';
+  var ph = (c && c.photos) || [];
+  if (!ph.length){
+    return '<div class="pstrip">' +
+      '<button class="frame" data-photo="'+comp+'" disabled>' +
+        '<span class="fl">'+esc(what)+'</span>' +
+        '<span class="fh">No photo yet &nbsp;·&nbsp; added on the create screen</span>' +
+      '</button></div>';
+  }
+  return '<div class="pstrip'+(isOpen?' open':'')+'">' + ph.map(function(p,i){
+    return '<button class="shot'+(isOpen?' big':'')+'" data-photo="'+comp+'">' +
+      '<img src="'+esc(p.u||p)+'" alt="'+esc(c.name)+'">' +
+      (i===0 ? '<span class="fh">'+(isOpen?'tap to make it small':'tap to see it big')+'</span>' : '') +
+    '</button>'; }).join('') + '</div>';
+}
+
+/* ═══ C — guided ═══ */
+var gComp='dish', gi=0;
+function viewGuided(){
+  var c = gComp==='dish' ? {name:R.name,lines:R.lines,method:R.method} : SUBS[gComp];
+  var fl=flat(c.method), total=fl.length+1;
+  if (gi>total-1) gi=total-1;
+  var body;
+  if (gi===0){
+    body='<div class="gcount">Before you start</div><div class="gtext">Get these out.</div>' +
+      '<table class="ing" style="margin-top:22px">'+ingRows(c.lines,1,false)+'</table>';
+  } else {
+    var s=fl[gi-1];
+    body='<div class="gcount">'+esc(s.g)+' &nbsp;·&nbsp; step '+gi+' of '+fl.length+'</div>' +
+      '<div class="gtext">'+esc(s.x)+'</div><div class="gph">No photo on this step yet.</div>';
+  }
+  return '<div class="gwrap">' +
+    '<div class="tabs noprint">'+compList().map(function(x){
+      return '<button data-gcomp="'+x.k+'" class="'+(x.k===gComp?'on':'')+'">'+esc(x.n)+'</button>'; }).join('')+'</div>' +
+    '<div class="gbar"><i style="width:'+Math.round((gi/(total-1))*100)+'%"></i></div>'+body+
+    '<div class="gnav"><button class="btn ghost" id="gprev"'+(gi===0?' disabled':'')+'>Back</button>' +
+      '<button class="btn" id="gnext"'+(gi===total-1?' disabled':'')+'>'+(gi===total-1?'Finished':'Next')+'</button></div>' +
+  '</div>';
+}
+
+/* ═══ the three doors ═══ */
+var VIEWS = [
+  { k:'card', n:'A · The card', t:'The card', who:'For the wall, the folder, the section board',
+    d:'One scroll, the way a recipe reads on paper, and it prints exactly as it looks. Tap a batch and it opens where it stands, so you never leave the dish to see what is in the dressing. “Cook for 4” rescales every quantity.',
+    w:'<b>A — The card.</b> One scroll, the way a recipe reads on paper, and it prints exactly as it looks. Tap a batch line and it opens where it stands. <i>For the wall, the folder, and reading a dish whole.</i>',
+    v:viewCard },
+  { k:'station', n:'B · The station', t:'The station', who:'Chosen · for a chef de partie, mid-prep',
+    d:'The batches are the top line, because a chef de partie makes one of these, not the dish. Ingredients stay on screen while the steps scroll, the photo belongs to whichever one is open, and a batch scales ×2, ×5, ×10.',
+    w:'<b>B — The station. This is the one we build.</b> The batches are the top line, because a chef de partie makes <i>one</i> of these, not the dish. Ingredients stay on screen while the steps scroll, the photo belongs to whichever component is open, and a batch scales. <i>For the pass and the section, with a knife in your hand.</i>',
+    v:viewStation },
+  { k:'guided', n:'C · Guided', t:'Guided', who:'For a commis, first time, on a phone',
+    d:'One step filling the screen, starting with what to get out. Big type, two buttons, no way to lose your place.',
+    w:'<b>C — Guided.</b> One step, filling the screen, starting with what to get out. Big type, two buttons, no way to lose your place. <i>For a commis cooking it the first time.</i>',
+    v:viewGuided },
+];
+var view = 'home', layout = 'station';
+
+/* ── the front page: the menu, as it stands in the database ──
+   Not a list of layouts. A chef de partie opens this to find a dish, so the
+   dishes are the page. What each one is still missing is said on its own row —
+   an unfinished recipe is the normal state right now, not a fault. */
+function viewHome(){
+  var body;
+  if (loadErr){
+    body = '<div class="load bad"><b>The recipes could not be read.</b><br>' + esc(loadErr) +
+      '<br><br>Nothing is lost — this card only reads. Try again in a moment.</div>';
+  } else if (busy){
+    body = '<div class="load">Reading the recipes…</div>';
+  } else if (!MENU.length){
+    body = '<div class="load"><b>No dishes saved yet.</b><br>' +
+      'The moment a main recipe is saved on the create screen it appears here, ' +
+      'with whatever has been written on it so far.</div>';
+  } else {
+    var sec = '';
+    body = '<div class="menu">' + MENU.map(function(d){
+      var head = (d.section !== sec) ? (sec = d.section, '<div class="msec">' + esc(d.section || 'No section') + '</div>') : '';
+      var gaps = [];
+      if (!hasAny(d.method, ['mise','method','order','plating'])) gaps.push('no method');
+      if (!(d.allergens || []).length) gaps.push('no allergens');
+      if (!(d.photos || []).length) gaps.push('no photo');
+      return head + '<button class="dish" data-open="' + d.id + '">' +
+        '<span class="dn">' + esc(d.name) + '</span>' +
+        (gaps.length ? '<span class="dgap">' + esc(gaps.join(' · ')) + '</span>'
+                     : '<span class="dgap ok">written</span>') +
+        '<span class="dgo">Open &rarr;</span></button>';
+    }).join('') + '</div>';
+  }
+  return '<div class="front">' +
+    '<div class="eyebrow">Kitchen &nbsp;·&nbsp; recipe card</div>' +
+    '<h1 class="lede">Every dish, as the kitchen wrote it.</h1>' +
+    '<p class="stand">Nothing on these cards is typed here. Each one is read from the recipe ' +
+      'saved on the <b>create screen</b> — change a batch once and every dish that uses it changes ' +
+      'with it. <b>No cost appears anywhere.</b></p>' +
+    (frozen && SNAP ? '<div class="stale">This link cannot reach the kitchen database, so it is ' +
+      'showing the recipes <b>as they stood ' + esc(stamp()) + '</b>. Opened inside the app it is live.</div>' : '') +
+    body +
+    '<div class="foot">Blank photos and unticked allergens mean nobody has written them yet — ' +
+      'that is the phase, not a fault. They fill in from the create screen, never from here.</div>' +
+  '</div>';
+}
+/* say when the snapshot was taken, in words, not an ISO string */
+function stamp(){
+  if (!SNAP || !SNAP.at) return 'at build time';
+  var d = new Date(SNAP.at);
+  if (isNaN(d)) return 'at build time';
+  return d.toLocaleDateString(undefined, { day:'numeric', month:'long' }) + ', ' +
+         d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+}
+function hasAny(m, keys){
+  return keys.some(function(k){ return String((m && m[k]) || '').trim(); });
+}
+
+/* NOT called open(). Two reasons, both learned the hard way: `open` is already a
+   function on window, and the click handler below declares a local `var open` for the
+   batch expander — a `var` hoists to the top of its whole function, so every click was
+   reaching an undefined local instead of this, and nothing happened when a dish was
+   tapped. Tested from the console it worked perfectly, because the console is a
+   different scope. Never name a global after a browser built-in. */
+function openDish(id){
+  busy = true; loadErr = null; view = 'loading'; render();
+  loadRecipe(id).then(function(){
+    comp = 'dish'; gComp = 'dish'; gi = 0; mult = 1; portions = 1; photoOpen = null;
+    busy = false; view = layout; render(); window.scrollTo(0,0);
+  }).catch(function(e){
+    busy = false; loadErr = e.message; view = 'home'; render();
+  });
+}
+
+function render(){
+  var root = document.getElementById('root');
+  if (view === 'loading'){ root.innerHTML = '<div class="front"><div class="load">Opening the recipe…</div></div>'; return; }
+  if (view === 'home'){ root.innerHTML = viewHome(); return; }
+  var cur = VIEWS.filter(function(v){ return v.k===view; })[0];
+  root.innerHTML =
+    '<div class="top"><button class="home" id="home">&larr; All dishes</button>' +
+      '<div class="sw">'+VIEWS.map(function(v){
+        return '<button data-v="'+v.k+'" class="'+(v.k===view?'on':'')+'">'+esc(v.n)+'</button>'; }).join('')+'</div></div>' +
+    '<div class="why">'+cur.w+'</div>' + cur.v();
+}
+
+document.addEventListener('click', function(e){
+  var t=e.target, b=t.closest?t.closest('button'):null;
+  if (b && b.dataset.open){ openDish(b.dataset.open); return; }
+  if (b && b.id==='home'){ view='home'; render(); window.scrollTo(0,0); return; }
+  if (b && b.dataset.v){ view=layout=b.dataset.v; render(); window.scrollTo(0,0); return; }
+
+  if (b && b.dataset.p){ portions=Math.max(1,Math.min(50,portions+(+b.dataset.p))); render(); return; }
+  if (b && b.id==='print'){ window.print(); return; }
+  if (b && b.dataset.print){
+    document.body.classList.toggle('printall', b.dataset.print==='all');
+    window.print();
+    return;
+  }
+  var row=t.closest?t.closest('tr.sub'):null;
+  if (row && view==='card'){
+    var pane=document.getElementById('sp-'+row.dataset.i), car=row.querySelector('.caret');
+    if (pane){ var wasOpen=pane.style.display!=='none'; pane.style.display=wasOpen?'none':'';
+      if (car) car.innerHTML = wasOpen ? '&#9654;' : '&#9660;'; }
+    return;
+  }
+  if (b && b.dataset.comp){ comp=b.dataset.comp; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
+  var jr = t.closest?t.closest('tr[data-jump]'):null;
+  if (jr){ comp=jr.dataset.jump; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
+  if (b && b.dataset.m){ mult=Math.max(1,Math.min(20,mult+(+b.dataset.m))); render(); return; }
+  if (b && b.dataset.photo){ photoOpen = (photoOpen===b.dataset.photo) ? null : b.dataset.photo; render(); return; }
+
+  if (b && b.dataset.gcomp){ gComp=b.dataset.gcomp; gi=0; render(); window.scrollTo(0,0); return; }
+  if (b && b.id==='gnext'){ gi++; render(); window.scrollTo(0,0); return; }
+  if (b && b.id==='gprev'){ gi=Math.max(0,gi-1); render(); window.scrollTo(0,0); return; }
+});
+
+busy = true; render();
+loadMenu()
+  .then(function(){ busy = false; render(); })
+  .catch(function(e){ busy = false; loadErr = e.message; render(); });
+</script>
