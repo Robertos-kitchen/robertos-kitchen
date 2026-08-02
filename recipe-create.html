@@ -325,6 +325,16 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .mbox:focus{border-color:var(--vino)}
 .mbox::placeholder{color:var(--sabbia-dark)}
 
+/* ── inside the Recipes module ──
+   The module owns "which dish" and "which view", so this page drops its own way back
+   to the recipe list. Everything that belongs to WRITING the dish — the name, the
+   section, Aung's list, Saved recipes — stays, because that is this screen's job. */
+.embed .bar .back{display:none}
+.openerr{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:999;
+  background:var(--vino);color:var(--cream);font-size:13.5px;line-height:1.5;
+  padding:11px 18px;border-radius:7px;box-shadow:0 4px 16px rgba(43,1,4,.3);max-width:88vw}
+.openerr.bad{background:#7a1218}
+
 /* ───── the floor's half of the same recipe ───── */
 .foh{padding:24px 16px 30px;background:var(--cream);border-top:1.5px solid var(--sabbia-dark)}
 .mcode{max-width:170px;min-height:0;text-transform:uppercase;letter-spacing:1px}
@@ -3159,7 +3169,34 @@ function checkFit(){
 }
 window.checkFit = checkFit;
 
+/* ── opened from the Recipes module ──
+   `?id=` opens that recipe straight onto its sheet, `?new=1` starts a blank one, and
+   `&embed=1` drops this page's own back-button chrome because the module around it
+   already owns the navigation. Opened on its own, none of this fires and the page
+   behaves exactly as before. */
+var Q = new URLSearchParams(location.search);
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
+
 render();
 fitBar();
 loadBatches().then(function(){ if (S.step==='sheet'){ rows(); } foot(); });
+
+function flash(msg, bad){
+  var m = document.createElement('div');
+  m.className = 'openerr' + (bad ? ' bad' : '');
+  m.textContent = msg;
+  document.body.appendChild(m);
+  return m;
+}
+if (Q.get('id')){
+  var wait = flash('Opening the recipe…');
+  openRecipe(Q.get('id'))
+    .then(function(){ wait.remove(); render(); rows(); foot(); })
+    .catch(function(e){
+      wait.remove();
+      flash('That recipe could not be opened — ' + e.message, true);
+    });
+} else if (Q.get('new') === '1'){
+  S.step = 'type'; render();
+}
 </script>

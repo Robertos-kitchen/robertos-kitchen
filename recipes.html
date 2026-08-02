@@ -1,0 +1,244 @@
+<title>Recipes — Roberto's Kitchen</title>
+<style>
+/* Roberto's house palette — the project's own tokens, not invented here.
+   Cormorant Garamond and DM Sans cannot be loaded on a hosted page, so the
+   nearest honest stand-ins are used: Georgia for the display face, the system
+   humanist sans for text. The real module keeps the brand faces. */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--vino-light:#7a1218;
+  --oliva:#4b5128;--oro:#ba9b02;--ink:#2a1a10;--cream:#f5ede0;
+  --serif:Georgia,'Times New Roman',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color-scheme:light;
+}
+/* A brand surface: it holds Sabbia and Vino in either OS theme, the way the app
+   itself does on the pass. The tokens are held, not inverted. */
+:root[data-theme="dark"],:root[data-theme="light"]{color-scheme:light}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ═══ the dish bar — WHICH dish, always on screen ═══
+   The dish is the thing you are working on; the view is only how you are looking at
+   it. So the dish sits above the views and never scrolls away, and switching view
+   never loses your place. */
+.dishbar{background:var(--vino);color:var(--cream);display:flex;align-items:center;
+  gap:12px;padding:0 12px;min-height:56px;flex:0 0 auto}
+.dishbar .home{background:none;border:none;color:var(--cream);font-family:var(--sans);
+  font-size:12.5px;letter-spacing:1.2px;padding:0 12px 0 4px;height:56px;cursor:pointer;
+  white-space:nowrap;opacity:.85}
+.dishbar .home:hover{opacity:1}
+.dishbar .nm{font-family:var(--serif);font-size:22px;line-height:1.1;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;min-width:0}
+.dishbar .sec{font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;
+  color:rgba(245,237,224,.62);white-space:nowrap;flex:0 0 auto}
+.dishbar .sp{margin-left:auto}
+
+/* ═══ the three views ═══
+   Named for the person, not the screen. A chef de partie is looking for "how it is
+   made"; a waiter is looking for "for the floor". Nobody is looking for "layout B". */
+.views{display:flex;gap:0;background:var(--vino-mid);flex:0 0 auto;overflow-x:auto}
+.views button{flex:0 0 auto;background:none;border:none;border-bottom:3px solid transparent;
+  color:rgba(245,237,224,.62);font-family:var(--sans);font-size:11.5px;letter-spacing:1.6px;
+  text-transform:uppercase;font-weight:600;padding:0 18px;height:46px;cursor:pointer;white-space:nowrap}
+.views button:hover{color:var(--cream)}
+.views button.on{color:var(--cream);border-bottom-color:var(--oro)}
+.views .who{display:block;font-size:9px;letter-spacing:.6px;text-transform:none;
+  font-weight:400;opacity:.7;margin-top:-3px}
+
+.stage{flex:1 1 auto;min-height:0;position:relative;background:var(--sabbia)}
+.stage iframe{position:absolute;inset:0;width:100%;height:100%;border:none;background:var(--sabbia)}
+
+/* ═══ the menu — the module's front page ═══ */
+.front{flex:1 1 auto;overflow:auto}
+.inner{max-width:1080px;margin:0 auto;padding:38px 20px 80px}
+.eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--vino-light);margin-bottom:14px}
+.lede{font-family:var(--serif);font-size:clamp(30px,5.6vw,46px);line-height:1.08;color:var(--vino);
+  margin:0 0 16px;text-wrap:balance;font-weight:400}
+.stand{font-size:15px;line-height:1.7;color:var(--ink);max-width:62ch;margin:0 0 4px}
+.stand b{color:var(--vino)}
+.newr{margin-top:24px;background:var(--vino);color:var(--cream);border:none;border-radius:5px;
+  font-family:var(--sans);font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase;
+  font-weight:700;padding:0 22px;height:48px;cursor:pointer}
+.load{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
+  padding:20px 18px;font-size:14.5px;line-height:1.7;color:var(--vino-light);margin-top:28px}
+.load.bad{border-color:var(--vino);color:var(--vino)}
+.menu{margin-top:28px;display:flex;flex-direction:column}
+.msec{font-size:10px;letter-spacing:2.8px;text-transform:uppercase;color:var(--oliva);
+  margin:22px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--sabbia-dark)}
+.msec:first-child{margin-top:0}
+.dish{display:flex;align-items:baseline;gap:14px;width:100%;text-align:left;background:none;
+  border:none;border-bottom:1px solid rgba(207,192,173,.6);padding:15px 4px;cursor:pointer;
+  font-family:var(--sans);color:inherit;min-height:58px}
+.dish:hover{background:var(--cream)}
+.dish .dn{font-family:var(--serif);font-size:23px;color:var(--vino);line-height:1.15}
+/* what is still missing, said on the row, so the gaps are visible without hunting */
+.dish .dgap{font-size:11.5px;letter-spacing:.3px;color:#a3907a}
+.dish .dgap.ok{color:var(--oliva)}
+.dish .dgo{margin-left:auto;font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;
+  font-weight:700;color:var(--vino);white-space:nowrap}
+.foot{margin-top:34px;padding-top:18px;border-top:1px solid var(--sabbia-dark);
+  font-size:13px;line-height:1.75;color:var(--vino-light);max-width:70ch}
+.foot b{color:var(--vino)}
+
+@media (max-width:560px){
+  .dishbar .sec{display:none}
+  .dishbar .nm{font-size:19px}
+  .views button{padding:0 13px}
+}
+@media (pointer:coarse){
+  .dish{min-height:64px}
+  .views button{height:52px}
+}
+</style>
+
+<div id="root"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   RECIPES — one module, one record, three ways of looking at it.
+
+   The dish is written once. The chef de partie reads it at the pass, the waiter
+   reads it on the floor, and both of those are the SAME record — so this module
+   owns "which dish", and the three views only ever change how you are looking at
+   it. That is why the dish name sits in the bar above the view tabs and does not
+   move when you switch: you are never navigating between three tools, you are
+   turning one dish around in your hand.
+
+   Each view is a page of its own, handed the dish id. They still work opened on
+   their own — this module adds navigation, it does not become a dependency.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+
+var VIEWS = [
+  { k:'made',  t:'How it’s made', who:'chef de partie, at the pass', page:'recipe-card.html' },
+  { k:'floor', t:'For the floor', who:'waiter, before service',      page:'food-bible.html' },
+  { k:'write', t:'Write the dish', who:'exec chef',                  page:'recipe-create.html' }
+];
+
+var MENU = [], dish = null, viewKey = 'made', busy = true, loadErr = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function sb(path){
+  return fetch(SB_URL + '/rest/v1/' + path, {
+    headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY }
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP ' + r.status)); });
+    return r.json();
+  });
+}
+function loadMenu(){
+  return sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,method,allergens,photos&order=section,name')
+    .then(function(rows){ MENU = rows; });
+}
+function hasAny(m, keys){
+  return keys.some(function(k){ return String((m && m[k]) || '').trim(); });
+}
+
+/* ── the front page: the menu as it stands ── */
+function viewMenu(){
+  var body;
+  if (loadErr){
+    body = '<div class="load bad"><b>The recipes could not be read.</b><br>' + esc(loadErr) +
+      '<br><br>Nothing is lost — this page only reads.</div>';
+  } else if (busy){
+    body = '<div class="load">Reading the recipes…</div>';
+  } else if (!MENU.length){
+    body = '<div class="load"><b>No dishes yet.</b><br>Write the first one and it appears here.</div>';
+  } else {
+    var sec = '';
+    body = '<div class="menu">' + MENU.map(function(d){
+      var head = (d.section !== sec) ? (sec = d.section, '<div class="msec">' + esc(d.section || 'No section') + '</div>') : '';
+      var gaps = [];
+      if (!hasAny(d.method, ['mise','method','order','plating'])) gaps.push('no method');
+      if (!hasAny(d.method, ['foh','say','story','ing','garnish','more'])) gaps.push('nothing for the floor');
+      if (!(d.allergens || []).length) gaps.push('no allergens');
+      if (!(d.photos || []).length) gaps.push('no photo');
+      return head + '<button class="dish" data-open="' + esc(d.id) + '">' +
+        '<span class="dn">' + esc(d.name) + '</span>' +
+        (gaps.length ? '<span class="dgap">' + esc(gaps.join(' · ')) + '</span>'
+                     : '<span class="dgap ok">written</span>') +
+        '<span class="dgo">Open &rarr;</span></button>';
+    }).join('') + '</div>';
+  }
+  return '<div class="front"><div class="inner">' +
+    '<div class="eyebrow">Kitchen &nbsp;·&nbsp; recipes</div>' +
+    '<h1 class="lede">One dish, written once.</h1>' +
+    '<p class="stand">Write it on the create screen and it is the same dish at the pass and on the ' +
+      'floor — there is no second copy to keep in step. Each row says what that dish is still ' +
+      'missing. <b>No cost is shown on either card.</b></p>' +
+    '<button class="newr" id="new">＋ Write a new dish</button>' +
+    body +
+    '<div class="foot">Open a dish, then move between <b>how it’s made</b>, <b>for the floor</b> and ' +
+      '<b>writing it</b> — the dish stays put at the top while you switch. Anything you save while ' +
+      'writing shows on the other two the next time you look at them.</div>' +
+  '</div></div>';
+}
+
+/* ── a dish, being looked at three ways ── */
+function viewDish(){
+  var v = VIEWS.filter(function(x){ return x.k === viewKey; })[0] || VIEWS[0];
+  var src = v.page + '?id=' + encodeURIComponent(dish.id) + '&embed=1';
+  return '<div class="dishbar">' +
+      '<button class="home" id="home">&larr; All dishes</button>' +
+      '<div class="nm">' + esc(dish.name) + '</div>' +
+      (dish.section ? '<div class="sec">' + esc(dish.section) + '</div>' : '') +
+    '</div>' +
+    '<div class="views">' + VIEWS.map(function(x){
+      return '<button data-view="' + x.k + '" class="' + (x.k === viewKey ? 'on' : '') + '">' +
+        esc(x.t) + '<span class="who">' + esc(x.who) + '</span></button>';
+    }).join('') + '</div>' +
+    /* Keyed on view AND dish so switching either builds a fresh frame — a stale
+       frame showing the previous dish is the one mistake this shell could make. */
+    '<div class="stage"><iframe id="stage" title="' + esc(dish.name) + ' — ' + esc(v.t) + '" ' +
+      'src="' + esc(src) + '"></iframe></div>';
+}
+
+function render(){
+  document.getElementById('root').innerHTML = dish ? viewDish() : viewMenu();
+}
+
+document.addEventListener('click', function(e){
+  var b = e.target.closest ? e.target.closest('button') : null;
+  if (!b) return;
+  if (b.dataset.open){
+    dish = MENU.filter(function(d){ return d.id === b.dataset.open; })[0];
+    viewKey = 'made';                 /* a dish opens where it is cooked */
+    render(); return;
+  }
+  if (b.dataset.view){ viewKey = b.dataset.view; render(); return; }
+  if (b.id === 'home'){
+    dish = null;
+    /* the menu is re-read on the way back, so a dish written a minute ago stops
+       saying "nothing for the floor" the moment it is no longer true */
+    busy = true; render();
+    loadMenu().then(function(){ busy = false; render(); })
+      .catch(function(err){ busy = false; loadErr = err.message; render(); });
+    return;
+  }
+  if (b.id === 'new'){
+    dish = { id:null, name:'A new dish', section:'' };
+    viewKey = 'write';
+    document.getElementById('root').innerHTML =
+      '<div class="dishbar"><button class="home" id="home">&larr; All dishes</button>' +
+        '<div class="nm">A new dish</div></div>' +
+      '<div class="stage"><iframe id="stage" title="Write a new dish" ' +
+        'src="recipe-create.html?new=1&embed=1"></iframe></div>';
+    dish = null;                      /* nothing to switch views on until it is saved */
+    return;
+  }
+});
+
+render();
+loadMenu()
+  .then(function(){ busy = false; render(); })
+  .catch(function(e){ busy = false; loadErr = e.message; render(); });
+</script>
