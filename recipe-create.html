@@ -231,7 +231,15 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .imp .warn{color:#8d1f1f}
 .bsec{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:3px 6px;border:1px solid rgba(245,237,224,.35);border-radius:3px;background:rgba(245,237,224,.1);color:var(--cream);outline:none;cursor:pointer;max-width:150px}
 .bsec:hover{border-color:rgba(245,237,224,.7)}
-.bsec.none{border-style:dashed;opacity:.6}
+/* The closed select is cream because it sits on the vino bar. The list that OPENS is
+   drawn by the browser on white, and it inherits that cream — so every section was
+   cream on white and you could only read whichever one was highlighted. Options get
+   their own colour, exactly as select.prod already does. */
+.bsec option{color:var(--ink);background:#fff;text-transform:none;font-size:14px;letter-spacing:0}
+/* fade the closed control with colour, not opacity: opacity on a select washes out
+   the open list too in some browsers, which is the same bug by another route */
+.bsec.none{border-style:dashed;color:rgba(245,237,224,.65);border-color:rgba(245,237,224,.3)}
+.bsec.none option{color:var(--ink)}
 .bflag{font-family:var(--sans);font-size:11px;color:var(--cream);opacity:.85;white-space:nowrap}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
