@@ -307,6 +307,23 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
    Same sheet, straight under the ingredients. The boxes have no scrollbar of their
    own and no drag handle — they grow to whatever is written in them, so a method is
    read whole on the pass instead of two lines at a time through a letterbox. */
+/* which menus a dish is on — the box above the allergens, because it decides whether
+   anybody can find the dish at all */
+.mnu{padding:24px 16px 22px;background:var(--sabbia-light);border-top:1.5px solid var(--sabbia-dark)}
+.mchips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.mchip{display:inline-flex;align-items:center;gap:7px;font-family:var(--sans);font-size:13.5px;
+  background:#fff;border:1px solid var(--sabbia-dark);border-radius:4px;color:var(--vino);
+  padding:11px 14px;min-height:44px;cursor:pointer;text-align:left}
+.mchip:hover{border-color:var(--vino)}
+.mchip.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:600}
+.mrun{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;background:var(--oro);color:#2a1a10;
+  border-radius:2px;padding:2px 6px}
+.moff{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;opacity:.55}
+.mnew{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+.mnew input{flex:1 1 220px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
+  padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
+.mnew input:focus{border-color:var(--vino)}
+.msub.bad{color:#8d1f1f}
 .alg{padding:24px 16px 22px;background:var(--cream);border-top:1.5px solid var(--sabbia-dark)}
 .achips{display:flex;flex-wrap:wrap;gap:8px}
 .ach{font-family:var(--sans);font-size:13.5px;line-height:1.2;background:#fff;color:var(--ink);
@@ -769,7 +786,7 @@ function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[
 
 /* ───────── state ───────── */
 var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
-          id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null,
+          id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null, menus:[],
           method:null, photos:[], allergens:[] };
 var SECTIONS = ['Crudo','Antipasti','Salad / Soup','Pizza','Pasta','Main','Dessert','Canapé','Prep'];
 
@@ -1036,6 +1053,8 @@ function saveRecipe(){
     if (!S.rows.length) return null;
     return sb('recipe_lines', { method:'POST', prefer:'return=minimal', body: linesFor(S.id, S.rows) });
   }).then(function(){
+    return saveRecipeMenus();
+  }).then(function(){
     /* a batch that just changed must re-cost everywhere it is used */
     return S.kind === 'batch' ? loadBatches() : null;
   });
@@ -1050,6 +1069,7 @@ function sig(){
     k:S.kind, n:(S.name||'').trim(), s:S.section||'', p:S.price,
     mq:S.makesQty, mu:S.makesUnit, m:normMethod(S.method),
     a:(S.allergens||[]).slice().sort(),
+    mn:(S.menus||[]).slice().sort(),
     ph:(S.photos||[]).map(function(p){ return (p.n||'') + ':' + ((p.u||'').length); }),
     r:(S.rows||[]).map(function(r){
       return [r.raw, r.code, r.qty, r.unit, !!r.adj, r.yield, r.waste].join('|'); })
@@ -1102,6 +1122,11 @@ function newRecipe(){
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
   S.method = emptyMethod(); S.photos = []; S.bigPhoto = null; S.allergens = [];
+  /* A dish on no menu shows up on no card at all — so a new one starts on the menu
+     that is running. Untick it if it belongs somewhere else; it is one tap either
+     way, and the other way round is a dish nobody can find. */
+  var run = MENUS.filter(function(m){ return m.running; })[0];
+  S.menus = run ? [run.id] : [];
   S.plan = null; S.planRan = false;
 }
 
@@ -1313,6 +1338,71 @@ function archiveMine(it){
     body:{ archived:true, updated_at:new Date().toISOString() } });
 }
 
+/* ───────── menus ─────────
+   A section says where a dish sits on a menu. It does not say WHICH menu, and with
+   an à la carte, a Christmas menu and whatever else comes, the card and the Food
+   Bible could only ever show all three hundred at once — so a waiter training on the
+   à la carte had to already know which of them belonged to it.
+
+   A dish is on more than one: Burrata is à la carte AND Christmas. So it is a list
+   of menus, and a list of what is on each — never a column on the recipe.
+
+   Batches are deliberately not assigned. A batch belongs to the dishes that use it
+   and is reached by opening one of them; putting Porcini stock on a menu would be
+   saying a guest can order it. */
+var MENUS = [], MENU_ERR = null;
+
+function loadMenus(){
+  return sb('menus?venue_id=eq.robertos-difc&archived=is.false&select=*&order=position,name')
+    .then(function(list){ MENUS = list || []; MENU_ERR = null; })
+    .catch(function(e){ MENUS = []; MENU_ERR = e.message; });
+}
+/* which menus THIS recipe is on. Read fresh with the recipe, never cached against a
+   sheet that has since been left open for an hour. */
+function loadRecipeMenus(id){
+  if (!id){ S.menus = []; return Promise.resolve(); }
+  return sb('recipe_menus?recipe_id=eq.'+id+'&select=menu_id')
+    .then(function(rows){ S.menus = (rows||[]).map(function(r){ return r.menu_id; }); })
+    .catch(function(){ S.menus = []; });
+}
+/* Written after the recipe itself, and only the difference — so a dish already on
+   four menus is not taken off all four and put back on them every time you press
+   Save, which is four chances for a half-finished write to lose one. */
+function saveRecipeMenus(){
+  if (!S.id || S.kind !== 'main') return Promise.resolve();
+  return sb('recipe_menus?recipe_id=eq.'+S.id+'&select=menu_id').then(function(rows){
+    var was = (rows||[]).map(function(r){ return r.menu_id; });
+    var now = S.menus || [];
+    var add = now.filter(function(m){ return was.indexOf(m) < 0; });
+    var off = was.filter(function(m){ return now.indexOf(m) < 0; });
+    var jobs = [];
+    if (add.length) jobs.push(sb('recipe_menus', { method:'POST', prefer:'return=minimal',
+      body: add.map(function(m){ return { recipe_id:S.id, menu_id:m }; }) }));
+    off.forEach(function(m){
+      jobs.push(sb('recipe_menus?recipe_id=eq.'+S.id+'&menu_id=eq.'+m,
+        { method:'DELETE', prefer:'return=minimal' }));
+    });
+    return Promise.all(jobs);
+  });
+}
+function menuName(id){
+  var m = MENUS.filter(function(x){ return x.id === id; })[0];
+  return m ? m.name : 'a menu';
+}
+function newMenu(name){
+  return sb('menus', { method:'POST', body:{ name:name.trim(),
+    position:(MENUS.length ? Math.max.apply(null, MENUS.map(function(m){ return m.position||0; })) + 1 : 0) } })
+    .then(function(rows){ var m = rows && rows[0]; if (m) MENUS.push(m); return m; });
+}
+function menuPlain(msg){
+  msg = String(msg||'');
+  if (/menus_name_live|duplicate key/i.test(msg)) return 'There is already a menu called that.';
+  if (/menus_one_running/i.test(msg)) return 'Another menu is already the one running — turn that one off first.';
+  if (/relation .*menus.* does not exist|PGRST205/i.test(msg)) return 'The menus table is not there yet.';
+  if (/Failed to fetch|NetworkError/i.test(msg)) return 'No connection to the database.';
+  return msg;
+}
+
 function openRecipe(id){
   /* two requests, not a join — recipe_lines points at recipes twice (its own, and a linked batch) */
   return loadBatches().then(function(){ return Promise.all([
@@ -1327,6 +1417,7 @@ function openRecipe(id){
     S.photos = Array.isArray(rec.photos) ? rec.photos.filter(function(p){ return p && p.u; }) : [];
     S.bigPhoto = null;
     S.allergens = Array.isArray(rec.allergens) ? rec.allergens.slice() : [];
+
     var lines = both[1] || [];
     S.rows = lines.map(function(l){
       /* one saved line is one ingredient — read it whole, don't re-split it into words.
@@ -1348,7 +1439,11 @@ function openRecipe(id){
     });
     S.text = S.rows.map(function(r){ return r.raw; }).join(', ');
     S.step = 'sheet';
-    markClean();               /* just off the database — nothing to save yet */
+    /* the menus have to be in hand BEFORE the clean signature is taken, or they land
+       a moment later and the sheet announces unsaved work he never did */
+    return loadRecipeMenus(rec.id).then(function(){
+      markClean();             /* just off the database — nothing to save yet */
+    });
   }); });
 }
 var RETIRED = {};      /* codes that are no longer on the newest stock take */
@@ -2707,9 +2802,41 @@ function redrawRow(i){                      /* only this row — never blow away
    to drag. Empty is a perfectly good answer — a recipe with no method is never
    flagged as unfinished, because plenty of them genuinely have none. */
 function methodHTML(){
-  return '<div class="alg" id="alg">' + algInner() + '</div>' +
+  return (S.kind === 'main' ? '<div class="mnu" id="mnubox">' + menuInner() + '</div>' : '') +
+         '<div class="alg" id="alg">' + algInner() + '</div>' +
          '<div class="mth" id="mth">' + methodInner() + '</div>' +
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
+}
+
+/* ── which menus this dish is on ──
+   Batches never get this box: a batch belongs to the dishes that use it. */
+function menuInner(){
+  var on = S.menus || [];
+  if (MENU_ERR)
+    return '<div class="mhd">On which menus</div>' +
+      '<div class="msub bad">The menus cannot be read right now — ' + esc(menuPlain(MENU_ERR)) + ' ' +
+      'The recipe will still save; put it on a menu once this is back.</div>';
+  if (!MENUS.length)
+    return '<div class="mhd">On which menus</div>' +
+      '<div class="msub">No menus yet. <b>Make the first one</b> and every dish can go on it.</div>' +
+      '<div class="mnew"><input id="mnn" placeholder="À la carte 2026"><button class="okb" id="mnadd">Make this menu</button>' +
+      '<span class="err" id="mne"></span></div>';
+
+  return '<div class="mhd">On which menus</div>' +
+    '<div class="msub">A dish can be on more than one — Burrata is on the à la carte and on Christmas. ' +
+      'This is what the recipe card and the Food Bible filter by, so a waiter training on one menu ' +
+      'sees only its dishes. <b>A dish on no menu shows on no card at all.</b></div>' +
+    '<div class="mchips">' + MENUS.map(function(m){
+      var yes = on.indexOf(m.id) > -1;
+      return '<button class="mchip'+(yes?' on':'')+'" data-menu="'+m.id+'">' +
+        (yes ? '✓ ' : '') + esc(m.name) +
+        (m.running ? '<span class="mrun">running now</span>' : (m.active ? '' : '<span class="moff">off</span>')) +
+      '</button>'; }).join('') + '</div>' +
+    (!on.length
+      ? '<div class="msub bad">This dish is on no menu, so nobody will find it on the pass card or in the Food Bible. Tap one above.</div>'
+      : '') +
+    '<div class="mnew"><input id="mnn" placeholder="A new menu — Christmas 2026"><button class="newr" id="mnadd">＋ Make this menu</button>' +
+      '<span class="err" id="mne"></span></div>';
 }
 
 /* ── the floor's half of the same recipe ──
@@ -3401,6 +3528,32 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
 
+  /* tick / untick a menu — held in the sheet, written when the recipe is saved, so
+     it goes with everything else rather than being a separate thing to remember */
+  var mch = e.target.closest('[data-menu]');
+  if (mch){
+    var mid = mch.dataset.menu, at = (S.menus||[]).indexOf(mid);
+    if (at > -1) S.menus.splice(at,1); else (S.menus = S.menus || []).push(mid);
+    drawSaveBar();
+    var box = $('mnubox'); if (box) box.innerHTML = menuInner();
+    return;
+  }
+  if (e.target.id === 'mnadd'){
+    var inp = $('mnn'), err = $('mne'), nm = inp ? inp.value.trim() : '';
+    if (!nm){ if (err) err.textContent = 'Give the menu a name.'; if (inp) inp.focus(); return; }
+    var btn = e.target; btn.disabled = true; var was = btn.textContent; btn.textContent = 'Making…';
+    newMenu(nm).then(function(m){
+      /* made AND the dish put on it — making a menu from inside a recipe means you
+         want this recipe on it; anything else is two taps for one thought */
+      if (m){ (S.menus = S.menus || []).push(m.id); drawSaveBar(); }
+      var box = $('mnubox'); if (box) box.innerHTML = menuInner();
+    }).catch(function(ex){
+      btn.disabled = false; btn.textContent = was;
+      var e2 = $('mne'); if (e2) e2.textContent = 'Not made — ' + menuPlain(ex.message);
+    });
+    return;
+  }
+
   /* Removing one of your own ingredients. A saved recipe that is USING it must not
      lose it — that recipe would go straight back to carrying no cost, which is the
      exact thing this table was added to stop. So the recipes are asked first, and
@@ -3721,6 +3874,7 @@ render();
 fitBar();
 /* Your own ingredients come in before anything is drawn from the sheet, so a recipe
    opened by ?id= finds them already on the list and its lines keep their cost. */
+loadMenus().then(function(){ if (S.step==='sheet' || S.step==='saved') render(); });
 loadMine().then(function(){
   refreshOpts();
   if (S.step === 'sheet'){ rows(); foot(); }
