@@ -263,6 +263,24 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
 .mu{font-family:var(--sans);font-size:12px;padding:2px 4px;border:none;border-bottom:1px solid rgba(245,237,224,.45);background:rgba(245,237,224,.13);color:var(--cream);outline:none}
+.microw{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;
+  border:1px solid rgba(64,2,7,.14);border-radius:3px;padding:8px 12px;margin-bottom:6px}
+.microw.out{opacity:.45;background:rgba(232,217,199,.3)}
+.mictick{flex:0 0 auto;display:flex;align-items:center;min-height:44px;padding:0 2px;cursor:pointer}
+.mictick input{width:20px;height:20px;accent-color:var(--vino);cursor:pointer}
+.micnm{font-family:var(--serif);font-size:17px;flex:1 1 200px;min-width:0;line-height:1.2}
+.micsec{display:block;font-family:var(--sans);font-size:11px;opacity:.55}
+.micfld{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.micin{width:170px;border:1px solid var(--sabbia-dark);border-radius:4px;padding:10px 10px;
+  font-family:var(--sans);font-size:15px;background:#fff;outline:none}
+.micin:focus{border-color:var(--vino)}
+.micin.bad{border-color:#8d1f1f;background:#fdf5f5}
+.miclen{font-family:var(--sans);font-size:11px;opacity:.5;min-width:38px}
+.miclen.bad{opacity:1;color:#8d1f1f;font-weight:700}
+.micnum{font-family:var(--serif);font-size:16px;text-align:right;min-width:74px;flex:0 0 auto}
+.micnum .none{font-family:var(--sans);font-size:11px;font-style:normal;color:var(--attn)}
+.micfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px}
+@media (max-width:640px){ .micnum{min-width:0;text-align:left} .micin{width:150px} }
 .sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
 .sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
@@ -1197,8 +1215,13 @@ function pickable(){ return MYB.length ? ING.concat(MYB.filter(function(b){ retu
 function isMine(code){ return typeof code === 'string' && code.indexOf('R:') === 0; }
 function idOf(code){ return String(code).slice(2); }
 
+/* Main recipes, shaped exactly like a batch so the SAME cost walk works on them.
+   Kept apart from BATCH on purpose: anything in BATCH becomes pickable as a batch,
+   and a dish must never be linkable inside another dish. */
+var MAINS = {};
+
 function batchCost(id, stack){
-  var b = BATCH[id];
+  var b = BATCH[id] || MAINS[id];
   if (!b) return { problem:'that batch is no longer there' };
   stack = stack || [];
   if (stack.indexOf(id) > -1) return { problem:'it ends up using itself' };
@@ -1438,6 +1461,175 @@ function menuPlain(msg){
   if (/relation .*menus.* does not exist|PGRST205/i.test(msg)) return 'The menus table is not there yet.';
   if (/Failed to fetch|NetworkError/i.test(msg)) return 'No connection to the database.';
   return msg;
+}
+
+/* ═════════ the Micros request for Aung ═════════
+   Until now this was an Excel form filled in by hand, one line per dish: the name as
+   it reads on the menu, the same name squeezed into 16 characters for the till, the
+   cost, and the price. Everything on it is already in this module — so the form is
+   built from the menu rather than typed again, and typed twice is how the till ends
+   up saying one price and the recipe another.
+
+   What is NOT filled in: the Micros item code. Aung assigns those. And the 16-character
+   name is only suggested — "Valen RiccioMare" is a judgement, not an algorithm. */
+var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false };
+
+/* his own shorthand, as far as a machine can take it: drop the joining words, keep the
+   words that mean something, then shorten the longest one until it fits */
+var MICSTOP = { di:1, de:1, del:1, della:1, al:1, alla:1, allo:1, ai:1, con:1, e:1, la:1,
+                il:1, lo:1, in:1, a:1, the:1, of:1, and:1, with:1 };
+function micShort(name, prefix, limit){
+  limit = limit || 16;
+  var head = (prefix||'').trim();
+  var room = limit - (head ? head.length + 1 : 0);
+  var w = String(name||'').replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/)
+            .filter(function(x){ return x && !MICSTOP[x.toLowerCase()]; })
+            .map(function(x){ return x.charAt(0).toUpperCase() + x.slice(1); });
+  if (!w.length) w = [String(name||'').trim()];
+  var join = function(){ return w.join(' '); };
+  /* squeeze the longest word first — losing a letter off "Carnaroli" reads better
+     than losing a whole word */
+  var guard = 0;
+  while (join().length > room && guard++ < 80){
+    var li = 0;
+    for (var i=1;i<w.length;i++) if (w[i].length > w[li].length) li = i;
+    if (w[li].length <= 3){ w.pop(); if (!w.length) break; continue; }
+    w[li] = w[li].slice(0, -1);
+  }
+  var out = (head ? head + ' ' : '') + join();
+  return out.slice(0, limit).trim();
+}
+
+/* Every dish on the menu, costed, without opening one of them. batchCost() already
+   walks a recipe's lines — including batches inside batches — so the mains are shaped
+   the same way and handed to the same walk. */
+function loadMicros(menuId){
+  MICREQ.err = null; MICREQ.ready = false;
+  return Promise.all([
+    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price'),
+    sb('recipe_menus?menu_id=eq.' + menuId + '&select=recipe_id'),
+    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty,unit,trim_on,yield_pct,waste_pct'),
+    MYB.length ? Promise.resolve(null) : loadBatches()
+  ]).then(function(res){
+    var on = {}; (res[1]||[]).forEach(function(r){ on[r.recipe_id] = 1; });
+    var byRecipe = {};
+    (res[2]||[]).forEach(function(l){ (byRecipe[l.recipe_id] = byRecipe[l.recipe_id] || []).push(l); });
+
+    MAINS = {};
+    (res[0]||[]).forEach(function(r){
+      /* a main "makes" its portions — the same field a batch uses, so the same walk
+         gives cost per portion instead of cost per kilo */
+      MAINS[r.id] = { name:r.name, makesQty:r.makes_qty, makesUnit:'portion',
+                      archived:false, lines: byRecipe[r.id] || [] };
+    });
+
+    MICREQ.rows = (res[0]||[]).filter(function(r){ return on[r.id]; })
+      .sort(function(a,b){ return String(a.section||'').localeCompare(String(b.section||'')) ||
+                                  String(a.name).localeCompare(String(b.name)); })
+      .map(function(r){
+        var c = batchCost(r.id);
+        return { id:r.id, name:r.name, section:r.section || 'No section',
+                 price:r.menu_price, cost: c.problem ? null : c.per, why: c.problem || null,
+                 micros: micShort(r.name, MICREQ.prefix), take:true };
+      });
+    MICREQ.ready = true;
+  }).catch(function(e){ MICREQ.err = e.message; MICREQ.rows = []; });
+}
+
+/* The workbook itself, laid out cell for cell like the ones he has been sending.
+   The form does its own arithmetic and always has — LEN, the cost %, the net price
+   are formulas in the sheet, not numbers we put there. Writing values over them would
+   mean Aung opening a form that no longer recalculates when he corrects a price. */
+function micWorkbook(menuName){
+  var rows = MICREQ.rows.filter(function(r){ return r.take; });
+  var ws = {}, merges = [];
+  var put = function(addr, v, extra){
+    var c = {};
+    if (extra && extra.f){ c.t = 'n'; c.f = extra.f; }
+    else { c.v = v; c.t = (typeof v === 'number' ? 'n' : 's'); }
+    if (extra && extra.z) c.z = extra.z;
+    ws[addr] = c;
+  };
+
+  put('B1', 'MICROS POS Item Modification, Addition & Deletion Form');
+  merges.push({ s:{r:0,c:1}, e:{r:0,c:13} });
+  put('B2', "Outlet Name:  Roberto's DIFC");
+  put('B3', 'Date: ' + (MICREQ.today || ''));
+  put('B5', 'Type of Request:  Please Tick One');
+  put('D5', '□ Modification');
+  put('F5', 'X Addition');   merges.push({ s:{r:4,c:5}, e:{r:4,c:7} });
+  put('I5', '□ Deletion');   merges.push({ s:{r:4,c:8}, e:{r:4,c:10} });
+
+  put('B7', 'Micros Code');        merges.push({ s:{r:6,c:1}, e:{r:7,c:1} });
+  put('C7', 'Item Name in Menu');  merges.push({ s:{r:6,c:2}, e:{r:7,c:2} });
+  put('D7', 'Item Name in Micros'); merges.push({ s:{r:6,c:3}, e:{r:6,c:4} });
+  put('D8', '*Maximum 16 Characters Including Space*'); merges.push({ s:{r:7,c:3}, e:{r:7,c:4} });
+  put('F7', 'Group');              merges.push({ s:{r:6,c:5}, e:{r:6,c:7} });
+  put('F8', 'Major'); put('G8', 'Family'); put('H8', 'SLU');
+  put('I7', 'Cost Price');         merges.push({ s:{r:6,c:8}, e:{r:6,c:9} });
+  put('I8', 'Exclu.VAT'); put('J8', 'Cost %');
+  put('K7', 'Old Net Price'); put('K8', 'Incl. 5%VAT');
+  put('L7', 'Sales Price');   put('L8', 'Inclu. All Taxes');
+  put('M7', 'Net Sales Price'); put('M8', 'Exclu. All Taxes');
+  put('N7', 'Date Required');  merges.push({ s:{r:6,c:13}, e:{r:7,c:13} });
+  put('P7', 'Old Price'); put('P8', 'All Inclusive');
+  put('Q7', 'Price Status'); merges.push({ s:{r:6,c:16}, e:{r:6,c:17} });
+  put('Q8', '+ / -'); put('R8', '%');
+
+  var R = 9, fam = null;
+  rows.forEach(function(r){
+    /* a family line, then its dishes — the shape his own form is written in.
+       No code on it: the Micros codes are Aung's to assign, ours would be invented. */
+    if (r.section !== fam){
+      fam = r.section;
+      put('C'+R, fam); put('D'+R, fam);
+      R++;
+    }
+    put('C'+R, r.name);
+    put('D'+R, r.micros);
+    put('E'+R, null, { f:'LEN(D'+R+')' });
+    put('F'+R, 'Food');
+    put('G'+R, r.section);
+    put('H'+R, r.section);                                   /* SLU, same as the family */
+    if (r.cost != null) put('I'+R, Math.round(r.cost*100)/100, { z:'0.00' });
+    put('J'+R, null, { f:'IF(M'+R+'=0,0,+I'+R+'/M'+R+')', z:'0.00%' });
+    if (r.price != null) put('L'+R, r.price, { z:'0.00' });
+    /* His own formula, character for character. It is 1/1.225 written the way the
+       form has always written it — VAT, municipality and service all inside the
+       price since December 2025. Not re-derived here: the form is the authority. */
+    put('M'+R, null, { f:'-L'+R+'*0.183675+L'+R, z:'0.00' });
+    R++;
+  });
+
+  ws['!ref'] = 'A1:V' + Math.max(R, 20);
+  ws['!merges'] = merges;
+  ws['!cols'] = [{wch:1.7},{wch:12.7},{wch:27.6},{wch:22.5},{wch:4.7},{wch:12.5},{wch:19.2},
+                 {wch:18.1},{wch:10.7},{wch:10},{wch:12.5},{wch:14.1},{wch:14.4},{wch:24.5}];
+  return ws;
+}
+
+/* Written with the reader the module already carries, so nothing is fetched from an
+   outside host — the same rule as the recipe cards. */
+function micDownload(btn){
+  var st = $('micst');
+  var take = MICREQ.rows.filter(function(r){ return r.take; });
+  if (!take.length) return;
+  btn.disabled = true; var was = btn.textContent; btn.textContent = 'Making it…';
+  if (st){ st.className = 'brn'; st.textContent = ''; }
+  lazy('lib/xlsx.full.min.js', 'XLSX').then(function(XLSX){
+    var menu = MENUS.filter(function(m){ return m.id === MICREQ.menuId; })[0];
+    var name = (menu ? menu.name : 'menu');
+    var wb = XLSX.utils.book_new();
+    /* the tab is named after the menu, the way his files are — "Valentine", "Ramadan" */
+    XLSX.utils.book_append_sheet(wb, micWorkbook(name), name.slice(0,28) || 'Micros Request');
+    var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
+      ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
+    XLSX.writeFile(wb, stamp + '-Micros Request -' + name + '.xlsx');
+    if (st){ st.className = 'brn'; st.textContent = 'Made ✓ — ' + take.length + ' dish' +
+      (take.length===1?'':'es') + '. It is in your downloads, ready to send to Aung.'; }
+  }).catch(function(e){
+    if (st){ st.className = 'brn bad'; st.textContent = 'Could not make it — ' + plain(e.message); }
+  }).then(function(){ btn.disabled = false; btn.textContent = was; });
 }
 
 function openRecipe(id){
@@ -2277,6 +2469,7 @@ function render(){
                  ? (live.length+gone.length) + ' of ' + S.saved.length
                  : S.saved.length + ' saved')+'</span></div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
+            (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
             (S.sq && !live.length && !gone.length
               ? '<div class="todo"><b>Nothing saved matches “'+esc(S.sq)+'”.</b> ' +
                 'Every word you type has to be in the name or the section, so fewer words ' +
@@ -2301,6 +2494,86 @@ function render(){
         var n = $('sq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
       });
     }
+  }
+
+  else if (S.step === 'micros'){
+    b.classList.add('off');
+    var menu = MENUS.filter(function(m){ return m.id === MICREQ.menuId; })[0];
+    var take = MICREQ.rows.filter(function(r){ return r.take; });
+    var noPrice = take.filter(function(r){ return r.price == null; });
+    var noCost  = take.filter(function(r){ return r.cost  == null; });
+    var over    = take.filter(function(r){ return (r.micros||'').length > 16; });
+
+    w.innerHTML = '<div class="pane">' +
+      '<div class="q">Micros request for Aung</div>' +
+      '<div class="sub">The form you have always sent, built from the menu instead of typed again — ' +
+        'typed twice is how the till ends up saying one price and the recipe another. ' +
+        '<b>The item codes stay empty:</b> those are Aung\'s to assign.</div>' +
+
+      '<div class="sfind"><select id="micmenu">' + MENUS.map(function(m){
+          return '<option value="'+m.id+'"'+(m.id===MICREQ.menuId?' selected':'')+'>'+esc(m.name)+'</option>'; }).join('') +
+        '</select>' +
+        '<input id="micpre" value="'+esc(MICREQ.prefix)+'" placeholder="short prefix — Valen, RA, SV…" style="max-width:230px">' +
+        '<span class="scount">'+take.length+' of '+MICREQ.rows.length+' going</span></div>' +
+      '<div class="tip" style="margin:2px 0 14px">The prefix is how you have always done it — <b>Valen</b> RiccioMare, ' +
+        '<b>RA</b> Harira Soup. Change it and every till name below is rewritten; edit any one of them afterwards ' +
+        'and your wording is kept.</div>' +
+
+      (MICREQ.err ? '<div class="todo"><b>Could not read the menu.</b> '+esc(plain(MICREQ.err))+'</div>' : '') +
+      (!MICREQ.ready ? '<div class="tip">Costing every dish on the menu…</div>' : '') +
+
+      (noPrice.length ? '<div class="todo"><b>'+noPrice.length+' with no menu price.</b> ' +
+        esc(noPrice.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
+        (noPrice.length>4 ? ' and '+(noPrice.length-4)+' more' : '') +
+        ' — the form goes out with the price column empty for '+(noPrice.length===1?'it':'them')+
+        ', which is what Aung will price against. Put the price on the recipe first, or untick '+
+        (noPrice.length===1?'it':'them')+'.</div>' : '') +
+      (noCost.length ? '<div class="todo"><b>'+noCost.length+' with no cost yet.</b> ' +
+        esc(noCost.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
+        (noCost.length>4 ? ' and '+(noCost.length-4)+' more' : '') +
+        ' — usually a batch inside them that is not finished. The cost column is left empty rather than guessed.</div>' : '') +
+      (over.length ? '<div class="todo"><b>'+over.length+' till name'+(over.length===1?' is':'s are')+' over 16 characters.</b> ' +
+        'Micros cuts them off. Shorten '+(over.length===1?'it':'them')+' below.</div>' : '') +
+
+      '<div class="shd">On '+esc(menu ? menu.name : 'this menu')+'</div>' +
+      MICREQ.rows.map(function(r, i){
+        var len = (r.micros||'').length;
+        return '<div class="microw'+(r.take?'':' out')+'">' +
+          '<label class="mictick"><input type="checkbox" data-mic="'+i+'"'+(r.take?' checked':'')+'></label>' +
+          '<span class="micnm">'+esc(r.name)+'<span class="micsec">'+esc(r.section)+'</span></span>' +
+          '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
+            '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
+          '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+'</span>' +
+          '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+'</span>' +
+        '</div>';
+      }).join('') +
+
+      '<div class="micfoot">' +
+        '<button class="okb" id="micdl"'+(take.length?'':' disabled')+'>' +
+          (take.length ? 'Make the form for '+take.length+' dish'+(take.length===1?'':'es') : 'Nothing ticked') + '</button>' +
+        '<span class="brn" id="micst"></span>' +
+      '</div>' +
+      '<div class="tip" style="margin-top:12px"><b>The form works the cost out itself</b>, with its own formula, ' +
+        'unchanged from the one you have been sending since December 2025 — the price with every tax inside it, ' +
+        'net of VAT, municipality and service. That is the same basis as the food cost on the sheet, so the two ' +
+        'agree. The only things written into the form are the name, the cost and the price; everything else on ' +
+        'it is a formula, so it still recalculates when Aung corrects a figure.</div>' +
+      '</div>';
+
+    var mm = $('micmenu');
+    if (mm) mm.addEventListener('change', function(){
+      MICREQ.menuId = this.value; render();
+      loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+    });
+    var mp = $('micpre');
+    if (mp) mp.addEventListener('input', function(){
+      MICREQ.prefix = this.value;
+      /* only the ones he has not written himself — retyping over his wording would
+         be the app arguing with him */
+      MICREQ.rows.forEach(function(r){ if (!r.edited) r.micros = micShort(r.name, MICREQ.prefix); });
+      var at = this.selectionStart; render();
+      var n = $('micpre'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(x){} }
+    });
   }
 
   else if (S.step === 'type'){
@@ -3369,6 +3642,16 @@ document.addEventListener('change', function(e){
   }
 });
 document.addEventListener('input', function(e){
+  /* a till name he has written himself is never rewritten by the prefix again */
+  if (e.target.dataset && e.target.dataset.micname != null){
+    var mr = MICREQ.rows[+e.target.dataset.micname];
+    mr.micros = e.target.value; mr.edited = true;
+    var n = e.target.value.length;
+    var lab = e.target.parentNode.querySelector('.miclen');
+    if (lab){ lab.textContent = n + '/16'; lab.className = 'miclen' + (n>16?' bad':''); }
+    e.target.className = 'micin' + (n>16?' bad':'');
+    return;
+  }
   var t = e.target, i = t.dataset.i, f = t.dataset.f;
   if (i == null || !f || f==='unit' || f==='adj') return;
   var r = S.rows[+i];
@@ -3633,6 +3916,20 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
+
+  if (e.target.id === 'tomicros'){
+    guard(function(){
+      var run = MENUS.filter(function(m){ return m.running; })[0];
+      MICREQ.menuId = MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
+      MICREQ.today = new Date().toISOString().slice(0,10);
+      S.back = 'saved'; S.step = 'micros'; MICREQ.ready = false; render(); window.scrollTo(0,0);
+      loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+    });
+    return;
+  }
+  var mtk = e.target.closest('[data-mic]');
+  if (mtk){ var mi = +mtk.dataset.mic; MICREQ.rows[mi].take = mtk.checked; render(); return; }
+  if (e.target.id === 'micdl'){ micDownload(e.target); return; }
 
   /* the costing bar, out of the way or back. Remembered for the session, because a
      chef who put it away meant it and should not have to put it away on every recipe */
