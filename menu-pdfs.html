@@ -101,7 +101,30 @@ input[type=file]{display:none}
    ═══════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
-var BUCKET = 'menus';
+var BUCKET = 'Menus';        /* capital M — bucket names are case-sensitive */
+
+/* ── what Supabase will accept as a file name ──
+   Storage rejects a key outright (400 InvalidKey) if it contains anything outside a
+   fixed set — which means every accent and every dash that is not a plain hyphen.
+   "Menu — Août.pdf" and "Dégustation.pdf" both bounce, and those are exactly the
+   names a menu file has in this building. So the name is cleaned before it is sent,
+   and the screen SAYS when it had to change one, because a file that quietly comes
+   back with a different name is a file he cannot find again. */
+var KEY_OK = /^[\w!\-.*'() &$@=;:+,?\/]+$/;
+function safeName(name){
+  var out = String(name)
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   /* Aout, not Août */
+    .replace(/[‐-―]/g,'-')                   /* every kind of dash -> hyphen */
+    .replace(/[‘’]/g,"'")                    /* curly apostrophe -> straight */
+    .replace(/[“”]/g,'')                     /* curly quotes -> gone */
+    .replace(/[^\w!\-.*'() &$@=;:+,?]/g,'-')           /* # % and anything else left */
+    .replace(/-{2,}/g,'-')
+    .replace(/^[-\s]+|[-\s]+$/g,'');
+  /* a name written entirely in characters storage will not take leaves nothing but
+     ".pdf" — give it something a person can still recognise in the list */
+  if (!out || /^\.[A-Za-z0-9]+$/.test(out)) out = 'menu' + (out || '.pdf');
+  return out;
+}
 
 /* ── DEV-site write protection ──
    The same files serve DEV and LIVE against ONE production project, and this
@@ -112,7 +135,8 @@ var BUCKET = 'menus';
 var IS_DEV_HOST = location.hostname === 'robertos-kitchen.github.io';
 var DEV_READ_ONLY = IS_DEV_HOST && localStorage.getItem('kitchen-dev-writes') !== '1';
 
-var files = null, err = null, setupErr = null, busy = true, asking = null, progress = null;
+var files = null, err = null, setupErr = null, busy = true, asking = null, progress = null,
+    renamed = null;
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -130,15 +154,25 @@ function when(s){
 function head(){ return { apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY }; }
 
 /* Listing a bucket that does not exist returns `200 []` — exactly what an empty
-   bucket returns. So the list can never be used to decide whether storage is set
-   up: "no menus yet" and "the folder was never created" would look identical, and
-   the second one is a job for somebody, not a state. Ask about the bucket itself. */
+   bucket returns. So the list can never say whether storage is set up: "no menus
+   yet" and "the folder was never created" would look identical, and only one of
+   those is a job for somebody.
+
+   Asking about the bucket itself does not work either: `GET /bucket/<name>` answers
+   "Bucket not found" for a bucket that plainly exists, because the app's key is not
+   allowed to read bucket metadata. That check was wrong and would have told him to
+   create a bucket he had already made.
+
+   What DOES tell them apart is asking for a file that cannot exist: a real bucket
+   answers `NoSuchKey` ("Object not found"), a missing one answers `NoSuchBucket`. */
 function checkBucket(){
-  return fetch(SB_URL + '/storage/v1/bucket/' + BUCKET, { headers:head() })
+  return fetch(SB_URL + '/storage/v1/object/public/' + BUCKET + '/__does-not-exist__.pdf',
+    { headers:head() })
     .then(function(r){
-      if (r.ok) return true;
+      if (r.ok) return true;                       /* absurd, but it exists */
       return r.json().catch(function(){ return {}; }).then(function(j){
-        throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
+        if (j && j.code === 'NoSuchBucket') throw new Error('NoSuchBucket');
+        return true;                               /* NoSuchKey — the bucket is there */
       });
     });
 }
@@ -166,7 +200,7 @@ function load(){
     .then(function(rows){ files = rows; busy = false; render(); })
     .catch(function(e){
       busy = false;
-      if (/not found|NoSuchBucket/i.test(e.message)) setupErr = e.message;
+      if (/NoSuchBucket/i.test(e.message)) setupErr = e.message;
       else err = e.message;
       render();
     });
@@ -187,6 +221,8 @@ function upload(file){
           'bottom left of the app and enter the schedule PIN to upload for real.';
     render(); return;
   }
+  var key = safeName(file.name);
+  renamed = (key !== file.name) ? { from:file.name, to:key } : null;
   err = null; progress = 0; render();
   var xhr = new XMLHttpRequest();
   /* fetch cannot report progress, and a 6 MB menu on restaurant wifi with no bar
@@ -207,7 +243,7 @@ function upload(file){
   xhr.onerror = function(){ progress = null; err = 'That did not upload — the connection dropped.'; render(); };
   /* x-upsert: replacing last month's à la carte with this month's is the normal
      act here, and it must not fail with "already exists". */
-  xhr.open('POST', SB_URL + '/storage/v1/object/' + BUCKET + '/' + encodeURIComponent(file.name));
+  xhr.open('POST', SB_URL + '/storage/v1/object/' + BUCKET + '/' + encodeURIComponent(key));
   xhr.setRequestHeader('apikey', SB_KEY);
   xhr.setRequestHeader('Authorization', 'Bearer ' + SB_KEY);
   xhr.setRequestHeader('x-upsert', 'true');
@@ -287,6 +323,11 @@ function render(){
       '</div>' +
       (progress !== null ? '<div class="bar"><i style="width:' + progress + '%"></i></div>' : '') +
       (err ? '<div class="note bad">' + esc(err) + '</div>' : '') +
+      /* never let a file come back under a different name without saying so — he
+         would go looking for the one he uploaded and not find it */
+      (renamed ? '<div class="note">Storage will not take some characters in a file name, so ' +
+        '<b>' + esc(renamed.from) + '</b> was saved as <b>' + esc(renamed.to) + '</b>. ' +
+        'The file itself is untouched.</div>' : '') +
       (rows.length
         ? '<div class="list">' + rows.map(rowHTML).join('') + '</div>'
         : '<div class="note"><b>No menus here yet.</b><br>Upload the à la carte, the wine list, ' +
