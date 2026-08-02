@@ -2133,13 +2133,13 @@ function openOrderInventory(){ openMarketList(); }
 // door rather than as three unrelated things on the home screen.
 var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
-   name:'Write a dish', who:'Exec chef',
+   name:'Create new recipes', who:'Exec chef',
    meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
   {code:'PASS', view:'recipecard-view', page:'recipe-card.html?embed=1',
-   name:'How it’s made', who:'Chef de partie, at the pass',
+   name:'Recipe card', who:'Chef de partie, at the pass',
    meta:'The station card: the dish and every batch inside it, scaled, printable.'},
   {code:'FOH', view:'foodbible-view', page:'food-bible.html?embed=1',
-   name:'For the floor', who:'Waiter, before service',
+   name:'Food Bible', who:'Waiter, before service',
    meta:'One dish, one A4 — the menu line, what to say, allergens, what to set.'}
 ];
 function openRecipes(){
