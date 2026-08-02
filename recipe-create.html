@@ -494,7 +494,9 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   </div>
 </div>
 
-<input type="file" id="fi" style="display:none" accept=".xlsx,.xlsm,.xls,.csv,.docx,.pdf">
+<input type="file" id="fi" multiple style="display:none" accept=".xlsx,.xlsm,.xls,.csv,.docx,.pdf">
+<!-- the whole folder in one go: his à la carte year is sixty workbooks in one place -->
+<input type="file" id="fd" webkitdirectory directory multiple style="display:none">
 <input type="file" id="pf" style="display:none" accept="image/*" multiple>
 <div class="wrap" id="wrap"></div>
 <div class="foot" id="foot" style="display:none"></div>
@@ -1800,6 +1802,15 @@ function simName(a, b){
   return sum / short.length;
 }
 /* the one clear winner, or nothing at all */
+/* How much of the LONGER name is accounted for. simName() divides by the shorter one,
+   so "water" scores 1.00 against "Lemon water" — right for "did he mean this?", wrong
+   for "these are the same thing". */
+function covers(a, b){
+  var A = nameWords(a), B = nameWords(b);
+  if (!A.length || !B.length) return 0;
+  var n = Math.max(A.length, B.length);
+  return simName(a, b) * (Math.min(A.length, B.length) / n);
+}
 function bestMatch(name, list, nameOf){
   var scored = list.map(function(x, i){ return { i:i, s:simName(name, nameOf(x)) }; })
                    .sort(function(p,q){ return q.s - p.s; });
@@ -1812,8 +1823,26 @@ function bestMatch(name, list, nameOf){
    be linked to what. Nothing here touches the database. */
 function planWorkbook(res){
   var recs = res.recipes.map(function(f, i){
-    return { i:i, f:f, name:(f.name||'').trim(), kind:f.kind || 'main' };
+    return { i:i, f:f, name:(f.name||'').trim(), kind:f.kind || 'main', file:f.file || null };
   }).filter(function(R){ return R.name; });
+
+  /* Across sixty workbooks the same batch is in a dozen of them — Porcini stock is
+     written into every dish that uses it. Taken at face value that is a dozen Porcini
+     stocks in the database, each dish pointing at a different copy, and changing the
+     recipe then changes it for one dish out of twelve.
+
+     The first one wins, the rest are folded into it, and the screen says which files
+     it was in so nobody wonders where the other eleven went. */
+  var byName = {}, folded = [];
+  recs = recs.filter(function(R){
+    var k = R.kind + '|' + words(R.name).join(' ');
+    if (!byName[k]){ byName[k] = R; R.alsoIn = []; return true; }
+    var first = byName[k];
+    if (R.file && first.alsoIn.indexOf(R.file) < 0) first.alsoIn.push(R.file);
+    folded.push({ name:R.name, file:R.file, into:first.file });
+    return false;
+  });
+  res.folded = folded;
 
   /* something already saved under a similar name is LINKED, never made a second time */
   var saved = (S.saved || []).filter(function(r){ return !r.archived; });
@@ -1839,7 +1868,13 @@ function planWorkbook(res){
     var others = recs.filter(function(x){ return x !== R; });
     R.rows.forEach(function(r, k){
       var m = bestMatch(r.word, others, function(x){ return x.name; });
-      if (m) R.links.push({ row:k, was:r.word, to:others[m.i], score:m.s });
+      /* simName() divides by the SHORTER name, so a name wholly inside a longer one
+         scores a perfect 1. Within one workbook that was harmless. Across sixty it is
+         not: the line "water" in Pasta dough matched the batch "Lemon water" at 1.00,
+         and pasta would have been made with lemon water and nothing on screen to say
+         so. A link has to fit BOTH ways round, or it is not the same thing. */
+      if (m && covers(r.word, others[m.i].name) >= 0.75)
+        R.links.push({ row:k, was:r.word, to:others[m.i], score:m.s });
     });
   });
 
@@ -2131,14 +2166,45 @@ function render(){
   else if (S.step === 'found'){
     b.classList.add('off');
     var F = S.found || { recipes:[] };
+    var failed = F.failed || [], multi = (F.files || 1) > 1;
+    /* At sixty workbooks the list is long enough to need finding in, and it is the
+       same search as everywhere else in the module. */
+    var shown = F.recipes.map(function(f,i){ return { f:f, i:i }; });
+    if (S.fq){
+      var qw = words(S.fq);
+      shown = shown.filter(function(x){
+        return nameHit(qw, x.f.name || '') || nameHit(qw, x.f.file || '') || nameHit(qw, x.f.cat || '');
+      });
+    }
     w.innerHTML = '<div class="pane">' +
       '<div class="q">'+esc(F.fileName)+'</div>' +
-      '<div class="sub">Read from '+esc(F.how)+'. '+F.recipes.length+' recipe'+(F.recipes.length===1?'':'s')+' in it. ' +
+      '<div class="sub">Read from '+esc(F.how)+'. <b>'+F.recipes.length+'</b> recipe'+(F.recipes.length===1?'':'s')+
+        (multi ? ' across '+F.files+' files' : ' in it')+'. ' +
         'Take the lot in one go, or open one at a time — either way you still pick every ingredient.</div>' +
+      /* Named, never dropped. A confident "41 recipes" with three files silently
+         missing is how Rombo turns out never to have been written. */
+      (failed.length
+        ? '<div class="todo"><b>'+failed.length+' file'+(failed.length===1?'':'s')+' could not be read, and '+
+          (failed.length===1?'it is':'they are')+' not in the count above:</b><br>' +
+          failed.map(function(x){ return '· '+esc(x.name)+' — '+esc(x.why); }).join('<br>') +
+          '<br>Everything else below is fine. Bring those in on their own, or fix them and come back.</div>'
+        : '') +
+      (F.skipped ? '<div class="tip">'+F.skipped+' file'+(F.skipped===1?' was':'s were')+
+         ' not an Excel, Word or PDF file, so '+(F.skipped===1?'it was':'they were')+' left alone.</div>' : '') +
       '<button class="okb" id="allatonce">Bring in all '+F.recipes.length+' and link them</button>' +
       '<div class="tip" style="margin:9px 0 16px">The dish and its batches, built from the bottom up so ' +
-        'every batch exists before the dish points at it. You see exactly what will be made before anything is.</div>' +
-      F.recipes.map(function(f,i){
+        'every batch exists before the dish points at it. You see exactly what will be made before anything is.' +
+        (F.recipes.length > 12 ? ' <b>At this size it is worth doing one folder at a time</b> — you still have to pick the ingredients on every line afterwards.' : '') +
+      '</div>' +
+      (F.recipes.length > 8
+        ? '<div class="sfind"><input id="fq" value="'+esc(S.fq||'')+'" placeholder="find one of the '+F.recipes.length+' — burrata, pasta, the file name…">' +
+          (S.fq ? '<button class="sclr" id="fclr">Clear</button>' : '') +
+          '<span class="scount">'+(S.fq ? shown.length+' of '+F.recipes.length : F.recipes.length+' found')+'</span></div>'
+        : '') +
+      (S.fq && !shown.length ? '<div class="todo">Nothing found matches “'+esc(S.fq)+'”.</div>' : '') +
+      shown.map(function(x){
+        var f = x.f, i = x.i;
+        return (function(f,i){
         /* These workbooks get made by copying the last one, and the tab gets renamed
            while "Recipe Name:" inside it does not. Filetto di Wagyu still says
            Branzino in that cell. The cell is what we read, and it is usually right —
@@ -2151,12 +2217,22 @@ function render(){
           '<span class="sn">'+esc(f.name||'(no name)')+'</span>' +
           '<span class="sm">'+(f.kind==='batch'?'batch recipe':'main recipe')+
             (f.cat?' · '+esc(f.cat):'')+' · '+f.lines.length+' ingredient'+(f.lines.length===1?'':'s')+
-            (f.method?' · has the method':'')+'</span>' +
+            (f.method?' · has the method':'')+
+            /* which workbook it came out of — with sixty of them, "Branzino" alone
+               does not tell you which Branzino */
+            (multi && f.file ? ' · <i>'+esc(f.file)+'</i>' : '')+'</span>' +
           (odd ? '<span class="sm warn">The sheet is called <b>'+esc(f.where)+'</b> but its Recipe Name says <b>' +
                  esc(f.name)+'</b>. Open it and check the name before you save it.</span>' : '') +
           '</button></div>';
+        })(f, i);
       }).join('') +
-      '<button class="newr" id="pickfile">Bring in a different file</button></div>';
+      '<button class="newr" id="pickfile">Bring in different files</button>' +
+      '<button class="newr" id="pickfolder">Bring in a whole folder</button></div>';
+    var fq = $('fq');
+    if (fq) fq.addEventListener('input', function(){
+      S.fq = fq.value; var at = fq.selectionStart; render();
+      var n = $('fq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
+    });
   }
 
   else if (S.step === 'foh'){
@@ -2251,6 +2327,10 @@ function planInner(){
         '<span class="pkind'+(R.kind==='batch'?' b':'')+'">'+(R.kind==='batch'?'batch':'main')+'</span>' + st + '</div>' +
       '<div class="pmeta">'+R.rows.length+' ingredient'+(R.rows.length===1?'':'s') +
         (R.section ? ' · '+esc(R.section) : '') +
+        /* the same batch written into a dozen workbooks is made ONCE — say so on its
+           own card, where somebody looking for the other eleven would look */
+        (R.alsoIn && R.alsoIn.length
+          ? ' · <b>also in '+R.alsoIn.length+' other file'+(R.alsoIn.length===1?'':'s')+'</b>, made once' : '') +
         (hasMethod(R.method) ? ' · the method comes with it' : ' · no method in the file') +
         (R.kind==='batch' && R.f.makesQty==null && !R.existing
           ? ' · <b>doesn’t say how much it makes</b>' : '') + '</div>' +
@@ -2319,8 +2399,9 @@ function voiceOk(){ return ('SpeechRecognition' in window) || ('webkitSpeechReco
 function bringHTML(withVoice){
   return '<div class="bring">' +
     '<button class="brb" id="pickfile">Bring it in from a file</button>' +
+    '<button class="brb" id="pickfolder">Bring in a whole folder</button>' +
     (withVoice && voiceOk() ? '<button class="brb mic" id="mic">🎤 Say it</button>' : '') +
-    '<span class="brn">Excel, Word (.docx) or a PDF with real text in it' +
+    '<span class="brn">Excel, Word (.docx) or a PDF with real text in it — one, several, or a whole folder' +
       (withVoice && !voiceOk() ? ' — speaking only works on Android, not on iPhone' : '') + '</span>' +
     '<span class="brn" id="brs"></span></div>';
 }
@@ -3277,11 +3358,22 @@ document.addEventListener('click', function(e){
 
   if (e.target.id === 'newr'){ guard(function(){ newRecipe(); render(); window.scrollTo(0,0); }); return; }
   if (e.target.id === 'pickfile'){ guard(function(){ $('fi').value=''; $('fi').click(); }); return; }
+  if (e.target.id === 'pickfolder'){ guard(function(){ var d=$('fd'); if (d){ d.value=''; d.click(); } }); return; }
   if (e.target.id === 'mic'){ toggleMic(); return; }
   /* ── a whole workbook in one go ── */
   if (e.target.id === 'allatonce'){
-    S.plan = planWorkbook(S.found); S.planRan = false; S.step = 'bringall';
-    render(); window.scrollTo(0,0); return;
+    /* planWorkbook links against S.saved to avoid making a second copy of something
+       already written — and S.saved is only filled when Saved recipes has been opened.
+       On a fresh page it was empty, so the check silently passed on everything and a
+       folder of sixty would have written a second Burrata next to the first. */
+    var btn = e.target; btn.disabled = true; btn.textContent = 'Checking what is already saved…';
+    loadSaved().then(function(){
+      S.plan = planWorkbook(S.found); S.planRan = false; S.step = 'bringall';
+      render(); window.scrollTo(0,0);
+    }).catch(function(){
+      btn.disabled = false; btn.textContent = 'Bring in all ' + S.found.recipes.length + ' and link them';
+    });
+    return;
   }
   if (e.target.id === 'oneatatime'){ S.plan=null; S.step='found'; render(); window.scrollTo(0,0); return; }
   if (e.target.id === 'doall'){
@@ -3307,6 +3399,7 @@ document.addEventListener('click', function(e){
   }
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
+  if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
 
   /* Removing one of your own ingredients. A saved recipe that is USING it must not
      lose it — that recipe would go straight back to carrying no cost, which is the
@@ -3403,27 +3496,89 @@ $('act').addEventListener('click', function(){
 $('pf').addEventListener('change', function(){
   if (this.files && this.files.length) addPhotos(this.files);
 });
-$('fi').addEventListener('change', function(){
-  var file = this.files && this.files[0]; if (!file) return;
-  var st = $('brs'); if (st) st.textContent = 'Reading ' + file.name + '…';
-  readAnyFile(file).then(function(res){
-    if (!res.recipes.length)
-      throw new Error('nothing in that file looks like a recipe — I need a Quantity / Unit / Name list, ' +
-                      'like your Standard Recipe Form');
-    res.fileName = file.name;
-    var stem = file.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
-    res.recipes.forEach(function(f){ if (!f.name) f.name = stem; });
-    if (res.recipes.length === 1){
-      res.recipes[0].how = res.how; useImported(res.recipes[0]);
+/* ───────── bringing in more than one file ─────────
+   The à la carte folder is sixty workbooks and one of them — Risotto Bosco — holds
+   five recipes on its own. One file at a time meant sixty trips through pick, read,
+   review, create, and that is the difference between an afternoon and a week.
+
+   Every file is read, and a file that cannot be read is NAMED. Silently dropping
+   three of sixty and showing a confident total is how you find out in November that
+   Rombo was never written. */
+var READABLE = /\.(xlsx|xlsm|xls|csv|docx|pdf)$/i;
+
+function readMany(fileList){
+  var files = [].slice.call(fileList).filter(function(f){ return READABLE.test(f.name); });
+  var skipped = [].slice.call(fileList).length - files.length;
+  if (!files.length) return Promise.reject(new Error(
+    skipped ? 'none of those ' + skipped + ' files is an Excel, Word or PDF file'
+            : 'no files picked'));
+
+  var st = $('brs'), done = 0;
+  var say = function(){ if (st){ st.className='brn'; st.textContent = 'Reading ' + done + ' of ' + files.length + '…'; } };
+  say();
+
+  /* Read them in small groups. Sixty spreadsheets opened at once on a laptop that is
+     also running service is how a tab dies with no message at all. */
+  var out = [], failed = [], i = 0;
+  function step(){
+    if (i >= files.length) return Promise.resolve();
+    var group = files.slice(i, i + 4); i += 4;
+    return Promise.all(group.map(function(f){
+      return readAnyFile(f)
+        .then(function(res){
+          done++; say();
+          var stem = f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
+          (res.recipes||[]).forEach(function(r){
+            if (!r.name) r.name = stem;
+            r.how = res.how; r.file = f.name;
+            out.push(r);
+          });
+          if (!(res.recipes||[]).length)
+            failed.push({ name:f.name, why:'nothing in it looks like a recipe' });
+        })
+        .catch(function(e){ done++; say(); failed.push({ name:f.name, why:plain(e.message) }); });
+    })).then(step);
+  }
+
+  return step().then(function(){
+    return { recipes:out, failed:failed, files:files.length, skipped:skipped,
+             how:(out[0] && out[0].how) || 'the files' };
+  });
+}
+
+function handlePicked(fileList){
+  if (!fileList || !fileList.length) return;
+  var many = fileList.length > 1;
+  var st = $('brs');
+  if (st){ st.className = 'brn'; st.textContent = 'Reading ' + (many ? fileList.length + ' files…' : fileList[0].name + '…'); }
+
+  readMany(fileList).then(function(res){
+    if (!res.recipes.length){
+      throw new Error(res.failed.length
+        ? 'none of those ' + res.files + ' files could be read. ' +
+          res.failed.slice(0,3).map(function(f){ return f.name + ' — ' + f.why; }).join('; ') +
+          (res.failed.length > 3 ? '; and ' + (res.failed.length-3) + ' more' : '')
+        : 'nothing in that file looks like a recipe — I need a Quantity / Unit / Name list, ' +
+          'like your Standard Recipe Form');
+    }
+    /* One recipe out of one file still goes straight to the sheet, exactly as before —
+       nothing about the single-file way of working changes. */
+    if (!many && res.recipes.length === 1 && !res.failed.length){
+      useImported(res.recipes[0]);
     } else {
-      S.found = res; S.step = 'found';
+      res.fileName = many ? res.files + ' files' : fileList[0].name;
+      S.found = res; S.fq = ''; S.step = 'found';
     }
     render(); window.scrollTo(0,0);
   }).catch(function(err){
     var s = $('brs');
-    if (s){ s.className = 'brn bad'; s.textContent = 'Could not use that file — ' + err.message; }
+    if (s){ s.className = 'brn bad'; s.textContent = 'Could not use that — ' + plain(err.message); }
   });
-});
+}
+
+$('fi').addEventListener('change', function(){ handlePicked(this.files); this.value=''; });
+var fd = $('fd');
+if (fd) fd.addEventListener('change', function(){ handlePicked(this.files); this.value=''; });
 
 /* Voice — it only ever fills the box. You still read it and pick the ingredients. */
 var MIC = null;
