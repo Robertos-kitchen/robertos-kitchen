@@ -1,0 +1,327 @@
+<title>Current menu — Roberto's Kitchen</title>
+<style>
+/* Roberto's house palette — the project's own tokens, not invented here.
+   Cormorant Garamond and DM Sans cannot be loaded on a hosted page, so the
+   nearest honest stand-ins are used: Georgia for the display face, the system
+   humanist sans for text. The real module keeps the brand faces. */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--vino-light:#7a1218;
+  --oliva:#4b5128;--oro:#ba9b02;--ink:#2a1a10;--cream:#f5ede0;
+  --attn:#755c04;--attn-soft:rgba(138,109,5,.09);
+  --serif:Georgia,'Times New Roman',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color-scheme:light;
+}
+/* A brand surface: it holds Sabbia and Vino in either OS theme, the way the app
+   does on the pass. The tokens are held, not inverted. */
+:root[data-theme="dark"],:root[data-theme="light"]{color-scheme:light}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
+  -webkit-font-smoothing:antialiased}
+:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.wrap{max-width:900px;margin:0 auto;padding:26px 18px 90px}
+.eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--vino-light);margin-bottom:12px}
+.lede{font-family:var(--serif);font-size:clamp(27px,5vw,38px);line-height:1.1;color:var(--vino);
+  margin:0 0 14px;text-wrap:balance;font-weight:400}
+.stand{font-size:14.5px;line-height:1.7;color:var(--ink);max-width:62ch;margin:0 0 4px}
+.stand b{color:var(--vino)}
+
+/* the upload strip */
+.up{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:22px 0 6px}
+.btn{background:var(--vino);color:var(--cream);border:none;border-radius:5px;font-family:var(--sans);
+  font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase;font-weight:700;
+  padding:0 20px;height:46px;cursor:pointer;white-space:nowrap}
+.btn.ghost{background:none;color:var(--vino);border:1.5px solid var(--sabbia-dark)}
+.btn:disabled{opacity:.45;cursor:default}
+.uphint{font-size:12.5px;color:var(--vino-light);line-height:1.5}
+input[type=file]{display:none}
+
+/* a menu */
+.list{margin-top:20px;display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  border-bottom:1px solid rgba(207,192,173,.75);padding:15px 4px;min-height:62px}
+.row:hover{background:var(--cream)}
+.pdf{flex:0 0 auto;font-size:9px;letter-spacing:1.6px;font-weight:700;color:var(--vino);
+  border:1px solid rgba(65,2,7,.35);border-radius:3px;padding:4px 6px;background:rgba(65,2,7,.05)}
+.nm{font-family:var(--serif);font-size:21px;line-height:1.15;color:var(--vino);
+  min-width:0;overflow-wrap:anywhere}
+.meta{font-size:11.5px;color:#a3907a;letter-spacing:.3px;white-space:nowrap}
+.acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.act{background:none;border:1.5px solid var(--sabbia-dark);border-radius:5px;color:var(--vino);
+  font-family:var(--sans);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;
+  font-weight:700;padding:0 14px;height:42px;cursor:pointer;text-decoration:none;
+  display:inline-flex;align-items:center}
+.act:hover{border-color:var(--vino)}
+.act.warn{color:var(--vino-light);border-color:rgba(122,18,24,.35)}
+
+/* asking before something cannot be undone */
+.ask{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto;
+  font-size:12.5px;color:var(--vino);background:var(--attn-soft);
+  border:1px solid rgba(138,109,5,.35);border-radius:6px;padding:8px 12px}
+.ask .act{height:36px}
+
+.note{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
+  padding:18px 16px;font-size:14px;line-height:1.7;color:var(--vino-light);margin-top:24px}
+.note b{color:var(--vino)}
+.note.bad{border-color:var(--vino);color:var(--vino)}
+.note code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+  background:var(--sabbia-light);padding:2px 6px;border-radius:3px}
+.note ol{margin:10px 0 0;padding-left:20px}
+.note li{margin-bottom:7px}
+.bar{height:4px;background:var(--sabbia-dark);border-radius:2px;overflow:hidden;margin-top:12px}
+.bar i{display:block;height:100%;background:var(--vino);width:0;transition:width .2s}
+
+@media (max-width:560px){
+  .acts{margin-left:0;width:100%}
+  .act{flex:1 1 auto;justify-content:center}
+  .meta{width:100%}
+}
+@media (pointer:coarse){ .row{min-height:70px} .act{height:46px} }
+</style>
+
+<div id="root"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   CURRENT MENU — the PDFs the restaurant actually prints.
+
+   Not a recipe. This is the finished, designed menu as it goes to the printer:
+   the à la carte, the wine list, the set menus, the bar list. It lives beside
+   the recipes because that is where anyone looks for "what are we serving", and
+   the one question it has to answer instantly is "which file do I send to the
+   printer today".
+
+   The files live in Supabase Storage, bucket `menus`. Nothing about them is
+   copied into a table — the bucket IS the list, so a file cannot exist in one
+   place and not the other.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var BUCKET = 'menus';
+
+/* ── DEV-site write protection ──
+   The same files serve DEV and LIVE against ONE production project, and this
+   page is opened on its own so it never loads app.js's guard. app.js only ever
+   blocked /rest/v1/ — an upload goes to /storage/v1/, which would have sailed
+   straight through and put a test PDF in the real menu folder. Same key, same
+   PIN, so unlocking in the app unlocks here. */
+var IS_DEV_HOST = location.hostname === 'robertos-kitchen.github.io';
+var DEV_READ_ONLY = IS_DEV_HOST && localStorage.getItem('kitchen-dev-writes') !== '1';
+
+var files = null, err = null, setupErr = null, busy = true, asking = null, progress = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function kb(n){
+  if (n == null) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return Math.round(n/1024) + ' KB';
+  return (n/1024/1024).toFixed(1) + ' MB';
+}
+function when(s){
+  if (!s) return '';
+  var d = new Date(s); if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+}
+function head(){ return { apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY }; }
+
+/* Listing a bucket that does not exist returns `200 []` — exactly what an empty
+   bucket returns. So the list can never be used to decide whether storage is set
+   up: "no menus yet" and "the folder was never created" would look identical, and
+   the second one is a job for somebody, not a state. Ask about the bucket itself. */
+function checkBucket(){
+  return fetch(SB_URL + '/storage/v1/bucket/' + BUCKET, { headers:head() })
+    .then(function(r){
+      if (r.ok) return true;
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
+      });
+    });
+}
+function listFiles(){
+  return fetch(SB_URL + '/storage/v1/object/list/' + BUCKET, {
+    method:'POST',
+    headers:Object.assign({ 'Content-Type':'application/json' }, head()),
+    body:JSON.stringify({ prefix:'', limit:200, sortBy:{ column:'name', order:'asc' } })
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP ' + r.status)); });
+    return r.json();
+  }).then(function(rows){
+    /* the folder placeholder Supabase creates is not a menu */
+    return (rows || []).filter(function(f){ return f && f.name && f.id !== null; });
+  });
+}
+function urlFor(name){
+  return SB_URL + '/storage/v1/object/public/' + BUCKET + '/' + encodeURIComponent(name);
+}
+
+function load(){
+  busy = true; err = null; setupErr = null; render();
+  return checkBucket()
+    .then(listFiles)
+    .then(function(rows){ files = rows; busy = false; render(); })
+    .catch(function(e){
+      busy = false;
+      if (/not found|NoSuchBucket/i.test(e.message)) setupErr = e.message;
+      else err = e.message;
+      render();
+    });
+}
+
+/* ── upload ──
+   One PDF at a time is the job: a menu is replaced, not batch-imported. The name
+   the file already has is the name it keeps, because that is the name he will look
+   for when he needs to send it to the printer. */
+function upload(file){
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name)){
+    err = 'That is not a PDF. Menus are stored as PDFs so they print exactly as designed.';
+    render(); return;
+  }
+  if (DEV_READ_ONLY){
+    err = 'The DEV site is read-only, so nothing was uploaded. Tap the DEV badge at the ' +
+          'bottom left of the app and enter the schedule PIN to upload for real.';
+    render(); return;
+  }
+  err = null; progress = 0; render();
+  var xhr = new XMLHttpRequest();
+  /* fetch cannot report progress, and a 6 MB menu on restaurant wifi with no bar
+     looks like nothing happened — so this one call is XHR on purpose. */
+  xhr.upload.onprogress = function(e){
+    if (e.lengthComputable){ progress = Math.round(e.loaded / e.total * 100); render(); }
+  };
+  xhr.onload = function(){
+    progress = null;
+    if (xhr.status >= 200 && xhr.status < 300){ load(); return; }
+    var msg = '';
+    try { msg = (JSON.parse(xhr.responseText) || {}).message || ''; } catch(e){}
+    err = 'That did not upload — ' + (msg || ('HTTP ' + xhr.status)) +
+          (xhr.status === 403 || /row-level security/i.test(msg)
+            ? '. The bucket exists but nothing is allowed to write to it yet.' : '');
+    render();
+  };
+  xhr.onerror = function(){ progress = null; err = 'That did not upload — the connection dropped.'; render(); };
+  /* x-upsert: replacing last month's à la carte with this month's is the normal
+     act here, and it must not fail with "already exists". */
+  xhr.open('POST', SB_URL + '/storage/v1/object/' + BUCKET + '/' + encodeURIComponent(file.name));
+  xhr.setRequestHeader('apikey', SB_KEY);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + SB_KEY);
+  xhr.setRequestHeader('x-upsert', 'true');
+  xhr.send(file);
+}
+
+function remove(name){
+  if (DEV_READ_ONLY){
+    asking = null;
+    err = 'The DEV site is read-only, so nothing was deleted. Tap the DEV badge and enter the PIN.';
+    render(); return;
+  }
+  asking = null; busy = true; render();
+  fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + encodeURIComponent(name), {
+    method:'DELETE', headers:head()
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP ' + r.status)); });
+    return load();
+  }).catch(function(e){ busy = false; err = 'That did not delete — ' + e.message; render(); });
+}
+
+function rowHTML(f){
+  var u = urlFor(f.name);
+  var size = f.metadata && f.metadata.size;
+  if (asking === f.name){
+    return '<div class="row">' +
+      '<span class="pdf">PDF</span><span class="nm">' + esc(f.name) + '</span>' +
+      '<span class="ask">Remove this menu? It cannot be undone.' +
+        '<button class="act" data-yes="' + esc(f.name) + '">Remove</button>' +
+        '<button class="act" data-no="1">Keep it</button></span>' +
+    '</div>';
+  }
+  return '<div class="row">' +
+    '<span class="pdf">PDF</span>' +
+    '<span class="nm">' + esc(f.name) + '</span>' +
+    '<span class="meta">' + esc(kb(size)) +
+      (f.updated_at ? ' &nbsp;·&nbsp; ' + esc(when(f.updated_at)) : '') + '</span>' +
+    '<span class="acts">' +
+      '<a class="act" href="' + esc(u) + '" target="_blank" rel="noopener">Open &amp; print</a>' +
+      '<a class="act" href="' + esc(u) + '" download="' + esc(f.name) + '">Download</a>' +
+      '<button class="act warn" data-del="' + esc(f.name) + '">Remove</button>' +
+    '</span>' +
+  '</div>';
+}
+
+function render(){
+  var body;
+  if (setupErr){
+    /* Not a failure to hide — a job for one person, once. Say exactly what to make
+       and where, because "bucket not found" tells him nothing he can act on. */
+    body = '<div class="note bad"><b>The menu folder has not been created yet.</b><br>' +
+      'This screen stores the PDFs in the Kitchen project’s file storage, in a bucket ' +
+      'called <code>' + esc(BUCKET) + '</code>. It does not exist, and only you can make it — ' +
+      'the app’s key is not allowed to create one.' +
+      '<ol>' +
+        '<li>Open <b>Storage</b> in the Kitchen Supabase project.</li>' +
+        '<li>New bucket, named exactly <code>' + esc(BUCKET) + '</code>, and tick <b>Public</b> ' +
+          'so a menu opens straight in the browser for printing.</li>' +
+        '<li>On that bucket add policies allowing <b>insert</b>, <b>update</b>, <b>select</b> and ' +
+          '<b>delete</b> for the <code>anon</code> role — the app signs in as nobody, so without ' +
+          'them nothing can be uploaded or listed.</li>' +
+      '</ol>' +
+      'Then reopen this screen. Nothing else has to change.</div>';
+  } else if (busy && files === null){
+    body = '<div class="note">Reading the menus…</div>';
+  } else {
+    var rows = files || [];
+    body =
+      '<div class="up">' +
+        '<button class="btn" id="pick"' + (DEV_READ_ONLY ? ' disabled' : '') + '>Upload a menu (PDF)</button>' +
+        '<span class="uphint">' +
+          (DEV_READ_ONLY
+            ? 'The DEV site is read-only. Tap the <b>DEV</b> badge at the bottom left and enter the PIN to upload for real.'
+            : 'A menu with the same name replaces the one already here — that is how you put up this month’s.') +
+        '</span>' +
+        '<input type="file" id="file" accept="application/pdf,.pdf">' +
+      '</div>' +
+      (progress !== null ? '<div class="bar"><i style="width:' + progress + '%"></i></div>' : '') +
+      (err ? '<div class="note bad">' + esc(err) + '</div>' : '') +
+      (rows.length
+        ? '<div class="list">' + rows.map(rowHTML).join('') + '</div>'
+        : '<div class="note"><b>No menus here yet.</b><br>Upload the à la carte, the wine list, ' +
+          'the set menus — whatever gets printed. They will be here, ready to send to the printer, ' +
+          'for anyone who needs one.</div>');
+  }
+
+  document.getElementById('root').innerHTML =
+    '<div class="wrap">' +
+      '<div class="eyebrow">Kitchen &nbsp;·&nbsp; recipes</div>' +
+      '<h1 class="lede">Current menu</h1>' +
+      '<p class="stand">Every menu we print, kept in one place and ready to go to the printer — ' +
+        'the à la carte, the wine list, the set menus. <b>Open &amp; print</b> opens the PDF exactly ' +
+        'as it was designed.</p>' +
+      body +
+    '</div>';
+}
+
+document.addEventListener('click', function(e){
+  var t = e.target;
+  if (t.id === 'pick'){ document.getElementById('file').click(); return; }
+  var del = t.closest ? t.closest('[data-del]') : null;
+  if (del){ asking = del.dataset.del; render(); return; }
+  if (t.dataset && t.dataset.no){ asking = null; render(); return; }
+  var yes = t.closest ? t.closest('[data-yes]') : null;
+  if (yes){ remove(yes.dataset.yes); return; }
+});
+document.addEventListener('change', function(e){
+  if (e.target.id === 'file'){
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';          /* so the same file can be picked twice running */
+    upload(f);
+  }
+});
+
+render();
+load();
+</script>
