@@ -1835,7 +1835,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2129,33 +2129,72 @@ function openOrderInventory(){ openMarketList(); }
 // Each is a page of its own, shown in its view. It is only built the first time that
 // tile is opened, and then left alone: rebuilding it on every open would throw away a
 // half-written recipe, which is the one thing this module must never do.
-function openRecipeScreen(viewId, page, label){
+// The way in. Three screens, one dish, one record — so they live together behind one
+// door rather than as three unrelated things on the home screen.
+var RECIPE_SCREENS=[
+  {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
+   name:'Write a dish', who:'Exec chef',
+   meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
+  {code:'PASS', view:'recipecard-view', page:'recipe-card.html?embed=1',
+   name:'How it’s made', who:'Chef de partie, at the pass',
+   meta:'The station card: the dish and every batch inside it, scaled, printable.'},
+  {code:'FOH', view:'foodbible-view', page:'food-bible.html?embed=1',
+   name:'For the floor', who:'Waiter, before service',
+   meta:'One dish, one A4 — the menu line, what to say, allergens, what to set.'}
+];
+function openRecipes(){
+  activeStation=RECIPES_KEY;
+  hideAllPages();
+  var v=document.getElementById('recipes-view');
+  v.style.cssText='';
+  v.innerHTML='<div class="ops-title">Recipes</div>'+
+    '<div class="ops-subtitle">One dish, written once. The pass and the floor read the same '+
+      'record — change it in one place and it changes in both.</div>'+
+    '<div class="rcp-doors">'+RECIPE_SCREENS.map(function(s){
+      return '<button class="rcp-door" data-rcp="'+s.view+'">'+
+        '<span class="rcp-code">'+s.code+'</span>'+
+        '<span class="rcp-name">'+escHtml(s.name)+'</span>'+
+        '<span class="rcp-who">'+escHtml(s.who)+'</span>'+
+        '<span class="rcp-meta">'+escHtml(s.meta)+'</span>'+
+        '<span class="rcp-go">Open &rarr;</span></button>';
+    }).join('')+'</div>';
+  document.querySelector('.footer-bar').style.display='flex';
+  document.getElementById('foot-label').textContent='Recipes';
+}
+function openRecipeScreen(viewId){
+  var s=RECIPE_SCREENS.filter(function(x){return x.view===viewId;})[0];
+  if(!s) return;
   activeStation=RECIPES_KEY;
   hideAllPages();
   var v=document.getElementById(viewId);
   if(v){
-    v.style.display='block';
+    // A column: a slim bar back to Recipes, then the screen filling what is left.
+    v.style.cssText='padding:0;display:flex;flex-direction:column';
     if(!v.firstChild){
+      var bar=document.createElement('div');
+      bar.className='rcp-bar';
+      bar.innerHTML='<button class="home-btn" onclick="openRecipes()">&lsaquo; Recipes</button>'+
+        '<span class="rcp-bar-name">'+escHtml(s.name)+'</span>';
       var f=document.createElement('iframe');
-      f.src=page; f.title=label; f.loading='eager';
-      f.style.cssText='display:block;width:100%;height:100%;border:none;background:var(--sabbia)';
-      v.style.cssText='padding:0;display:block';
-      v.appendChild(f);
+      f.src=s.page; f.title=s.name; f.loading='eager';
+      f.style.cssText='display:block;width:100%;flex:1 1 auto;min-height:0;border:none;background:var(--sabbia)';
+      v.appendChild(bar); v.appendChild(f);
     }
+    v.style.display='flex';
   }
   document.querySelector('.footer-bar').style.display='flex';
-  document.getElementById('foot-label').textContent=label;
+  document.getElementById('foot-label').textContent=s.name;
   fitRecipeScreen();
 }
 // The header wraps on a phone and the footer is a different height on a tablet, so a
 // fixed "100vh minus 116px" is wrong on most devices — it either leaves a dead strip
-// or pushes the last line under the footer bar. Measure where the view actually
-// starts and how tall the footer actually is, every time it opens and on every turn
+// or pushes the last line under the footer bar. Measure where the open view actually
+// starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipes-view','recipecard-view','foodbible-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view']
     .map(function(id){return document.getElementById(id);})
-    .filter(function(el){return el&&el.style.display==='block';})[0];
+    .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
   var foot=document.querySelector('.footer-bar');
   var footH=(foot&&getComputedStyle(foot).display!=='none')?foot.getBoundingClientRect().height:0;
@@ -2164,16 +2203,18 @@ function fitRecipeScreen(){
 }
 window.addEventListener('resize', fitRecipeScreen);
 window.addEventListener('orientationchange', function(){ setTimeout(fitRecipeScreen, 250); });
-function openRecipeCreate(){ openRecipeScreen('recipes-view','recipe-create.html?embed=1','Write a dish'); }
-function openRecipeCard(){ openRecipeScreen('recipecard-view','recipe-card.html?embed=1','How it’s made'); }
-function openFoodBible(){ openRecipeScreen('foodbible-view','food-bible.html?embed=1','For the floor'); }
+// The three doors on the Recipes page.
+document.addEventListener('click', function(e){
+  var d=e.target.closest ? e.target.closest('[data-rcp]') : null;
+  if(d) openRecipeScreen(d.dataset.rcp);
+});
 
 // â”€â”€ SWITCH STATION â”€â”€
 function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';

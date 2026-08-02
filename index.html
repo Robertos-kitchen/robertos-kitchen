@@ -219,6 +219,26 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .reset-btn{font-size:11px;color:#cc0000;background:none;border:1px solid #cc0000;border-radius:3px;padding:5px 12px;cursor:pointer;opacity:.55;transition:opacity .2s}
 .reset-btn:hover{opacity:1;background:#cc0000;color:#fff}
 
+/* â”€â”€ RECIPES: the three doors, and the way back â”€â”€ */
+.rcp-doors{display:grid;gap:14px;margin-top:20px;grid-template-columns:1fr}
+@media (min-width:860px){.rcp-doors{grid-template-columns:repeat(3,1fr)}}
+.rcp-door{display:flex;flex-direction:column;gap:7px;text-align:left;background:var(--cream);
+  border:1px solid var(--sabbia-dark);border-radius:9px;padding:20px 18px 18px;cursor:pointer;
+  font-family:var(--font-sans);color:inherit;min-height:64px;
+  transition:border-color .15s,transform .15s}
+.rcp-door:hover{border-color:var(--vino);transform:translateY(-2px)}
+.rcp-code{font-size:10px;letter-spacing:2.6px;text-transform:uppercase;color:var(--oliva,#4b5128)}
+.rcp-name{font-family:var(--font-serif);font-size:26px;line-height:1.1;color:var(--vino)}
+.rcp-who{font-size:12px;letter-spacing:.3px;color:var(--vino-light)}
+.rcp-meta{font-size:13.5px;line-height:1.6;color:var(--ink)}
+.rcp-go{margin-top:auto;padding-top:12px;font-size:10.5px;letter-spacing:1.8px;
+  text-transform:uppercase;font-weight:700;color:var(--vino)}
+/* the slim bar over each screen — the only way back to Recipes without going Home */
+.rcp-bar{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:8px 14px;
+  background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
+.rcp-bar-name{font-family:var(--font-serif);font-size:15px;color:var(--vino)}
+@media (pointer:coarse){.rcp-door{min-height:72px}.rcp-bar{padding:10px 14px}}
+
 /* â”€â”€ UNDO TOAST â”€â”€ */
 .undo-toast{display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--vino);color:var(--cream);border-radius:6px;padding:11px 18px;font-size:12px;z-index:200;align-items:center;gap:14px;white-space:nowrap;box-shadow:0 4px 20px rgba(65,2,7,.4)}
 .undo-toast.visible{display:flex}
@@ -1180,9 +1200,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
     <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
-    <button class="home-tile compact" onclick="openRecipeCreate()"><span class="home-code">RCP</span><span><span class="home-name">Write a dish</span><span class="home-meta">Ingredients, method, allergens, photo</span></span></button>
-    <button class="home-tile compact" onclick="openRecipeCard()"><span class="home-code">PASS</span><span><span class="home-name">How it&rsquo;s made</span><span class="home-meta">The station card &mdash; dish and its batches</span></span></button>
-    <button class="home-tile compact" onclick="openFoodBible()"><span class="home-code">FOH</span><span><span class="home-name">For the floor</span><span class="home-meta">One dish, one A4 &mdash; the Food Bible</span></span></button>
+    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Write a dish, the pass card, the Food Bible</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
   </div>
@@ -1251,10 +1269,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="order-view" class="ops-view" style="display:none"></div>
 <div id="fish-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
-<!-- Three recipe screens, one live record. Each is filled the first time its tile is
-     opened and then left alone, so a half-written recipe survives a trip to another
-     screen and back. -->
+<!-- Recipes: one way in, three screens on one live record. `recipes-view` is the way
+     in; the other three hold a screen each, filled the first time it is opened and
+     then left alone, so a half-written recipe survives a trip to another screen and
+     back. -->
 <div id="recipes-view" class="ops-view" style="display:none"></div>
+<div id="recipecreate-view" class="ops-view" style="display:none"></div>
 <div id="recipecard-view" class="ops-view" style="display:none"></div>
 <div id="foodbible-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
@@ -1326,7 +1346,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1786400000"></script>
+<script src="app.js?v=1786420000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
