@@ -229,6 +229,14 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
 .mu{font-family:var(--sans);font-size:12px;padding:2px 4px;border:none;border-bottom:1px solid rgba(245,237,224,.45);background:rgba(245,237,224,.13);color:var(--cream);outline:none}
+.sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
+.sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
+  padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
+.sfind input:focus{border-color:var(--vino)}
+.sclr{font-family:var(--sans);font-size:12px;background:none;border:1px solid rgba(64,2,7,.3);
+  border-radius:4px;color:var(--vino);padding:9px 12px;cursor:pointer;flex:0 0 auto}
+.sclr:hover{background:rgba(232,217,199,.4)}
+.scount{font-family:var(--sans);font-size:12px;opacity:.55;flex:0 0 auto}
 .shd{font-family:var(--sans);font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.55;margin:18px 0 6px}
 .srow{display:flex;align-items:baseline;gap:12px;width:100%;background:#fff;border:1px solid rgba(64,2,7,.14);border-radius:3px;padding:6px 13px;margin-bottom:6px}
 .srow:hover{border-color:rgba(64,2,7,.45);background:rgba(232,217,199,.25)}
@@ -504,9 +512,23 @@ var SYN = {
   grana:['parmesan','parmigiano'], padano:['parmesan','parmigiano'],
   aubergine:['eggplant'], eggplant:['aubergine'],
   courgette:['zucchini'], zucchini:['courgette'], prawn:['shrimp'], shrimp:['prawn'],
-  rocket:['rucola','arugula'], evoo:['olive','oil'], amberjack:['ricciola'], ricciola:['amberjack'],
-  branzino:['seabass'], coriander:['cilantro'], chilli:['chili'], leaf:['leaves'],
-  amberjack:['ricciola','hamachi'], yellowtail:['hamachi'], ambearjack:['ricciola']
+  rocket:['rucola','arugula'], evoo:['olive','oil'], ricciola:['amberjack'],
+  coriander:['cilantro'], chilli:['chili'], leaf:['leaves'],
+  amberjack:['ricciola','hamachi'], yellowtail:['hamachi'], ambearjack:['ricciola'],
+  /* Every one of these has to work BOTH ways round. The table was one-directional:
+     branzino found seabass, and seabass found nothing — so with the menu written in
+     Italian, the English word a chef types at the search box came back empty. */
+  branzino:['seabass'], seabass:['branzino'],
+  rucola:['rocket','arugula'], arugula:['rocket','rucola'],
+  cilantro:['coriander'], chili:['chilli'], leaves:['leaf'],
+  hamachi:['ricciola','amberjack'],
+  manzo:['beef'], beef:['manzo'], vitello:['veal'], veal:['vitello'],
+  tonno:['tuna'], tuna:['tonno'], gambero:['prawn','shrimp'], scampi:['langoustine'],
+  polpo:['octopus'], octopus:['polpo'], patate:['potato'], potato:['patate'],
+  funghi:['mushroom'], mushroom:['funghi'], pollo:['chicken'], polletto:['chicken'],
+  chicken:['pollo','polletto'], agnello:['lamb'], lamb:['agnello'],
+  limone:['lemon'], lemon:['limone'], pomodoro:['tomato'], tomato:['pomodoro','pomodori'],
+  formaggio:['cheese'], cheese:['formaggio'], gamberi:['prawn','shrimp']
 };
 /* Aung writes some things as one word */
 var JOIN = [[/\bsea\s+bass\b/g,'seabass'], [/\bsun\s+dried\b/g,'sundried'], [/\bsea\s+food\b/g,'seafood']];
@@ -525,18 +547,40 @@ function hitAt(nw, w){
   return -1;
 }
 /* A product whose NAME STARTS with what you typed is what you meant:
-   "Olive Oil Extra Virgin" beats "Anchovy Fillets in Olive Oil". */
+   "Olive Oil Extra Virgin" beats "Anchovy Fillets in Olive Oil".
+   One scorer, two callers — the ingredient list and the recipe list, so a search
+   behaves the same in both places: every word you typed has to be in the name,
+   in any order, plurals and Aung's spellings taken care of. */
+function nameHit(qw, name){
+  var nw = words(name), pos = [];
+  for (var i=0;i<qw.length;i++){
+    var p = hitAt(nw, qw[i]); if (p < 0) return null; pos.push(p);
+  }
+  return { first: Math.min.apply(null,pos), extra: nw.length - qw.length };
+}
 function search(qRaw){
   var qw = words(qRaw); if (!qw.length) return [];
   var hits = [];
   pickable().forEach(function(it){
-    var nw = words(it.name), pos = [], ok = true;
-    qw.forEach(function(w){ var p = hitAt(nw, w); if (p < 0) ok = false; else pos.push(p); });
-    if (!ok) return;
-    hits.push({ it:it, first:Math.min.apply(null,pos), extra:nw.length - qw.length });
+    var h = nameHit(qw, it.name);
+    if (h) hits.push({ it:it, first:h.first, extra:h.extra });
   });
   hits.sort(function(a,b){ return (a.first-b.first) || (a.extra-b.extra); });
   return hits.map(function(h){ return h.it; });
+}
+/* Recipes, same engine. The section counts too — typing "pasta" should bring back
+   the pasta section — but a name match always comes first, so searching "burrata"
+   never buries the dish called Burrata under everything in its section. */
+function findRecipes(qRaw, list){
+  var qw = words(qRaw); if (!qw.length) return list.slice();
+  var hits = [];
+  list.forEach(function(r){
+    var h = nameHit(qw, r.name || ''), where = 'name';
+    if (!h && r.section){ h = nameHit(qw, r.section); where = 'section'; }
+    if (h) hits.push({ r:r, rank:(where==='name'?0:1000)+h.first, extra:h.extra });
+  });
+  hits.sort(function(a,b){ return (a.rank-b.rank) || (a.extra-b.extra); });
+  return hits.map(function(h){ return h.r; });
 }
 
 /* ───────── splitting a free-typed line ─────────
@@ -716,7 +760,7 @@ function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[
 
 /* ───────── state ───────── */
 var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
-          id:null, section:'', makesQty:null, makesUnit:null, saved:[], listErr:null,
+          id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null,
           method:null, photos:[], allergens:[] };
 var SECTIONS = ['Crudo','Antipasti','Salad / Soup','Pizza','Pasta','Main','Dessert','Canapé','Prep'];
 
@@ -1151,8 +1195,11 @@ function loadBatches(){
 }
 
 function loadSaved(){
+  /* 400 was the cap while there were five recipes. Ordered newest-first, a cap does
+     not trim the list — it silently deletes the OLDEST recipes off the end, which are
+     exactly the ones you open the search for. The whole book is well under 2000. */
   return sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived' +
-            '&order=updated_at.desc&limit=400')
+            '&order=updated_at.desc&limit=2000')
     .then(function(list){ S.saved = list||[]; S.listErr=null; })
     .catch(function(e){ S.saved=[]; S.listErr = e.message; });
 }
@@ -1885,10 +1932,16 @@ function render(){
 
   else if (S.step === 'saved'){
     b.classList.add('off');
-    var live  = S.saved.filter(function(r){ return !r.archived; });
-    var gone  = S.saved.filter(function(r){ return  r.archived; });
+    /* Searching looks in the removed ones too. If the only Vitello you ever wrote was
+       removed last month, a search that says "nothing found" is a lie that makes you
+       write it twice — so a match that is archived is shown, marked, without you
+       having to know to open the removed list first. */
+    var all   = S.sq ? findRecipes(S.sq, S.saved) : S.saved;
+    var live  = all.filter(function(r){ return !r.archived; });
+    var gone  = all.filter(function(r){ return  r.archived; });
     var mains = live.filter(function(r){ return r.kind==='main'; });
     var bats  = live.filter(function(r){ return r.kind==='batch'; });
+    var openGone = S.showGone || (!!S.sq && !!gone.length);
     var card = function(r){
       var mu2 = r.makes_unit || '';
       if (mu2 === 'portions' && r.makes_qty == 1) mu2 = 'portion';
@@ -1912,14 +1965,37 @@ function render(){
             '<button class="newr" id="newr">＋ Start a new recipe</button>'
           : '<div class="q">Saved recipes</div>' +
             '<div class="sub">Open one to change it — the sheet comes back exactly as you left it, and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s newest stock take every time, so nothing here is a frozen price.</div>' +
+            '<div class="sfind"><input id="sq" value="'+esc(S.sq||'')+'" ' +
+                'placeholder="search '+S.saved.length+' recipes — burrata, vitello, pasta…">' +
+              (S.sq ? '<button class="sclr" id="sclr">Clear</button>' : '') +
+              '<span class="scount">'+(S.sq
+                 ? (live.length+gone.length) + ' of ' + S.saved.length
+                 : S.saved.length + ' saved')+'</span></div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
-            (mains.length ? '<div class="shd">Main recipes</div>' + mains.map(card).join('') : '') +
-            (bats.length  ? '<div class="shd">Batch recipes</div>' + bats.map(card).join('')  : '') +
+            (S.sq && !live.length && !gone.length
+              ? '<div class="todo"><b>Nothing saved matches “'+esc(S.sq)+'”.</b> ' +
+                'Every word you type has to be in the name or the section, so fewer words ' +
+                'find more — try just “vitello”. If it really isn’t written yet, ' +
+                '<b>Start a new recipe</b> above.</div>'
+              : '') +
+            (mains.length ? '<div class="shd">Main recipes'+(S.sq?' · '+mains.length:'')+'</div>' + mains.map(card).join('') : '') +
+            (bats.length  ? '<div class="shd">Batch recipes'+(S.sq?' · '+bats.length:'')+'</div>' + bats.map(card).join('')  : '') +
             (gone.length
-              ? '<button class="newr" id="showgone">'+(S.showGone ? 'Hide' : 'Show')+' removed ('+gone.length+')</button>' +
-                (S.showGone ? '<div class="shd">Removed — nothing is destroyed</div>' + gone.map(card).join('') : '')
+              ? (S.sq
+                  ? '<div class="shd">Removed — but it matches, so here it is</div>'
+                  : '<button class="newr" id="showgone">'+(S.showGone ? 'Hide' : 'Show')+' removed ('+gone.length+')</button>' +
+                    (openGone ? '<div class="shd">Removed — nothing is destroyed</div>' : '')) +
+                (openGone ? gone.map(card).join('') : '')
               : '')
       ) + '</div>';
+    /* the caret stays where it was: render() rebuilds this pane on every keystroke */
+    var sq = $('sq');
+    if (sq){
+      sq.addEventListener('input', function(){
+        S.sq = sq.value; var at = sq.selectionStart; render();
+        var n = $('sq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
+      });
+    }
   }
 
   else if (S.step === 'type'){
@@ -3071,6 +3147,7 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
+  if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
 
   var rmr = e.target.closest('[data-rmr]');           /* put a recipe away — reversible */
   if (rmr){
