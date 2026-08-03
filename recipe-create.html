@@ -378,6 +378,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
 .fold.dim .fn{opacity:.65}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
+/* a batch Aung prices but nobody has written — the answer, and the way out of it */
+.offer{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
+  border-radius:0 5px 5px 0;padding:14px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--vino-light)}
+.offer b{color:var(--vino);font-weight:600}
+.offer .maacts{margin-top:11px}
 @media(max-width:520px){.folds{grid-template-columns:1fr}}
 .newr{font-family:var(--sans);font-size:13px;background:none;border:1px dashed rgba(64,2,7,.35);border-radius:3px;color:var(--vino);padding:9px 14px;margin:14px 0 4px;cursor:pointer}
 .newr:hover{border-style:solid;background:rgba(232,217,199,.3)}
@@ -1304,6 +1309,30 @@ function newRecipe(){
   var run = MENUS.filter(function(m){ return m.running; })[0];
   S.menus = run ? [run.id] : [];
   S.plan = null; S.planRan = false;
+}
+
+/* ───────── the two things both called a batch ─────────
+   Aung's stock take carries "RF Cacio e Pepe (Polpo) (PA)" — a code and a price per kilo,
+   and nothing else. It is not a recipe and there are no ingredients behind it. What we
+   write in this module IS a recipe. The sheet used to draw both with the same gold B, so
+   tapping the second kind landed on a list row you can do nothing with.
+
+   The two are the same batch written by two hands, and the names line up once his wrapper
+   is off: 9 of the first 10 batch recipes written match his list exactly this way. So the
+   B goes to the recipe whenever one exists, and says so plainly when one does not. */
+function batchKey(s){
+  return String(s||'').replace(/^\s*RF\s+/i,'').replace(/\s*\(PA\)\s*$/i,'')
+                      .replace(/\s+/g,' ').trim().toLowerCase();
+}
+function plainBatch(s){
+  return String(s||'').replace(/^\s*RF\s+/i,'').replace(/\s*\(PA\)\s*$/i,'').replace(/\s+/g,' ').trim();
+}
+/* the recipe behind one of Aung's batch lines, if it has been written. Removed ones count —
+   offering to write a recipe that already exists, archived, is how you end up with two. */
+function myBatchFor(name){
+  var k = batchKey(name); if (!k) return null;
+  for (var i = 0; i < MYB.length; i++) if (batchKey(MYB[i].name) === k) return MYB[i];
+  return null;
 }
 
 /* which live recipes have this batch in them */
@@ -2912,6 +2941,17 @@ function render(){
           
 
         '</div></div>' +
+      /* He tapped a batch expecting the recipe. There isn't one. Say that, in those
+         words, and put the way out right there — not a price and a shrug. */
+      (function(){
+        if (!S.offer) return '';
+        var oi = pool().filter(function(x){ return x.code === S.offer.code; })[0];
+        var per = oi ? (' at ' + fmt(oi.price) + ' a ' + (oi.unit === 'pcs' ? 'piece' : String(oi.unit).toLowerCase())) : '';
+        return '<div class="offer"><b>The recipe for ' + esc(plainBatch(S.offer.name)) + ' is not written yet.</b> ' +
+          'Aung prices it' + per + ', and that is everything his stock take holds — there are no ingredients behind it, ' +
+          'which is why there is nothing to open. Write it once and every dish that uses it opens straight into it.' +
+          '<div class="maacts"><button class="okb" id="writebatch">Write this batch recipe</button></div></div>';
+      })() +
       '<div class="lfilt"><input id="lq" placeholder="search — your words work: parmesan, black pepper, prawn…">' +
         '<select id="lt"><option value="">Ingredients and batches</option>' +
           '<option value="ing">Ingredients only</option><option value="bat">Batches only</option></select>' +
@@ -3660,7 +3700,16 @@ function rowHTML(r, i){
   var isB = !!(it && (it.myBatch || it.group==='Batch Recipe (Food)'));
   var tag = !it ? '<span class="ibx none">·</span>'
     : it.myBatch ? '<button class="ibx b" data-gobatch="'+esc(idOf(it.code))+'" title="Our batch recipe — open it">B</button>'
-    : it.group==='Batch Recipe (Food)' ? '<button class="ibx b" data-golist="'+esc(it.code)+'" title="Aung\'s batch — find it on his list">B</button>'
+    /* one of Aung's batches. If we have written the recipe, the B opens THE RECIPE —
+       that is the whole point of tapping it. If we have not, it goes to his list with
+       the offer to write it, rather than to a row that answers nothing. */
+    : it.group==='Batch Recipe (Food)' ? (function(){
+        var mb = myBatchFor(it.name);
+        return mb
+          ? '<button class="ibx b" data-gobatch="'+esc(idOf(mb.code))+'" title="Open the recipe — what actually goes in it">B</button>'
+          : '<button class="ibx b" data-golist="'+esc(it.code)+'" data-nobatch="'+esc(it.name)+
+            '" title="Aung prices it — the recipe is not written yet">B</button>';
+      })()
     : '<button class="ibx" data-golist="'+esc(it.code)+'" title="Ingredient — find it on Aung\'s list">I</button>';
   var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+'">' +
     '<td class="ib">'+tag+'</td>' +
@@ -4701,7 +4750,20 @@ document.addEventListener('click', function(e){
   var gl = e.target.closest('[data-golist]');          /* go and look at it on Aung's list */
   if (gl){
     S.back = S.step; S.find = gl.dataset.golist; S.step = 'list';
+    /* a batch he has priced but nobody has written yet — carry that through so the list
+       says so instead of showing a price and leaving him there */
+    S.offer = gl.dataset.nobatch ? { code:gl.dataset.golist, name:gl.dataset.nobatch } : null;
     render(); window.scrollTo(0,0); return;
+  }
+  /* start the missing batch recipe, named already. guard() is what asks about unsaved
+     work — the sheet he is on is about to leave the screen. */
+  if (e.target.id === 'writebatch'){
+    var wname = plainBatch(S.offer && S.offer.name);
+    guard(function(){
+      newRecipe(); S.kind = 'batch'; S.name = wname; S.step = 'write'; S.offer = null;
+      render(); window.scrollTo(0,0);
+    });
+    return;
   }
   var gb = e.target.closest('[data-gobatch]');         /* go and open that batch */
   if (gb){
@@ -5318,6 +5380,8 @@ $('tosaved').addEventListener('click', function(){
 });
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
+  /* opening the list on its own is not about any one batch */
+  S.offer = null; S.find = null;
   S.back = S.step; S.step = 'list'; render(); window.scrollTo(0,0);
 });
 /* ── one step back, from anywhere ──
