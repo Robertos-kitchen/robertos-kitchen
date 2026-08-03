@@ -119,14 +119,29 @@ select.prod optgroup{color:var(--vino-light);font-weight:700}
 input.cell{width:100%;border:none;background:transparent;font-family:var(--sans);font-size:15px;padding:11px 7px;outline:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
 input.cell:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 input.cell::placeholder{color:var(--sabbia-dark)}
-/* It was 21px of grey in an unlabelled column, so "0.05" and "g" never read as one
-   thing. It sits tight against the number now, in the same ink, and it is wide enough
-   to hold "pcs" or a unit the row brought in from a file. */
-select.unit{border:none;background:transparent;font-family:var(--sans);font-size:13px;color:var(--vino);
-  padding:11px 4px 11px 0;min-width:38px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none}
-select.unit:hover{text-decoration:underline;text-underline-offset:3px}
-table.sheet td.un{padding-left:0}
-table.sheet th.un{padding-left:0}
+/* The unit was invisible, and the reason was arithmetic, not colour: box-sizing is
+   border-box, the control height is 22px to line the columns up, and this rule used to
+   re-add 11px of padding top AND bottom. 22 − 11 − 11 = a content box zero pixels high.
+   The letters were being rendered into nothing. That is why the only way to find out
+   whether a line was in grams or kilos was to open the dropdown and look at which row
+   was highlighted. Vertical padding stays at zero — line 91 sets it that way for every
+   control in the sheet for exactly this reason, and the shorthand here was overriding it.
+
+   It also now looks like something you can change: a caret, and the same ink as the
+   number it belongs to. */
+/* the unit you can actually read: real text, with the caret that says it can be changed */
+.unbx{position:relative;display:inline-flex;align-items:center;gap:3px;min-width:44px;height:22px;
+  padding:0 3px;border-radius:3px;cursor:pointer}
+.unbx:hover,.unbx:focus-within{background:rgba(232,217,199,.75)}
+.unbx:focus-within{box-shadow:inset 0 0 0 2px var(--vino)}
+.unbx .unv{font-family:var(--sans);font-size:13px;font-weight:500;color:var(--vino);line-height:22px;
+  white-space:nowrap}
+.unbx::after{content:'';width:7px;height:5px;flex:0 0 auto;background:var(--vino);opacity:.45;
+  clip-path:polygon(0 0,100% 0,50% 100%)}
+/* the real control, still there and still doing the work — just not the thing you read */
+select.unit{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;margin:0;padding:0;
+  cursor:pointer;-webkit-appearance:none;appearance:none;font-size:16px}
+table.sheet td.un,table.sheet th.un{padding-left:2px}
 select.unit:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 td.money{padding:12px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 td.money.zero{color:var(--sabbia-dark)}
@@ -619,7 +634,12 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
    a laptop with a trackpad keeps the tighter rows. The 22px control height exists
    to line the columns up — every control grows together, so the row still reads across. */
 @media(pointer:coarse){
-  select.prod,input.cell,select.unit{height:44px;line-height:normal}
+  select.prod,input.cell{height:44px;line-height:normal}
+  /* the unit is a box you tap now, so the box is the 44px target — the select inside it
+     fills it exactly, and stays invisible */
+  .unbx{height:44px;min-width:56px;padding:0 6px}
+  .unbx .unv{font-size:15px;line-height:44px}
+  select.unit{height:100%}
   input.cell{font-size:16px;padding:0 10px}      /* 16px — iOS zooms the page on anything smaller */
   select.prod{font-size:15px;padding:0 22px 0 10px}
   select.unit{font-size:15px;padding:0 8px;min-width:52px;text-align:center}
@@ -3786,7 +3806,14 @@ function rowHTML(r, i){
         : '') + '</td>' +
     '<td>'+sel+'</td>' +
     '<td><input class="cell qty" data-i="'+i+'" data-f="qty" inputmode="decimal" value="'+(r.qty==null?'':r.qty)+'" placeholder="—"></td>' +
-    '<td class="un"><select class="unit" data-i="'+i+'" data-f="unit">'+
+    /* The unit is drawn as real text that is always in the page, with the select laid
+       over it and made invisible. A select with appearance:none draws its own value
+       inside its content box and nowhere else — and that box had been squeezed to zero,
+       so the letters had nowhere to go. Text in a span cannot be squeezed out of
+       existence without the page telling you, and it can be measured. Tapping still
+       opens the real dropdown; the options are still only the ones this line allows. */
+    '<td class="un"><span class="unbx"><b class="unv">'+esc(u || '—')+'</b>' +
+      '<select class="unit" data-i="'+i+'" data-f="unit" aria-label="Unit for '+esc(r.word)+'">'+
       (function(){ var us = unitsFor(it);
         /* A select cannot show a value that is not one of its options — it silently
            displays the FIRST one instead. Salmoriglio held 0.05 L against a batch sold
@@ -3796,7 +3823,7 @@ function rowHTML(r, i){
            says the two disagree. */
         if (u && us.indexOf(u) < 0) us = [u].concat(us);
         return us; })().map(function(x){
-          return '<option'+(x===u?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></td>' +
+          return '<option'+(x===u?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></span></td>' +
     '<td class="money'+(c==null?' zero':'')+'">'+fmt(c)+'</td>' +
     '<td class="tk"><label class="tick'+(r.adj?' on':'')+'"><input type="checkbox" data-i="'+i+'" data-f="adj"'+(r.adj?' checked':'')+'></label></td>' +
     '<td class="x"><button class="rm" data-rm="'+i+'">×</button></td></tr>';
