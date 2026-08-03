@@ -1265,12 +1265,23 @@ if (IS_DEV_HOST){
 /* ───────── the Kitchen database ───────── */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+/* A request that never comes back is worse than one that fails, because nothing on the
+   screen says so. The kitchen wifi drops for a few seconds mid-save, this promise never
+   settles, and the Save button sits on "Saving…" for ever — every tap after it is a
+   silent no-op, and the method he has just written can never be saved again without
+   reloading the page. Forty-five seconds is long enough for a recipe carrying photos on
+   a bad phone signal, and short enough that a dead connection is something he is told
+   about rather than something he has to guess at. */
+var SB_TIMEOUT = 45000;
 function sb(path, opts){
   opts = opts || {};
   var h = { apikey:SB_KEY, Authorization:'Bearer '+SB_KEY };
   if (opts.body){ h['Content-Type']='application/json'; h.Prefer = opts.prefer || 'return=representation'; }
   else if (opts.prefer) h.Prefer = opts.prefer;
+  var ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var timer = setTimeout(function(){ if (ac) ac.abort(); }, SB_TIMEOUT);
   return fetch(SB_URL+'/rest/v1/'+path, { method:opts.method||'GET', headers:h,
+           signal: ac ? ac.signal : undefined,
            body: opts.body ? JSON.stringify(opts.body) : undefined })
     .then(function(res){
       return res.text().then(function(txt){
@@ -1278,6 +1289,13 @@ function sb(path, opts){
         if (!res.ok) throw new Error((data && (data.message||data.hint)) || txt || ('HTTP '+res.status));
         return data;
       });
+    })
+    .then(function(v){ clearTimeout(timer); return v; }, function(err){
+      clearTimeout(timer);
+      if (err && (err.name === 'AbortError' || /aborted/i.test(err.message||'')))
+        throw new Error('the network did not answer in ' + Math.round(SB_TIMEOUT/1000) +
+                        ' seconds, so nothing was sent');
+      throw err;
     });
 }
 
@@ -5365,7 +5383,11 @@ document.addEventListener('click', function(e){
   /* ── not saved yet ── */
   if (e.target.id === 'sbsave' || e.target.id === 'sbsavego'){
     var goAfter = e.target.id === 'sbsavego';
-    e.target.disabled = true; e.target.textContent = 'Saving…';
+    /* Hold the button itself, not e.target read back later: a save that fails has to
+       give it back, or one bad moment on the network leaves a dead button with an
+       explanation under it and no way to try again. */
+    var sbb = e.target, sbWas = sbb.textContent;
+    sbb.disabled = true; sbb.textContent = 'Saving…';
     saveRecipe().then(function(){
       markClean();
       var go = S.pendingGo; S.pendingGo = null;
@@ -5373,10 +5395,11 @@ document.addEventListener('click', function(e){
         if (goAfter && go) go(); else { drawSaveBar(); flag($('act'), 'Saved ✓'); }
       });
     }).catch(function(err){
+      sbb.disabled = false; sbb.textContent = sbWas;
       var b = $('savebar');
       if (b) b.insertAdjacentHTML('beforeend',
         '<div class="sbwhy"><b>Not saved.</b> ' + esc(plain(err.message)) +
-        ' Nothing was lost — it is all still here.</div>');
+        ' Nothing was lost — it is all still here. Tap Save again.</div>');
     });
     return;
   }
@@ -5738,7 +5761,15 @@ document.addEventListener('click', function(e){
 $('act').addEventListener('click', function(){
   if (S.step==='write'){ S.step='sheet'; render(); window.scrollTo(0,0); return; }
   if (S.step!=='sheet') return;
-  var b = $('act'); if (b.dataset.busy) return;
+  /* A second tap while the first is still going must not start a second save — but it
+     must not be nothing, either. Tapping a button that does not answer is exactly what
+     "it is not saving" looks like from the other side of the pass. */
+  var b = $('act');
+  if (b.dataset.busy){
+    var t = flash('Still saving — give it a moment.');
+    setTimeout(function(){ if (t) t.remove(); }, 2600);
+    return;
+  }
   b.dataset.busy = '1'; b.textContent = 'Saving…';
   saveRecipe().then(function(){
     delete b.dataset.busy; b.textContent = 'Saved ✓';
@@ -5747,10 +5778,23 @@ $('act').addEventListener('click', function(){
     setTimeout(function(){ if(!b.dataset.busy) b.textContent = S.id ? 'Save changes' : 'Save'; }, 1800);
   }).catch(function(err){
     delete b.dataset.busy; b.textContent = S.id ? 'Save changes' : 'Save';
+    /* This used to be hung on `#foot .in`, which is not on the page while the sheet is
+       open — so the append threw inside the catch and a failed save said NOTHING. The
+       button went back to "Save changes" and that was the whole story: exactly what
+       "I saved it and it did not save" looks like from his side. Put it against the
+       Save button, which is always there, and put it on screen as well so it cannot be
+       missed if he is looking at the method rather than the top of the sheet. */
     var e = $('saveerr') || document.createElement('div');
     e.id = 'saveerr'; e.className = 'todo'; e.style.marginTop = '8px';
-    e.innerHTML = '<b>Not saved.</b> ' + esc(plain(err.message)) + ' Nothing was lost — the sheet is still here.';
-    $('foot').querySelector('.in').appendChild(e);
+    e.innerHTML = '<b>Not saved.</b> ' + esc(plain(err.message)) +
+      ' Nothing was lost — the sheet is still here.';
+    /* Under the top bar, not inside it: the bar is a flex row and a message dropped
+       into it is laid out to nothing — present in the page and invisible on the screen,
+       which is the same as not saying it. */
+    var bar = b.closest('.bar');
+    if (bar) bar.insertAdjacentElement('afterend', e); else document.body.appendChild(e);
+    var t = flash('Not saved — ' + plain(err.message), true);
+    setTimeout(function(){ if (t) t.remove(); }, 5000);
   });
 });
 $('pf').addEventListener('change', function(){
