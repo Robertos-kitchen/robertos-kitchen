@@ -1654,7 +1654,9 @@ function loadSaved(){
      under "Not on a menu" — that reads as a fact and it is a lie. The flag drops the
      screen back to the plain list and says why. */
   return Promise.all([
-    sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived' +
+    /* `method` comes back with the list so Needs finishing can say when a dish has no
+       method written and when the floor's half is empty — both invisible from outside */
+    sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
        '&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
@@ -1710,6 +1712,14 @@ function issuesOf(r){
   }
   if (r.kind === 'batch' && r.makes_qty == null) out.push({ hard:true, s:'doesn’t say how much it makes' });
   if (r.kind === 'main'){
+    /* Batches are left out of these two on purpose: nobody cooks a batch off a card at
+       the pass and the floor never reads one, so a batch with no method is not unfinished.
+       A dish with none is — the pass has nothing to cook from, and the Food Bible page
+       the floor reads comes out blank. */
+    var m = normMethod(r.method);
+    if (!hasMethod(m)) out.push({ s:'no method — nothing for the pass to cook from' });
+    if (!FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
+      out.push({ s:'nothing for the floor — the Food Bible page is blank' });
     if (r.makes_qty == null)  out.push({ s:'doesn’t say how many portions' });
     if (!r.section)           out.push({ s:'no section — Aung’s form needs one' });
     if (r.menu_price == null) out.push({ s:'no menu price' });
