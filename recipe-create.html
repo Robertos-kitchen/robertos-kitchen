@@ -4893,7 +4893,16 @@ function handlePicked(fileList){
     render(); window.scrollTo(0,0);
   }).catch(function(err){
     var s = $('brs');
-    if (s){ s.className = 'brn bad'; s.textContent = 'Could not use that — ' + plain(err.message); }
+    /* Name the file. "Cannot read properties of undefined" tells a chef nothing and
+       tells whoever has to fix it nothing either — which of sixty workbooks was it? */
+    var which = many ? 'one of those ' + fileList.length + ' files'
+                     : '“' + fileList[0].name + '”';
+    var msg = plain(err.message);
+    if (/undefined|null|not a function|Cannot read/i.test(msg))
+      msg = 'the app tripped over something in it (' + msg + '). Send me the file and ' +
+            'I will make it read — nothing has been saved.';
+    if (s){ s.className = 'brn bad'; s.textContent = 'Could not use ' + which + ' — ' + msg; }
+    try { console.error('[recipes import]', fileList[0] && fileList[0].name, err); } catch(x){}
   });
 }
 
@@ -5100,6 +5109,25 @@ function checkFit(){
   return bad;
 }
 window.checkFit = checkFit;
+
+/* The app around this page reloads itself when a new version is deployed. It cannot
+   see inside this document, so it asks: is there work in here to lose?
+
+   Deliberately WIDER than isDirty(). isDirty() answers "is there something to save",
+   which needs rows on the sheet — but a chef part way through typing his ingredients
+   has no rows yet and everything to lose. So typed text counts, a name counts, and a
+   file being read counts. Being told a minute later that an update is ready is
+   nothing; losing a half-typed recipe is the one thing this module must never do. */
+window.__rcpDirty = function(){
+  try {
+    if (isDirty()) return true;
+    if (String(S.text || '').trim()) return true;
+    if (!S.id && String(S.name || '').trim()) return true;
+    if (S.found || S.plan) return true;              /* mid-import, reviewing what was read */
+    if (S.step === 'micros' && MICREQ.rows.some(function(r){ return r.edited; })) return true;
+    return false;
+  } catch(e){ return false; }
+};
 
 /* ── opened from the Recipes module ──
    `?id=` opens that recipe straight onto its sheet, `?new=1` starts a blank one, and

@@ -1585,7 +1585,15 @@ function showUpdateBanner(newSW) {
    one we started with, newer code is live → reload once to pull it in.
    Nothing to bump by hand — the ETag changes on its own every deploy. */
 (function(){
-  var WATCH = ['index.html', 'app.js'];
+  /* The Recipes screens are SEPARATE documents, loaded into an iframe that app.js
+     builds once and then leaves alone. So a deploy that touched only one of them
+     changed nothing this guard was watching, and an app already open went on
+     running the version it started with — for hours. That is how a bug that was
+     fixed and deployed still happened on his screen, and why he could be told a
+     wording had gone while he was still looking at it. Reloading the outer page
+     rebuilds the iframe, so watching them here is enough. */
+  var WATCH = ['index.html', 'app.js',
+               'recipe-create.html', 'recipe-card.html', 'food-bible.html', 'menu-pdfs.html'];
   var boot = {}, reloading = false;
   function tagOf(res){ return res.headers.get('ETag') || res.headers.get('Last-Modified') || ''; }
   function busy(){
@@ -1593,6 +1601,14 @@ function showUpdateBanner(newSW) {
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // don't nuke someone mid-typing
     if (window.__schedEditing && window.__schedEditing()) return true;     // don't nuke a mid-edit schedule
     if (window.__closingActive && window.__closingActive()) return true;   // don't nuke a mid-closing-report
+    // A half-written recipe lives inside the iframe, where activeElement above is only
+    // ever the IFRAME itself. Ask the page directly — losing an unfinished sheet to an
+    // update is the one thing this module must never do.
+    var frames = document.querySelectorAll('#recipecreate-view iframe, #micros-view iframe');
+    for (var i = 0; i < frames.length; i++) {
+      try { var w = frames[i].contentWindow;
+            if (w && w.__rcpDirty && w.__rcpDirty()) return true; } catch (e) {}
+    }
     return false;
   }
   function check(){
