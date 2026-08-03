@@ -227,6 +227,14 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .addline{padding:11px 16px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark)}
 .addline input{width:100%;max-width:340px;border:1.5px dashed var(--sabbia-dark);border-radius:5px;padding:10px 12px;font-size:14px;outline:none;background:transparent;font-family:var(--sans)}
 .addline input:focus{border-style:solid;border-color:var(--vino);background:#fff}
+.addline{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+.addb{font-family:var(--sans);font-size:12.5px;background:var(--vino);color:var(--cream);border:none;
+  border-radius:3px;padding:10px 14px;cursor:pointer;white-space:nowrap}
+.addb:hover{background:var(--vino-mid)}
+/* one step back from an × — the row, where it was, and what was picked on it */
+.undo{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
+  border-radius:0 5px 5px 0;padding:9px 14px;margin:10px 0 0;font-size:12.5px;color:var(--vino-light)}
+.undo b{color:var(--vino)}
 
 .foot{position:fixed;bottom:0;left:0;right:0;background:var(--vino);color:var(--cream);z-index:30}
 /* shut: one slim line, so the sheet is whole */
@@ -665,7 +673,7 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   /* every button a thumb has to hit, not just the ones in the sheet. "Create all 8
      and link them" was a 32px target on the pass screen — the single most important
      button in the module, sized for a mouse. */
-  .okb,.newr,.brb,.cxb,.srm{min-height:44px;padding:12px 18px;font-size:14px}
+  .okb,.newr,.brb,.cxb,.srm,.addb{min-height:44px;padding:12px 18px;font-size:14px}
   .ach{min-height:44px;font-size:14.5px;padding:10px 17px}
   .srm{padding:12px 10px}
 }
@@ -2777,7 +2785,12 @@ function useImported(f){
   S.imported = { how:f.how, noUnit:f.noUnit||[], where:f.where||'',
                  costing:!!f.costing, subs:f.subs||[],
                  makes:(f.makesQty!=null ? f.makesQty+' '+f.makesUnit : null), price:f.price||null };
-  S.step    = 'write';
+  /* Straight to the sheet. The screen in between asked him to check the split of a list
+     the file had just written for him — a stop with no work in it, and the sheet IS the
+     split, line for line. Back still goes there if he wants to retype the words. */
+  S.rows = splitLine(S.text).map(function(p){ return mkRow(p); });
+  S.lastRm = null;
+  S.step = S.rows.length ? 'sheet' : 'write';
 }
 
 /* ═════════ bringing a whole workbook in at once ═════════
@@ -3591,14 +3604,32 @@ function render(){
         '<th class="c"></th><th>You wrote</th><th>Ingredient — Aung\'s list</th><th class="n">Qty</th><th class="un">Unit</th>' +
         '<th class="n">Cost</th><th class="c">Trim</th><th></th>' +
       '</tr></thead><tbody id="tb"></tbody></table></div>' +
-      '<div class="addline"><input id="more" placeholder="+ more ingredients — type as many as you like…"></div>' +
+      '<div class="undobar" id="undobar"></div>' +
+      /* This was here already, but it was a dashed box that only answered the Enter key
+         and said "more ingredients" — so the way to add a forgotten one looked like
+         going back, and going back is where the trouble was. It has a button now, and
+         it says what it does. */
+      '<div class="addline"><input id="more" placeholder="olive oil 20g, lemon 1 — type as many as you like">' +
+        '<button class="addb" id="addmore">＋ Add to the sheet</button></div>' +
       methodHTML();
-      rows(); swapbar(); wireMethod(); drawSaveBar();
+      rows(); swapbar(); wireMethod(); drawSaveBar(); drawUndo();
+    var addMore = function(){
+      var box = $('more'); if (!box || !box.value.trim()) return;
+      var n = 0;
+      splitLine(box.value).forEach(function(x){ S.rows.push(mkRow(x)); n++; });
+      box.value = '';
+      /* the typed text has to learn about it too, or stepping back to the ingredients
+         box and forward again quietly drops what was just added */
+      syncText(); rows(); foot(); fitBar();
+      flash(n + (n===1 ? ' ingredient' : ' ingredients') + ' added — pick '+(n===1?'it':'them')+' at the bottom of the sheet.');
+      var last = document.querySelectorAll('tr.main select.prod');
+      if (last.length) last[last.length-1].scrollIntoView({ block:'center' });
+      box.focus();
+    };
     $('more').addEventListener('keydown', function(e){
-      if (e.key!=='Enter' || !this.value.trim()) return;
-      splitLine(this.value).forEach(function(x){ S.rows.push(mkRow(x)); });
-      this.value=''; rows(); foot();
+      if (e.key === 'Enter'){ e.preventDefault(); addMore(); }
     });
+    $('addmore').addEventListener('click', addMore);
   }
   foot();
   if (typeof fitBar === 'function') fitBar();
@@ -3960,6 +3991,16 @@ function wireAdd(draw){
   };
 }
 function rows(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); if (typeof fitBar==='function') fitBar(); }
+/* The sheet and the typed text are one thing said twice. Whenever the sheet changes
+   shape — a line added, a line taken off — the text follows it, so stepping back to the
+   ingredients box shows what is actually on the sheet and coming forward changes nothing. */
+function syncText(){ S.text = S.rows.map(function(r){ return r.raw; }).join(',\n') + (S.rows.length ? ',' : ''); }
+function drawUndo(){ var u = $('undobar'); if (u) u.innerHTML = undoInner(); }
+function undoInner(){
+  if (!S.lastRm) return '';
+  return '<div class="undo">Took <b>' + esc(S.lastRm.name) + '</b> off the sheet. ' +
+         '<button class="lnk" id="undorm">Put it back</button></div>';
+}
 function swapbar(){
   var bar = $('sb'); if (!bar) return;
   var n = S.rows.filter(isStale).length;
@@ -4801,7 +4842,24 @@ document.addEventListener('change', function(e){
   }
   if (t.dataset.f === 'aun'){ r.addUnit = t.value; redrawRow(+i); return; }
   if (t.dataset.f === 'afr'){ r.addFree = t.checked; redrawRow(+i); return; }
-  if (t.dataset.f === 'unit'){ r.unit = t.value; r.mismatch = null; redrawRow(+i); foot(); return; }
+  if (t.dataset.f === 'unit'){
+    /* 180 typed as grams, then the box flipped to kg, used to become 180 KILOS — the
+       footer said "at least 36,000.00 AED · 28451.6% food cost" and it was allowed.
+       The amount is a real amount, not a number that happens to sit next to a word:
+       change the word and the number follows. Only between the same kind of measure —
+       g↔kg and ml↔L. Anything else is a different thing and is left alone. */
+    var was = r.unit, now = t.value, SCALE = { 'g|kg':0.001, 'kg|g':1000, 'ml|l':0.001, 'l|ml':1000 };
+    var k = SCALE[String(was||'').toLowerCase() + '|' + String(now||'').toLowerCase()];
+    r.unit = now; r.mismatch = null;
+    if (k && r.qty != null && isFinite(r.qty)){
+      var before = r.qty;
+      r.qty = +(r.qty * k).toPrecision(12);          /* 0.1*1000 must be 100, not 100.00000000000001 */
+      /* r.raw is left exactly as he typed it. It is the merge key when he steps back to
+         the ingredients box, and it is a record of his words, not of the arithmetic. */
+      flash(before + ' ' + was + ' is ' + r.qty + ' ' + now + ' — the amount has not changed.');
+    }
+    redrawRow(+i); foot(); return;
+  }
   if (t.dataset.f === 'adj'){
     r.adj = t.checked;
     if (!r.adj){ r.yield = 100; r.waste = 0; }               /* untick = back to no trim */
@@ -5006,18 +5064,30 @@ document.addEventListener('click', function(e){
     return;
   }
   var rm = e.target.closest('[data-rm]');
-  if (rm){ S.rows.splice(+rm.dataset.rm,1); rows(); foot(); }
+  if (rm){
+    /* The × took the row off the sheet but left it in the typed text, so stepping back
+       to the ingredients box and forward again brought it straight back — with whatever
+       had been picked on it gone. Take it out of both, and keep it for one undo. */
+    var ri = +rm.dataset.rm;
+    S.lastRm = { row:S.rows[ri], at:ri, name:S.rows[ri].word };
+    S.rows.splice(ri,1); syncText(); rows(); foot(); drawUndo();
+  }
+  if (e.target.id === 'undorm'){
+    var u = S.lastRm; if (!u) return;
+    S.rows.splice(Math.min(u.at, S.rows.length), 0, u.row);
+    S.lastRm = null; syncText(); rows(); foot(); drawUndo(); return;
+  }
   var op = e.target.closest('[data-open]');
   if (op){
     var openId = op.dataset.open;
-    guard(function(){                        /* opening this would overwrite the sheet in memory */
-      var btn = document.querySelector('[data-open="'+openId+'"]');
-      if (btn) btn.textContent = 'Opening…';
-      openRecipe(openId).then(function(){ markClean(); render(); window.scrollTo(0,0); })
-        .catch(function(err){
-          if (btn) btn.outerHTML = '<div class="todo"><b>Could not open it.</b> '+esc(plain(err.message))+'</div>';
-        });
-    });
+    /* it used to stop him and ask; it puts the half-written one to one side instead */
+    if (parkCurrent()) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+    var btn = document.querySelector('[data-open="'+openId+'"]');
+    if (btn) btn.textContent = 'Opening…';
+    openRecipe(openId).then(function(){ markClean(); render(); window.scrollTo(0,0); })
+      .catch(function(err){
+        if (btn) btn.outerHTML = '<div class="todo"><b>Could not open it.</b> '+esc(plain(err.message))+'</div>';
+      });
     return;
   }
   /* ── not saved yet ── */
@@ -5132,7 +5202,14 @@ document.addEventListener('click', function(e){
   var tk = e.target.closest('[data-take]');
   if (tk){
     var f = (S.found||{recipes:[]}).recipes[+tk.dataset.take];
-    if (f){ f.how = S.found.how; useImported(f); render(); window.scrollTo(0,0); }
+    if (f){
+      /* Opening the next recipe out of the same file used to throw away the one he was
+         on, without a word. It goes to one side instead — the same parking the new-recipe
+         button uses — so working through a workbook never costs him the last one. */
+      var parkedIt = parkCurrent();
+      f.how = S.found.how; useImported(f); render(); window.scrollTo(0,0);
+      if (parkedIt) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+    }
     return;
   }
   /* ── opening a folder on Saved recipes ── */
@@ -5615,9 +5692,11 @@ function backStep(){
   if (s === 'micros')  return S.back === 'micros' ? null : { to: notSelf(S.back || 'saved') };
   if (s === 'write' && S.found && S.found.recipes.length > 1) return { to:'found' };
   var o = ['type','write','sheet'], i = o.indexOf(s);
-  /* going back off the sheet rebuilds the rows from the typed text — every ingredient
-     picked by hand is lost. That is a leave, and it gets asked about like one. */
-  if (i > 0) return { to:o[i-1], guarded:true };
+  /* This used to be guarded, because going back rebuilt the rows from the typed text and
+     every ingredient picked by hand was lost. It does not any more: the sheet and the
+     text are kept in step, and reflow() keeps a row that is already there rather than
+     making a new one. Nothing is lost by stepping back, so nothing needs asking. */
+  if (i > 0) return { to:o[i-1] };
   return null;
 }
 function drawBack(){
