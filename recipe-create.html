@@ -382,7 +382,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .offer{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
   border-radius:0 5px 5px 0;padding:14px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--vino-light)}
 .offer b{color:var(--vino);font-weight:600}
-.offer .maacts{margin-top:11px}
+.offer .maacts{margin-top:11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.offer .offmeta{font-size:11.5px;opacity:.6;margin-right:8px}
+.offer .offalt{margin-top:11px;font-size:12px;opacity:.8}
+.offer .lnk{background:none;border:none;padding:0;font:inherit;color:var(--vino);
+  text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 @media(max-width:520px){.folds{grid-template-columns:1fr}}
 .newr{font-family:var(--sans);font-size:13px;background:none;border:1px dashed rgba(64,2,7,.35);border-radius:3px;color:var(--vino);padding:9px 14px;margin:14px 0 4px;cursor:pointer}
 .newr:hover{border-style:solid;background:rgba(232,217,199,.3)}
@@ -1333,6 +1337,22 @@ function myBatchFor(name){
   var k = batchKey(name); if (!k) return null;
   for (var i = 0; i < MYB.length; i++) if (batchKey(MYB[i].name) === k) return MYB[i];
   return null;
+}
+
+/* Aung's list can hold two of a thing — "RF Cacio e Pepe (Polpo) (PA)" and
+   "RF Cacio e Peper (Spaghetto) (PA)" — and when it does, myBatchFor() finds neither,
+   because neither is an exact key. Refusing to choose is right; a silent wrong link is
+   the worst thing this module can do. But refusing is not the same as having nothing.
+   These are the recipes he might have meant, ranked, for HIM to pick from. simName is
+   the "did he mean this?" score — the deliberately generous one. Never picked for him. */
+function batchCandidates(aungName){
+  var k = batchKey(aungName); if (!k) return [];
+  return MYB.filter(function(b){ return !b.away; })
+    .map(function(b){ return { it:b, s:simName(k, batchKey(b.name)) }; })
+    .filter(function(x){ return x.s >= 0.55; })
+    .sort(function(a, b){ return b.s - a.s; })
+    .slice(0, 3)
+    .map(function(x){ return x.it; });
 }
 
 /* which live recipes have this batch in them */
@@ -2945,9 +2965,30 @@ function render(){
          words, and put the way out right there — not a price and a shrug. */
       (function(){
         if (!S.offer) return '';
-        var oi = pool().filter(function(x){ return x.code === S.offer.code; })[0];
+        var oi  = pool().filter(function(x){ return x.code === S.offer.code; })[0];
         var per = oi ? (' at ' + fmt(oi.price) + ' a ' + (oi.unit === 'pcs' ? 'piece' : String(oi.unit).toLowerCase())) : '';
-        return '<div class="offer"><b>The recipe for ' + esc(plainBatch(S.offer.name)) + ' is not written yet.</b> ' +
+        var nm  = plainBatch(S.offer.name);
+        /* Before saying it is not written, LOOK. Cacio e Pepe was written — 4 ingredients,
+           makes 4.85 L — and the screen still said it was not, because Aung has two of them
+           and the exact match found neither. Saying "not written" about a recipe that is
+           sitting there is the worst version of this screen. */
+        var cand = S.offer.row != null ? batchCandidates(S.offer.name) : [];
+        if (cand.length){
+          return '<div class="offer"><b>You have ' + (cand.length === 1 ? 'a batch recipe that looks like this' :
+              cand.length + ' batch recipes that look like this') + '.</b> ' +
+            'This line is pointing at Aung\'s price' + per + ' instead, so its cost comes off his stock take ' +
+            'rather than off what actually goes in it. Point it at the recipe and the ingredients come with it.' +
+            '<div class="maacts">' + cand.map(function(c){
+              var b = BATCH[idOf(c.code)] || {};
+              var mk = b.makesQty != null ? b.makesQty + ' ' + (b.makesUnit || 'kg') : null;
+              return '<button class="okb" data-pointat="' + esc(idOf(c.code)) + '">Point this line at ' + esc(c.name) +
+                '</button><span class="offmeta">' + (b.lines ? b.lines.length : 0) + ' ingredient' +
+                ((b.lines || []).length === 1 ? '' : 's') + (mk ? ' · makes ' + esc(mk) : '') + '</span>';
+            }).join('') + '</div>' +
+            '<div class="offalt">Not one of these? <button class="lnk" id="writebatch">Write a new batch recipe called ' +
+              esc(nm) + '</button></div></div>';
+        }
+        return '<div class="offer"><b>The recipe for ' + esc(nm) + ' is not written yet.</b> ' +
           'Aung prices it' + per + ', and that is everything his stock take holds — there are no ingredients behind it, ' +
           'which is why there is nothing to open. Write it once and every dish that uses it opens straight into it.' +
           '<div class="maacts"><button class="okb" id="writebatch">Write this batch recipe</button></div></div>';
@@ -3715,7 +3756,7 @@ function rowHTML(r, i){
         return mb
           ? '<button class="ibx b" data-gobatch="'+esc(idOf(mb.code))+'" title="Open the recipe — what actually goes in it">B</button>'
           : '<button class="ibx b" data-golist="'+esc(it.code)+'" data-nobatch="'+esc(it.name)+
-            '" title="Aung prices it — the recipe is not written yet">B</button>';
+            '" data-norow="'+i+'" title="Aung prices it — the recipe is not written yet">B</button>';
       })()
     : '<button class="ibx" data-golist="'+esc(it.code)+'" title="Ingredient — find it on Aung\'s list">I</button>';
   var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+'">' +
@@ -4759,8 +4800,32 @@ document.addEventListener('click', function(e){
     S.back = S.step; S.find = gl.dataset.golist; S.step = 'list';
     /* a batch he has priced but nobody has written yet — carry that through so the list
        says so instead of showing a price and leaving him there */
-    S.offer = gl.dataset.nobatch ? { code:gl.dataset.golist, name:gl.dataset.nobatch } : null;
+    S.offer = gl.dataset.nobatch
+      ? { code:gl.dataset.golist, name:gl.dataset.nobatch,
+          row: gl.dataset.norow != null ? +gl.dataset.norow : null }
+      : null;
     render(); window.scrollTo(0,0); return;
+  }
+  /* point the line he came from at one of his own recipes, instead of Aung's price */
+  var pat = e.target.closest('[data-pointat]');
+  if (pat){
+    var pid = pat.dataset.pointat, prow = S.offer && S.offer.row;
+    if (prow == null || !S.rows[prow]) return;
+    var pr = S.rows[prow];
+    loadBatches().then(function(){
+      var pit = MYB.filter(function(b){ return b.code === 'R:' + pid; })[0];
+      if (pit) pr.opts = [pit].concat(pr.opts.filter(function(o){ return o.code !== pit.code; }));
+      pr.code = 'R:' + pid;
+      /* his batch is sold by its own unit — the grams rule that ran for a stock item
+         does not apply to a litre of sauce */
+      if (unitsFor(itemOf(pr)).indexOf(pr.unit) < 0) pr.unit = defUnit(itemOf(pr));
+      S.offer = null; S.find = null; S.step = S.back || 'sheet';
+      render(); window.scrollTo(0,0);
+      /* it is only pointed at it on the screen until Save — say so rather than let him
+         walk away thinking it is written down */
+      flash('Pointed at ' + (pit ? pit.name : 'your recipe') + ' — Save the recipe to keep it.');
+    }).catch(function(err){ flash(plain(err.message), true); });
+    return;
   }
   /* start the missing batch recipe, named already. guard() is what asks about unsaved
      work — the sheet he is on is about to leave the screen. */
