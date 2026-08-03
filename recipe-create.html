@@ -5961,7 +5961,9 @@ function notSelf(to){
 }
 function backStep(){
   var s = S.step;
-  if (s === 'list' || s === 'todo') return { to: notSelf(S.back) };
+  if (s === 'list') return { to: notSelf(S.back) };
+  /* opened as its own door there is nothing behind it — the module's bar goes back */
+  if (s === 'todo') return S.back === 'todo' ? null : { to: notSelf(S.back) };
   /* Saved recipes is now folders, so Back comes out of them one layer at a time —
      out of the search first, then out of the section, then out of the menu, and only
      then off the screen. Backing straight out of an open folder loses your place. */
@@ -6117,7 +6119,14 @@ fitBar();
    Recipes page, not a button buried inside Saved recipes. It is the same screen and
    the same code; only the way in is different. The menu has to be read before it can
    open, so the screen says so rather than flashing an empty list. */
-var MICSOLO = Q.get('micros') === '1';
+/* `?todo=1` opens what needs finishing as a door of its own, for the same reason the
+   Micros request has one: a chef checking whether anything is half written should not
+   have to go into Create new recipes, then into Saved recipes, to find out. */
+var MICSOLO = Q.get('micros') === '1', TODOSOLO = Q.get('todo') === '1';
+if (TODOSOLO){
+  S.back = 'todo'; S.step = 'todo'; render();
+  Promise.all([loadSaved(), loadBatches()]).then(function(){ if (S.step==='todo') render(); });
+}
 loadMenus().then(function(){
   if (MICSOLO){
     if (!MENUS.length){ flash('No menus yet — make one first on Saved recipes.', true); return; }
@@ -6128,6 +6137,7 @@ loadMenus().then(function(){
     loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
     return;
   }
+  if (TODOSOLO) return;
   if (S.step==='sheet' || S.step==='saved') render();
   /* the bar's menu control is empty until the menus land — redraw it whatever step
      he is on, or a recipe started before the read finished never gets asked */

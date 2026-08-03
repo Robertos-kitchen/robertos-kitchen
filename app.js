@@ -1835,7 +1835,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2149,6 +2149,9 @@ var RECIPE_SCREENS=[
   {code:'MENU', view:'menupdf-view', page:'menu-pdfs.html?embed=1',
    name:'Current menu',
    meta:'Every menu we print, kept ready for the printer — à la carte, wine, set menus.'},
+  {code:'FIX', view:'todo-view', page:'recipe-create.html?embed=1&todo=1',
+   name:'Needs finishing',
+   meta:'Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'},
   {code:'POS', view:'micros-view', page:'recipe-create.html?embed=1&micros=1',
    name:'Micros request',
    meta:'The POS form for Aung, built from the menu — till names, cost and price. Print it or send it.'}
@@ -2213,7 +2216,7 @@ function openRecipeScreen(viewId){
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -2235,7 +2238,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';

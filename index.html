@@ -1281,6 +1281,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="recipecard-view" class="ops-view" style="display:none"></div>
 <div id="foodbible-view" class="ops-view" style="display:none"></div>
 <div id="menupdf-view" class="ops-view" style="display:none"></div>
+<div id="todo-view" class="ops-view" style="display:none"></div>
 <div id="micros-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
@@ -1608,7 +1609,7 @@ function showUpdateBanner(newSW) {
     // A half-written recipe lives inside the iframe, where activeElement above is only
     // ever the IFRAME itself. Ask the page directly — losing an unfinished sheet to an
     // update is the one thing this module must never do.
-    var frames = document.querySelectorAll('#recipecreate-view iframe, #micros-view iframe');
+    var frames = document.querySelectorAll('#recipecreate-view iframe, #micros-view iframe, #todo-view iframe');
     for (var i = 0; i < frames.length; i++) {
       try { var w = frames[i].contentWindow;
             if (w && w.__rcpDirty && w.__rcpDirty()) return true; } catch (e) {}
