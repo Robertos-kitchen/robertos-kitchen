@@ -2334,6 +2334,129 @@ function readForm(rows){
   return out;
 }
 
+/* ═════════ Antonio's sheets ═════════
+   The bread and pastry recipes are not on the Standard Recipe Form at all — they are
+   a baker's sheet, and they were coming back as "nothing in it looks like a recipe".
+   Two shapes, both real, both here.
+
+   ── the dough sheet ──
+   "NAME OF RECIPE:" at the top, then a PREFERMENT block and a REFRESHEMENT block:
+   the ingredient in one column and its grams in the next, with the procedure written
+   as prose off to the right. Between the ingredients sit the settings a baker needs —
+   final temperature, hours of maturation, baking — which are NOT ingredients but are
+   the half of the recipe that makes it work, so they are kept as method rather than
+   thrown away.
+
+   "PREFERMENT" appears twice: once as the heading of its block, and once as an
+   ingredient of the second block, being the dough made in the first. It is only an
+   ingredient when it has a weight beside it. */
+/* the settings that are part of how the dough is made, and belong in the method */
+var BAKE_SET  = /^(final temp|temp\. final|storage temp|hours of maturation|resting time)\b/i;
+/* the column headings of the form itself — they say nothing and belong nowhere */
+var BAKE_HEAD = /^(total flour|recipe balancing|dough|q\.?ta|qty|grams|grammi|ø|%)$/i;
+var BAKE_OVEN = /^(baking|precooking|regeneration|cottura)\b/i;
+var BAKE_BLK  = /^(preferment|refreshement|refreshment)\b/i;
+/* their numbers: 22,5 is twenty-two and a half, and 1OOO is a thousand typed with
+   the letter O. A weight read as nothing is an ingredient silently dropped. */
+function bakeQty(v){
+  var s = cell(v).replace(/\s/g,'');
+  if (!s) return null;
+  if (/^[0-9OoIl.,+]+$/.test(s)) s = s.replace(/[Oo]/g,'0').replace(/[Il]/g,'1');
+  s = s.replace(',', '.');
+  var plus = s.split('+').map(parseFloat).filter(function(x){ return isFinite(x); });
+  if (plus.length > 1) return plus.reduce(function(a,b){ return a+b; }, 0);   /* "50+75" */
+  return isFinite(parseFloat(s)) ? parseFloat(s) : null;
+}
+function readBakeryForm(rows){
+  var name = '', hdr = -1;
+  for (var r=0; r<rows.length && hdr<0; r++){
+    var c = rows[r].map(cell);
+    for (var i=0;i<c.length;i++){
+      if (/name of (the )?recipe|nome della ricetta/i.test(c[i])){
+        name = c.slice(i+1).filter(Boolean)[0] || ''; hdr = r; break;
+      }
+    }
+  }
+  if (hdr < 0) return null;
+
+  var lines = [], method = [], total = 0;
+  for (var k=hdr+1; k<rows.length; k++){
+    var c = rows[k].map(cell), mc = rows[k].map(mcell);
+    var nm = c[1] || c[0];
+    /* the procedure, wherever in the row it was written */
+    mc.slice(2).forEach(function(x){ if (x && x.length > 25) method.push(x); });
+    if (!nm || BAKE_HEAD.test(nm)) continue;
+    if (BAKE_OVEN.test(nm)){
+      var bits = c.slice(2).filter(function(x){ return x && x.length <= 25; });
+      if (bits.length) method.push(nm + ': ' + bits.join(' · '));
+      continue;
+    }
+    if (BAKE_SET.test(nm)){
+      var v = c.slice(2).filter(Boolean)[0];
+      if (v) method.push(nm + ': ' + v);
+      continue;
+    }
+    var q = bakeQty(c[2]);
+    if (q == null) continue;                    /* a blank line of the template */
+    /* "PREFERMENT 3250" in the second block is the dough made in the first, used by
+       weight. Its flour, water and yeast are already listed above, so counting it as
+       an ingredient would buy the same flour twice and say the batch weighs half as
+       much again as it does. The weight he actually uses is said in the method. */
+    if (BAKE_BLK.test(nm)){
+      if (q) method.push('Uses ' + q + ' g of the ' + nm.toLowerCase() + ' made above.');
+      continue;
+    }
+    lines.push(q + ' g ' + nm);
+    total += q;
+  }
+  if (!lines.length) return null;
+
+  var out = { name:name, cat:'Sub recipe', kind:'batch', lines:lines,
+              method: method.filter(function(x,i,a){ return a.indexOf(x) === i; }).join('\n'),
+              noUnit:[], hints:{}, subs:[], costing:false };
+  /* it makes what it weighs — so the cost per kilo is real rather than left blank */
+  if (total > 0){ out.makesQty = +(total/1000).toFixed(4); out.makesUnit = 'kg'; }
+  return out;
+}
+
+/* ── the INGREDIENTS / METHOD sheet ──
+   The pastry ones. Ingredients are already written the way this app asks for them —
+   "500 g almond flour" — with the method beside them. The lines in capitals with no
+   weight ("FOR THE CRUSCO OIL", "MASCARPONE CREAM") are the parts of the dish, not
+   ingredients; they are already repeated over in the method, so they are left there. */
+function readIngMethodForm(rows){
+  var hdr = -1, ii = -1, mi = -1;
+  for (var r=0; r<rows.length && hdr<0; r++){
+    var c = rows[r].map(cell), a = -1, b = -1;
+    for (var i=0;i<c.length;i++){
+      if (a<0 && /^ingredients?$/i.test(c[i])) a = i;
+      if (b<0 && /^method$/i.test(c[i])) b = i;
+    }
+    if (a > -1 && b > -1){ hdr = r; ii = a; mi = b; }
+  }
+  if (hdr < 0) return null;
+
+  var name = '';
+  for (var t=0; t<hdr && !name; t++)
+    name = rows[t].map(cell).filter(Boolean)[0] || '';
+  if (/^recipe name$/i.test(name)) name = '';        /* the template's own placeholder */
+
+  var lines = [], method = [];
+  for (var k=hdr+1; k<rows.length; k++){
+    var c = rows[k].map(cell), mc = rows[k].map(mcell);
+    if (mc[mi]) method.push(mc[mi]);
+    var v = c[ii];
+    if (!v) continue;
+    var hasNum = /\d/.test(v);
+    var heading = !hasNum && (/^for the\b/i.test(v) || v === v.toUpperCase());
+    if (heading) continue;                            /* a part of the dish, already in the method */
+    lines.push(v);
+  }
+  if (!lines.length) return null;
+  return { name:name, cat:'', kind:'main', lines:lines, method:method.join('\n'),
+           noUnit:[], hints:{}, subs:[], costing:false };
+}
+
 /* Plain text (PDF, or a Word file with no table) — one ingredient per line */
 function readText(text){
   var ls = String(text).split(/\r?\n/).map(function(x){ return x.replace(/\s+/g,' ').trim(); });
@@ -2362,12 +2485,26 @@ function readText(text){
 function fromExcel(buf){
   return lazy('lib/xlsx.full.min.js','XLSX').then(function(X){
     var wb = X.read(new Uint8Array(buf), { type:'array' }), out = [];
+    /* Antonio's workbooks carry an ITA sheet beside the ENG one, and it is not a
+       translation — it is whatever recipe the template was copied from, left behind.
+       FOCACCIA's says PIZZA ROBERTO'S. Reading it would invent a recipe nobody wrote. */
+    var hasEng = wb.SheetNames.some(function(x){ return /^eng$/i.test(x); });
     wb.SheetNames.forEach(function(n){
+      if (hasEng && /^ita$/i.test(n)) return;
       var aoa = X.utils.sheet_to_json(wb.Sheets[n], { header:1, blankrows:false, defval:'' });
+      var got = 0;
       splitForms(aoa).forEach(function(block, bi){
         var f = readForm(block);
-        if (f){ f.name = f.name || (bi ? n+' '+(bi+1) : n); f.where = n; out.push(f); }
+        if (f){ f.name = f.name || (bi ? n+' '+(bi+1) : n); f.where = n; out.push(f); got++; }
       });
+      /* not the Standard Recipe Form — try the two Antonio writes his breads and
+         pastry on, before giving up on the sheet */
+      if (!got){
+        var g = readBakeryForm(aoa) || readIngMethodForm(aoa);
+        /* "Sheet1" is not a name. Left empty, the file's own name is used instead —
+           which is how "CRUSCO PEPPER MAIO" is called what the chef calls it. */
+        if (g){ if (!g.name && !/^sheet\s*\d*$/i.test(n)) g.name = n; g.where = n; out.push(g); }
+      }
     });
     return { recipes:out, how:'Excel' };
   });
