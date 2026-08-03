@@ -410,11 +410,19 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
 .fold.dim .fn{opacity:.65}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
-/* the sheet he was on, put to one side rather than argued about */
+/* everything half written, in one place, on the screen a new recipe starts from */
 .parked{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oliva);
-  border-radius:0 5px 5px 0;padding:10px 14px;margin:0 0 16px;font-size:12.5px;line-height:1.5;
-  color:var(--vino-light)}
-.parked b{color:var(--vino)}
+  border-radius:0 5px 5px 0;padding:11px 14px 6px;margin:0 0 18px;color:var(--vino-light)}
+.parked .ph{font-family:var(--sans);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--vino);opacity:.7;margin-bottom:7px}
+.parked .prow{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 12px;padding:7px 0;
+  border-top:1px solid rgba(207,192,173,.7)}
+.parked .prow:first-of-type{border-top:none}
+.parked .pn{font-family:var(--serif);font-size:17px;color:var(--vino);flex:0 0 auto}
+.parked .pm{font-family:var(--sans);font-size:11.5px;opacity:.6;flex:1 1 auto}
+.parked .lnk{font-size:12.5px;flex:0 0 auto}
+.parked .lnk.bin{opacity:.6}
+.parked .lnk.bin:hover{opacity:1;color:var(--vino-mid)}
 /* a batch Aung prices but nobody has written — the answer, and the way out of it */
 .offer{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
   border-radius:0 5px 5px 0;padding:14px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--vino-light)}
@@ -1353,35 +1361,88 @@ function plain(msg){
    straight where he asked to go. It sits in a line at the top of the new sheet until he
    picks it back up or saves the new one over the top of nothing. One slot: parking a
    second one would be a filing system nobody asked for. */
-var PARKKEYS = ['id','kind','name','section','text','rows','price','makesQty','makesUnit',
-                'step','imported','found','hints','method','photos','bigPhoto','allergens',
-                'menus','plan','planRan','cameFrom','find','clean'];
+var PARKMAX = 12, PARKLS = 'rcp.unsaved.v1';
+/* Only what a recipe IS — not the hundred options hanging off each row, which are read
+   back off Aung's list anyway. Small enough to keep on the machine, so a shut lid or a
+   reloaded page is not the end of it either. */
+function parkSnapshot(){
+  return { at:new Date().toISOString(),
+           label:(S.name || '').trim() || ('a ' + (S.kind || 'new') + ' recipe with no name yet'),
+           id:S.id, kind:S.kind, name:S.name, section:S.section, text:S.text,
+           price:S.price, makesQty:S.makesQty, makesUnit:S.makesUnit,
+           method:S.method, allergens:S.allergens, menus:S.menus,
+           lines:(S.rows || []).length,
+           rows:(S.rows || []).map(function(r){
+             return { raw:r.raw, code:r.code || null, qty:r.qty, unit:r.unit || null,
+                      adj:!!r.adj, yield:r.yield, waste:r.waste }; }) };
+}
+function parkedList(){ if (!S.parkedList) S.parkedList = []; return S.parkedList; }
+function savePark(){ try { localStorage.setItem(PARKLS, JSON.stringify(parkedList())); } catch(e){} }
+function loadPark(){
+  try { var v = JSON.parse(localStorage.getItem(PARKLS) || '[]'); S.parkedList = Array.isArray(v) ? v : []; }
+  catch(e){ S.parkedList = []; }
+}
 function parkCurrent(){
   if (!isDirty()) return false;
-  var p = {}; PARKKEYS.forEach(function(k){ p[k] = S[k]; });
-  p.label = (S.name || '').trim() || ('a ' + (S.kind || 'new') + ' recipe with no name yet');
-  p.lines = (S.rows || []).length;
-  S.parked = p;
+  var snap = parkSnapshot();
+  /* the same recipe put down twice is one piece of work, not two */
+  var l = parkedList().filter(function(p){
+    return !(String(p.id) === String(snap.id) && p.label === snap.label); });
+  l.unshift(snap);
+  S.parkedList = l.slice(0, PARKMAX);
+  savePark();
+  S.parkedLabel = snap.label;
   return true;
 }
-function unpark(){
-  var p = S.parked; if (!p) return;
-  /* whatever he is on now takes the parking space, so this is a swap and never a loss */
-  var had = parkCurrent();
-  PARKKEYS.forEach(function(k){ S[k] = p[k]; });
-  if (!had) S.parked = null;
+function dropPark(i){ parkedList().splice(i, 1); savePark(); }
+function unparkAt(i){
+  var p = parkedList()[i]; if (!p) return;
+  parkCurrent();                                  /* whatever he is on now joins the list */
+  var l = parkedList(), k = l.indexOf(p); if (k > -1) l.splice(k, 1);
+  savePark();
+  newRecipe();
+  S.id = p.id || null; S.kind = p.kind; S.name = p.name || ''; S.section = p.section || '';
+  S.text = p.text || ''; S.price = p.price;
+  S.makesQty = p.makesQty; S.makesUnit = p.makesUnit;
+  S.method = p.method || emptyMethod(); S.allergens = p.allergens || []; S.menus = p.menus || [];
+  /* the rows are rebuilt off the same words in the same order, then what he had chosen
+     is put back on them line by line — a row whose words have changed is left alone */
+  S.rows = splitLine(S.text).map(function(x){ return mkRow(x); });
+  S.rows.forEach(function(r, idx){
+    var sr = (p.rows || [])[idx]; if (!sr || sr.raw !== r.raw) return;
+    if (sr.code){
+      var it = pool().filter(function(x){ return x.code === sr.code; })[0];
+      if (it){ r.opts = [it].concat(r.opts.filter(function(o){ return o.code !== it.code; })); r.code = sr.code; }
+    }
+    r.qty = sr.qty; r.unit = sr.unit; r.adj = sr.adj;
+    if (sr.yield != null) r.yield = sr.yield;
+    if (sr.waste != null) r.waste = sr.waste;
+  });
   S.pendingGo = null;
-  /* It gets parked from wherever he happened to be standing — usually Saved recipes,
-     since that is where the new-recipe button lives. Picking it back up has to land on
-     the RECIPE, not on the screen he was browsing when he put it down. */
-  if (['write','sheet','foh'].indexOf(S.step) < 0) S.step = (S.rows || []).length ? 'sheet' : 'write';
+  S.step = S.rows.length ? 'sheet' : 'write';
 }
+/* Everything half written, in one place, on the screen a new recipe starts from.
+   Each one comes back or goes in the bin — his call, never the app's. */
 function parkedNote(){
-  if (!S.parked) return '';
-  return '<div class="parked"><b>' + esc(S.parked.label) + '</b> is still half written — ' +
-    S.parked.lines + ' line' + (S.parked.lines === 1 ? '' : 's') + ', put to one side, nothing lost. ' +
-    '<button class="lnk" id="unpark">Pick it back up</button></div>';
+  var l = parkedList(); if (!l.length) return '';
+  return '<div class="parked"><div class="ph">Unsaved work · ' + l.length + '</div>' +
+    l.map(function(p, i){
+      var when = '';
+      try { when = new Date(p.at).toLocaleString('en-GB',
+            { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); } catch(e){}
+      return '<div class="prow"><span class="pn">' + esc(p.label) + '</span>' +
+        '<span class="pm">' + (p.kind === 'batch' ? 'batch' : 'main') + ' · ' + p.lines +
+          ' line' + (p.lines === 1 ? '' : 's') + (when ? ' · ' + esc(when) : '') + '</span>' +
+        '<button class="lnk" data-unpark="' + i + '">Carry on with it</button>' +
+        '<button class="lnk bin" data-binpark="' + i + '">Delete</button></div>';
+    }).join('') + '</div>';
 }
+/* the shell calls this every time the Create new recipes tile is tapped, so that tile
+   always opens on a clean sheet — and never at the cost of what was on the screen */
+window.__rcpNew = function(){
+  try { parkCurrent(); S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0); }
+  catch(e){}
+};
 
 function newRecipe(){
   S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[];
@@ -5084,7 +5145,7 @@ document.addEventListener('click', function(e){
   if (op){
     var openId = op.dataset.open;
     /* it used to stop him and ask; it puts the half-written one to one side instead */
-    if (parkCurrent()) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
     var btn = document.querySelector('[data-open="'+openId+'"]');
     if (btn) btn.textContent = 'Opening…';
     openRecipe(openId).then(function(){ markClean(); render(); window.scrollTo(0,0); })
@@ -5164,17 +5225,25 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'newr'){
     var wasParked = parkCurrent();
     S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
-    if (wasParked) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+    if (wasParked) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
     return;
   }
-  if (e.target.id === 'unpark'){ unpark(); render(); window.scrollTo(0,0); return; }
+  var up = e.target.closest('[data-unpark]');
+  if (up){ unparkAt(+up.dataset.unpark); render(); window.scrollTo(0,0); return; }
+  var bp = e.target.closest('[data-binpark]');
+  if (bp){
+    var bi = +bp.dataset.binpark, gone = (parkedList()[bi] || {}).label;
+    dropPark(bi); render();
+    flash(gone ? '“' + gone + '” deleted.' : 'Deleted.');
+    return;
+  }
   /* forget the workbook and start clean — the same parking, so if he had a sheet on the
      go it goes to one side rather than being thrown out with the file */
   if (e.target.id === 'dropfound'){
     var parkedF = parkCurrent();
     S.pendingGo = null; newRecipe(); S.found = null; S.fq = '';
     render(); window.scrollTo(0,0);
-    flash(parkedF ? '“' + S.parked.label + '” put to one side — the file is closed.'
+    flash(parkedF ? '“' + S.parkedLabel + '” is in Unsaved work — the file is closed.'
                   : 'File closed. Start writing.');
     return;
   }
@@ -5221,7 +5290,7 @@ document.addEventListener('click', function(e){
          button uses — so working through a workbook never costs him the last one. */
       var parkedIt = parkCurrent();
       f.how = S.found.how; useImported(f); render(); window.scrollTo(0,0);
-      if (parkedIt) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+      if (parkedIt) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
     }
     return;
   }
@@ -5759,7 +5828,7 @@ window.addEventListener('orientationchange', fitBar);
    own question, not ours — it is the only thing standing between a shut lid and an
    afternoon of work. */
 window.addEventListener('beforeunload', function(ev){
-  if (!isDirty() && !S.parked) return;
+  if (!isDirty() && !parkedList().length) return;
   ev.preventDefault(); ev.returnValue = '';
 });
 /* the serif and the sans arrive after the first paint — the same words measure
@@ -5808,7 +5877,7 @@ window.checkFit = checkFit;
 window.__rcpDirty = function(){
   try {
     if (isDirty()) return true;
-    if (S.parked) return true;                       /* put to one side is still unsaved */
+    if (parkedList().length) return true;            /* work put to one side is still unsaved */
     if (String(S.text || '').trim()) return true;
     if (!S.id && String(S.name || '').trim()) return true;
     if (S.found || S.plan) return true;              /* mid-import, reviewing what was read */
@@ -5855,6 +5924,10 @@ loadMine().then(function(){
   if (S.step === 'list') render();
 });
 loadBatches().then(function(){ if (S.step==='sheet'){ rows(); } foot(); });
+/* what was half written last time is still half written. Read it back BEFORE the first
+   screen is drawn, or the list is in hand and the panel is not on the page. */
+loadPark();
+if (parkedList().length) render();
 
 function flash(msg, bad){
   var m = document.createElement('div');

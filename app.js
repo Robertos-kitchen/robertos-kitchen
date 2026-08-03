@@ -2186,6 +2186,17 @@ function openRecipeScreen(viewId){
       v.appendChild(bar); v.appendChild(f);
     }
     v.style.display='flex';
+    // The page is built once and then left alone, so tapping "Create new recipes" a
+    // second time showed whatever was last on the screen - a workbook he had opened, a
+    // half-written sheet - instead of a new recipe. The tile has to mean what it says.
+    // The page drops anything unsaved into its own Unsaved work list first, so a clean
+    // start never costs him what he had.
+    if(s.code==='RCP'){
+      var fr=v.querySelector('iframe');
+      var go=function(){ try{ if(fr.contentWindow&&fr.contentWindow.__rcpNew) fr.contentWindow.__rcpNew(); }catch(e){} };
+      if(fr){ if(fr.contentWindow&&fr.contentWindow.__rcpNew) go();
+              else fr.addEventListener('load',go,{once:true}); }
+    }
   }
   document.querySelector('.footer-bar').style.display='flex';
   document.getElementById('foot-label').textContent=s.name;
