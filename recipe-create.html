@@ -6037,7 +6037,9 @@ window.addEventListener('orientationchange', fitBar);
    own question, not ours — it is the only thing standing between a shut lid and an
    afternoon of work. */
 window.addEventListener('beforeunload', function(ev){
-  if (!isDirty() && !parkedList().length) return;
+  /* same reasoning: what is in Unsaved work is on the machine and will be there when he
+     comes back, so it is not a reason to hold the tab open */
+  if (!isDirty()) return;
   ev.preventDefault(); ev.returnValue = '';
 });
 /* the serif and the sans arrive after the first paint — the same words measure
@@ -6086,7 +6088,11 @@ window.checkFit = checkFit;
 window.__rcpDirty = function(){
   try {
     if (isDirty()) return true;
-    if (parkedList().length) return true;            /* work put to one side is still unsaved */
+    /* Unsaved work does NOT count. It is on the machine and comes back after a reload,
+       and this answer is what the shell's update guard asks before refreshing the app:
+       saying yes here meant the app could never update again while anything sat in the
+       list — which, now that the list survives, is for ever. Only what is on the screen
+       and would actually be lost holds an update back. */
     if (String(S.text || '').trim()) return true;
     if (!S.id && String(S.name || '').trim()) return true;
     if (S.found || S.plan) return true;              /* mid-import, reviewing what was read */
