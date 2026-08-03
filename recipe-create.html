@@ -389,6 +389,15 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow .sn{font-family:var(--serif);font-size:18px;flex:0 0 auto}
 .srow .sm{font-family:var(--sans);font-size:12px;opacity:.6;flex:1 1 auto}
 .srow .sd{font-family:var(--sans);font-size:11px;opacity:.45;flex:0 0 auto}
+/* what still needs him, on the row — never a colour on its own, always the words */
+.srow .swk{font-family:var(--sans);font-size:11px;color:var(--vino);background:rgba(186,155,2,.16);
+  border-radius:3px;padding:2px 7px;flex:0 0 auto;white-space:nowrap}
+/* .srow does not wrap, so a 100% basis inside it pushes the row past the screen
+   instead of dropping to a second line — it has to be told it may wrap first */
+@media(max-width:640px){
+  .srow{flex-wrap:wrap}
+  .srow .swk{flex:1 0 100%;white-space:normal;order:5}
+}
 .srm{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:none;border:none;color:var(--vino);opacity:.45;cursor:pointer;padding:6px 2px;flex:0 0 auto}
 .srm:hover{opacity:1;text-decoration:underline}
 /* a folder — a menu, or a section inside one. A shelf, not a column: the whole book
@@ -1621,10 +1630,25 @@ function loadSaved(){
        '&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
-      .catch(function(){ return null; })
+      .catch(function(){ return null; }),
+    /* what is wrong with each one, counted here so the list can say it without him
+       opening twenty recipes to find the three that need him */
+    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty').catch(function(){ return null; })
   ]).then(function(res){
     S.saved = res[0] || []; S.listErr = null;
     S.foldErr = !res[1] || !res[2];
+    S.tally = null;
+    if (res[3]){
+      var t = {};
+      res[3].forEach(function(l){
+        var x = t[l.recipe_id] || (t[l.recipe_id] = { lines:0, noIng:0, noQty:0, kids:[] });
+        x.lines++;
+        if (!l.stock_code && !l.child_recipe_id) x.noIng++;
+        if (l.qty == null) x.noQty++;
+        if (l.child_recipe_id) x.kids.push(l.child_recipe_id);
+      });
+      S.tally = t;
+    }
     var m = {}; (res[1] || []).forEach(function(r){ (m[r.recipe_id] = m[r.recipe_id] || []).push(r.menu_id); });
     S.rmenus = m;
     SAVEDMENUS = res[2] || [];
@@ -1634,6 +1658,32 @@ function loadSaved(){
 /* every menu, archived ones too — a recipe can sit on a menu that has been put away,
    and a folder list that skips it hides the recipe altogether */
 var SAVEDMENUS = [];
+/* ───────── what is still wrong with a saved recipe ─────────
+   Everything that stops it costing, said on the row, so twenty recipes can be looked
+   over in one glance instead of opened one at a time. Only what is true: no ingredient
+   picked on a line, no quantity on a line, a batch inside it that has been removed, or
+   a batch that never said how much it makes. All four cost the dish nothing and all
+   four are invisible until you open it. */
+function needsWork(r){
+  if (!S.tally) return '';                      /* the count did not load — say nothing */
+  var t = S.tally[r.id];
+  var bits = [];
+  if (!t || !t.lines) bits.push('nothing in it yet');
+  else {
+    if (t.noIng) bits.push(t.noIng + (t.noIng===1 ? ' line with no ingredient' : ' lines with no ingredient'));
+    if (t.noQty) bits.push(t.noQty + (t.noQty===1 ? ' line with no amount' : ' lines with no amount'));
+    var gone = 0, seen = {};
+    t.kids.forEach(function(id){
+      if (seen[id]) return; seen[id] = 1;
+      var b = BATCH[id];
+      if (b && b.archived) gone++;
+    });
+    if (gone) bits.push(gone + (gone===1 ? ' batch in it has been removed' : ' batches in it have been removed'));
+  }
+  if (r.kind === 'batch' && r.makes_qty == null) bits.push('doesn’t say how much it makes');
+  if (!bits.length) return '';
+  return '<span class="swk">' + esc(bits.join(' · ')) + '</span>';
+}
 function menuNameOf(id){
   for (var i = 0; i < SAVEDMENUS.length; i++) if (SAVEDMENUS[i].id === id) return SAVEDMENUS[i].name;
   return 'A menu that is no longer there';
@@ -3241,6 +3291,7 @@ function render(){
           '<span class="sm">'+(r.section?esc(r.section)+' · ':'') +
             (makes ? 'makes '+esc(makes) : '<i>doesn\'t say how much it makes</i>')+'</span>' +
         '</button>' +
+        needsWork(r) +
         '<span class="sd">'+new Date(r.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>' +
         (r.archived ? '<button class="srm" data-undo="'+r.id+'">Put it back</button>'
                     : '<button class="srm" data-rmr="'+r.id+'">Remove</button>') +
