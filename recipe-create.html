@@ -461,6 +461,13 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .pcard{border:1px solid var(--sabbia-dark);border-left:3px solid var(--sabbia-dark);border-radius:6px;
   background:var(--cream);padding:12px 14px;margin-bottom:9px}
 .pcard.bad{border-left-color:var(--attn);background:var(--attn-soft)}
+/* a card that has landed is the way into itself */
+.pclick{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;
+  border-left-color:var(--oliva)}
+.pclick:hover{background:#fff;border-color:var(--vino);border-left-color:var(--vino)}
+.pgo{display:block;font-family:var(--sans);font-size:11px;letter-spacing:.06em;color:var(--vino);
+  opacity:.55;margin-top:8px}
+.pclick:hover .pgo{opacity:1;text-decoration:underline;text-underline-offset:3px}
 .ph1{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .pnum{flex:0 0 auto;width:24px;height:24px;border-radius:99px;background:var(--vino);color:var(--cream);
   font-size:11.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
@@ -1454,7 +1461,7 @@ function newRecipe(){
      way, and the other way round is a dish nobody can find. */
   var run = MENUS.filter(function(m){ return m.running; })[0];
   S.menus = run ? [run.id] : [];
-  S.plan = null; S.planRan = false;
+  S.plan = null; S.planRan = false; S.fromPlan = false;
 }
 
 /* ───────── the two things both called a batch ─────────
@@ -3653,6 +3660,8 @@ function render(){
       parkedNote() +
       '<div class="savebar" id="savebar"></div>' +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
+      (S.fromPlan && S.plan ? '<button class="newr" id="backtoplan" style="margin:0 0 10px">‹ Back to the ' +
+        S.plan.recs.length + ' from ' + esc(S.plan.file) + '</button>' : '') +
       '<div class="swapbar" id="sb"></div>' +
       '<div class="ibleg"><b>I</b> an ingredient from Aung\'s list &nbsp;·&nbsp; <b>B</b> a batch — tap either to go and look at it</div>' +
       '<div class="sheetwrap"><table class="sheet">' +
@@ -3726,7 +3735,12 @@ function planInner(){
       ? '<div class="pfix">Filled in '+R.fixed.length+' line'+(R.fixed.length===1?'':'s')+' that had nothing picked: ' +
         R.fixed.map(function(j){ return '<b>'+esc(j.was)+'</b> → '+esc(j.name); }).join(', ') +
         '. Nothing you had already chosen was changed.</div>' : '';
-    return '<div class="pcard'+(R.done==='failed'?' bad':'')+'">' +
+    /* Once it exists it can be opened — every one of them, not just the dish. This screen
+       is the last look at what was made, and "is that right?" is answered by opening it,
+       so each card that has landed is the way in to itself. */
+    var pid = R.newId || (R.existing && R.existing.id) || null;
+    return (pid ? '<button class="pcard pclick" data-openplan="'+esc(pid)+'">'
+                : '<div class="pcard'+(R.done==='failed'?' bad':'')+'">') +
       '<div class="ph1"><span class="pnum">'+n+'</span>' +
         '<span class="pnm">'+esc(R.name)+'</span>' +
         '<span class="pkind'+(R.kind==='batch'?' b':'')+'">'+(R.kind==='batch'?'batch':'main')+'</span>' + st + '</div>' +
@@ -3753,7 +3767,8 @@ function planInner(){
           lostLinks(R).map(function(l){ return esc(l.to.name); }).join(' and ') +
           ' did not go in. The line is still there with what the file wrote — pick it, or run the file again.</div>'
         : '') +
-    '</div>';
+      (pid ? '<span class="pgo">Open it and check &rarr;</span>' : '') +
+    (pid ? '</button>' : '</div>');
   };
 
   return '<div class="q">'+esc(P.file)+'</div>' +
@@ -3774,8 +3789,12 @@ function planInner(){
                                   : 'All '+made.length+' added')+'.</b> ' +
               'Open the dish and every batch is already linked.') +
         '</div>' +
-        '<button class="newr" id="openmain">Open '+esc((P.order[P.order.length-1]||{}).name||'the dish')+'</button> ' +
-        '<button class="newr" id="pickfile">Bring in another file</button>'
+        /* the dish is the one he almost always wants, so it is the filled button — but
+           every batch under it opens from its own card now */
+        '<button class="okb" id="openmain">Open '+esc((P.order[P.order.length-1]||{}).name||'the dish')+'</button> ' +
+        '<button class="newr" id="pickfile">Bring in another file</button>' +
+        '<div class="tip" style="margin:9px 0 2px">Or tap any of them below to check it and change it — ' +
+          'they are all saved.</div>'
       : !toMake.length
         /* everything in the file is already saved — offering "Create all 0" would be
            nonsense, and quietly re-writing what he has built is worse */
@@ -5226,6 +5245,25 @@ document.addEventListener('click', function(e){
     var wasParked = parkCurrent();
     S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
     if (wasParked) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    return;
+  }
+  if (e.target.id === 'backtoplan'){
+    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    S.fromPlan = false; S.step = 'bringall'; render(); window.scrollTo(0,0); return;
+  }
+  /* open one of the recipes the workbook just made, straight off its card */
+  var opl = e.target.closest('[data-openplan]');
+  if (opl){
+    var plid = opl.dataset.openplan;
+    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    var go = opl.querySelector('.pgo'); if (go) go.textContent = 'Opening…';
+    openRecipe(plid).then(function(){
+      /* checking four recipes means coming back three times — so the way back to the
+         list is on the sheet, not down through Saved recipes */
+      markClean(); S.back = 'bringall'; S.fromPlan = true; render(); window.scrollTo(0,0);
+    }).catch(function(err){
+      if (go) go.textContent = 'Could not open it — ' + plain(err.message);
+    });
     return;
   }
   var up = e.target.closest('[data-unpark]');
