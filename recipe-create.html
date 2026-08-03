@@ -280,6 +280,17 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .micnum{font-family:var(--serif);font-size:16px;text-align:right;min-width:74px;flex:0 0 auto}
 .micnum .none{font-family:var(--sans);font-size:11px;font-style:normal;color:var(--attn)}
 .micfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px}
+/* Send sits apart from Download and Print, with a line above it: it is the one control
+   on this screen that cannot be undone, and it should not read as a third button. */
+.micsend{margin-top:22px;padding-top:18px;border-top:1px solid rgba(64,2,7,.16)}
+.micask{background:rgba(232,217,199,.45);border:1px solid rgba(64,2,7,.22);border-radius:4px;padding:14px 16px}
+.micask b{font-family:var(--sans);font-size:13.5px;color:var(--vino)}
+.micaskl{font-family:var(--sans);font-size:12.5px;line-height:1.65;margin-top:7px}
+.micaskw{font-family:var(--sans);font-size:12px;color:var(--attn);margin-top:7px}
+.micaskb{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
+.micdone{background:rgba(75,81,40,.1);border:1px solid rgba(75,81,40,.35);border-radius:4px;
+  padding:14px 16px;font-family:var(--sans);font-size:12.5px;line-height:1.6}
+.micdone b{font-size:13.5px;color:var(--oliva)}
 @media (max-width:640px){ .micnum{min-width:0;text-align:left} .micin{width:150px} }
 .sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
 .sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
@@ -1472,7 +1483,8 @@ function menuPlain(msg){
 
    What is NOT filled in: the Micros item code. Aung assigns those. And the 16-character
    name is only suggested — "Valen RiccioMare" is a judgement, not an algorithm. */
-var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false };
+var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
+               confirm:false, sent:0, today:'' };
 
 /* his own shorthand, as far as a machine can take it: drop the joining words, keep the
    words that mean something, then shorten the longest one until it fits */
@@ -1536,100 +1548,322 @@ function loadMicros(menuId){
   }).catch(function(e){ MICREQ.err = e.message; MICREQ.rows = []; });
 }
 
-/* The workbook itself, laid out cell for cell like the ones he has been sending.
+/* ── the workbook ─────────────────────────────────────────────────────────────
+   Laid out cell for cell like the ones he has been sending, and now in the house
+   colours: every other document this module puts out is branded, and a plain grey
+   spreadsheet with Roberto's name on it is the one that looks borrowed.
+
+   It is built with ExcelJS, not the XLSX reader the rest of the module uses. That
+   is not a preference — the XLSX build we carry SILENTLY DROPS every fill, font and
+   border on write. It was proved rather than assumed: a cell written with a vino
+   fill came back out of the file with no fill at all. ExcelJS keeps them, and keeps
+   the formulas too. Do not "simplify" this back onto XLSX.
+
    The form does its own arithmetic and always has — LEN, the cost %, the net price
    are formulas in the sheet, not numbers we put there. Writing values over them would
    mean Aung opening a form that no longer recalculates when he corrects a price. */
-function micWorkbook(menuName){
+var MICBRAND = { vino:'FF410207', vinoMid:'FF5E0A10', cream:'FFF5EDE0',
+                 sabbia:'FFE1D3C2', sabbiaLight:'FFEDE5D8', line:'FFCFC0AD', ink:'FF2A1A10' };
+
+function micWorkbook(ExcelJS, menuName){
   var rows = MICREQ.rows.filter(function(r){ return r.take; });
-  var ws = {}, merges = [];
-  var put = function(addr, v, extra){
-    var c = {};
-    if (extra && extra.f){ c.t = 'n'; c.f = extra.f; }
-    else { c.v = v; c.t = (typeof v === 'number' ? 'n' : 's'); }
-    if (extra && extra.z) c.z = extra.z;
-    ws[addr] = c;
+  var B = MICBRAND;
+  var HEADF = { name:'Calibri', size:10, bold:true, color:{argb:B.cream} };
+  var BODYF = { name:'Calibri', size:11, color:{argb:B.ink} };
+  var FAMF  = { name:'Georgia', size:11.5, bold:true, color:{argb:B.vino} };
+  var thin  = { style:'thin', color:{argb:B.line} };
+  var ROWB  = { top:thin, bottom:thin, left:thin, right:thin };
+
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "Roberto's DIFC — Kitchen App";
+  var ws = wb.addWorksheet((menuName || 'Micros Request').slice(0,28) || 'Micros Request', {
+    views: [{ state:'frozen', ySplit:8 }],
+    pageSetup: { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0,
+                 margins:{ left:.3, right:.3, top:.4, bottom:.5, header:.2, footer:.2 } }
+  });
+  ws.columns = [{width:1.7},{width:12.7},{width:27.6},{width:22.5},{width:4.7},{width:12.5},
+                {width:19.2},{width:18.1},{width:10.7},{width:10},{width:12.5},{width:14.1},
+                {width:14.4},{width:24.5},{width:3},{width:12.5},{width:10},{width:8}];
+
+  /* paint a stripe of cells first, then write the values into it — a value written
+     with put() only touches the value, so the stripe underneath is not lost */
+  var stripe = function(row, from, to, o){
+    for (var c = from; c <= to; c++){
+      var cell = ws.getRow(row).getCell(c);
+      if (o.fill)   cell.fill   = { type:'pattern', pattern:'solid', fgColor:{argb:o.fill} };
+      if (o.font)   cell.font   = o.font;
+      if (o.border) cell.border = o.border;
+      if (o.align)  cell.alignment = o.align;
+    }
+  };
+  var put = function(addr, v, o){
+    var c = ws.getCell(addr); o = o || {};
+    if (o.f) c.value = { formula:o.f };
+    else if (v !== null && v !== undefined && v !== '') c.value = v;
+    if (o.z)     c.numFmt = o.z;
+    if (o.font)  c.font = o.font;
+    if (o.fill)  c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:o.fill} };
+    if (o.align) c.alignment = o.align;
+    if (o.border) c.border = o.border;
+    return c;
   };
 
-  put('B1', 'MICROS POS Item Modification, Addition & Deletion Form');
-  merges.push({ s:{r:0,c:1}, e:{r:0,c:13} });
-  put('B2', "Outlet Name:  Roberto's DIFC");
-  put('B3', 'Date: ' + (MICREQ.today || ''));
-  put('B5', 'Type of Request:  Please Tick One');
-  put('D5', '□ Modification');
-  put('F5', 'X Addition');   merges.push({ s:{r:4,c:5}, e:{r:4,c:7} });
-  put('I5', '□ Deletion');   merges.push({ s:{r:4,c:8}, e:{r:4,c:10} });
+  /* ── the band across the top ── */
+  stripe(1, 1, 18, { fill:B.vino });
+  ws.mergeCells('B1:N1');
+  put('B1', 'MICROS POS Item Modification, Addition & Deletion Form',
+      { font:{ name:'Georgia', size:15, bold:true, color:{argb:B.cream} },
+        align:{ vertical:'middle', horizontal:'left' } });
+  ws.getRow(1).height = 30;
 
-  put('B7', 'Micros Code');        merges.push({ s:{r:6,c:1}, e:{r:7,c:1} });
-  put('C7', 'Item Name in Menu');  merges.push({ s:{r:6,c:2}, e:{r:7,c:2} });
-  put('D7', 'Item Name in Micros'); merges.push({ s:{r:6,c:3}, e:{r:6,c:4} });
-  put('D8', '*Maximum 16 Characters Including Space*'); merges.push({ s:{r:7,c:3}, e:{r:7,c:4} });
-  put('F7', 'Group');              merges.push({ s:{r:6,c:5}, e:{r:6,c:7} });
+  stripe(2, 1, 18, { fill:B.sabbiaLight });
+  stripe(3, 1, 18, { fill:B.sabbiaLight });
+  put('B2', "Outlet Name:  Roberto's DIFC",
+      { font:{ name:'Georgia', size:12, bold:true, color:{argb:B.vino} } });
+  put('B3', 'Date: ' + (MICREQ.today || ''), { font:BODYF });
+  put('L2', 'Prepared by the Kitchen Recipes app',
+      { font:{ name:'Calibri', size:9, italic:true, color:{argb:B.vinoMid} },
+        align:{ horizontal:'right' } });
+  put('L3', menuName || '', { font:{ name:'Calibri', size:9, color:{argb:B.vinoMid} },
+        align:{ horizontal:'right' } });
+
+  put('B5', 'Type of Request:  Please Tick One',
+      { font:{ name:'Calibri', size:10, bold:true, color:{argb:B.vino} } });
+  put('D5', '□ Modification', { font:BODYF });
+  ws.mergeCells('F5:H5');
+  put('F5', 'X Addition', { font:{ name:'Calibri', size:11, bold:true, color:{argb:B.cream} },
+        fill:B.vinoMid, align:{ horizontal:'center' } });
+  ws.mergeCells('I5:K5');
+  put('I5', '□ Deletion', { font:BODYF });
+
+  /* ── the two header rows ── */
+  var hAlign = { vertical:'middle', horizontal:'center', wrapText:true };
+  stripe(7, 2, 18, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
+  stripe(8, 2, 18, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
+  ws.getRow(7).height = 20; ws.getRow(8).height = 24;
+
+  ws.mergeCells('B7:B8'); put('B7', 'Micros Code');
+  ws.mergeCells('C7:C8'); put('C7', 'Item Name in Menu');
+  ws.mergeCells('D7:E7'); put('D7', 'Item Name in Micros');
+  ws.mergeCells('D8:E8'); put('D8', '*Maximum 16 Characters Including Space*');
+  ws.mergeCells('F7:H7'); put('F7', 'Group');
   put('F8', 'Major'); put('G8', 'Family'); put('H8', 'SLU');
-  put('I7', 'Cost Price');         merges.push({ s:{r:6,c:8}, e:{r:6,c:9} });
+  ws.mergeCells('I7:J7'); put('I7', 'Cost Price');
   put('I8', 'Exclu.VAT'); put('J8', 'Cost %');
   put('K7', 'Old Net Price'); put('K8', 'Incl. 5%VAT');
   put('L7', 'Sales Price');   put('L8', 'Inclu. All Taxes');
   put('M7', 'Net Sales Price'); put('M8', 'Exclu. All Taxes');
-  put('N7', 'Date Required');  merges.push({ s:{r:6,c:13}, e:{r:7,c:13} });
+  ws.mergeCells('N7:N8'); put('N7', 'Date Required');
   put('P7', 'Old Price'); put('P8', 'All Inclusive');
-  put('Q7', 'Price Status'); merges.push({ s:{r:6,c:16}, e:{r:6,c:17} });
+  ws.mergeCells('Q7:R7'); put('Q7', 'Price Status');
   put('Q8', '+ / -'); put('R8', '%');
 
+  var money = { horizontal:'right' };
   var R = 9, fam = null;
   rows.forEach(function(r){
     /* a family line, then its dishes — the shape his own form is written in.
        No code on it: the Micros codes are Aung's to assign, ours would be invented. */
     if (r.section !== fam){
       fam = r.section;
+      stripe(R, 2, 18, { fill:B.sabbia, font:FAMF, border:ROWB });
+      ws.getRow(R).height = 19;
       put('C'+R, fam); put('D'+R, fam);
       R++;
     }
+    stripe(R, 2, 18, { fill:'FFFFFFFF', font:BODYF, border:ROWB });
     put('C'+R, r.name);
     put('D'+R, r.micros);
-    put('E'+R, null, { f:'LEN(D'+R+')' });
+    put('E'+R, null, { f:'LEN(D'+R+')', align:{ horizontal:'center' } });
     put('F'+R, 'Food');
     put('G'+R, r.section);
     put('H'+R, r.section);                                   /* SLU, same as the family */
-    if (r.cost != null) put('I'+R, Math.round(r.cost*100)/100, { z:'0.00' });
-    put('J'+R, null, { f:'IF(M'+R+'=0,0,+I'+R+'/M'+R+')', z:'0.00%' });
-    if (r.price != null) put('L'+R, r.price, { z:'0.00' });
+    if (r.cost != null) put('I'+R, Math.round(r.cost*100)/100, { z:'0.00', align:money });
+    put('J'+R, null, { f:'IF(M'+R+'=0,0,+I'+R+'/M'+R+')', z:'0.00%', align:money });
+    if (r.price != null) put('L'+R, r.price, { z:'0.00', align:money });
     /* His own formula, character for character. It is 1/1.225 written the way the
        form has always written it — VAT, municipality and service all inside the
        price since December 2025. Not re-derived here: the form is the authority. */
-    put('M'+R, null, { f:'-L'+R+'*0.183675+L'+R, z:'0.00' });
+    put('M'+R, null, { f:'-L'+R+'*0.183675+L'+R, z:'0.00', align:money });
     R++;
   });
 
-  ws['!ref'] = 'A1:V' + Math.max(R, 20);
-  ws['!merges'] = merges;
-  ws['!cols'] = [{wch:1.7},{wch:12.7},{wch:27.6},{wch:22.5},{wch:4.7},{wch:12.5},{wch:19.2},
-                 {wch:18.1},{wch:10.7},{wch:10},{wch:12.5},{wch:14.1},{wch:14.4},{wch:24.5}];
-  return ws;
+  /* the foot — says where it came from, and that the empty column is deliberate */
+  var F = R + 1;
+  ws.mergeCells('B'+F+':N'+F);
+  put('B'+F, 'Micros codes left blank for Aung to assign. Cost %, name length and net price are ' +
+             'formulas — the sheet recalculates when a figure is corrected.',
+      { font:{ name:'Calibri', size:9, italic:true, color:{argb:B.vinoMid} } });
+  ws.mergeCells('B'+(F+1)+':N'+(F+1));
+  put('B'+(F+1), "Roberto's DIFC · Kitchen Recipes app",
+      { font:{ name:'Georgia', size:9, color:{argb:B.vino} } });
+
+  return wb;
 }
 
-/* Written with the reader the module already carries, so nothing is fetched from an
-   outside host — the same rule as the recipe cards. */
+/* One build, three destinations — download it, print it, or send it. Written with a
+   reader the module carries itself, so nothing is fetched from an outside host: the
+   same rule as the recipe cards. */
+function micFileName(menuName){
+  var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
+    ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
+  return stamp + '-Micros Request -' + menuName + '.xlsx';
+}
+function micMenuName(){
+  var m = MENUS.filter(function(x){ return x.id === MICREQ.menuId; })[0];
+  return m ? m.name : 'menu';
+}
+function micBuild(){
+  return lazy('lib/exceljs.min.js', 'ExcelJS').then(function(ExcelJS){
+    var name = micMenuName();
+    /* the tab is named after the menu, the way his files are — "Valentine", "Ramadan" */
+    return micWorkbook(ExcelJS, name).xlsx.writeBuffer().then(function(buf){
+      return { name: micFileName(name), menu: name, buf: buf };
+    });
+  });
+}
+/* Uint8Array → base64 without blowing the argument limit on a 60-dish sheet */
+function micB64(buf){
+  var b = new Uint8Array(buf), s = '', CH = 0x8000;
+  for (var i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i+CH));
+  return btoa(s);
+}
+
 function micDownload(btn){
   var st = $('micst');
   var take = MICREQ.rows.filter(function(r){ return r.take; });
   if (!take.length) return;
   btn.disabled = true; var was = btn.textContent; btn.textContent = 'Making it…';
   if (st){ st.className = 'brn'; st.textContent = ''; }
-  lazy('lib/xlsx.full.min.js', 'XLSX').then(function(XLSX){
-    var menu = MENUS.filter(function(m){ return m.id === MICREQ.menuId; })[0];
-    var name = (menu ? menu.name : 'menu');
-    var wb = XLSX.utils.book_new();
-    /* the tab is named after the menu, the way his files are — "Valentine", "Ramadan" */
-    XLSX.utils.book_append_sheet(wb, micWorkbook(name), name.slice(0,28) || 'Micros Request');
-    var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
-      ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
-    XLSX.writeFile(wb, stamp + '-Micros Request -' + name + '.xlsx');
+  micBuild().then(function(file){
+    var blob = new Blob([file.buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = file.name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     if (st){ st.className = 'brn'; st.textContent = 'Made ✓ — ' + take.length + ' dish' +
-      (take.length===1?'':'es') + '. It is in your downloads, ready to send to Aung.'; }
+      (take.length===1?'':'es') + '. It is in your downloads.'; }
   }).catch(function(e){
     if (st){ st.className = 'brn bad'; st.textContent = 'Could not make it — ' + plain(e.message); }
   }).then(function(){ btn.disabled = false; btn.textContent = was; });
+}
+
+/* ── print ──
+   Not the spreadsheet: a page. The same form, in the same colours, on paper — for
+   walking it into a meeting or signing it. Excel's own print of an 18-column sheet
+   is not something anyone wants to hand over. */
+function micPrintHtml(){
+  var rows = MICREQ.rows.filter(function(r){ return r.take; });
+  var fam = null, body = '';
+  rows.forEach(function(r){
+    if (r.section !== fam){
+      fam = r.section;
+      body += '<tr class="fam"><td colspan="6">' + esc(fam) + '</td></tr>';
+    }
+    var net = (r.price != null) ? (r.price - r.price*0.183675) : null;
+    var pct = (r.cost != null && net) ? (r.cost/net*100) : null;
+    body += '<tr>' +
+      '<td class="code"></td>' +
+      '<td>' + esc(r.name) + '</td>' +
+      '<td class="till">' + esc(r.micros||'') + '</td>' +
+      '<td class="n">' + (r.cost==null ? '—' : fmt(r.cost)) + '</td>' +
+      '<td class="n">' + (r.price==null ? '—' : fmt(r.price)) + '</td>' +
+      '<td class="n">' + (pct==null ? '—' : pct.toFixed(1)+'%') + '</td></tr>';
+  });
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<title>Micros request — ' + esc(micMenuName()) + '</title><style>' +
+    '@page{size:A4 landscape;margin:12mm}' +
+    'body{font-family:Calibri,Arial,sans-serif;color:#2a1a10;margin:0}' +
+    '.band{background:#410207;color:#f5ede0;padding:12px 16px}' +
+    '.band h1{font-family:Georgia,serif;font-size:19px;margin:0;font-weight:700}' +
+    '.band .s{font-size:11px;opacity:.85;margin-top:3px}' +
+    '.meta{display:flex;justify-content:space-between;font-size:11px;padding:8px 16px;' +
+      'background:#ede5d8;color:#410207}' +
+    'table{border-collapse:collapse;width:100%;font-size:11.5px;margin-top:10px}' +
+    'th{background:#410207;color:#f5ede0;font-size:10px;text-transform:uppercase;' +
+      'letter-spacing:.6px;padding:6px 8px;text-align:left;border:1px solid #410207}' +
+    'td{padding:5px 8px;border:1px solid #cfc0ad}' +
+    'tr.fam td{background:#e1d3c2;color:#410207;font-family:Georgia,serif;font-weight:700}' +
+    '.n{text-align:right}.till{font-family:Consolas,monospace}' +
+    '.code{width:80px;background:#faf7f2}' +
+    '.foot{font-size:10px;color:#5e0a10;margin:10px 16px;font-style:italic}' +
+    'tr{page-break-inside:avoid}thead{display:table-header-group}' +
+    '</style></head><body>' +
+    '<div class="band"><h1>MICROS POS Item Addition Form</h1>' +
+      '<div class="s">Roberto\'s DIFC · ' + esc(micMenuName()) + '</div></div>' +
+    '<div class="meta"><span>Date: ' + esc(MICREQ.today||'') + '</span>' +
+      '<span>' + rows.length + ' dish' + (rows.length===1?'':'es') + '</span>' +
+      '<span>Type of request: <b>Addition</b></span></div>' +
+    '<table><thead><tr><th>Micros code</th><th>Item name in menu</th>' +
+      '<th>Item name in Micros (16)</th><th class="n">Cost</th>' +
+      '<th class="n">Sales price<br>incl. all taxes</th><th class="n">Cost %</th></tr></thead>' +
+    '<tbody>' + body + '</tbody></table>' +
+    '<div class="foot">Micros codes are left blank for Aung to assign. Cost % is against the ' +
+      'net price — the sales price with VAT, municipality and service taken out (÷ 1.225), the ' +
+      'same basis as the form\'s own formula.</div>' +
+    '</body></html>';
+}
+function micPrint(){
+  var st = $('micst');
+  if (!MICREQ.rows.filter(function(r){ return r.take; }).length) return;
+  var w = window.open('', '_blank');
+  if (!w){ if (st){ st.className='brn bad';
+    st.textContent = 'The browser blocked the print window — allow pop-ups for this page.'; } return; }
+  w.document.write(micPrintHtml());
+  w.document.close(); w.focus();
+  setTimeout(function(){ w.print(); }, 350);
+}
+
+/* ── send ──
+   Last control on the page, and deliberately so: the till names, the ticks and the
+   prefix are his to change FIRST. A send button sitting next to Download would fire
+   off the untouched suggestion, which is the whole screen wasted. It asks once, in
+   words, naming who it goes to and how many dishes — he has been burned by sends
+   that went before he was ready. */
+var MICMAIL = { to:'ahtwe@robertos.ae',
+                cc:['dvalla@robertos.ae','amohamed@robertos.ae','fguarracino@robertos.ae'],
+                who:'Aung', ccWho:'Danilo, Asarudeen and you' };
+
+function micSend(btn){
+  var st = $('micsendst');
+  var take = MICREQ.rows.filter(function(r){ return r.take; });
+  if (!take.length) return;
+  btn.disabled = true; var was = btn.textContent; btn.textContent = 'Sending…';
+  if (st){ st.className = 'brn'; st.textContent = 'Building the form…'; }
+  micBuild().then(function(file){
+    if (st) st.textContent = 'Sending to ' + MICMAIL.who + '…';
+    var menu = file.menu;
+    var html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10;max-width:640px">' +
+      '<div style="background:#410207;color:#f5ede0;padding:14px 18px">' +
+      '<div style="font-family:Georgia,serif;font-size:19px;font-weight:700">Roberto\'s DIFC — Micros request</div>' +
+      '<div style="font-size:12px;opacity:.85;margin-top:3px">' + esc(menu) + '</div></div>' +
+      '<p style="font-size:14px;line-height:1.6">Attached is the Micros POS addition form for <b>' +
+        esc(menu) + '</b> — <b>' + take.length + ' dish' + (take.length===1?'':'es') + '</b>, with the ' +
+        'menu name, the till name, the cost and the sales price on each line.</p>' +
+      '<p style="font-size:14px;line-height:1.6">The <b>Micros item codes are left blank</b> for you to ' +
+        'assign. Cost %, the 16-character check and the net price are formulas in the sheet, so it ' +
+        'still recalculates if you correct a figure.</p>' +
+      '<div style="font-size:11px;color:#8a7a55;border-top:1px solid #e1d3c2;padding-top:10px;margin-top:16px">' +
+        'Sent from Roberto\'s Kitchen App · Recipes</div></div>';
+    return fetch(SB_URL + '/functions/v1/send-stock-take', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + SB_KEY },
+      body: JSON.stringify({
+        to: MICMAIL.to, cc: MICMAIL.cc,
+        subject: 'Micros request — ' + menu + ' (' + take.length + ' dish' + (take.length===1?'':'es') + ')',
+        html: html,
+        attachments: [{ filename: file.name, content: micB64(file.buf) }]
+      })
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(d){
+        if (!r.ok) throw new Error(d.error || ('the mail server said ' + r.status));
+        MICREQ.sent = take.length; MICREQ.confirm = false; render();
+      });
+    });
+  }).catch(function(e){
+    if (st){ st.className = 'brn bad'; st.textContent = 'Not sent — ' + plain(e.message) +
+      '. Nothing has gone to ' + MICMAIL.who + '.'; }
+    btn.disabled = false; btn.textContent = was;
+  });
 }
 
 function openRecipe(id){
@@ -2550,9 +2784,40 @@ function render(){
 
       '<div class="micfoot">' +
         '<button class="okb" id="micdl"'+(take.length?'':' disabled')+'>' +
-          (take.length ? 'Make the form for '+take.length+' dish'+(take.length===1?'':'es') : 'Nothing ticked') + '</button>' +
+          (take.length ? 'Make the form for '+take.length+' dish'+(take.length===1?'':'es') : 'Nothing ticked — tick a dish first') + '</button>' +
+        '<button class="newr" id="micpr" style="margin:0"'+(take.length?'':' disabled')+'>Print it</button>' +
         '<span class="brn" id="micst"></span>' +
       '</div>' +
+
+      /* ── send, last on the page and on purpose ──
+         The till names, the ticks and the prefix are his to change first. A send
+         button up beside Download would fire off the untouched suggestion. */
+      '<div class="micsend">' +
+        (MICREQ.sent ?
+          '<div class="micdone"><b>✓ Sent to '+MICMAIL.who+'</b> — '+MICREQ.sent+' dish'+
+            (MICREQ.sent===1?'':'es')+' on '+esc(menu ? menu.name : 'this menu')+', cc '+MICMAIL.ccWho+'. '+
+            'The file went with it as an attachment.' +
+            '<button class="newr" id="micagain" style="margin:10px 0 0">Send it again</button></div>'
+        : MICREQ.confirm ?
+          '<div class="micask"><b>Send this to '+MICMAIL.who+'?</b>' +
+            '<div class="micaskl">'+take.length+' dish'+(take.length===1?'':'es')+' from <b>'+
+              esc(menu ? menu.name : 'this menu')+'</b>, as a branded Excel form attached to the email.<br>' +
+              'To: <b>'+esc(MICMAIL.to)+'</b><br>cc: '+esc(MICMAIL.cc.join(', '))+'</div>' +
+            (over.length ? '<div class="micaskw">'+over.length+' till name'+(over.length===1?' is':'s are')+
+              ' still over 16 characters — Micros will cut '+(over.length===1?'it':'them')+' off.</div>' : '') +
+            (noPrice.length ? '<div class="micaskw">'+noPrice.length+' '+(noPrice.length===1?'dish goes':'dishes go')+
+              ' with no price on the line.</div>' : '') +
+            '<div class="micaskb"><button class="okb" id="micgo">Yes — send it to '+MICMAIL.who+'</button>' +
+              '<button class="newr" id="micno" style="margin:0">Not yet</button>' +
+              '<span class="brn" id="micsendst"></span></div></div>'
+        :
+          '<button class="okb" id="micsend"'+(take.length?'':' disabled')+'>' +
+            (take.length ? 'Send it to '+MICMAIL.who+' →' : 'Nothing ticked — tick a dish first') + '</button>' +
+          '<div class="tip" style="margin-top:8px">Change the till names above first — this sends what is ' +
+            'on the screen right now, to '+esc(MICMAIL.to)+', cc '+MICMAIL.ccWho+'. It asks once more before it goes.</div>'
+        ) +
+      '</div>' +
+
       '<div class="tip" style="margin-top:12px"><b>The form works the cost out itself</b>, with its own formula, ' +
         'unchanged from the one you have been sending since December 2025 — the price with every tax inside it, ' +
         'net of VAT, municipality and service. That is the same basis as the food cost on the sheet, so the two ' +
@@ -2562,7 +2827,9 @@ function render(){
 
     var mm = $('micmenu');
     if (mm) mm.addEventListener('change', function(){
-      MICREQ.menuId = this.value; render();
+      /* a different menu is a different request — the tick that said "sent" was about
+         the last one, and leaving it up would read as this one having gone */
+      MICREQ.menuId = this.value; MICREQ.sent = 0; MICREQ.confirm = false; render();
       loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
     });
     var mp = $('micpre');
@@ -3930,6 +4197,12 @@ document.addEventListener('click', function(e){
   var mtk = e.target.closest('[data-mic]');
   if (mtk){ var mi = +mtk.dataset.mic; MICREQ.rows[mi].take = mtk.checked; render(); return; }
   if (e.target.id === 'micdl'){ micDownload(e.target); return; }
+  if (e.target.id === 'micpr'){ micPrint(); return; }
+  /* two presses, always — the first only opens the question */
+  if (e.target.id === 'micsend'){ MICREQ.confirm = true; render(); return; }
+  if (e.target.id === 'micno'){ MICREQ.confirm = false; render(); return; }
+  if (e.target.id === 'micgo'){ micSend(e.target); return; }
+  if (e.target.id === 'micagain'){ MICREQ.sent = 0; MICREQ.confirm = false; render(); return; }
 
   /* the costing bar, out of the way or back. Remembered for the session, because a
      chef who put it away meant it and should not have to put it away on every recipe */
@@ -4211,6 +4484,8 @@ $('back').addEventListener('click', function(){
     render(); return;
   }
   if (S.step === 'foh'){ S.step = 'sheet'; render(); return; }
+  /* opened as its own module there is nowhere behind it — the module's own bar goes back */
+  if (S.step === 'micros'){ if (S.back !== 'micros'){ S.step = S.back || 'saved'; render(); } return; }
   if (S.step === 'write' && S.found && S.found.recipes.length > 1){ S.step='found'; render(); return; }
   var o=['type','write','sheet'], i=o.indexOf(S.step);
   /* going back off the sheet rebuilds the rows from the typed text — every ingredient
@@ -4282,7 +4557,23 @@ render();
 fitBar();
 /* Your own ingredients come in before anything is drawn from the sheet, so a recipe
    opened by ?id= finds them already on the list and its lines keep their cost. */
-loadMenus().then(function(){ if (S.step==='sheet' || S.step==='saved') render(); });
+/* `?micros=1` opens the Micros request as a module of its own — its own door on the
+   Recipes page, not a button buried inside Saved recipes. It is the same screen and
+   the same code; only the way in is different. The menu has to be read before it can
+   open, so the screen says so rather than flashing an empty list. */
+var MICSOLO = Q.get('micros') === '1';
+loadMenus().then(function(){
+  if (MICSOLO){
+    if (!MENUS.length){ flash('No menus yet — make one first on Saved recipes.', true); return; }
+    var run = MENUS.filter(function(m){ return m.running; })[0];
+    MICREQ.menuId = MICREQ.menuId || (run ? run.id : MENUS[0].id);
+    MICREQ.today  = new Date().toISOString().slice(0,10);
+    S.back = 'micros'; S.step = 'micros'; MICREQ.ready = false; render();
+    loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+    return;
+  }
+  if (S.step==='sheet' || S.step==='saved') render();
+});
 loadMine().then(function(){
   refreshOpts();
   if (S.step === 'sheet'){ rows(); foot(); }
