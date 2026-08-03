@@ -358,17 +358,27 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow .sd{font-family:var(--sans);font-size:11px;opacity:.45;flex:0 0 auto}
 .srm{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:none;border:none;color:var(--vino);opacity:.45;cursor:pointer;padding:6px 2px;flex:0 0 auto}
 .srm:hover{opacity:1;text-decoration:underline}
-/* a folder — a menu, or a section inside one. Deliberately taller and quieter than a
-   recipe row: you are choosing a place, not reading a dish. */
-.fold{display:flex;align-items:baseline;gap:12px;width:100%;background:#fff;border:1px solid rgba(64,2,7,.14);
-  border-radius:3px;padding:13px 14px;margin-bottom:7px;text-align:left;cursor:pointer;font:inherit;color:inherit}
-.fold:hover{border-color:rgba(64,2,7,.45);background:rgba(232,217,199,.3)}
-.fold .fn{font-family:var(--serif);font-size:19px;flex:0 0 auto}
-.fold .fm{font-family:var(--sans);font-size:12px;opacity:.55;flex:1 1 auto}
-.fold .fc{font-family:var(--sans);font-size:13px;opacity:.5;flex:0 0 auto;font-variant-numeric:tabular-nums}
-.fold.dim{opacity:.6}
+/* a folder — a menu, or a section inside one. A shelf, not a column: the whole book
+   is a couple of bands you look at rather than ten lines you scroll past. The vino
+   spine says it is live; a folder that has been put away loses it. */
+.folds{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:8px;margin-bottom:6px}
+.fold{display:flex;align-items:center;gap:11px;background:var(--cream);border:1px solid var(--sabbia-dark);
+  border-left:3px solid var(--vino);border-radius:0 5px 5px 0;padding:12px 13px;min-height:52px;
+  box-sizing:border-box;text-align:left;cursor:pointer;font:inherit;color:inherit;transition:background .12s}
+.fold:hover{background:#fff;border-left-color:var(--oro)}
+.fold .ft{flex:1 1 auto;min-width:0}
+.fold .fn{display:block;font-family:var(--serif);font-size:19px;color:var(--vino);line-height:1.15;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fold .fm{display:block;font-family:var(--sans);font-size:10px;color:var(--vino-light);opacity:.65;
+  margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fold .fc{flex:0 0 auto;width:27px;height:27px;border-radius:50%;background:var(--vino);color:var(--cream);
+  display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:12px;
+  font-weight:600;font-variant-numeric:tabular-nums}
+.fold.dim{border-left-color:var(--sabbia-dark)}
+.fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
+.fold.dim .fn{opacity:.65}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
-@media(max-width:520px){.fold{flex-wrap:wrap}.fold .fm{flex:1 0 100%;order:3}}
+@media(max-width:520px){.folds{grid-template-columns:1fr}}
 .newr{font-family:var(--sans);font-size:13px;background:none;border:1px dashed rgba(64,2,7,.35);border-radius:3px;color:var(--vino);padding:9px 14px;margin:14px 0 4px;cursor:pointer}
 .newr:hover{border-style:solid;background:rgba(232,217,199,.3)}
 
@@ -3059,14 +3069,14 @@ function render(){
     };
     var fbtn = function(f){
       return '<button class="fold'+(f.dim?' dim':'')+'" data-fold="'+esc(f.key)+'">' +
-        '<span class="fn">'+esc(f.name)+'</span>' +
-        '<span class="fm">'+esc(f.note||'')+'</span>' +
+        '<span class="ft"><span class="fn">'+esc(f.name)+'</span>' +
+        '<span class="fm">'+(f.note ? esc(f.note) : '&nbsp;')+'</span></span>' +
         '<span class="fc">'+f.n+'</span></button>';
     };
     var sbtn = function(g){
       return '<button class="fold" data-fsec="'+esc(g.key)+'">' +
-        '<span class="fn">'+esc(g.name)+'</span>' +
-        '<span class="fm"></span>' +
+        '<span class="ft"><span class="fn">'+esc(g.name)+'</span>' +
+        '<span class="fm">&nbsp;</span></span>' +
         '<span class="fc">'+g.rs.length+'</span></button>';
     };
 
@@ -3098,7 +3108,7 @@ function render(){
     else if (!S.fmenu){
       var fs2 = folders();
       body = '<div class="crumb">Tap a menu to see what is on it.</div>' +
-             (fs2.length ? fs2.map(fbtn).join('')
+             (fs2.length ? '<div class="folds">' + fs2.map(fbtn).join('') + '</div>'
                          : '<div class="tip">No menus yet. Make one on the Menus screen and the dishes will file themselves.</div>');
     }
     else {
@@ -3116,7 +3126,8 @@ function render(){
                                : '<div class="tip">Nothing in here.</div>');
       } else {
         body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
-               ' across '+gs.length+' sections</div>' + gs.map(sbtn).join('');
+               ' across '+gs.length+' sections</div>' +
+               '<div class="folds">' + gs.map(sbtn).join('') + '</div>';
       }
     }
 
