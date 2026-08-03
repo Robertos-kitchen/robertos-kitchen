@@ -3465,7 +3465,7 @@ function render(){
       }
     }
 
-    w.innerHTML = '<div class="pane">' +
+    w.innerHTML = '<div class="pane">' + parkedNote() +
       (S.listErr
         ? '<div class="todo"><b>Could not reach the recipe list.</b> '+esc(S.listErr)+'</div>'
         : !S.saved.length
@@ -3533,14 +3533,20 @@ function render(){
     var mainsBad = bad.filter(function(x){ return x.r.kind === 'main'; });
     var batsBad  = bad.filter(function(x){ return x.r.kind === 'batch'; });
     var hardCount = bad.filter(hardOf).length;
-    w.innerHTML = '<div class="pane">' +
+    /* Unsaved work belongs here more than anywhere: it IS unfinished work, and this is
+       the door he opens to ask "is anything not done?". He could not find it before
+       because it only ever showed on the What are you making? screen. */
+    w.innerHTML = '<div class="pane">' + parkedNote() +
       (!S.tally
         ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
           'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
         : !bad.length
-          ? '<div class="q">Nothing needs finishing</div>' +
+          ? '<div class="q">' + (parkedList().length ? 'Nothing saved needs finishing' : 'Nothing needs finishing') + '</div>' +
             '<div class="sub">All '+live2.length+' recipes have an ingredient and an amount on every line, ' +
-            'every batch inside them is still there, and every dish has its section, its price and a menu.</div>'
+            'every batch inside them is still there, and every dish has its section, its price and a menu.' +
+            /* saying "nothing needs finishing" above a box full of unsaved work is a lie */
+            (parkedList().length ? ' <b>What is in Unsaved work above has not been saved yet</b>, so it is not counted here.' : '') +
+            '</div>'
           : '<div class="q">Needs finishing</div>' +
             '<div class="sub"><b>'+bad.length+' of '+live2.length+'</b> are not done. ' +
             (hardCount ? '<b>'+hardCount+'</b> of them cannot be costed at all — those are first, in red. ' : '') +
