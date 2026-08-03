@@ -277,8 +277,12 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .micin.bad{border-color:#8d1f1f;background:#fdf5f5}
 .miclen{font-family:var(--sans);font-size:11px;opacity:.5;min-width:38px}
 .miclen.bad{opacity:1;color:#8d1f1f;font-weight:700}
-.micnum{font-family:var(--serif);font-size:16px;text-align:right;min-width:74px;flex:0 0 auto}
+/* three figures in a row need saying which is which — unlabelled they are a guess */
+.micnum{font-family:var(--serif);font-size:16px;text-align:right;min-width:74px;flex:0 0 auto;
+  display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
 .micnum .none{font-family:var(--sans);font-size:11px;font-style:normal;color:var(--attn)}
+.miclbl{font-family:var(--sans);font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;
+  opacity:.5;margin-top:1px}
 .micfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px}
 /* Send sits apart from Download and Print, with a line above it: it is the one control
    on this screen that cannot be undone, and it should not read as a third button. */
@@ -291,7 +295,7 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .micdone{background:rgba(75,81,40,.1);border:1px solid rgba(75,81,40,.35);border-radius:4px;
   padding:14px 16px;font-family:var(--sans);font-size:12.5px;line-height:1.6}
 .micdone b{font-size:13.5px;color:var(--oliva)}
-@media (max-width:640px){ .micnum{min-width:0;text-align:left} .micin{width:150px} }
+@media (max-width:640px){ .micnum{min-width:0;text-align:left;align-items:flex-start} .micin{width:150px} }
 .sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
 .sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
@@ -1486,6 +1490,11 @@ function menuPlain(msg){
 var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
                confirm:false, sent:0, today:'' };
 
+/* The net selling price — the price with every tax taken back out. Written as the form's
+   own formula writes it, not as ÷1.225, so the screen and the sheet can never disagree:
+   VAT, municipality and service have all been inside the price since December 2025. */
+function micNet(price){ return price - price * 0.183675; }
+
 /* his own shorthand, as far as a machine can take it: drop the joining words, keep the
    words that mean something, then shorten the longest one until it fits */
 var MICSTOP = { di:1, de:1, del:1, della:1, al:1, alla:1, allo:1, ai:1, con:1, e:1, la:1,
@@ -1759,7 +1768,7 @@ function micPrintHtml(){
       fam = r.section;
       body += '<tr class="fam"><td colspan="6">' + esc(fam) + '</td></tr>';
     }
-    var net = (r.price != null) ? (r.price - r.price*0.183675) : null;
+    var net = (r.price != null) ? micNet(r.price) : null;
     var pct = (r.cost != null && net) ? (r.cost/net*100) : null;
     body += '<tr>' +
       '<td class="code"></td>' +
@@ -1767,6 +1776,7 @@ function micPrintHtml(){
       '<td class="till">' + esc(r.micros||'') + '</td>' +
       '<td class="n">' + (r.cost==null ? '—' : fmt(r.cost)) + '</td>' +
       '<td class="n">' + (r.price==null ? '—' : fmt(r.price)) + '</td>' +
+      '<td class="n">' + (net==null ? '—' : fmt(net)) + '</td>' +
       '<td class="n">' + (pct==null ? '—' : pct.toFixed(1)+'%') + '</td></tr>';
   });
   return '<!doctype html><html><head><meta charset="utf-8">' +
@@ -1795,7 +1805,9 @@ function micPrintHtml(){
       '<span>Type of request: <b>Addition</b></span></div>' +
     '<table><thead><tr><th>Micros code</th><th>Item name in menu</th>' +
       '<th>Item name in Micros (16)</th><th class="n">Cost</th>' +
-      '<th class="n">Sales price<br>incl. all taxes</th><th class="n">Cost %</th></tr></thead>' +
+      '<th class="n">Sales price<br>incl. all taxes</th>' +
+      '<th class="n">Net selling price<br>excl. all taxes</th>' +
+      '<th class="n">Cost %</th></tr></thead>' +
     '<tbody>' + body + '</tbody></table>' +
     '<div class="foot">Micros codes are left blank for Aung to assign. Cost % is against the ' +
       'net price — the sales price with VAT, municipality and service taken out (÷ 1.225), the ' +
@@ -2778,8 +2790,15 @@ function render(){
           '<span class="micnm">'+esc(r.name)+'<span class="micsec">'+esc(r.section)+'</span></span>' +
           '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
             '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
-          '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+'</span>' +
-          '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+'</span>' +
+          '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+
+            '<span class="miclbl">cost</span></span>' +
+          '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
+            '<span class="miclbl">price</span></span>' +
+          /* the same figure the form's own formula gives — the price with VAT, municipality
+             and service taken back out. It is what the cost % is worked against, so it is
+             shown rather than left to be worked out from the other two. */
+          '<span class="micnum">'+(r.price==null?'<i class="none">—</i>':fmt(micNet(r.price)))+
+            '<span class="miclbl">net</span></span>' +
         '</div>';
       }).join('') +
 
