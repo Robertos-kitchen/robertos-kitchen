@@ -5028,11 +5028,27 @@ function readMany(fileList){
 
 function handlePicked(fileList){
   if (!fileList || !fileList.length) return;
-  var many = fileList.length > 1;
-  var st = $('brs');
-  if (st){ st.className = 'brn'; st.textContent = 'Reading ' + (many ? fileList.length + ' files…' : fileList[0].name + '…'); }
+  /* ── take a copy of the list, now, before anything is read ──
+     The input is reset the instant this returns — `this.value=''` — so that picking
+     the SAME file twice still fires. Resetting it empties the live FileList this
+     argument points at, and every look at fileList[0] after the read is therefore a
+     look at nothing.
 
-  readMany(fileList).then(function(res){
+     That is the bug that stopped a workbook importing all day. It only bit a single
+     file holding MORE than one recipe — the ordinary case, a dish with its sub-recipes
+     — because that path is the one that reads fileList[0].name to label the screen.
+     It threw, the catch below read the same dead thing and threw again, and a thrown
+     error inside a catch reaches nobody: no message, and "Reading 1 of 1" on screen
+     for ever. It looked like a hang and it was never a hang.
+
+     Every test I ran passed because a hand-built array does not empty itself. */
+  var files = [].slice.call(fileList);
+  if (!files.length) return;
+  var many = files.length > 1;
+  var st = $('brs');
+  if (st){ st.className = 'brn'; st.textContent = 'Reading ' + (many ? files.length + ' files…' : files[0].name + '…'); }
+
+  readMany(files).then(function(res){
     if (!res.recipes.length){
       throw new Error(res.failed.length
         ? 'none of those ' + res.files + ' files could be read. ' +
@@ -5046,7 +5062,7 @@ function handlePicked(fileList){
     if (!many && res.recipes.length === 1 && !res.failed.length){
       useImported(res.recipes[0]);
     } else {
-      res.fileName = many ? res.files + ' files' : fileList[0].name;
+      res.fileName = many ? res.files + ' files' : files[0].name;
       S.found = res; S.fq = ''; S.step = 'found';
     }
     render(); window.scrollTo(0,0);
@@ -5054,14 +5070,14 @@ function handlePicked(fileList){
     var s = $('brs');
     /* Name the file. "Cannot read properties of undefined" tells a chef nothing and
        tells whoever has to fix it nothing either — which of sixty workbooks was it? */
-    var which = many ? 'one of those ' + fileList.length + ' files'
-                     : '“' + fileList[0].name + '”';
+    var which = many ? 'one of those ' + files.length + ' files'
+                     : '“' + files[0].name + '”';
     var msg = plain(err.message);
     if (/undefined|null|not a function|Cannot read/i.test(msg))
       msg = 'the app tripped over something in it (' + msg + '). Send me the file and ' +
             'I will make it read — nothing has been saved.';
     if (s){ s.className = 'brn bad'; s.textContent = 'Could not use ' + which + ' — ' + msg; }
-    try { console.error('[recipes import]', fileList[0] && fileList[0].name, err); } catch(x){}
+    try { console.error('[recipes import]', files.map(function(f){ return f.name; }), err); } catch(x){}
   });
 }
 
