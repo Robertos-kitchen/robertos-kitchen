@@ -101,6 +101,8 @@ td.w .nm{display:block;font-family:var(--serif);font-size:17px;line-height:22px;
 td.w .meta{display:block;font-family:var(--sans);font-size:10.5px;line-height:15px;height:15px;
      margin-top:2px;text-transform:none;letter-spacing:.2px;
      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* a wrong unit is a wrong cost, so this one is never clipped */
+td.w .meta.warnu{white-space:normal;overflow:visible;height:auto;line-height:14px;margin-top:3px}
 td.w .one{color:var(--oliva)}
 td.w .many{color:var(--attn)}
 td.w .adj{color:var(--vino-light)}
@@ -117,7 +119,14 @@ select.prod optgroup{color:var(--vino-light);font-weight:700}
 input.cell{width:100%;border:none;background:transparent;font-family:var(--sans);font-size:15px;padding:11px 7px;outline:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
 input.cell:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 input.cell::placeholder{color:var(--sabbia-dark)}
-select.unit{border:none;background:transparent;font-family:var(--sans);font-size:12px;color:var(--vino-light);padding:11px 4px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none}
+/* It was 21px of grey in an unlabelled column, so "0.05" and "g" never read as one
+   thing. It sits tight against the number now, in the same ink, and it is wide enough
+   to hold "pcs" or a unit the row brought in from a file. */
+select.unit{border:none;background:transparent;font-family:var(--sans);font-size:13px;color:var(--vino);
+  padding:11px 4px 11px 0;min-width:38px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none}
+select.unit:hover{text-decoration:underline;text-underline-offset:3px}
+table.sheet td.un{padding-left:0}
+table.sheet th.un{padding-left:0}
 select.unit:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 td.money{padding:12px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 td.money.zero{color:var(--sabbia-dark)}
@@ -3511,7 +3520,10 @@ function render(){
       '<colgroup><col style="width:30px"><col style="width:32%"><col><col class="cq"><col style="width:56px">' +
         '<col style="width:82px"><col style="width:46px"><col style="width:32px"></colgroup>' +
       '<thead><tr>' +
-        '<th class="c"></th><th>You wrote</th><th>Ingredient — Aung\'s list</th><th class="n">Qty</th><th></th>' +
+        /* The unit column had no heading, so a lone "g" beside a number read as part of
+           the number. "How do I know if that 1 is a kilo or a gram" is the question it
+           caused, and it is a fair one. */
+        '<th class="c"></th><th>You wrote</th><th>Ingredient — Aung\'s list</th><th class="n">Qty</th><th class="un">Unit</th>' +
         '<th class="n">Cost</th><th class="c">Trim</th><th></th>' +
       '</tr></thead><tbody id="tb"></tbody></table></div>' +
       '<div class="addline"><input id="more" placeholder="+ more ingredients — type as many as you like…"></div>' +
@@ -3762,12 +3774,27 @@ function rowHTML(r, i){
   var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+'">' +
     '<td class="ib">'+tag+'</td>' +
     '<td class="w"><span class="nm" title="'+esc(r.word)+'">'+esc(r.word)+'</span>' +
-      '<span class="meta">'+sub+'</span></td>' +
+      '<span class="meta">'+sub+'</span>' +
+      /* said out loud, on the line, because a wrong unit is a wrong cost and there is
+         nothing on the sheet to give it away */
+      (it && u && unitsFor(it).indexOf(u) < 0
+        /* its own line, allowed to wrap. The one-line meta above is clipped with an
+           ellipsis, and "…put the a" is not a warning. */
+        ? '<span class="meta warnu"><i class="stale">this line is in ' + esc(u) + ', but it is sold by ' +
+          esc(unitsFor(it).join(' or ')) + ' — put the amount in ' + esc(defUnit(it)) +
+          ' or the cost is wrong</i></span>'
+        : '') + '</td>' +
     '<td>'+sel+'</td>' +
     '<td><input class="cell qty" data-i="'+i+'" data-f="qty" inputmode="decimal" value="'+(r.qty==null?'':r.qty)+'" placeholder="—"></td>' +
-    '<td><select class="unit" data-i="'+i+'" data-f="unit">'+
+    '<td class="un"><select class="unit" data-i="'+i+'" data-f="unit">'+
       (function(){ var us = unitsFor(it);
-        if (!it && r.unit && us.indexOf(r.unit) < 0) us = [r.unit].concat(us);  /* show what the file said */
+        /* A select cannot show a value that is not one of its options — it silently
+           displays the FIRST one instead. Salmoriglio held 0.05 L against a batch sold
+           by the kilo, so the box read "g": a thousandth of the real amount, on screen,
+           looking normal. And one touch of the box would have written that g down.
+           Whatever the row actually holds is ALWAYS in the list now, and the line below
+           says the two disagree. */
+        if (u && us.indexOf(u) < 0) us = [u].concat(us);
         return us; })().map(function(x){
           return '<option'+(x===u?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></td>' +
     '<td class="money'+(c==null?' zero':'')+'">'+fmt(c)+'</td>' +
