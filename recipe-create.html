@@ -4979,8 +4979,19 @@ function readMany(fileList){
     skipped ? 'none of those ' + skipped + ' files is an Excel, Word or PDF file'
             : 'no files picked'));
 
-  var st = $('brs'), done = 0;
-  var say = function(){ if (st){ st.className='brn'; st.textContent = 'Reading ' + done + ' of ' + files.length + '…'; } };
+  /* "Reading…" and nothing else is indistinguishable from a page that has died —
+     which is exactly what it looked like. Say which file it is on, and once it has
+     been going a while say that a big folder takes minutes, so waiting is a decision
+     rather than a guess. The file name is also the one thing needed to find out
+     WHICH workbook stopped it, if one ever does. */
+  var st = $('brs'), done = 0, now = '', began = new Date().getTime();
+  var say = function(){
+    if (!st) return;
+    st.className = 'brn';
+    var slow = (new Date().getTime() - began) > 15000;
+    st.textContent = 'Reading ' + done + ' of ' + files.length + (now ? ' — ' + now : '') + '…' +
+      (slow ? '  (' + files.length + ' files takes a few minutes — leave it running)' : '');
+  };
   say();
 
   /* Read them in small groups. Sixty spreadsheets opened at once on a laptop that is
@@ -4990,6 +5001,8 @@ function readMany(fileList){
     if (i >= files.length) return Promise.resolve();
     var group = files.slice(i, i + 4); i += 4;
     return Promise.all(group.map(function(f){
+      now = f.name; say();
+      try { console.log('[recipes import] reading', f.name); } catch(x){}
       return readAnyFile(f)
         .then(function(res){
           done++; say();
@@ -5002,7 +5015,8 @@ function readMany(fileList){
           if (!(res.recipes||[]).length)
             failed.push({ name:f.name, why:'nothing in it looks like a recipe' });
         })
-        .catch(function(e){ done++; say(); failed.push({ name:f.name, why:plain(e.message) }); });
+        .catch(function(e){ done++; say(); failed.push({ name:f.name, why:plain(e.message) });
+          try { console.warn('[recipes import] could not read', f.name, e); } catch(x){} });
     })).then(step);
   }
 
