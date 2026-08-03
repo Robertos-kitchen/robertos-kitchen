@@ -8,7 +8,7 @@ body{margin:0;background:var(--cream);color:var(--vino);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.55}
 .in{max-width:1240px;margin:0 auto;padding:20px 15px 70px}
 h1{font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 4px}
-.sub{color:var(--vino-light);font-size:13.5px;margin:0 0 16px;max-width:64ch}
+.sub{color:var(--vino-light);font-size:13.5px;margin:0 0 16px;max-width:66ch}
 .drop{border:1.5px dashed var(--sabbia-dark);border-radius:9px;background:#fff;
   padding:24px 16px;text-align:center;cursor:pointer;display:block}
 .drop.on{border-color:var(--vino);background:#fff8f2}
@@ -19,6 +19,9 @@ input[type=file]{display:none}
 .bar{height:5px;background:#eadfd0;border-radius:3px;overflow:hidden;margin-top:9px;display:none}
 .bar i{display:block;height:100%;width:0;background:var(--vino);transition:width .25s}
 .warn{background:#fff3f3;border:1px solid #e8c4c4;color:#7a1218;border-radius:7px;padding:10px 13px;font-size:13px;margin-top:13px}
+.did{background:#fff;border:1px solid var(--sabbia-dark);border-radius:7px;padding:11px 13px;font-size:12.5px;
+  color:var(--vino-light);margin-top:13px}
+.did b{color:var(--vino)}
 .grid{display:grid;gap:15px;margin-top:20px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .card{background:#fff;border:1px solid var(--sabbia-dark);border-radius:9px;overflow:hidden;display:flex;flex-direction:column}
 .card h2{margin:0;padding:11px 13px 2px;font-size:14px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
@@ -43,10 +46,10 @@ tr.best td{background:#f7f2ea;font-weight:600}
 
 <div class="in">
 <h1>Dish photos — the plate, cut out properly</h1>
-<p class="sub">The plate is cut out by a segmentation model running on this device — not by
-rules about pale pixels, which is why the last attempt brought the table with it. Nothing is
-uploaded, nothing is kept, and no photo costs anything to process however many you do. The
-first one downloads the model, about 44MB, once.</p>
+<p class="sub">The plate is cut out by a segmentation model running on this device, then art
+directed: only the plate is kept, the angle it was shot at is taken out so it reads as a
+circle head-on, and the rim keeps its detail instead of burning out. Nothing is uploaded,
+nothing is kept, and no photo costs anything however many you do.</p>
 
 <label class="drop" id="drop">
   <b>Take or choose a photo</b>
@@ -56,6 +59,7 @@ first one downloads the model, about 44MB, once.</p>
 <div class="note" id="note"></div>
 <div class="bar" id="bar"><i id="barin"></i></div>
 <div id="warn"></div>
+<div id="did"></div>
 <div class="grid" id="grid"></div>
 <div id="sizes"></div>
 <div class="orig" id="orig"></div>
@@ -63,25 +67,32 @@ first one downloads the model, about 44MB, once.</p>
 
 <script type="module">
 /* ═══════════════════════════════════════════════════════════════════════════════
-   The cut-out is the whole job.
+   Three faults he named, and what each one actually needed.
 
-   The version before this one looked for pale, near-colourless pixels and fitted an
-   ellipse to them. On a white plate standing on pale wood under a warm light there is
-   no line between the two, so it took both — a plate with a slab of table welded to it.
-   No amount of tuning fixes that: the rule cannot see what a plate IS.
+   THE SHARD. A pale wedge flew off the top-right rim in every frame — a highlight on
+   the table that the model decided was part of the plate. A matte is not one object,
+   it is every pixel the model liked, and a photograph of a restaurant pass has plenty
+   it likes. So: keep only the largest connected piece of it and fill that piece's
+   holes. A plate is one thing; anything not touching it is not the plate.
 
-   RMBG-1.4 can. It is a segmentation model, it runs here on the device through
-   Transformers.js on WebGPU (WebAssembly if there is no WebGPU), and it gives back a
-   per-pixel alpha — a real matte, with the rim, the shadow under the rim and the sauce
-   all understood as one object and the table understood as not.
+   THE TILT. On a table the angle looks natural, because the table explains it. Cut out
+   and stood on flat colour there is nothing to explain it, so it reads as a photograph
+   taken carelessly. Fit the ellipse the plate makes, then apply the affine that turns
+   that ellipse into a circle — the plate comes back head-on, as if shot from directly
+   above, and every dish in the book sits at the same attitude. It is also what makes
+   the framing exact: a circle of known radius is centred and scaled identically every
+   single time, without measuring anything.
 
-   On the device matters at his numbers: a thousand photos through an API is a bill that
-   never stops; a thousand photos through this is nothing at all, and no photograph of
-   his kitchen ever leaves the phone.
+   THE BURNT RIM. Mapping the brightest pixel to pure white throws away the one part of
+   a white plate that shows its shape. The levels now stop at 245 with a shoulder, so
+   the highlight rolls off instead of clipping and the rim keeps its edge against a
+   cream page.
 
-   Everything after the matte is ordinary craft, and it is what makes it look made
-   rather than cut: trim to the plate, stand it at the same size in every frame, drop a
-   real shadow taken from the matte itself, and put the colour right off the plate.
+   And three more, because none of the above is worth much on its own:
+   the matte is pulled in by a pixel so no fringe of tablecloth rides along the edge;
+   the alpha is softened by one pixel so the cut does not saw against a flat ground;
+   the shadow is a contact shadow under the plate rather than a blur of the plate,
+   which is the difference between something standing on a page and something stuck on.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 import { AutoModel, AutoProcessor, RawImage, env }
@@ -91,97 +102,148 @@ env.allowLocalModels = false;
 
 const el = id => document.getElementById(id);
 const note = t => { el('note').textContent = t; };
-const bar = p => {
-  const b = el('bar');
-  if (p == null){ b.style.display='none'; return; }
-  b.style.display='block'; el('barin').style.width = Math.round(p*100)+'%';
-};
+const bar = p => { const b=el('bar');
+  if (p==null){ b.style.display='none'; return; }
+  b.style.display='block'; el('barin').style.width=Math.round(p*100)+'%'; };
 
-let model = null, processor = null;
+let model=null, processor=null;
 
 async function ready(){
   if (model && processor) return;
   note('Getting the model — this happens once, then it is on the device for good.');
   bar(0.05);
   model = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
-    config: { model_type:'custom' },
+    config:{ model_type:'custom' },
     progress_callback: p => { if (p.status==='progress' && p.total) bar(0.05+0.9*(p.loaded/p.total)); }
   });
   processor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
-    config: {
-      do_normalize:true, do_pad:false, do_rescale:true, do_resize:true,
+    config:{ do_normalize:true, do_pad:false, do_rescale:true, do_resize:true,
       image_mean:[0.5,0.5,0.5], image_std:[1,1,1],
       feature_extractor_type:'ImageFeatureExtractor',
       resample:2, rescale_factor:0.00392156862745098,
-      size:{ width:1024, height:1024 }
-    }
+      size:{ width:1024, height:1024 } }
   });
   bar(null);
 }
 
-/* ── the matte ─────────────────────────────────────────────────────────────── */
-async function matte(url){
-  const image = await RawImage.fromURL(url);
-  const { pixel_values } = await processor(image);
-  const { output } = await model({ input: pixel_values });
-  const m = await RawImage.fromTensor(output[0].mul(255).to('uint8')).resize(image.width, image.height);
-  return { image, alpha:m.data, w:image.width, h:image.height };
+/* ── 1. one object, no shard ───────────────────────────────────────────────── */
+function largestPiece(bin,w,h){
+  const seen=new Uint8Array(w*h), stack=new Int32Array(w*h);
+  let best=null, bestN=0;
+  for (let s=0;s<bin.length;s++){
+    if (!bin[s]||seen[s]) continue;
+    let top=0, n=0; stack[top++]=s; seen[s]=1;
+    const cells=[];
+    while(top){
+      const k=stack[--top]; cells.push(k); n++;
+      const kx=k%w, ky=(k-kx)/w;
+      if (kx>0   && bin[k-1] && !seen[k-1]){ seen[k-1]=1; stack[top++]=k-1; }
+      if (kx<w-1 && bin[k+1] && !seen[k+1]){ seen[k+1]=1; stack[top++]=k+1; }
+      if (ky>0   && bin[k-w] && !seen[k-w]){ seen[k-w]=1; stack[top++]=k-w; }
+      if (ky<h-1 && bin[k+w] && !seen[k+w]){ seen[k+w]=1; stack[top++]=k+w; }
+    }
+    if (n>bestN){ bestN=n; best=cells; }
+  }
+  const out=new Uint8Array(w*h);
+  if (best) for (const k of best) out[k]=1;
+  return { mask:out, n:bestN };
 }
-
-/* an alpha straight off a model is soft at the edge, and soft edges over a flat ground
-   read as a halo. Pull the mid-tones apart so the edge is a line, not a fade. */
-function crisp(a){
-  const out = new Uint8Array(a.length);
-  for (let i=0;i<a.length;i++){
-    const v = a[i]/255;
-    out[i] = Math.max(0, Math.min(255, Math.round(255/(1+Math.exp(-14*(v-0.5))))));
+/* anything enclosed by the plate belongs to the plate — a dark sauce the model was
+   unsure about must not become a hole punched through the middle of the dish */
+function fillHoles(bin,w,h){
+  const out=new Uint8Array(bin), open=new Uint8Array(w*h), stack=new Int32Array(w*h);
+  let top=0;
+  const push=k=>{ if(!bin[k]&&!open[k]){ open[k]=1; stack[top++]=k; } };
+  for (let x=0;x<w;x++){ push(x); push((h-1)*w+x); }
+  for (let y=0;y<h;y++){ push(y*w); push(y*w+w-1); }
+  while(top){
+    const k=stack[--top], kx=k%w, ky=(k-kx)/w;
+    if (kx>0) push(k-1); if (kx<w-1) push(k+1);
+    if (ky>0) push(k-w); if (ky<h-1) push(k+w);
+  }
+  let filled=0;
+  for (let i=0;i<out.length;i++) if(!out[i] && !open[i]){ out[i]=1; filled++; }
+  return { mask:out, filled };
+}
+/* pull the edge in by a pixel: the outermost row of a matte is half table */
+function erode(bin,w,h){
+  const out=new Uint8Array(bin);
+  for (let y=1;y<h-1;y++) for (let x=1;x<w-1;x++){
+    const k=y*w+x;
+    if (bin[k] && (!bin[k-1]||!bin[k+1]||!bin[k-w]||!bin[k+w])) out[k]=0;
   }
   return out;
 }
-
-function boxOf(alpha,w,h){
-  let minx=w, maxx=-1, miny=h, maxy=-1;
+/* one pixel of softness so the cut does not saw against a flat ground */
+function feather(bin,w,h){
+  const a=new Uint8Array(w*h);
   for (let y=0;y<h;y++) for (let x=0;x<w;x++){
-    if (alpha[y*w+x]>140){ if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y; }
+    let s=0,n=0;
+    for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){
+      const yy=y+dy, xx=x+dx;
+      if (yy<0||xx<0||yy>=h||xx>=w) continue;
+      s+=bin[yy*w+xx]; n++;
+    }
+    a[y*w+x]=Math.round(255*s/n);
   }
-  if (maxx<0) return null;
-  return { x:minx, y:miny, w:maxx-minx+1, h:maxy-miny+1,
-           cut:(minx<=1||miny<=1||maxx>=w-2||maxy>=h-2) };
+  return a;
 }
 
-/* ── colour, read off the plate itself ─────────────────────────────────────── */
-function correct(px, alpha, w, h){
+/* ── 2. the ellipse the plate makes, and the affine that squares it up ─────── */
+function ellipseOf(bin,w,h){
+  let n=0,sx=0,sy=0;
+  for (let p=0;p<bin.length;p++) if(bin[p]){ const x=p%w; n++; sx+=x; sy+=(p-x)/w; }
+  if (!n) return null;
+  const cx=sx/n, cy=sy/n;
+  let xx=0,yy=0,xy=0;
+  for (let p=0;p<bin.length;p++) if(bin[p]){
+    const x=p%w, y=(p-x)/w, dx=x-cx, dy=y-cy;
+    xx+=dx*dx; yy+=dy*dy; xy+=dx*dy;
+  }
+  xx/=n; yy/=n; xy/=n;
+  const tr=xx+yy, det=xx*yy-xy*xy;
+  const disc=Math.sqrt(Math.max(0,tr*tr/4-det));
+  const a=2*Math.sqrt(Math.max(tr/2+disc,1e-6));
+  const b=2*Math.sqrt(Math.max(tr/2-disc,1e-6));
+  return { cx, cy, a, b, ang:0.5*Math.atan2(2*xy, xx-yy), round:b/a };
+}
+
+/* ── 3. colour off the plate, with the highlight kept ──────────────────────── */
+function correct(px,bin,w,h){
   let sr=0,sg=0,sb=0,n=0;
   for (let y=0;y<h;y+=2) for (let x=0;x<w;x+=2){
-    if (alpha[y*w+x]<200) continue;                 /* only what is on the plate */
+    if (!bin[y*w+x]) continue;
     const i=(y*w+x)*4, r=px[i], g=px[i+1], b=px[i+2];
     const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
     if (r*0.299+g*0.587+b*0.114>150 && (mx-mn)<60){ sr+=r; sg+=g; sb+=b; n++; }
   }
-  let gr=1,gg=1,gb=1, balanced=false;
+  let gr=1,gg=1,gb=1,balanced=false;
   if (n>80){
-    const ar=sr/n, ag=sg/n, ab=sb/n, av=(ar+ag+ab)/3;
-    const cap=v=>Math.max(0.7,Math.min(1.3,v));
+    const ar=sr/n, ag=sg/n, ab=sb/n, av=(ar+ag+ab)/3, cap=v=>Math.max(0.72,Math.min(1.28,v));
     gr=cap(av/ar); gg=cap(av/ag); gb=cap(av/ab); balanced=true;
   }
-  /* levels measured on the plate only, so a dark table cannot drag the exposure */
-  const hist=new Uint32Array(256); let tot=0;
+  const hist=new Uint32Array(256); let tot=0, clipped=0;
   for (let y=0;y<h;y+=2) for (let x=0;x<w;x+=2){
-    if (alpha[y*w+x]<200) continue;
-    const i=(y*w+x)*4;
-    hist[(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114)|0]++; tot++;
+    if (!bin[y*w+x]) continue;
+    const i=(y*w+x)*4, L=(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114)|0;
+    hist[L]++; tot++; if (L>=254) clipped++;
   }
-  let lo=0, hi=255, acc=0;
-  for (let v=0;v<256;v++){ acc+=hist[v]; if(acc>tot*0.015){ lo=v; break; } }
+  let lo=0,hi=255,acc=0;
+  for (let v=0;v<256;v++){ acc+=hist[v]; if(acc>tot*0.02){ lo=v; break; } }
   acc=0;
-  for (let v=255;v>=0;v--){ acc+=hist[v]; if(acc>tot*0.015){ hi=v; break; } }
+  for (let v=255;v>=0;v--){ acc+=hist[v]; if(acc>tot*0.003){ hi=v; break; } }
   if (hi-lo<45){ lo=0; hi=255; }
+  /* the shoulder: everything above three quarters is compressed into the last fifth,
+     so a white rim keeps its shape instead of turning into a hole in the page */
+  const K=4, den=1-Math.exp(-K*0.25);
   const lut=new Uint8Array(256);
   for (let t=0;t<256;t++){
-    const u=Math.max(0,Math.min(1,(t-lo)/(hi-lo)));
-    lut[t]=Math.round(Math.max(0,Math.min(1,u+0.06*Math.sin(Math.PI*2*u)))*255);
+    let u=Math.max(0,Math.min(1,(t-lo)/(hi-lo)));
+    if (u>0.75) u=0.75+0.21*(1-Math.exp(-K*(u-0.75)))/den;
+    u=Math.max(0,Math.min(1,u+0.05*Math.sin(Math.PI*2*u)));
+    lut[t]=Math.round(u*255);
   }
-  const SAT=1.12;
+  const SAT=1.10;
   for (let j=0;j<px.length;j+=4){
     const R=lut[Math.min(255,Math.round(px[j]*gr))],
           G=lut[Math.min(255,Math.round(px[j+1]*gg))],
@@ -191,39 +253,43 @@ function correct(px, alpha, w, h){
     px[j+1]=Math.max(0,Math.min(255,Math.round(L+(G-L)*SAT)));
     px[j+2]=Math.max(0,Math.min(255,Math.round(L+(B-L)*SAT)));
   }
-  return balanced;
+  return { balanced, clippedPct: tot? 100*clipped/tot : 0 };
 }
 
-/* ── the plate, cut out, on a ground ───────────────────────────────────────── */
-function compose(cut, box, size, bg, shadow){
+/* ── standing it up ───────────────────────────────────────────────────────── */
+function deskew(cut, e){
+  /* R(θ)·diag(1, a/b)·R(−θ) — the ellipse becomes a circle of radius a, and because
+     the centre is a fixed point of it, the plate lands dead centre by construction */
+  const R=Math.ceil(e.a*1.04), S=R*2;
+  const c=Math.cos(e.ang), s=Math.sin(e.ang), k=e.a/e.b;
+  const m00=c*c+k*s*s, m01=c*s*(1-k), m10=m01, m11=s*s+k*c*c;
+  const out=document.createElement('canvas'); out.width=out.height=S;
+  const g=out.getContext('2d'); g.imageSmoothingQuality='high';
+  g.translate(R,R); g.transform(m00,m10,m01,m11,0,0); g.translate(-e.cx,-e.cy);
+  g.drawImage(cut,0,0);
+  return { canvas:out, R };
+}
+
+function compose(plate, size, bg, shadow){
   const out=document.createElement('canvas'); out.width=out.height=size;
   const g=out.getContext('2d');
   g.fillStyle=bg; g.fillRect(0,0,size,size);
-
-  const pad=0.86;                                    /* air round the plate, every time */
-  const sc=Math.min(size*pad/box.w, size*pad/box.h);
-  const dw=box.w*sc, dh=box.h*sc;
-  const dx=(size-dw)/2, dy=(size-dh)/2;
-
+  const pad=0.84, d=size*pad, o=(size-d)/2;
   if (shadow){
-    /* the shadow is the plate's own shape, blurred and dropped — which is what makes it
-       sit on the page instead of floating on it */
-    const s=document.createElement('canvas'); s.width=s.height=size;
-    const sg=s.getContext('2d');
-    sg.drawImage(cut, box.x, box.y, box.w, box.h, dx, dy, dw, dh);
-    sg.globalCompositeOperation='source-in';
-    sg.fillStyle='rgba(64,2,7,0.30)'; sg.fillRect(0,0,size,size);
+    /* a contact shadow: under the plate, tucked slightly, darkest where it touches.
+       A blurred copy of the plate is a sticker's shadow; this is an object's. */
     g.save();
-    g.filter='blur('+Math.round(size*0.022)+'px)';
-    g.globalAlpha=0.85;
-    g.translate(size*0.5, size*0.5+size*0.016);
-    g.scale(1.005,1.005);
-    g.translate(-size*0.5,-size*0.5);
-    g.drawImage(s,0,0);
+    g.translate(size/2, size/2+size*0.035);
+    const rg=g.createRadialGradient(0,0,d*0.30,0,0,d*0.52);
+    rg.addColorStop(0,'rgba(52,20,10,0.34)');
+    rg.addColorStop(0.72,'rgba(52,20,10,0.16)');
+    rg.addColorStop(1,'rgba(52,20,10,0)');
+    g.fillStyle=rg; g.scale(1,0.90);
+    g.beginPath(); g.arc(0,0,d*0.52,0,6.2832); g.fill();
     g.restore();
   }
   g.imageSmoothingQuality='high';
-  g.drawImage(cut, box.x, box.y, box.w, box.h, dx, dy, dw, dh);
+  g.drawImage(plate,0,0,plate.width,plate.height,o,o,d,d);
   return out;
 }
 
@@ -231,7 +297,6 @@ const bytesOf=u=>Math.round(u.length*0.75);
 const kbOf=u=>Math.round(bytesOf(u)/1024);
 function webpOK(){ const c=document.createElement('canvas'); c.width=c.height=1;
   return c.toDataURL('image/webp').indexOf('image/webp')>0; }
-
 function card(t,why,u,size,id){
   return '<div class="card"><h2>'+t+'</h2><p>'+why+'</p>'+
     '<div class="shot"><img src="'+u+'" alt="'+t+'"></div>'+
@@ -240,70 +305,95 @@ function card(t,why,u,size,id){
 }
 
 async function run(file){
-  el('grid').innerHTML=''; el('warn').innerHTML=''; el('sizes').innerHTML=''; el('orig').innerHTML='';
+  el('grid').innerHTML=''; el('warn').innerHTML=''; el('sizes').innerHTML='';
+  el('orig').innerHTML=''; el('did').innerHTML='';
   const url=URL.createObjectURL(file);
   try{
     await ready();
     note('Cutting the plate out…');
-    const { image, alpha, w, h } = await matte(url);
+    const image=await RawImage.fromURL(url);
+    const { pixel_values }=await processor(image);
+    const { output }=await model({ input:pixel_values });
+    const m=await RawImage.fromTensor(output[0].mul(255).to('uint8')).resize(image.width,image.height);
 
-    const a = crisp(alpha);
-    const box = boxOf(a,w,h);
-    if (!box){
+    const w=image.width, h=image.height;
+    let bin=new Uint8Array(w*h);
+    for (let i=0;i<bin.length;i++) bin[i]=m.data[i]>128?1:0;
+
+    const raw=bin.reduce((a,v)=>a+v,0);
+    const lp=largestPiece(bin,w,h);
+    const shardPx=raw-lp.n;
+    const fh=fillHoles(lp.mask,w,h);
+    bin=erode(fh.mask,w,h);
+    const alpha=feather(bin,w,h);
+
+    const e=ellipseOf(bin,w,h);
+    if (!e || lp.n < w*h*0.01){
       el('warn').innerHTML='<div class="warn"><b>Nothing could be picked out of this one.</b> '+
-        'The model found no subject it was confident about, so nothing is shown rather than '+
-        'something wrong.</div>';
+        'Rather than show something wrong, nothing is shown.</div>';
       note(''); return;
     }
+    let cutOff=false;
+    for (let x=0;x<w;x++){ if(bin[x]||bin[(h-1)*w+x]) cutOff=true; }
+    for (let y=0;y<h;y++){ if(bin[y*w]||bin[y*w+w-1]) cutOff=true; }
 
-    /* the picture with the matte on it, colour put right first */
     const src=document.createElement('canvas'); src.width=w; src.height=h;
     const sg=src.getContext('2d');
     sg.drawImage(image.toCanvas(),0,0);
     const idata=sg.getImageData(0,0,w,h);
-    const balanced=correct(idata.data,a,w,h);
-    for (let i=0,p=3;i<a.length;i++,p+=4) idata.data[p]=a[i];
+    const col=correct(idata.data,bin,w,h);
+    for (let i=0,p=3;i<alpha.length;i++,p+=4) idata.data[p]=alpha[i];
     sg.putImageData(idata,0,0);
 
+    const { canvas:plate }=deskew(src,e);
+
     const msgs=[];
-    if (box.cut) msgs.push('<b>The plate runs off the edge of this photograph.</b> What is not '+
-      'in the picture cannot be put back — the cut-out is whole only as far as the photo goes.');
-    if (!balanced) msgs.push('Not enough clean white on the plate to read the light off, so the '+
+    if (cutOff) msgs.push('<b>The plate runs off the edge of this photograph.</b> What was not '+
+      'photographed cannot be put back, so this one is whole only as far as the picture goes.');
+    if (!col.balanced) msgs.push('Not enough clean white on the plate to read the light off, so the '+
       'colour cast was left as it is rather than guessed at.');
+    if (col.clippedPct>4) msgs.push('About '+col.clippedPct.toFixed(0)+'% of the plate was burnt out '+
+      'in the original. The rim is rolled off as far as it can be, but detail that was never '+
+      'recorded cannot be recovered — that one is a lighting fix, not a software one.');
     if (msgs.length) el('warn').innerHTML='<div class="warn">'+msgs.join(' ')+'</div>';
 
+    el('did').innerHTML='<div class="did">'+
+      '<b>Shard:</b> '+(shardPx>0
+        ? shardPx.toLocaleString()+' stray pixels dropped — only the plate kept'
+        : 'none found in this one')+' &nbsp;·&nbsp; '+
+      '<b>Holes filled:</b> '+fh.filled.toLocaleString()+' &nbsp;·&nbsp; '+
+      '<b>Tilt:</b> the plate was '+Math.round(e.round*100)+'% round in the photo and is 100% now'+
+      ' &nbsp;·&nbsp; <b>Burnt out:</b> '+col.clippedPct.toFixed(1)+'% of the plate</div>';
+
     const SIZE=900, wp=webpOK(), type=wp?'image/webp':'image/jpeg', q=wp?0.82:0.86;
-    const A=compose(src,box,SIZE,'#FBF7F2',true).toDataURL(type,q);
-    const B=compose(src,box,SIZE,'#FFFFFF',false).toDataURL(type,q);
-    const C=compose(src,box,SIZE,'#E8D9C7',true).toDataURL(type,q);
-    const D=compose(src,box,SIZE,'#400207',true).toDataURL(type,q);
+    const A=compose(plate,SIZE,'#FBF7F2',true).toDataURL(type,q);
+    const B=compose(plate,SIZE,'#FFFFFF',false).toDataURL(type,q);
+    const C=compose(plate,SIZE,'#E8D9C7',true).toDataURL(type,q);
+    const D=compose(plate,SIZE,'#400207',true).toDataURL(type,q);
 
     el('grid').innerHTML=
-      card('1 · Cream, with a shadow','The house paper. The plate lifted off the table and stood '+
-        'on it, with a shadow taken from its own shape so it sits rather than floats.',A,SIZE,'cream-shadow')+
-      card('2 · Plain white','Nothing behind it at all. Flattest to print and smallest to keep.',B,SIZE,'white-flat')+
-      card('3 · Sabbia','The brand sand. Warmer, and it stops a white rim disappearing into the page.',C,SIZE,'sabbia')+
+      card('1 · Cream, with a shadow','The house paper, with a contact shadow under the rim so the '+
+        'plate stands on the page rather than being stuck to it.',A,SIZE,'cream-shadow')+
+      card('2 · Plain white','Nothing behind it at all. Flattest to print, smallest to keep.',B,SIZE,'white-flat')+
+      card('3 · Sabbia','The brand sand. Warmer, and it stops a white rim dissolving into the page.',C,SIZE,'sabbia')+
       card('4 · Vino','Deep and dark. Strongest on a screen at the pass; heaviest to print.',D,SIZE,'vino');
 
     const rows=[];
     for (const s of [600,760,900,1100]){
-      const c=compose(src,box,s,'#FBF7F2',true);
+      const c=compose(plate,s,'#FBF7F2',true);
       rows.push({ s, jpg:bytesOf(c.toDataURL('image/jpeg',0.86)),
                      webp: wp? bytesOf(c.toDataURL('image/webp',0.82)) : null });
     }
     el('sizes').innerHTML='<div class="sizes"><h2>What a thousand of them weigh</h2>'+
-      '<p style="margin:0;font-size:12.5px;color:#7a4a50">Measured from this photograph, not estimated. '+
-      'Cutting the table away is also what makes them small — what is left is a plate on one flat colour.</p>'+
-      '<table><tr><th>Square</th><th class="n">JPEG</th><th class="n">WebP</th>'+
-      '<th class="n">1,000 photos</th></tr>'+
+      '<p style="margin:0;font-size:12.5px;color:#7a4a50">Measured from this photograph, not estimated.</p>'+
+      '<table><tr><th>Square</th><th class="n">JPEG</th><th class="n">WebP</th><th class="n">1,000 photos</th></tr>'+
       rows.map(r=>'<tr'+(r.s===900?' class="best"':'')+'><td>'+r.s+' × '+r.s+'</td>'+
         '<td class="n">'+Math.round(r.jpg/1024)+' KB</td>'+
         '<td class="n">'+(r.webp?Math.round(r.webp/1024)+' KB':'—')+'</td>'+
         '<td class="n">'+(((r.webp||r.jpg)*1000)/1048576).toFixed(0)+' MB</td></tr>').join('')+
       '</table><p style="margin:11px 0 0;font-size:12.5px;color:#7a4a50">'+
-      '<b>Today each photo is kept as text inside the recipe row</b>, which adds a further third and is '+
-      'read back every time the recipe is opened. At a thousand they belong in file storage with the '+
-      'recipe holding a link.</p></div>';
+      '<b>Today each photo is kept as text inside the recipe row</b>, which adds a further third and '+
+      'is read back every time the recipe is opened. At a thousand they belong in file storage.</p></div>';
 
     const o=document.createElement('canvas');
     const osc=Math.min(1,520/Math.max(w,h)); o.width=Math.round(w*osc); o.height=Math.round(h*osc);
@@ -312,10 +402,10 @@ async function run(file){
       '<p style="font-size:12.5px;color:#7a4a50;margin:2px 0 8px">'+w+' × '+h+' · '+
       Math.round(file.size/1024)+' KB</p><img src="'+o.toDataURL('image/jpeg',0.8)+'">';
     note('Tap the one you want used every time.');
-  }catch(e){
+  }catch(err){
     bar(null);
-    el('warn').innerHTML='<div class="warn"><b>The model could not be reached.</b> '+
-      String(e && e.message || e)+' — it needs the internet the first time only.</div>';
+    el('warn').innerHTML='<div class="warn"><b>That did not work.</b> '+
+      String(err&&err.message||err)+'</div>';
     note('');
   }finally{ URL.revokeObjectURL(url); }
 }
@@ -330,5 +420,5 @@ el('grid').addEventListener('click', e=>{
   note('Noted — tell me “'+b.dataset.pick+'” and I will put it on every upload.');
   b.textContent='Chosen · tell me “'+b.dataset.pick+'”';
 });
-window.__run = run;   /* so the build can be driven and checked without a finger */
+window.__run=run;
 </script>
