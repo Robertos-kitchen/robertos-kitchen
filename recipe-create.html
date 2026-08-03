@@ -3152,7 +3152,14 @@ function render(){
                          : '<div class="tip">No menus yet. Make one on the Menus screen and the dishes will file themselves.</div>');
     }
     else {
-      var rs2 = inFolder(S.fmenu), gs = groupsOf(rs2);
+      /* The list reloads while a folder is open — a dish gets moved to another menu, a
+         section empties, a menu is put away. Sitting on the folder that has just gone
+         hollow shows "Pasta · 0 recipes · Nothing in here", which is a dead end he did
+         not ask for. Fall outwards to the nearest place that still has something in it. */
+      var rs2 = inFolder(S.fmenu);
+      if (!rs2.length){ S.fmenu = null; S.fsec = null; render(); return; }
+      var gs = groupsOf(rs2);
+      if (S.fsec && !gs.some(function(g){ return g.key === S.fsec; })) S.fsec = null;
       /* one section in the folder is not a folder — do not make him tap twice to see
          the same nine dishes */
       var flat = gs.length <= 1 || S.fmenu === '__gone';
@@ -5375,6 +5382,11 @@ function flag(el, msg, bad){
 }
 $('tosaved').addEventListener('click', function(){
   if (S.step === 'saved'){ S.step = S.back || 'type'; render(); return; }
+  /* Saved recipes means the whole book, every time. Keeping the folder he was last in
+     dropped him back inside "A la carte 2026 · Pasta" — one section of one menu, and if
+     that section had emptied since, an empty screen. Back still walks the folders one
+     layer at a time; this button always opens at the top. */
+  S.fmenu = null; S.fsec = null; S.sq = '';
   S.back = S.step; S.step = 'saved'; render(); window.scrollTo(0,0);
   loadSaved().then(function(){ if (S.step==='saved') render(); });
 });
