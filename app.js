@@ -2133,19 +2133,19 @@ function openOrderInventory(){ openMarketList(); }
 // door rather than as three unrelated things on the home screen.
 var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
-   name:'Create new recipes', who:'Exec chef',
+   name:'Create new recipes',
    meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
   {code:'PASS', view:'recipecard-view', page:'recipe-card.html?embed=1',
-   name:'Recipe card', who:'Chef de partie, at the pass',
+   name:'Recipe card',
    meta:'The station card: the dish and every batch inside it, scaled, printable.'},
   {code:'FOH', view:'foodbible-view', page:'food-bible.html?embed=1',
-   name:'Food Bible', who:'Waiter, before service',
+   name:'Food Bible',
    meta:'One dish, one A4 — the menu line, what to say, allergens, what to set.'},
   {code:'MENU', view:'menupdf-view', page:'menu-pdfs.html?embed=1',
-   name:'Current menu', who:'Anyone who has to print one',
+   name:'Current menu',
    meta:'Every menu we print, kept ready for the printer — à la carte, wine, set menus.'},
   {code:'POS', view:'micros-view', page:'recipe-create.html?embed=1&micros=1',
-   name:'Micros request', who:'Exec chef, when the menu changes',
+   name:'Micros request',
    meta:'The POS form for Aung, built from the menu — till names, cost and price. Print it or send it.'}
 ];
 function openRecipes(){
@@ -2160,7 +2160,6 @@ function openRecipes(){
       return '<button class="rcp-door" data-rcp="'+s.view+'">'+
         '<span class="rcp-code">'+s.code+'</span>'+
         '<span class="rcp-name">'+escHtml(s.name)+'</span>'+
-        '<span class="rcp-who">'+escHtml(s.who)+'</span>'+
         '<span class="rcp-meta">'+escHtml(s.meta)+'</span>'+
         '<span class="rcp-go">Open &rarr;</span></button>';
     }).join('')+'</div>';
