@@ -1329,6 +1329,16 @@ function saveRecipe(){
       return ALLERGENS.some(function(a){ return a.k === k; }); }),
     updated_at: new Date().toISOString()
   };
+  /* Save changes saves the WHOLE card, never part of it — and the other half of that
+     rule is that a sheet which never held the whole card must not be allowed to blank
+     the parts it does not know about. That is exactly how a photo was lost: the sheet
+     came back from Unsaved work without one, and the save wrote photos:[] straight over
+     a picture that was on the record. Every route onto a sheet sets `whole` today; if a
+     new one ever forgets, the fields it cannot vouch for are left alone rather than
+     emptied. */
+  if (S.id && !S.whole){
+    delete head.photos; delete head.method; delete head.allergens;
+  }
   var step1 = S.id
     ? sb('recipes?id=eq.'+S.id, { method:'PATCH', body:head })
     : sb('recipes', { method:'POST', body:head });
@@ -1420,13 +1430,43 @@ function parkSnapshot(){
            id:S.id, kind:S.kind, name:S.name, section:S.section, text:S.text,
            price:S.price, makesQty:S.makesQty, makesUnit:S.makesUnit,
            method:S.method, allergens:S.allergens, menus:S.menus,
+           /* The photo was the one thing a snapshot did not carry, so a picture taken
+              at the pass and not yet saved was gone the moment the sheet was put down —
+              and a photo is the only part of a recipe that cannot be typed again from
+              memory. It counts as a change (see sig()), so adding one is exactly what
+              causes the sheet to be parked in the first place. */
+           photos:(S.photos || []).slice(),
            lines:(S.rows || []).length,
            rows:(S.rows || []).map(function(r){
              return { raw:r.raw, code:r.code || null, qty:r.qty, unit:r.unit || null,
                       adj:!!r.adj, yield:r.yield, waste:r.waste }; }) };
 }
 function parkedList(){ if (!S.parkedList) S.parkedList = []; return S.parkedList; }
-function savePark(){ try { localStorage.setItem(PARKLS, JSON.stringify(parkedList())); } catch(e){} }
+function parkPut(l){
+  try { localStorage.setItem(PARKLS, JSON.stringify(l)); return true; } catch(e){ return false; }
+}
+/* Photos are data URIs and this machine holds about five megabytes, so twelve parked
+   recipes each carrying one taken on a phone will not fit. The old line swallowed that
+   failure whole — the write threw, nothing was said, and the entire Unsaved work list
+   quietly stopped being kept.
+   When it will not fit, give things up in the order they can be replaced: photos first
+   and oldest first (a photo can be taken again), then the oldest pieces of work, and
+   never the one just put down. */
+function savePark(){
+  var l = parkedList();
+  if (parkPut(l)) return true;
+  for (var i = l.length - 1; i >= 0; i--){
+    if (l[i] && l[i].photos && l[i].photos.length){
+      l[i].photos = []; l[i].photosDropped = true;
+      if (parkPut(l)) return true;
+    }
+  }
+  while (l.length > 1){
+    l.pop();
+    if (parkPut(l)) return true;
+  }
+  return false;
+}
 function loadPark(){
   try { var v = JSON.parse(localStorage.getItem(PARKLS) || '[]'); S.parkedList = Array.isArray(v) ? v : []; }
   catch(e){ S.parkedList = []; }
@@ -1466,6 +1506,7 @@ function unparkAt(i){
   S.text = p.text || ''; S.price = p.price;
   S.makesQty = p.makesQty; S.makesUnit = p.makesUnit;
   S.method = p.method || emptyMethod(); S.allergens = p.allergens || []; S.menus = p.menus || [];
+  S.photos = Array.isArray(p.photos) ? p.photos.filter(function(x){ return x && x.u; }) : [];
   /* the rows are rebuilt off the same words in the same order, then what he had chosen
      is put back on them line by line — a row whose words have changed is left alone */
   S.rows = splitLine(S.text).map(function(x){ return mkRow(x); });
@@ -1508,6 +1549,9 @@ window.__rcpNew = function(){
 };
 
 function newRecipe(){
+  /* A brand-new sheet IS the whole recipe — there is nothing on the record it does not
+     already hold. See `whole` in saveRecipe. */
+  S.whole = true;
   S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[];
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
@@ -2370,6 +2414,7 @@ function openRecipe(id){
     sb('recipe_lines?recipe_id=eq.'+id+'&select=*&order=position')
   ]).then(function(both){
     var rec = both[0] && both[0][0]; if (!rec) throw new Error('that recipe is no longer there');
+    S.whole = true;          /* read straight off the record — the sheet holds all of it */
     S.id = rec.id; S.kind = rec.kind; S.name = rec.name || ''; S.section = rec.section || '';
     S.makesQty = rec.makes_qty; S.makesUnit = rec.makes_unit;
     S.price = rec.menu_price; S.text = '';
