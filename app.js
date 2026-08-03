@@ -2032,10 +2032,15 @@ function kevPrepRows(e){
   if(e.dietary) h += '<div class="kev-diet"><b>Dietary:</b> '+kevEsc(e.dietary)+'</div>';
   return h;
 }
+// A briefed event the events desk has not confirmed yet. The kitchen sees it
+// LABELLED rather than not at all: the brief email already told them to cook it,
+// so hiding it here is what made the two disagree. Strictly === false, so an old
+// cached feed without the field shows no label rather than labelling everything.
+function kevDraftTag(e){ return e && e.confirmed === false ? '<span class="kev-draft">Draft &mdash; not confirmed</span>' : ''; }
 function kevTodayCard(e){
   var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
   return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
-    '<div class="kev-name">'+kevEsc(e.name)+'</div><div class="kev-meta">'+meta+'</div></div>'+
+    '<div class="kev-name">'+kevEsc(e.name)+kevDraftTag(e)+'</div><div class="kev-meta">'+meta+'</div></div>'+
     '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
     '<div class="kev-prep" id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>';
 }
@@ -2045,7 +2050,7 @@ function kevUpRow(e){
   return '<div class="kev-up-wrap">'+
     '<div class="kev-up clickable" onclick="kevToggle(\''+e.id+'\',this)">'+
       '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
-      '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+' <span class="kev-chev">&#9662;</span></div><div class="kev-up-meta">'+meta+'</div></div>'+
+      '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+kevDraftTag(e)+' <span class="kev-chev">&#9662;</span></div><div class="kev-up-meta">'+meta+'</div></div>'+
       '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
     '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>'+
   '</div>';
