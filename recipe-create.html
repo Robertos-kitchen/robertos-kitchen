@@ -2201,9 +2201,15 @@ function mcell(v){
 function isNum(v){ return v!=='' && v!=null && isFinite(String(v).replace(',','.')); }
 
 var LABELROW = /standard recipe form|recipe name|outlet name|categor|prepared by/i;
+/* "Quantity", "Qty" — and QANTITY, which is how the 2020 and 2022 templates spell it.
+   That single missing U meant the quantity column was never found, so every line was
+   skipped and about seventy real recipes came back as "nothing in it looks like a
+   recipe". Written once, here, and used by both the row test and the column lookup. */
+var QTYCOL = /^\s*q(?:ty|[a-z]*ity|uantit[a-z]*)\b/i;
 function isHeaderRow(c){
   var j = c.join(' ').toLowerCase();
-  return /\bquantity\b|\bqty\b/.test(j) && /name of the item|ingredient|item|description/.test(j);
+  return (/\bquantity\b|\bqty\b/.test(j) || c.some(function(x){ return QTYCOL.test(x); }))
+      && /name of the item|ingredient|item|description/.test(j);
 }
 function findCol(c, re){ for (var i=0;i<c.length;i++) if (re.test(c[i])) return i; return -1; }
 function labelVal(rows, re){                      /* "Nos of Serving:" … 3.41 */
@@ -2242,7 +2248,7 @@ function readForm(rows){
     if (hdr<0 && isHeaderRow(c)){
       hdr = r;
       c.forEach(function(x,i){
-        if (/^quantity|^qty/i.test(x)) qi=i;
+        if (QTYCOL.test(x)) qi=i;
         else if (/^unit/i.test(x)) ui=i;
         else if (/name of the item|^ingredient|^item|^description/i.test(x)) ni=i;
       });
@@ -2256,7 +2262,9 @@ function readForm(rows){
   var ci = findCol(h, /^code$/i), ri = findCol(h, /^i\s*\/\s*r$/i), wi = findCol(h, /^wastage/i);
   var costing = ci > -1 || ri > -1;
   if (costing){
-    qi = findCol(h, /^qty$/i);  if (qi < 0) qi = findCol(h, /quantity/i);
+    qi = findCol(h, /^qty$/i);
+    if (qi < 0) qi = findCol(h, QTYCOL);            /* quantity, and their QANTITY */
+    if (qi < 0) qi = findCol(h, /quantity/i);
     ui = findCol(h, /^unit/i);
     ni = findCol(h, /ingredient|name of the item/i);
   }
