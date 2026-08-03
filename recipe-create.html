@@ -133,6 +133,7 @@ input.cell::placeholder{color:var(--sabbia-dark)}
 .unbx{position:relative;display:inline-flex;align-items:center;gap:3px;min-width:44px;height:22px;
   padding:0 3px;border-radius:3px;cursor:pointer}
 .unbx:hover,.unbx:focus-within{background:rgba(232,217,199,.75)}
+.unbx.none .unv{opacity:.45}
 .unbx:focus-within{box-shadow:inset 0 0 0 2px var(--vino)}
 .unbx .unv{font-family:var(--sans);font-size:13px;font-weight:500;color:var(--vino);line-height:22px;
   white-space:nowrap}
@@ -3867,7 +3868,13 @@ function reflow(){
 }
 
 function rowHTML(r, i){
-  var it = itemOf(r), c = rowCost(r), u = r.unit || defUnit(it), need = !r.code;
+  /* Until an ingredient is picked the sheet does not know what the line is measured in,
+     and it used to answer "g" anyway — baseOf(null) falls back to kilos. On a line that
+     says water, in a recipe where water is his own ingredient sold by the litre, that is
+     just wrong, and it is wrong quietly. It says what he typed, or nothing at all. */
+  var it = itemOf(r), c = rowCost(r), need = !r.code;
+  var typed = (r.typedUnit && r.typedUnit !== '?') ? r.typedUnit : null;
+  var u = r.unit || (it ? defUnit(it) : typed);
   var stale = isStale(r);
   function opt(o){
     var nm = disp(o.name);
@@ -3887,6 +3894,14 @@ function rowHTML(r, i){
   var mine    = opts.filter(function(o){ return o.myBatch; });
   var batches = opts.filter(function(o){ return !o.myBatch && o.group==='Batch Recipe (Food)'; });
   var prods   = opts.filter(function(o){ return !o.myBatch && o.group!=='Batch Recipe (Food)'; });
+  /* A batch of ours that carries no cost — usually because it never got told how much it
+     makes — sits at the top of the list purely because it is ours, and it is the most
+     dangerous thing to pick: a line pointing at it prices the whole dish at nothing.
+     He had a batch called "water" with no yield AND his own water sold by the litre, and
+     the broken one was offered first. Anything with no cost yet goes to the bottom of
+     its group. It is still there, and still his to pick — just not first. */
+  var mineBad = mine.filter(function(o){ return o.problem; });
+  mine = mine.filter(function(o){ return !o.problem; });
   /* No "all my batches" list here. With a hundred batches it is a wall to scroll,
      not a help. The row suggests what has a similar name — his own batches included,
      via the shorter-phrase fallback in mkRow — and otherwise offers to make a new one. */
@@ -3895,7 +3910,8 @@ function rowHTML(r, i){
     (opts.length
       ? (mine.length    ? '<optgroup label="Our batch recipes">'+mine.map(opt).join('')+'</optgroup>' : '') +
         (batches.length ? '<optgroup label="Batch">'+batches.map(opt).join('')+'</optgroup>' : '') +
-        (prods.length   ? '<optgroup label="Ingredients">'+prods.map(opt).join('')+'</optgroup>' : '')
+        (prods.length   ? '<optgroup label="Ingredients">'+prods.map(opt).join('')+'</optgroup>' : '') +
+        (mineBad.length ? '<optgroup label="Ours — no cost yet">'+mineBad.map(opt).join('')+'</optgroup>' : '')
       : '') +
     /* on every row, picked or not — otherwise the only way to change your mind
        about a row is to delete it and type it again */
@@ -3971,9 +3987,13 @@ function rowHTML(r, i){
        so the letters had nowhere to go. Text in a span cannot be squeezed out of
        existence without the page telling you, and it can be measured. Tapping still
        opens the real dropdown; the options are still only the ones this line allows. */
-    '<td class="un"><span class="unbx"><b class="unv">'+esc(u || '—')+'</b>' +
+    '<td class="un"><span class="unbx'+(u?'':' none')+'"><b class="unv">'+esc(u || '—')+'</b>' +
       '<select class="unit" data-i="'+i+'" data-f="unit" aria-label="Unit for '+esc(r.word)+'">'+
-      (function(){ var us = unitsFor(it);
+      (function(){
+        /* nothing picked: every measure is still open, because the app has not been told
+           yet. Picking the ingredient narrows it to the ones that thing is sold by. */
+        var us = it ? unitsFor(it) : ['g','kg','ml','L','pcs'];
+        if (!u) us = ['—'].concat(us);
         /* A select cannot show a value that is not one of its options — it silently
            displays the FIRST one instead. Salmoriglio held 0.05 L against a batch sold
            by the kilo, so the box read "g": a thousandth of the real amount, on screen,
@@ -4926,6 +4946,8 @@ document.addEventListener('change', function(e){
   if (t.dataset.f === 'aun'){ r.addUnit = t.value; redrawRow(+i); return; }
   if (t.dataset.f === 'afr'){ r.addFree = t.checked; redrawRow(+i); return; }
   if (t.dataset.f === 'unit'){
+    /* the dash on a line that has not picked anything means "not said yet", not a unit */
+    if (t.value === '—'){ r.unit = null; r.mismatch = null; redrawRow(+i); foot(); return; }
     /* 180 typed as grams, then the box flipped to kg, used to become 180 KILOS — the
        footer said "at least 36,000.00 AED · 28451.6% food cost" and it was allowed.
        The amount is a real amount, not a number that happens to sit next to a word:
