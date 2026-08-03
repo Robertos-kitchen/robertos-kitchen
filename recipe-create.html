@@ -402,6 +402,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
 .fold.dim .fn{opacity:.65}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
+/* the sheet he was on, put to one side rather than argued about */
+.parked{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oliva);
+  border-radius:0 5px 5px 0;padding:10px 14px;margin:0 0 16px;font-size:12.5px;line-height:1.5;
+  color:var(--vino-light)}
+.parked b{color:var(--vino)}
 /* a batch Aung prices but nobody has written — the answer, and the way out of it */
 .offer{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
   border-radius:0 5px 5px 0;padding:14px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--vino-light)}
@@ -409,8 +414,9 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .offer .maacts{margin-top:11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .offer .offmeta{font-size:11.5px;opacity:.6;margin-right:8px}
 .offer .offalt{margin-top:11px;font-size:12px;opacity:.8}
-.offer .lnk{background:none;border:none;padding:0;font:inherit;color:var(--vino);
+.lnk{background:none;border:none;padding:0;font:inherit;color:var(--vino);
   text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.lnk:hover{text-decoration-thickness:2px}
 @media(max-width:520px){.folds{grid-template-columns:1fr}}
 .newr{font-family:var(--sans);font-size:13px;background:none;border:1px dashed rgba(64,2,7,.35);border-radius:3px;color:var(--vino);padding:9px 14px;margin:14px 0 4px;cursor:pointer}
 .newr:hover{border-style:solid;background:rgba(232,217,199,.3)}
@@ -637,6 +643,8 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   select.prod,input.cell{height:44px;line-height:normal}
   /* the unit is a box you tap now, so the box is the 44px target — the select inside it
      fills it exactly, and stays invisible */
+  /* a text link is a 19px target — fine for a mouse, not for a thumb */
+  .lnk{display:inline-block;min-height:44px;line-height:44px}
   .unbx{height:44px;min-width:56px;padding:0 6px}
   .unbx .unv{font-size:15px;line-height:44px}
   select.unit{height:100%}
@@ -1329,6 +1337,42 @@ function plain(msg){
   if (/Failed to fetch|NetworkError|network/i.test(msg))
     return 'No connection to the Kitchen database. Your sheet is safe here — try Save again in a moment.';
   return msg;
+}
+
+/* ═════════ starting a new one without losing the old one ═════════
+   Wanting to write a new recipe is not a reason to be stopped, and half a Salmoriglio
+   is not a reason to lose it. So the half-written sheet is put to one side and he goes
+   straight where he asked to go. It sits in a line at the top of the new sheet until he
+   picks it back up or saves the new one over the top of nothing. One slot: parking a
+   second one would be a filing system nobody asked for. */
+var PARKKEYS = ['id','kind','name','section','text','rows','price','makesQty','makesUnit',
+                'step','imported','found','hints','method','photos','bigPhoto','allergens',
+                'menus','plan','planRan','cameFrom','find','clean'];
+function parkCurrent(){
+  if (!isDirty()) return false;
+  var p = {}; PARKKEYS.forEach(function(k){ p[k] = S[k]; });
+  p.label = (S.name || '').trim() || ('a ' + (S.kind || 'new') + ' recipe with no name yet');
+  p.lines = (S.rows || []).length;
+  S.parked = p;
+  return true;
+}
+function unpark(){
+  var p = S.parked; if (!p) return;
+  /* whatever he is on now takes the parking space, so this is a swap and never a loss */
+  var had = parkCurrent();
+  PARKKEYS.forEach(function(k){ S[k] = p[k]; });
+  if (!had) S.parked = null;
+  S.pendingGo = null;
+  /* It gets parked from wherever he happened to be standing — usually Saved recipes,
+     since that is where the new-recipe button lives. Picking it back up has to land on
+     the RECIPE, not on the screen he was browsing when he put it down. */
+  if (['write','sheet','foh'].indexOf(S.step) < 0) S.step = (S.rows || []).length ? 'sheet' : 'write';
+}
+function parkedNote(){
+  if (!S.parked) return '';
+  return '<div class="parked"><b>' + esc(S.parked.label) + '</b> is still half written — ' +
+    S.parked.lines + ' line' + (S.parked.lines === 1 ? '' : 's') + ', put to one side, nothing lost. ' +
+    '<button class="lnk" id="unpark">Pick it back up</button></div>';
 }
 
 function newRecipe(){
@@ -3417,7 +3461,7 @@ function render(){
 
   else if (S.step === 'type'){
     b.classList.add('off'); b.textContent='Next';
-    w.innerHTML = '<div class="pane"><div class="q">What are you making?</div>' +
+    w.innerHTML = '<div class="pane">' + parkedNote() + '<div class="q">What are you making?</div>' +
       '<div class="sub">A main goes on the menu. A batch is something you make once and use in other dishes.</div>' +
       '<div class="two">' +
       '<button class="big" data-k="main"><div class="t">Main recipes</div><div class="d">Goes to the pass, gets a POS key.</div></button>' +
@@ -3509,7 +3553,7 @@ function render(){
 
   else if (S.step === 'write'){
     b.textContent='Make the sheet'; gate();
-    w.innerHTML = '<div class="pane">' +
+    w.innerHTML = '<div class="pane">' + parkedNote() +
       '<input class="name" id="nm" placeholder="Octopus" value="'+esc(S.name)+'">' +
       '<div class="q" style="font-size:21px">What goes in it?</div>' +
       '<div class="sub">However you like — one line, spaces or commas. The app sorts them out.</div>' +
@@ -3529,6 +3573,7 @@ function render(){
     b.textContent = S.id ? 'Save changes' : 'Save'; b.classList.remove('off');
     w.innerHTML =
       '<div class="hint"><b>Costed off Aung\'s ' + new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'}) + ' stock take.</b> Go down Ingredient, then down Qty. Nothing opens. Tick the last box only on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.</div>' +
+      parkedNote() +
       '<div class="savebar" id="savebar"></div>' +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
       '<div class="swapbar" id="sb"></div>' +
@@ -5041,7 +5086,15 @@ document.addEventListener('click', function(e){
     drawMethod(); return;
   }
 
-  if (e.target.id === 'newr'){ guard(function(){ newRecipe(); render(); window.scrollTo(0,0); }); return; }
+  /* Starting a new recipe is never blocked. The half-written one is parked, not lost,
+     and not argued about — he asked to be here, so he is here. */
+  if (e.target.id === 'newr'){
+    var wasParked = parkCurrent();
+    S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
+    if (wasParked) flash('“' + S.parked.label + '” put to one side — pick it back up any time.');
+    return;
+  }
+  if (e.target.id === 'unpark'){ unpark(); render(); window.scrollTo(0,0); return; }
   if (e.target.id === 'pickfile'){ guard(function(){ $('fi').value=''; $('fi').click(); }); return; }
   if (e.target.id === 'pickfolder'){ guard(function(){ var d=$('fd'); if (d){ d.value=''; d.click(); } }); return; }
   if (e.target.id === 'mic'){ toggleMic(); return; }
@@ -5610,7 +5663,7 @@ window.addEventListener('orientationchange', fitBar);
    own question, not ours — it is the only thing standing between a shut lid and an
    afternoon of work. */
 window.addEventListener('beforeunload', function(ev){
-  if (!isDirty()) return;
+  if (!isDirty() && !S.parked) return;
   ev.preventDefault(); ev.returnValue = '';
 });
 /* the serif and the sans arrive after the first paint — the same words measure
@@ -5659,6 +5712,7 @@ window.checkFit = checkFit;
 window.__rcpDirty = function(){
   try {
     if (isDirty()) return true;
+    if (S.parked) return true;                       /* put to one side is still unsaved */
     if (String(S.text || '').trim()) return true;
     if (!S.id && String(S.name || '').trim()) return true;
     if (S.found || S.plan) return true;              /* mid-import, reviewing what was read */
