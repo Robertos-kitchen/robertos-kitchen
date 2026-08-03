@@ -1423,7 +1423,19 @@ function parkCurrent(){
   S.parkedList = l.slice(0, PARKMAX);
   savePark();
   S.parkedLabel = snap.label;
+  S.parkedWasSaved = !!snap.id;
   return true;
+}
+/* Two different things end up in the same list and they do not mean the same thing.
+   A recipe that has never been saved is work in progress — there is nothing to save it
+   onto yet. A recipe that already exists and has been CHANGED is different: the change
+   belongs on the recipe, and being told it is "in Unsaved work" reads like everything
+   is fine when what he actually did — picking the two missing ingredients on Lobster
+   bisque — is not on the recipe at all. Say which one it is. */
+function parkedFlash(){
+  return S.parkedWasSaved
+    ? '“' + S.parkedLabel + '” has changes you have not saved. They are kept in Unsaved work.'
+    : '“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.';
 }
 function dropPark(i){ parkedList().splice(i, 1); savePark(); }
 function unparkAt(i){
@@ -1462,9 +1474,11 @@ function parkedNote(){
       try { when = new Date(p.at).toLocaleString('en-GB',
             { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); } catch(e){}
       return '<div class="prow"><span class="pn">' + esc(p.label) + '</span>' +
-        '<span class="pm">' + (p.kind === 'batch' ? 'batch' : 'main') + ' · ' + p.lines +
+        '<span class="pm">' + (p.id ? '<b>changes not saved onto it</b> · ' : '') +
+          (p.kind === 'batch' ? 'batch' : 'main') + ' · ' + p.lines +
           ' line' + (p.lines === 1 ? '' : 's') + (when ? ' · ' + esc(when) : '') + '</span>' +
-        '<button class="lnk" data-unpark="' + i + '">Carry on with it</button>' +
+        '<button class="lnk" data-unpark="' + i + '">' +
+          (p.id ? 'Open it and save' : 'Carry on with it') + '</button>' +
         '<button class="lnk bin" data-binpark="' + i + '">Delete</button></div>';
     }).join('') + '</div>';
 }
@@ -5320,7 +5334,7 @@ document.addEventListener('click', function(e){
   if (op){
     var openId = op.dataset.open;
     /* it used to stop him and ask; it puts the half-written one to one side instead */
-    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    if (parkCurrent()) flash(parkedFlash());
     var btn = document.querySelector('[data-open="'+openId+'"]');
     var fromTodo = S.step === 'todo';
     if (btn && !fromTodo) btn.textContent = 'Opening…';
@@ -5403,25 +5417,25 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'newr'){
     var wasParked = parkCurrent();
     S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
-    if (wasParked) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    if (wasParked) flash(parkedFlash());
     return;
   }
   if (e.target.id === 'backtotodo'){
-    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    if (parkCurrent()) flash(parkedFlash());
     S.fromTodo = false; S.step = 'todo'; render(); window.scrollTo(0,0);
     /* read the lines again — what he just fixed should stop being on the list */
     loadSaved().then(function(){ if (S.step==='todo') render(); });
     return;
   }
   if (e.target.id === 'backtoplan'){
-    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    if (parkCurrent()) flash(parkedFlash());
     S.fromPlan = false; S.step = 'bringall'; render(); window.scrollTo(0,0); return;
   }
   /* open one of the recipes the workbook just made, straight off its card */
   var opl = e.target.closest('[data-openplan]');
   if (opl){
     var plid = opl.dataset.openplan;
-    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    if (parkCurrent()) flash(parkedFlash());
     var go = opl.querySelector('.pgo'); if (go) go.textContent = 'Opening…';
     openRecipe(plid).then(function(){
       /* checking four recipes means coming back three times — so the way back to the
@@ -5447,7 +5461,7 @@ document.addEventListener('click', function(e){
     var parkedF = parkCurrent();
     S.pendingGo = null; newRecipe(); S.found = null; S.fq = '';
     render(); window.scrollTo(0,0);
-    flash(parkedF ? '“' + S.parkedLabel + '” is in Unsaved work — the file is closed.'
+    flash(parkedF ? parkedFlash() + ' The file is closed.'
                   : 'File closed. Start writing.');
     return;
   }
@@ -5494,7 +5508,7 @@ document.addEventListener('click', function(e){
          button uses — so working through a workbook never costs him the last one. */
       var parkedIt = parkCurrent();
       f.how = S.found.how; useImported(f); render(); window.scrollTo(0,0);
-      if (parkedIt) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+      if (parkedIt) flash(parkedFlash());
     }
     return;
   }
