@@ -884,7 +884,32 @@ var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
          being whole matters more than a number he looks at when he prices it */
       footShut:(function(){ try{ return localStorage.getItem('rcpFoot') !== 'open'; }catch(x){ return true; } })(),
           method:null, photos:[], allergens:[] };
-var SECTIONS = ['Crudo','Antipasti','Salad / Soup','Pizza','Pasta','Main','Dessert','Canapé','Prep'];
+/* ── the sections ARE Aung's Micros families ──
+   They used to be our own words — "Salad / Soup", "Main", "Canapé" — and none of those
+   is a family in Micros, so every dish in them went to him with no family code and he
+   had to place it himself. They are now his families, in the order they run down his
+   own form, so the section a chef picks IS the line the till gets.
+
+   'Food' is not here: on his sheet that is the Major above all of them, not a section.
+   'Prep' is not one of his either — it is for batches, which never reach a menu or the
+   Micros form — so it is offered on a batch and nowhere else. */
+var SECTIONS = ['Crudo','Insalate','Antipasti','Pizza','Pasta','Secondi','Pesce','Carne',
+                'Grill','Side Dish','Caviar','Bar Snacks','Dessert','Ice Cream & Sorbet',
+                'Condiment'];
+var BATCH_ONLY = ['Prep'];
+/* His families that carry no code on the 18.12.2025 sheet — the family line is there
+   but column B is empty, so there is nothing to write and nothing wrong. Kept apart
+   from the unknowns so the screen does not cry wolf about Dessert. */
+var MICFAM_NOCODE = ['Bar Snacks','Dessert','Ice Cream & Sorbet'];
+/* What the dropdown offers: his families, plus Prep on a batch, plus whatever this
+   recipe is already set to. A section saved before this list changed must never
+   vanish out of the control — that is how a dish silently loses its section. */
+function sectionList(){
+  var out = SECTIONS.slice();
+  if (S.kind === 'batch') out = out.concat(BATCH_ONLY);
+  if (S.section && out.indexOf(S.section) < 0) out.push(S.section);
+  return out;
+}
 
 /* ───────── how it is made — his four headings, in his order ─────────
    Written on the same sheet as the ingredients. Nothing opens: four boxes that
@@ -2646,7 +2671,7 @@ function render(){
   bs.style.display = onRecipe ? 'inline-block' : 'none';
   if (onRecipe){
     bs.innerHTML = '<option value="">Which section?</option>' +
-      SECTIONS.map(function(s){ return '<option'+(S.section===s?' selected':'')+'>'+s+'</option>'; }).join('');
+      sectionList().map(function(s){ return '<option'+(S.section===s?' selected':'')+'>'+esc(s)+'</option>'; }).join('');
     bs.className = 'bsec' + (S.section ? '' : ' none');
   }
   drawBarMenu();
@@ -2820,8 +2845,12 @@ function render(){
     var noPrice = take.filter(function(r){ return r.price == null; });
     var noCost  = take.filter(function(r){ return r.cost  == null; });
     var over    = take.filter(function(r){ return (r.micros||'').length > 16; });
+    /* only the sections Micros has never heard of. His own families that simply carry
+       no code on the sheet are fine and are not worth a warning. */
     var noFam   = take.map(function(r){ return r.section; })
-                      .filter(function(s, i, a){ return a.indexOf(s) === i && micFamCode(s) == null; });
+                      .filter(function(s, i, a){
+                        return a.indexOf(s) === i && micFamCode(s) == null &&
+                               MICFAM_NOCODE.indexOf(s) < 0; });
 
     w.innerHTML = '<div class="pane">' +
       '<div class="q">Micros request for Aung</div>' +
@@ -2857,10 +2886,9 @@ function render(){
          has to work out where it belongs. Better said here than found by him. */
       (noFam.length ? '<div class="todo"><b>'+noFam.length+' section'+(noFam.length===1?'':'s')+
         ' Micros has no family for:</b> ' + esc(noFam.join(', ')) + '. ' +
-        'His families are Crudo, Insalate, Antipasti, Pizza, Pasta, Secondi, Pesce, Carne, Grill, ' +
-        'Caviar, Side Dish and Condiment. The form goes out with the family code empty for ' +
-        (noFam.length===1?'it':'them')+' — rename the section on the recipe to match, or let Aung place ' +
-        (noFam.length===1?'it':'them')+'.</div>' : '') +
+        'The sections on the recipes are Aung\'s own families now, so this one is left over from ' +
+        'before. The form goes out with the family code empty for ' +
+        (noFam.length===1?'it':'them')+' — open the recipe and pick a section from the list.</div>' : '') +
 
       '<div class="shd">On '+esc(menu ? menu.name : 'this menu')+'</div>' +
       MICREQ.rows.map(function(r, i){
