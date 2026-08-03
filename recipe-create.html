@@ -18,10 +18,15 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .bar{background:var(--vino);color:var(--cream);padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:30}
 .bar .l{display:flex;align-items:center;gap:12px;min-width:0}
 /* a real target for a thumb, not a glyph wedged in the corner */
-.bar .back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
-  width:36px;height:36px;border-radius:4px;border:1px solid rgba(245,237,224,.32);
-  background:rgba(245,237,224,.12);font-size:19px;line-height:1;padding-bottom:2px;
-  cursor:pointer;user-select:none}
+/* Back says where it goes, not just "‹". A chevron on its own is a guess about which
+   of nine screens you land on; the words are the whole point of it. */
+.bar .back{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;
+  min-width:36px;height:36px;border-radius:4px;border:1px solid rgba(245,237,224,.32);
+  background:rgba(245,237,224,.12);font-size:19px;line-height:1;padding:0 11px 2px;
+  color:var(--cream);cursor:pointer;user-select:none;max-width:230px}
+.bar .back .bkw{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:720px){ .bar .back .bkw{display:none} .bar .back{padding:0;width:36px} }
 .bar .back:hover{background:rgba(245,237,224,.28);border-color:rgba(245,237,224,.65)}
 .bar .back:active{background:rgba(245,237,224,.38)}
 .bar .back.hide{display:none}
@@ -259,6 +264,17 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
    the open list too in some browsers, which is the same bug by another route */
 .bsec.none{border-style:dashed;color:rgba(245,237,224,.65);border-color:rgba(245,237,224,.3)}
 .bsec.none option{color:var(--ink)}
+/* the new-menu strip, under the bar and above the sheet */
+.bmnew{display:none;position:fixed;left:0;right:0;z-index:59;background:var(--vino-mid);
+  color:var(--cream);padding:10px 18px;gap:10px;align-items:center;flex-wrap:wrap;
+  box-shadow:0 6px 14px rgba(0,0,0,.18)}
+.bmnew.on{display:flex}
+.bmnew label{font-family:var(--sans);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+.bmnew input{font-family:var(--sans);font-size:14px;padding:8px 10px;border:none;border-radius:3px;
+  background:#fff;color:var(--ink);outline:none;min-width:210px;flex:0 1 260px}
+.bmnew .err{font-family:var(--sans);font-size:11.5px;color:#f3c7c7;flex:1 1 140px}
+.bmnew .newr{color:var(--cream);border-color:rgba(245,237,224,.45)}
+.bmnew .newr:hover{background:rgba(245,237,224,.12)}
 .bflag{font-family:var(--sans);font-size:11px;color:var(--cream);opacity:.85;white-space:nowrap}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
@@ -424,7 +440,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
    The module owns "which dish" and "which view", so this page drops its own way back
    to the recipe list. Everything that belongs to WRITING the dish — the name, the
    section, Aung's list, Saved recipes — stays, because that is this screen's job. */
-.embed .bar .back{display:none}
+/* Back used to be hidden inside the module, on the reasoning that the module's own
+   "‹ Recipes" bar owned the navigation. It does not: that bar leaves the recipe
+   altogether. Going back ONE step — off Aung's list to the sheet, off the sheet to
+   the ingredients — has no other control, so it belongs here in embed too. The step
+   handler already refuses to move when there is nowhere to go. */
 .openerr{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:999;
   background:var(--vino);color:var(--cream);font-size:13.5px;line-height:1.5;
   padding:11px 18px;border-radius:7px;box-shadow:0 4px 16px rgba(43,1,4,.3);max-width:88vw}
@@ -560,15 +580,28 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 <div class="note"><b>MOCKUP</b> &nbsp; write the ingredients however you like — one line, spaces or commas — the app splits them &nbsp;·&nbsp; real stock list, <span id="nitems"></span> items, live from the Kitchen app — July 2026</div>
 
 <div class="bar">
-  <div class="l"><span class="back" id="back">‹</span>
+  <div class="l"><span class="back" id="back" role="button" tabindex="0">‹<span class="bkw" id="backw"></span></span>
     <span class="nm" id="bnm">New recipe</span>
     <span class="ty" id="bty" style="display:none"></span>
-    <select class="bsec" id="bsc" style="display:none"></select></div>
+    <select class="bsec" id="bsc" style="display:none"></select>
+    <!-- Which menu, asked in the same breath as the section. A dish on no menu shows
+         on no card at all, so it must be answered where the section is answered — not
+         found later, further down a page he may never scroll to. -->
+    <select class="bsec" id="bmn" style="display:none"></select></div>
   <div style="display:flex;align-items:center;gap:14px">
     <span class="lnk" id="tosaved">Saved recipes</span>
     <span class="lnk" id="tolist">Aung's list</span>
     <button class="act off" id="act">Next</button>
   </div>
+</div>
+<!-- Naming a new menu from the bar. It sits under the bar rather than in a pop-up so
+     the recipe he is writing stays on screen behind it. -->
+<div class="bmnew" id="bmnew">
+  <label for="bmnn">Name the new menu</label>
+  <input id="bmnn" placeholder="Christmas 2026" autocomplete="off">
+  <button class="okb" id="bmnok">Make it and put this dish on it</button>
+  <button class="newr" id="bmncx" style="margin:0">Cancel</button>
+  <span class="err" id="bmne"></span>
 </div>
 
 <input type="file" id="fi" multiple style="display:none" accept=".xlsx,.xlsm,.xls,.csv,.docx,.pdf">
@@ -2606,8 +2639,7 @@ function render(){
   $('bty').textContent = S.kind==='batch' ? 'Batch recipe' : 'Main recipe';
   $('bty').className = 'ty' + (S.kind==='batch' ? ' b' : '');
   $('bnm').textContent = S.name || (S.kind ? (S.kind==='batch'?'New batch recipe':'New main recipe') : 'New recipe');
-  $('back').classList.toggle('hide', S.step === 'type');   /* nowhere to go back to on the first screen */
-  $('back').title = 'Back';
+  drawBack();          /* shown, hidden and labelled from the one place that knows */
 
   /* Section lives next to the name — set it when you write it, change it any time after */
   var bs = $('bsc'), onRecipe = S.kind && (S.step==='write' || S.step==='sheet');
@@ -2617,6 +2649,7 @@ function render(){
       SECTIONS.map(function(s){ return '<option'+(S.section===s?' selected':'')+'>'+s+'</option>'; }).join('');
     bs.className = 'bsec' + (S.section ? '' : ' none');
   }
+  drawBarMenu();
 
   if (S.step === 'list'){
     b.classList.add('off');
@@ -3483,6 +3516,83 @@ function methodHTML(){
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
 }
 
+/* ── the menu control in the bar ──
+   Same question as the box further down the sheet, asked where the section is asked.
+   A dish can be on more than one menu, so picking a name TOGGLES it rather than
+   replacing what is there — and the closed control says how many are on, because a
+   select that shows one name while three are ticked is a select that lies.
+   Batches never get it: a batch belongs to the dishes that use it. */
+function barMenuLabel(){
+  var on = (S.menus || []).filter(function(id){
+    return MENUS.some(function(m){ return m.id === id; }); });
+  if (!on.length) return 'Which menu?';
+  if (on.length === 1) return menuName(on[0]);
+  return on.length + ' menus';
+}
+function drawBarMenu(){
+  var bm = $('bmn'); if (!bm) return;
+  var show = S.kind === 'main' && (S.step === 'write' || S.step === 'sheet');
+  bm.style.display = show ? 'inline-block' : 'none';
+  if (!show){ var p = $('bmnew'); if (p) p.classList.remove('on'); return; }
+  var on = S.menus || [];
+  bm.innerHTML =
+    '<option value="">' + esc(barMenuLabel()) + '</option>' +
+    MENUS.map(function(m){
+      var yes = on.indexOf(m.id) > -1;
+      return '<option value="' + m.id + '">' + (yes ? '✓ ' : '＋ ') + esc(m.name) +
+             (m.running ? ' — running now' : '') + '</option>';
+    }).join('') +
+    '<option value="__new">＋ A menu that is not here yet…</option>';
+  bm.className = 'bsec' + (on.length ? '' : ' none');
+  bm.title = on.length ? 'On ' + on.map(menuName).join(', ') : 'This dish is on no menu — it will show on no card';
+}
+/* the strip has to sit directly under the bar, whatever height the bar is today */
+function fitBarMenu(){
+  var p = $('bmnew'), b = document.querySelector('.bar');
+  if (p && b) p.style.top = Math.round(b.getBoundingClientRect().bottom) + 'px';
+}
+function openNewMenu(){
+  var p = $('bmnew'); if (!p) return;
+  fitBarMenu(); p.classList.add('on');
+  var e = $('bmne'); if (e) e.textContent = '';
+  var i = $('bmnn'); if (i){ i.value = ''; i.focus(); }
+}
+function closeNewMenu(){ var p = $('bmnew'); if (p) p.classList.remove('on'); }
+/* Made AND the dish put on it. Making a menu from inside a recipe means you want this
+   recipe on it; anything else is two taps for one thought. */
+function makeMenuFromBar(){
+  var inp = $('bmnn'), err = $('bmne'), btn = $('bmnok');
+  var nm = inp ? inp.value.trim() : '';
+  if (!nm){ if (err) err.textContent = 'Give the menu a name.'; if (inp) inp.focus(); return; }
+  if (MENUS.some(function(m){ return m.name.toLowerCase() === nm.toLowerCase(); })){
+    if (err) err.textContent = 'There is already a menu called that — pick it from the list instead.';
+    return;
+  }
+  var was = btn.textContent; btn.disabled = true; btn.textContent = 'Making…';
+  if (err) err.textContent = '';
+  newMenu(nm).then(function(m){
+    if (!m) throw new Error('the menu came back empty');
+    (S.menus = S.menus || []).push(m.id);
+    closeNewMenu();
+    return persistMenus('On ' + m.name + ' ✓');
+  }).catch(function(ex){
+    if (err) err.textContent = 'Not made — ' + menuPlain(ex.message);
+  }).then(function(){
+    btn.disabled = false; btn.textContent = was;
+    drawBarMenu(); drawSaveBar();
+    var box = $('mnubox'); if (box) box.innerHTML = menuInner();
+  });
+}
+/* An unsaved recipe carries its menus to Save with everything else. A saved one is
+   written now, and says so — the same as changing the section does. */
+function persistMenus(msg){
+  var sel = $('bmn');
+  if (!S.id) { if (sel) flag(sel, msg.replace(/ ✓$/, '') + ' — saves with the recipe', false); return Promise.resolve(); }
+  return saveRecipeMenus()
+    .then(function(){ if (sel) flag(sel, msg, false); })
+    .catch(function(e){ if (sel) flag(sel, 'Not changed — ' + menuPlain(e.message), true); });
+}
+
 /* ── which menus this dish is on ──
    Batches never get this box: a batch belongs to the dishes that use it. */
 function menuInner(){
@@ -4030,7 +4140,16 @@ document.addEventListener('click', function(e){
        still keeps what you have typed. */
     if (S.id) newRecipe();
     if (!S.method) S.method = emptyMethod();
-    S.kind=k.dataset.k; S.step='write'; render(); return;
+    S.kind=k.dataset.k; S.step='write';
+    /* The very first recipe of a visit never went through newRecipe(), so it was the
+       one dish that started on no menu at all — and a dish on no menu shows on no
+       card. A new main starts on the menu that is running; the control in the bar
+       says which, and changing it is one tap. */
+    if (S.kind === 'main' && !S.id && !(S.menus||[]).length){
+      var runm = MENUS.filter(function(m){ return m.running; })[0];
+      S.menus = runm ? [runm.id] : [];
+    }
+    render(); return;
   }
   var cf = e.target.closest('[data-fix]');                   /* accept a spelling fix, on the write screen */
   if (cf){
@@ -4282,7 +4401,7 @@ document.addEventListener('click', function(e){
   if (mch){
     var mid = mch.dataset.menu, at = (S.menus||[]).indexOf(mid);
     if (at > -1) S.menus.splice(at,1); else (S.menus = S.menus || []).push(mid);
-    drawSaveBar();
+    drawSaveBar(); drawBarMenu();
     var box = $('mnubox'); if (box) box.innerHTML = menuInner();
     return;
   }
@@ -4293,7 +4412,7 @@ document.addEventListener('click', function(e){
     newMenu(nm).then(function(m){
       /* made AND the dish put on it — making a menu from inside a recipe means you
          want this recipe on it; anything else is two taps for one thought */
-      if (m){ (S.menus = S.menus || []).push(m.id); drawSaveBar(); }
+      if (m){ (S.menus = S.menus || []).push(m.id); drawSaveBar(); drawBarMenu(); }
       var box = $('mnubox'); if (box) box.innerHTML = menuInner();
     }).catch(function(ex){
       btn.disabled = false; btn.textContent = was;
@@ -4513,6 +4632,25 @@ function toggleMic(){
   if (st){ st.className='brn'; st.textContent = 'Say them one at a time: "two hundred grams octopus".'; }
 }
 
+$('bmn').addEventListener('change', function(){
+  var v = this.value;
+  this.selectedIndex = 0;                    /* the closed control shows the summary, never a pick */
+  if (!v) return;
+  if (v === '__new'){ openNewMenu(); return; }
+  var at = (S.menus || []).indexOf(v);
+  if (at > -1) S.menus.splice(at, 1); else (S.menus = S.menus || []).push(v);
+  drawBarMenu(); drawSaveBar();
+  var box = $('mnubox'); if (box) box.innerHTML = menuInner();
+  persistMenus(at > -1 ? 'Taken off ' + menuName(v) + ' ✓' : 'On ' + menuName(v) + ' ✓');
+});
+$('bmnok').addEventListener('click', makeMenuFromBar);
+$('bmncx').addEventListener('click', closeNewMenu);
+$('bmnn').addEventListener('keydown', function(e){
+  if (e.key === 'Enter'){ e.preventDefault(); makeMenuFromBar(); }
+  if (e.key === 'Escape') closeNewMenu();
+});
+window.addEventListener('resize', fitBarMenu);
+
 $('bsc').addEventListener('change', function(){
   S.section = this.value;
   this.className = 'bsec' + (S.section ? '' : ' none');
@@ -4540,24 +4678,68 @@ $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   S.back = S.step; S.step = 'list'; render(); window.scrollTo(0,0);
 });
-$('back').addEventListener('click', function(){
-  if (S.step === 'list' || S.step === 'saved'){ S.step = S.back || 'type'; render(); return; }
-  if (S.step === 'found'){ S.step = 'type'; render(); return; }
+/* ── one step back, from anywhere ──
+   Every screen in this module now knows the screen behind it, in ONE place. The label
+   on the button and what the button does are read from the same answer, so a Back that
+   says "to the recipe" cannot land somewhere else — the old version worked this out
+   twice and only in the click.
+
+   `null` means there is genuinely nowhere behind: the first screen, and the Micros
+   request when it is opened as its own module, where the module's own bar goes back. */
+var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recipe',
+                 found:'the recipes found', bringall:'bringing them all in',
+                 list:"Aung's list", saved:'Saved recipes', foh:'the floor’s half',
+                 micros:'the Micros request' };
+/* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
+   held in S.back. Opening the Micros request from Saved recipes overwrites S.back with
+   'saved' — so coming back off Micros landed on Saved recipes pointing at ITSELF, and
+   Back stopped working. A step never goes back to itself: fall through to the recipe
+   if there is one, then to the ingredients, then to the first screen. */
+function notSelf(to){
+  if (to && to !== S.step) return to;
+  if (S.id || (S.rows||[]).length) return 'sheet';
+  if (S.kind) return 'write';
+  return 'type';
+}
+function backStep(){
+  var s = S.step;
+  if (s === 'list' || s === 'saved') return { to: notSelf(S.back) };
+  if (s === 'found')   return { to:'type' };
   /* once they are created, going back to a screen offering to create them again
      is a trap — send him to the list of what is now saved instead */
-  if (S.step === 'bringall'){
-    if (S.planRan){ S.plan=null; S.back='type'; S.step='saved'; }
-    else S.step = 'found';
-    render(); return;
-  }
-  if (S.step === 'foh'){ S.step = 'sheet'; render(); return; }
-  /* opened as its own module there is nowhere behind it — the module's own bar goes back */
-  if (S.step === 'micros'){ if (S.back !== 'micros'){ S.step = S.back || 'saved'; render(); } return; }
-  if (S.step === 'write' && S.found && S.found.recipes.length > 1){ S.step='found'; render(); return; }
-  var o=['type','write','sheet'], i=o.indexOf(S.step);
+  if (s === 'bringall') return S.planRan ? { to:'saved', clearPlan:true, setBack:'type' }
+                                         : { to:'found' };
+  if (s === 'foh')     return { to:'sheet' };
+  if (s === 'micros')  return S.back === 'micros' ? null : { to: notSelf(S.back || 'saved') };
+  if (s === 'write' && S.found && S.found.recipes.length > 1) return { to:'found' };
+  var o = ['type','write','sheet'], i = o.indexOf(s);
   /* going back off the sheet rebuilds the rows from the typed text — every ingredient
      picked by hand is lost. That is a leave, and it gets asked about like one. */
-  if (i>0) guard(function(){ S.step=o[i-1]; render(); });
+  if (i > 0) return { to:o[i-1], guarded:true };
+  return null;
+}
+function drawBack(){
+  var b = $('back'), w = $('backw'); if (!b) return;
+  var t = backStep();
+  b.classList.toggle('hide', !t);
+  if (!t) return;
+  var name = STEPNAME[t.to] || 'the last screen';
+  if (w) w.textContent = 'Back to ' + name;
+  b.title = 'Back to ' + name;
+  b.setAttribute('aria-label', 'Back to ' + name);
+}
+function goBack(){
+  var t = backStep(); if (!t) return;
+  var move = function(){
+    if (t.clearPlan) S.plan = null;
+    if (t.setBack) S.back = t.setBack;
+    S.step = t.to; render(); window.scrollTo(0,0);
+  };
+  if (t.guarded) guard(move); else move();
+}
+$('back').addEventListener('click', goBack);
+$('back').addEventListener('keydown', function(e){
+  if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); goBack(); }
 });
 
 /* the header row pins directly under the bar, whatever height the bar happens to be */
@@ -4566,6 +4748,7 @@ function fitBar(){
   if (b) document.documentElement.style.setProperty('--barh', Math.round(b.getBoundingClientRect().height)+'px');
   var w = document.querySelector('.sheetwrap'), t = w && w.querySelector('table.sheet');
   if (w && t) w.classList.toggle('scrollx', t.scrollWidth > w.clientWidth + 1);
+  fitBarMenu();
   growAll();
 }
 window.addEventListener('resize', fitBar);
@@ -4640,6 +4823,9 @@ loadMenus().then(function(){
     return;
   }
   if (S.step==='sheet' || S.step==='saved') render();
+  /* the bar's menu control is empty until the menus land — redraw it whatever step
+     he is on, or a recipe started before the read finished never gets asked */
+  drawBarMenu();
 });
 loadMine().then(function(){
   refreshOpts();
