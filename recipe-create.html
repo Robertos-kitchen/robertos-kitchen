@@ -392,6 +392,20 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 /* what still needs him, on the row — never a colour on its own, always the words */
 .srow .swk{font-family:var(--sans);font-size:11px;color:var(--vino);background:rgba(186,155,2,.16);
   border-radius:3px;padding:2px 7px;flex:0 0 auto;white-space:nowrap}
+.srow .swk.soft{background:rgba(207,192,173,.5);opacity:.85}
+.newr.wrn{border-color:var(--vino);color:var(--vino);font-weight:600}
+/* the one screen for everything half done */
+.trow{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;width:100%;background:#fff;
+  border:1px solid rgba(64,2,7,.14);border-left:3px solid var(--sabbia-dark);border-radius:0 3px 3px 0;
+  padding:10px 13px;margin-bottom:6px;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.trow:hover{border-color:var(--vino);border-left-color:var(--vino);background:rgba(232,217,199,.3)}
+.trow.hard{border-left-color:var(--vino)}
+.trow .tn{font-family:var(--serif);font-size:18px;color:var(--vino);flex:0 0 auto}
+.trow .tk{font-family:var(--sans);font-size:11.5px;opacity:.55;flex:1 1 auto}
+.trow .ti{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.trow .ti em{font-style:normal;font-family:var(--sans);font-size:11px;padding:2px 7px;border-radius:3px;
+  background:rgba(207,192,173,.5);color:var(--vino-light)}
+.trow .ti em.h{background:rgba(186,155,2,.2);color:var(--vino);font-weight:600}
 /* .srow does not wrap, so a 100% basis inside it pushes the row past the screen
    instead of dropping to a second line — it has to be told it may wrap first */
 @media(max-width:640px){
@@ -1471,7 +1485,7 @@ function newRecipe(){
      way, and the other way round is a dish nobody can find. */
   var run = MENUS.filter(function(m){ return m.running; })[0];
   S.menus = run ? [run.id] : [];
-  S.plan = null; S.planRan = false; S.fromPlan = false;
+  S.plan = null; S.planRan = false; S.fromPlan = false; S.fromTodo = false;
 }
 
 /* ───────── the two things both called a batch ─────────
@@ -1664,25 +1678,37 @@ var SAVEDMENUS = [];
    picked on a line, no quantity on a line, a batch inside it that has been removed, or
    a batch that never said how much it makes. All four cost the dish nothing and all
    four are invisible until you open it. */
-function needsWork(r){
-  if (!S.tally) return '';                      /* the count did not load — say nothing */
-  var t = S.tally[r.id];
-  var bits = [];
-  if (!t || !t.lines) bits.push('nothing in it yet');
+function issuesOf(r){
+  if (!S.tally) return [];                      /* the count did not load — claim nothing */
+  var t = S.tally[r.id], out = [];
+  /* what stops it costing comes first — those are the ones that quietly make a dish
+     look cheaper than it is */
+  if (!t || !t.lines) out.push({ hard:true, s:'nothing in it yet' });
   else {
-    if (t.noIng) bits.push(t.noIng + (t.noIng===1 ? ' line with no ingredient' : ' lines with no ingredient'));
-    if (t.noQty) bits.push(t.noQty + (t.noQty===1 ? ' line with no amount' : ' lines with no amount'));
+    if (t.noIng) out.push({ hard:true, s:t.noIng + (t.noIng===1 ? ' line with no ingredient' : ' lines with no ingredient') });
+    if (t.noQty) out.push({ hard:true, s:t.noQty + (t.noQty===1 ? ' line with no amount' : ' lines with no amount') });
     var gone = 0, seen = {};
     t.kids.forEach(function(id){
       if (seen[id]) return; seen[id] = 1;
-      var b = BATCH[id];
-      if (b && b.archived) gone++;
+      var b = BATCH[id]; if (b && b.archived) gone++;
     });
-    if (gone) bits.push(gone + (gone===1 ? ' batch in it has been removed' : ' batches in it have been removed'));
+    if (gone) out.push({ hard:true, s:gone + (gone===1 ? ' batch in it has been removed' : ' batches in it have been removed') });
   }
-  if (r.kind === 'batch' && r.makes_qty == null) bits.push('doesn’t say how much it makes');
-  if (!bits.length) return '';
-  return '<span class="swk">' + esc(bits.join(' · ')) + '</span>';
+  if (r.kind === 'batch' && r.makes_qty == null) out.push({ hard:true, s:'doesn’t say how much it makes' });
+  if (r.kind === 'main'){
+    if (r.makes_qty == null)  out.push({ s:'doesn’t say how many portions' });
+    if (!r.section)           out.push({ s:'no section — Aung’s form needs one' });
+    if (r.menu_price == null) out.push({ s:'no menu price' });
+    if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ s:'not on a menu' });
+  }
+  return out;
+}
+function needsWork(r){
+  var is = issuesOf(r); if (!is.length) return '';
+  var hard = is.filter(function(x){ return x.hard; });
+  var show = (hard.length ? hard : is).map(function(x){ return x.s; });
+  return '<span class="swk' + (hard.length ? '' : ' soft') + '">' + esc(show.join(' · ')) +
+         (hard.length && is.length > hard.length ? ' +' + (is.length - hard.length) : '') + '</span>';
 }
 function menuNameOf(id){
   for (var i = 0; i < SAVEDMENUS.length; i++) if (SAVEDMENUS[i].id === id) return SAVEDMENUS[i].name;
@@ -3442,6 +3468,13 @@ function render(){
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
             '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
+            /* the count is on the button, so he can see from here whether it is worth
+               opening — a door labelled "Needs finishing" with nothing behind it is noise */
+            (function(){
+              var n = S.saved.filter(function(x){ return !x.archived && issuesOf(x).length; }).length;
+              return n ? '<button class="newr wrn" id="totodo">Needs finishing · ' + n + '</button>'
+                       : '<button class="newr" id="totodo">Nothing needs finishing ✓</button>';
+            })() +
             body
       ) + '</div>';
     /* the caret stays where it was: render() rebuilds this pane on every keystroke */
@@ -3452,6 +3485,55 @@ function render(){
         var n = $('sq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
       });
     }
+  }
+
+  /* ───────── everything that is not finished, in one place ─────────
+     A recipe that is half written costs the dish nothing and says so nowhere. This is
+     the one screen a chef can open to see all of it at once — mains and batches, worst
+     first — and tap straight into whichever one he wants to put right. */
+  else if (S.step === 'todo'){
+    b.classList.add('off');
+    var live2 = S.saved.filter(function(r){ return !r.archived; });
+    var bad = live2.map(function(r){ return { r:r, is:issuesOf(r) }; })
+                   .filter(function(x){ return x.is.length; });
+    /* the ones that break the cost first, then the most broken, then by name */
+    var hardOf = function(x){ return x.is.filter(function(i){ return i.hard; }).length; };
+    bad.sort(function(a, b2){
+      return (hardOf(b2) ? 1 : 0) - (hardOf(a) ? 1 : 0) ||
+             hardOf(b2) - hardOf(a) || b2.is.length - a.is.length ||
+             String(a.r.name).localeCompare(String(b2.r.name));
+    });
+    var trow = function(x){
+      var r = x.r;
+      var mu3 = r.makes_unit || '';
+      if (mu3 === 'portions' && r.makes_qty == 1) mu3 = 'portion';
+      return '<button class="trow'+(hardOf(x)?' hard':'')+'" data-open="'+r.id+'">' +
+        '<span class="tn">'+esc(r.name)+'</span>' +
+        '<span class="tk">'+(r.kind==='batch'?'batch':'main')+
+          (r.section?' · '+esc(r.section):'')+
+          (r.makes_qty?' · makes '+r.makes_qty+' '+esc(mu3):'')+'</span>' +
+        '<span class="ti">'+x.is.map(function(i){
+          return '<em class="'+(i.hard?'h':'')+'">'+esc(i.s)+'</em>'; }).join('') + '</span>' +
+      '</button>';
+    };
+    var mainsBad = bad.filter(function(x){ return x.r.kind === 'main'; });
+    var batsBad  = bad.filter(function(x){ return x.r.kind === 'batch'; });
+    var hardCount = bad.filter(hardOf).length;
+    w.innerHTML = '<div class="pane">' +
+      (!S.tally
+        ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
+          'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
+        : !bad.length
+          ? '<div class="q">Nothing needs finishing</div>' +
+            '<div class="sub">All '+live2.length+' recipes have an ingredient and an amount on every line, ' +
+            'every batch inside them is still there, and every dish has its section, its price and a menu.</div>'
+          : '<div class="q">Needs finishing</div>' +
+            '<div class="sub"><b>'+bad.length+' of '+live2.length+'</b> are not done. ' +
+            (hardCount ? '<b>'+hardCount+'</b> of them cannot be costed at all — those are first, in red. ' : '') +
+            'Tap one to put it right; you come back here afterwards.</div>' +
+            (mainsBad.length ? '<div class="shd">Main recipes · '+mainsBad.length+'</div>' + mainsBad.map(trow).join('') : '') +
+            (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '')
+      ) + '</div>';
   }
 
   else if (S.step === 'menus'){
@@ -3714,6 +3796,7 @@ function render(){
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
       (S.fromPlan && S.plan ? '<button class="newr" id="backtoplan" style="margin:0 0 10px">‹ Back to the ' +
         S.plan.recs.length + ' from ' + esc(S.plan.file) + '</button>' : '') +
+      (S.fromTodo ? '<button class="newr" id="backtotodo" style="margin:0 0 10px">‹ Back to what needs finishing</button>' : '') +
       '<div class="swapbar" id="sb"></div>' +
       '<div class="ibleg"><b>I</b> an ingredient from Aung\'s list &nbsp;·&nbsp; <b>B</b> a batch — tap either to go and look at it</div>' +
       '<div class="sheetwrap"><table class="sheet">' +
@@ -5239,8 +5322,11 @@ document.addEventListener('click', function(e){
     /* it used to stop him and ask; it puts the half-written one to one side instead */
     if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
     var btn = document.querySelector('[data-open="'+openId+'"]');
-    if (btn) btn.textContent = 'Opening…';
-    openRecipe(openId).then(function(){ markClean(); render(); window.scrollTo(0,0); })
+    var fromTodo = S.step === 'todo';
+    if (btn && !fromTodo) btn.textContent = 'Opening…';
+    openRecipe(openId).then(function(){
+      /* the promise on that screen is "you come back here afterwards", so keep the way back */
+      S.fromTodo = fromTodo; markClean(); render(); window.scrollTo(0,0); })
       .catch(function(err){
         if (btn) btn.outerHTML = '<div class="todo"><b>Could not open it.</b> '+esc(plain(err.message))+'</div>';
       });
@@ -5318,6 +5404,13 @@ document.addEventListener('click', function(e){
     var wasParked = parkCurrent();
     S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
     if (wasParked) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    return;
+  }
+  if (e.target.id === 'backtotodo'){
+    if (parkCurrent()) flash('“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.');
+    S.fromTodo = false; S.step = 'todo'; render(); window.scrollTo(0,0);
+    /* read the lines again — what he just fixed should stop being on the list */
+    loadSaved().then(function(){ if (S.step==='todo') render(); });
     return;
   }
   if (e.target.id === 'backtoplan'){
@@ -5416,6 +5509,11 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
 
   /* ── the menus screen ── */
+  if (e.target.id === 'totodo'){
+    S.back = S.step; S.step = 'todo'; render(); window.scrollTo(0,0);
+    loadSaved().then(function(){ if (S.step==='todo') render(); });
+    return;
+  }
   if (e.target.id === 'tomenus'){ openMenus(); return; }
   if (e.target.id === 'mabk'){ MENUADM.open = null; render(); window.scrollTo(0,0); return; }
   if (e.target.id === 'mashow'){ MENUADM.showOff = !MENUADM.showOff; render(); return; }
@@ -5849,7 +5947,7 @@ $('tolist').addEventListener('click', function(){
 var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
                  list:"Aung's list", saved:'Saved recipes', foh:'the floor’s half',
-                 micros:'the Micros request', menus:'the menus' };
+                 micros:'the Micros request', menus:'the menus', todo:'what needs finishing' };
 /* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
    held in S.back. Opening the Micros request from Saved recipes overwrites S.back with
    'saved' — so coming back off Micros landed on Saved recipes pointing at ITSELF, and
@@ -5863,7 +5961,7 @@ function notSelf(to){
 }
 function backStep(){
   var s = S.step;
-  if (s === 'list') return { to: notSelf(S.back) };
+  if (s === 'list' || s === 'todo') return { to: notSelf(S.back) };
   /* Saved recipes is now folders, so Back comes out of them one layer at a time —
      out of the search first, then out of the section, then out of the menu, and only
      then off the screen. Backing straight out of an open folder loses your place. */
