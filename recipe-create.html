@@ -3546,7 +3546,10 @@ function render(){
         })(f, i);
       }).join('') +
       '<button class="newr" id="pickfile">Bring in different files</button>' +
-      '<button class="newr" id="pickfolder">Bring in a whole folder</button></div>';
+      '<button class="newr" id="pickfolder">Bring in a whole folder</button>' +
+      /* The way out. This screen had three doors and every one of them led further into
+         the file — there was no way to say "forget this, I am writing my own". */
+      '<button class="newr" id="dropfound">＋ Forget this file and start a new recipe</button></div>';
     var fq = $('fq');
     if (fq) fq.addEventListener('input', function(){
       S.fq = fq.value; var at = fq.selectionStart; render();
@@ -5165,6 +5168,16 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'unpark'){ unpark(); render(); window.scrollTo(0,0); return; }
+  /* forget the workbook and start clean — the same parking, so if he had a sheet on the
+     go it goes to one side rather than being thrown out with the file */
+  if (e.target.id === 'dropfound'){
+    var parkedF = parkCurrent();
+    S.pendingGo = null; newRecipe(); S.found = null; S.fq = '';
+    render(); window.scrollTo(0,0);
+    flash(parkedF ? '“' + S.parked.label + '” put to one side — the file is closed.'
+                  : 'File closed. Start writing.');
+    return;
+  }
   if (e.target.id === 'pickfile'){ guard(function(){ $('fi').value=''; $('fi').click(); }); return; }
   if (e.target.id === 'pickfolder'){ guard(function(){ var d=$('fd'); if (d){ d.value=''; d.click(); } }); return; }
   if (e.target.id === 'mic'){ toggleMic(); return; }
@@ -5690,7 +5703,11 @@ function backStep(){
                                          : { to:'found' };
   if (s === 'foh')     return { to:'sheet' };
   if (s === 'micros')  return S.back === 'micros' ? null : { to: notSelf(S.back || 'saved') };
-  if (s === 'write' && S.found && S.found.recipes.length > 1) return { to:'found' };
+  /* Only if the recipe on the screen actually CAME out of that file. Backing out of a
+     workbook, tapping Main recipes to start something of his own and pressing Back put
+     him straight back on the file list — a loop with no way out, because a blank recipe
+     he typed himself has nothing to do with a workbook he opened ten minutes ago. */
+  if (s === 'write' && S.imported && S.found && S.found.recipes.length > 1) return { to:'found' };
   var o = ['type','write','sheet'], i = o.indexOf(s);
   /* This used to be guarded, because going back rebuilt the rows from the typed text and
      every ingredient picked by hand was lost. It does not any more: the sheet and the
