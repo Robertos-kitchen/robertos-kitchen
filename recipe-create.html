@@ -299,6 +299,33 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .micnum .none{font-family:var(--sans);font-size:11px;font-style:normal;color:var(--attn)}
 .miclbl{font-family:var(--sans);font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;
   opacity:.5;margin-top:1px}
+/* the menus screen */
+.macard{background:#fff;border:1px solid rgba(64,2,7,.16);border-radius:4px;padding:13px 15px;margin-bottom:9px}
+.macard.run{border-color:var(--oro);border-left-width:4px}
+.macard.away{background:rgba(232,217,199,.35);opacity:.75}
+.matop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.mahd{font-family:var(--serif);font-size:20px;line-height:1.15;color:var(--vino)}
+.mabadge{font-family:var(--sans);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
+  border-radius:2px;padding:3px 6px;background:var(--sabbia);color:var(--vino)}
+.mabadge.run{background:var(--oro);color:var(--vino)}
+.mabadge.off,.mabadge.away{background:rgba(64,2,7,.1);color:var(--vino-light)}
+.macount{font-family:var(--sans);font-size:11.5px;opacity:.6;margin-left:auto;white-space:nowrap}
+.maacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.maacts .newr{margin:0;font-size:12px;padding:8px 12px}
+.matip{font-family:var(--sans);font-size:11.5px;color:var(--vino-light);align-self:center;flex:1 1 200px}
+.maren{font-family:var(--sans);font-size:16px;padding:8px 10px;border:1px solid var(--sabbia-dark);
+  border-radius:3px;background:#fff;color:var(--ink);outline:none;flex:1 1 200px;min-width:0}
+.maask{background:rgba(232,217,199,.5);border-radius:3px;padding:11px 13px;margin-top:11px;
+  font-family:var(--sans);font-size:12.5px;line-height:1.6}
+.maask b{color:var(--vino)}
+.maaskb{display:flex;gap:10px;flex-wrap:wrap;margin-top:11px}
+.marow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;
+  border:1px solid rgba(64,2,7,.12);border-radius:3px;padding:9px 13px;margin-bottom:5px}
+.manm{font-family:var(--serif);font-size:17px;flex:1 1 180px;cursor:pointer;color:var(--vino)}
+.manm:hover{text-decoration:underline}
+.maoff{font-family:var(--sans);font-size:11.5px;background:none;border:1px solid rgba(64,2,7,.3);
+  border-radius:3px;color:var(--vino);padding:7px 11px;cursor:pointer;min-height:34px}
+.maoff:hover{background:rgba(232,217,199,.5)}
 .micfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px}
 /* Send sits apart from Download and Print, with a line above it: it is the one control
    on this screen that cannot be undone, and it should not read as a third button. */
@@ -2811,6 +2838,7 @@ function render(){
                  ? (live.length+gone.length) + ' of ' + S.saved.length
                  : S.saved.length + ' saved')+'</span></div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
+            '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
             (S.sq && !live.length && !gone.length
               ? '<div class="todo"><b>Nothing saved matches “'+esc(S.sq)+'”.</b> ' +
@@ -2836,6 +2864,11 @@ function render(){
         var n = $('sq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
       });
     }
+  }
+
+  else if (S.step === 'menus'){
+    b.classList.add('off');
+    w.innerHTML = menusInner();
   }
 
   else if (S.step === 'micros'){
@@ -3544,6 +3577,152 @@ function methodHTML(){
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
 }
 
+/* ═════════ Menus — where they live, what is on them, and turning them off ═════════
+   A menu made from inside a recipe has to be findable afterwards, or it is a thing
+   that exists only in a dropdown. This screen is where they live: what is on each
+   one, rename it, turn it off, put it away.
+
+   The reason "turn it off" matters more than "delete": a menu for a single night is
+   a real thing, and in a year there will be dozens of them. An OFF menu keeps
+   everything that was on it and stops appearing in the picker — so the picker stays
+   the four or five menus actually in use, not every night since last Christmas.
+
+   Putting one away (archived) is the only kind of delete there is. The table allows
+   no real delete, and it should not: a menu is what a card and a Food Bible filter
+   by, and deleting one would quietly empty screens people are cooking from. */
+var MENUADM = { ready:false, err:null, counts:{}, dishes:{}, all:[], showOff:false,
+                open:null, busy:'', ask:null, rename:null };
+var MENUSALL = false;      /* the bar picker: show every menu, not just the live ones */
+
+function loadMenuAdmin(){
+  MENUADM.ready = false; MENUADM.err = null;
+  return Promise.all([
+    sb('menus?venue_id=eq.robertos-difc&select=*&order=archived,position,name'),
+    sb('recipe_menus?select=menu_id,recipe_id'),
+    sb('recipes?kind=eq.main&select=id,name,section,archived')
+  ]).then(function(res){
+    MENUADM.all = res[0] || [];
+    var byId = {}; (res[2]||[]).forEach(function(r){ byId[r.id] = r; });
+    var counts = {}, dishes = {};
+    (res[1]||[]).forEach(function(rm){
+      var r = byId[rm.recipe_id];
+      if (!r || r.archived) return;                 /* an archived recipe is not on anything */
+      counts[rm.menu_id] = (counts[rm.menu_id] || 0) + 1;
+      (dishes[rm.menu_id] = dishes[rm.menu_id] || []).push(r);
+    });
+    Object.keys(dishes).forEach(function(k){
+      dishes[k].sort(function(a,b){ return String(a.section||'').localeCompare(String(b.section||'')) ||
+                                           String(a.name).localeCompare(String(b.name)); });
+    });
+    MENUADM.counts = counts; MENUADM.dishes = dishes; MENUADM.ready = true;
+  }).catch(function(e){ MENUADM.err = e.message; MENUADM.ready = true; });
+}
+
+/* Exactly one menu runs at a time, and the database enforces it — so the one that is
+   running has to be stood down BEFORE the new one stands up, or the write is refused. */
+function setRunning(id){
+  var was = MENUADM.all.filter(function(m){ return m.running && !m.archived && m.id !== id; });
+  var stand = was.length
+    ? sb('menus?id=eq.'+was[0].id, { method:'PATCH', prefer:'return=minimal',
+        body:{ running:false, updated_at:new Date().toISOString() } })
+    : Promise.resolve();
+  return stand.then(function(){
+    return sb('menus?id=eq.'+id, { method:'PATCH', prefer:'return=minimal',
+      body:{ running:true, active:true, updated_at:new Date().toISOString() } });
+  });
+}
+function patchMenu(id, body){
+  body.updated_at = new Date().toISOString();
+  return sb('menus?id=eq.'+id, { method:'PATCH', prefer:'return=minimal', body:body });
+}
+function menuRow(id){ return MENUADM.all.filter(function(m){ return m.id === id; })[0]; }
+
+function menusInner(){
+  if (MENUADM.err)
+    return '<div class="pane"><div class="q">Menus</div>' +
+      '<div class="todo"><b>The menus cannot be read.</b> ' + esc(menuPlain(MENUADM.err)) + '</div></div>';
+  if (!MENUADM.ready)
+    return '<div class="pane"><div class="q">Menus</div><div class="tip">Reading the menus…</div></div>';
+
+  /* one menu opened — what is on it */
+  if (MENUADM.open){
+    var m = menuRow(MENUADM.open);
+    if (!m) { MENUADM.open = null; return menusInner(); }
+    var on = MENUADM.dishes[m.id] || [];
+    var sec = null;
+    return '<div class="pane">' +
+      '<div class="q">' + esc(m.name) + '</div>' +
+      '<div class="sub">' + (on.length ? on.length + ' dish' + (on.length===1?'':'es') + ' on this menu. ' +
+          'Tap one to open it. Taking a dish off changes only this menu — the recipe stays exactly where it is.'
+        : 'Nothing is on this menu yet. Open a recipe and put it on from the bar at the top.') + '</div>' +
+      (m.note ? '<div class="tip" style="margin:0 0 12px">' + esc(m.note) + '</div>' : '') +
+      '<button class="newr" id="mabk" style="margin:0 0 14px">‹ All menus</button>' +
+      on.map(function(r){
+        var hd = (r.section !== sec) ? (sec = r.section, '<div class="shd">' + esc(r.section || 'No section') + '</div>') : '';
+        return hd + '<div class="marow">' +
+          '<span class="manm" data-maopen="' + r.id + '">' + esc(r.name) + '</span>' +
+          '<button class="maoff" data-matake="' + r.id + '">Take off this menu</button>' +
+        '</div>';
+      }).join('') +
+      '</div>';
+  }
+
+  var live = MENUADM.all.filter(function(m){ return !m.archived; });
+  var off  = MENUADM.all.filter(function(m){ return m.archived; });
+  var card = function(m){
+    var n = MENUADM.counts[m.id] || 0;
+    var asking = MENUADM.ask === m.id;
+    var ren    = MENUADM.rename === m.id;
+    return '<div class="macard' + (m.archived ? ' away' : '') + (m.running ? ' run' : '') + '">' +
+      '<div class="matop">' +
+        (ren
+          ? '<input class="maren" id="maren" value="' + esc(m.name) + '">' +
+            '<button class="okb" data-marensave="' + m.id + '">Save the name</button>' +
+            '<button class="newr" style="margin:0" data-marencx="1">Cancel</button>'
+          : '<span class="mahd">' + esc(m.name) + '</span>' +
+            (m.running ? '<span class="mabadge run">running now</span>' : '') +
+            (!m.archived && !m.active ? '<span class="mabadge off">off</span>' : '') +
+            (m.archived ? '<span class="mabadge away">put away</span>' : '')) +
+        '<span class="macount">' + n + ' dish' + (n===1?'':'es') + '</span>' +
+      '</div>' +
+      (asking
+        ? '<div class="maask"><b>Put ' + esc(m.name) + ' away?</b> ' +
+            (n ? 'The ' + n + ' dish' + (n===1?'':'es') + ' on it stay exactly as they are — ' +
+                 (n===1?'it is':'they are') + ' simply no longer on this menu. ' : '') +
+            'It stops appearing anywhere, and it can be brought back from below.' +
+            '<div class="maaskb"><button class="okb" data-maaway="' + m.id + '">Yes, put it away</button>' +
+            '<button class="newr" style="margin:0" data-manoaway="1">Keep it</button></div></div>'
+        : '<div class="maacts">' +
+            (m.archived
+              ? '<button class="newr" style="margin:0" data-maback="' + m.id + '">Bring it back</button>'
+              : '<button class="newr" style="margin:0" data-maopenm="' + m.id + '">See what is on it</button>' +
+                '<button class="newr" style="margin:0" data-marename="' + m.id + '">Rename</button>' +
+                (m.running ? '' : '<button class="newr" style="margin:0" data-marun="' + m.id + '">Make it the one running</button>') +
+                (m.running ? '<span class="matip">The cards open on this one, so it cannot be turned off or put away until another one is running.</span>'
+                  : '<button class="newr" style="margin:0" data-maact="' + m.id + '">' +
+                      (m.active ? 'Turn it off' : 'Turn it back on') + '</button>' +
+                    '<button class="newr" style="margin:0" data-maaskaway="' + m.id + '">Put it away</button>')) +
+          '</div>') +
+    '</div>';
+  };
+
+  return '<div class="pane">' +
+    '<div class="q">Menus</div>' +
+    '<div class="sub">Every menu the kitchen has, and what is on each one. This is what the recipe ' +
+      'card and the Food Bible filter by — a dish on no menu shows on no card at all.<br>' +
+      '<b>A menu for one night is normal.</b> When the night is over <b>turn it off</b>: everything on it ' +
+      'is kept and it stops filling up the picker on the recipe. That is what stops this list becoming ' +
+      'a hundred menus nobody can choose between.</div>' +
+    '<div class="mnew" style="margin:0 0 18px"><input id="manew" placeholder="A new menu — New Year’s Eve 2026">' +
+      '<button class="okb" id="manewok">Make this menu</button><span class="err" id="manewe"></span></div>' +
+    (live.length ? live.map(card).join('') : '<div class="tip">No menus yet.</div>') +
+    (off.length
+      ? '<button class="newr" id="mashow">' + (MENUADM.showOff ? 'Hide' : 'Show') + ' the ' + off.length +
+          ' put away</button>' + (MENUADM.showOff ? off.map(card).join('') : '')
+      : '') +
+    '</div>';
+}
+
 /* ── the menu control in the bar ──
    Same question as the box further down the sheet, asked where the section is asked.
    A dish can be on more than one menu, so picking a name TOGGLES it rather than
@@ -3563,14 +3742,22 @@ function drawBarMenu(){
   bm.style.display = show ? 'inline-block' : 'none';
   if (!show){ var p = $('bmnew'); if (p) p.classList.remove('on'); return; }
   var on = S.menus || [];
+  /* Only the menus in use, plus any this dish is already on. A menu for one night is
+     turned off when the night is over, and an off menu has no business in a picker a
+     chef uses every day — that is what keeps this list five long instead of a hundred. */
+  var live = MENUS.filter(function(m){ return MENUSALL || m.active || on.indexOf(m.id) > -1; });
+  var hidden = MENUS.length - live.length;
   bm.innerHTML =
     '<option value="">' + esc(barMenuLabel()) + '</option>' +
-    MENUS.map(function(m){
+    live.map(function(m){
       var yes = on.indexOf(m.id) > -1;
       return '<option value="' + m.id + '">' + (yes ? '✓ ' : '＋ ') + esc(m.name) +
-             (m.running ? ' — running now' : '') + '</option>';
+             (m.running ? ' — running now' : (m.active ? '' : ' — off')) + '</option>';
     }).join('') +
-    '<option value="__new">＋ A menu that is not here yet…</option>';
+    (hidden ? '<option value="__all">… and ' + hidden + ' turned off — show ' +
+              (hidden===1?'it':'them')+' too</option>' : '') +
+    '<option value="__new">＋ A menu that is not here yet…</option>' +
+    '<option value="__manage">⚙ Menus — see, rename, turn off…</option>';
   bm.className = 'bsec' + (on.length ? '' : ' none');
   bm.title = on.length ? 'On ' + on.map(menuName).join(', ') : 'This dish is on no menu — it will show on no card';
 }
@@ -3586,6 +3773,25 @@ function openNewMenu(){
   var i = $('bmnn'); if (i){ i.value = ''; i.focus(); }
 }
 function closeNewMenu(){ var p = $('bmnew'); if (p) p.classList.remove('on'); }
+/* the way in to the menus screen, from anywhere that offers it */
+function openMenus(){
+  guard(function(){
+    closeNewMenu();
+    if (S.step !== 'menus') S.back = S.step;
+    MENUADM.open = null; MENUADM.ask = null; MENUADM.rename = null; MENUADM.ready = false;
+    S.step = 'menus'; render(); window.scrollTo(0,0);
+    loadMenuAdmin().then(function(){ if (S.step === 'menus') render(); });
+  });
+}
+/* the screen and the picker read two different lists — refresh both, always together,
+   or the bar goes on offering a menu that has just been put away */
+function menusChanged(){
+  return Promise.all([loadMenuAdmin(), loadMenus()]).then(function(){
+    if (S.step === 'menus') render();
+    drawBarMenu();
+    var box = $('mnubox'); if (box) box.innerHTML = menuInner();
+  });
+}
 /* Made AND the dish put on it. Making a menu from inside a recipe means you want this
    recipe on it; anything else is two taps for one thought. */
 function makeMenuFromBar(){
@@ -4398,6 +4604,73 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
 
+  /* ── the menus screen ── */
+  if (e.target.id === 'tomenus'){ openMenus(); return; }
+  if (e.target.id === 'mabk'){ MENUADM.open = null; render(); window.scrollTo(0,0); return; }
+  if (e.target.id === 'mashow'){ MENUADM.showOff = !MENUADM.showOff; render(); return; }
+  if (e.target.id === 'manewok'){
+    var mi = $('manew'), me = $('manewe'), nm2 = mi ? mi.value.trim() : '';
+    if (!nm2){ if (me) me.textContent = 'Give the menu a name.'; if (mi) mi.focus(); return; }
+    if (MENUADM.all.some(function(m){ return !m.archived && m.name.toLowerCase() === nm2.toLowerCase(); })){
+      if (me) me.textContent = 'There is already a menu called that.'; return; }
+    var nb = e.target; nb.disabled = true; nb.textContent = 'Making…';
+    newMenu(nm2).then(menusChanged)
+      .catch(function(ex){ if (me) me.textContent = 'Not made — ' + menuPlain(ex.message);
+                           nb.disabled = false; nb.textContent = 'Make this menu'; });
+    return;
+  }
+  var mo = e.target.closest('[data-maopenm]');
+  if (mo){ MENUADM.open = mo.dataset.maopenm; render(); window.scrollTo(0,0); return; }
+  var mr = e.target.closest('[data-marename]');
+  if (mr){ MENUADM.rename = mr.dataset.marename; render();
+           var ri = $('maren'); if (ri){ ri.focus(); ri.select(); } return; }
+  if (e.target.closest('[data-marencx]')){ MENUADM.rename = null; render(); return; }
+  var ms = e.target.closest('[data-marensave]');
+  if (ms){
+    var inp2 = $('maren'), v2 = inp2 ? inp2.value.trim() : '';
+    if (!v2) return;
+    patchMenu(ms.dataset.marensave, { name:v2 })
+      .then(function(){ MENUADM.rename = null; return menusChanged(); })
+      .catch(function(ex){ flash('Not renamed — ' + menuPlain(ex.message), true); });
+    return;
+  }
+  var mrun = e.target.closest('[data-marun]');
+  if (mrun){ setRunning(mrun.dataset.marun).then(menusChanged)
+      .catch(function(ex){ flash('Not changed — ' + menuPlain(ex.message), true); }); return; }
+  var mac = e.target.closest('[data-maact]');
+  if (mac){ var mrow = menuRow(mac.dataset.maact);
+    patchMenu(mac.dataset.maact, { active: !(mrow && mrow.active) }).then(menusChanged)
+      .catch(function(ex){ flash('Not changed — ' + menuPlain(ex.message), true); }); return; }
+  var mask = e.target.closest('[data-maaskaway]');
+  if (mask){ MENUADM.ask = mask.dataset.maaskaway; render(); return; }
+  if (e.target.closest('[data-manoaway]')){ MENUADM.ask = null; render(); return; }
+  var maw = e.target.closest('[data-maaway]');
+  if (maw){ patchMenu(maw.dataset.maaway, { archived:true, running:false, active:false })
+      .then(function(){ MENUADM.ask = null; return menusChanged(); })
+      .catch(function(ex){ flash('Not put away — ' + menuPlain(ex.message), true); }); return; }
+  var mbk = e.target.closest('[data-maback]');
+  if (mbk){ patchMenu(mbk.dataset.maback, { archived:false, active:true }).then(menusChanged)
+      .catch(function(ex){ flash('Not brought back — ' + menuPlain(ex.message), true); }); return; }
+  var mtake = e.target.closest('[data-matake]');
+  if (mtake && MENUADM.open){
+    sb('recipe_menus?recipe_id=eq.'+mtake.dataset.matake+'&menu_id=eq.'+MENUADM.open,
+       { method:'DELETE', prefer:'return=minimal' })
+      .then(menusChanged)
+      .catch(function(ex){ flash('Not taken off — ' + menuPlain(ex.message), true); });
+    return;
+  }
+  var mop = e.target.closest('[data-maopen]');
+  if (mop){
+    var rid = mop.dataset.maopen;
+    guard(function(){
+      var wait = flash('Opening the recipe…');
+      openRecipe(rid).then(function(){ wait.remove(); S.back = 'menus'; S.step = 'sheet';
+        render(); rows(); foot(); window.scrollTo(0,0); })
+        .catch(function(ex){ wait.remove(); flash('That recipe could not be opened — ' + ex.message, true); });
+    });
+    return;
+  }
+
   if (e.target.id === 'tomicros'){
     guard(function(){
       var run = MENUS.filter(function(m){ return m.running; })[0];
@@ -4665,6 +4938,8 @@ $('bmn').addEventListener('change', function(){
   this.selectedIndex = 0;                    /* the closed control shows the summary, never a pick */
   if (!v) return;
   if (v === '__new'){ openNewMenu(); return; }
+  if (v === '__all'){ MENUSALL = true; drawBarMenu(); return; }
+  if (v === '__manage'){ openMenus(); return; }
   var at = (S.menus || []).indexOf(v);
   if (at > -1) S.menus.splice(at, 1); else (S.menus = S.menus || []).push(v);
   drawBarMenu(); drawSaveBar();
@@ -4717,7 +4992,7 @@ $('tolist').addEventListener('click', function(){
 var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
                  list:"Aung's list", saved:'Saved recipes', foh:'the floor’s half',
-                 micros:'the Micros request' };
+                 micros:'the Micros request', menus:'the menus' };
 /* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
    held in S.back. Opening the Micros request from Saved recipes overwrites S.back with
    'saved' — so coming back off Micros landed on Saved recipes pointing at ITSELF, and
@@ -4732,6 +5007,8 @@ function notSelf(to){
 function backStep(){
   var s = S.step;
   if (s === 'list' || s === 'saved') return { to: notSelf(S.back) };
+  /* inside a menu, Back is out of it to the list — not off the screen altogether */
+  if (s === 'menus')   return MENUADM.open ? { to:'menus', openNull:true } : { to: notSelf(S.back) };
   if (s === 'found')   return { to:'type' };
   /* once they are created, going back to a screen offering to create them again
      is a trap — send him to the list of what is now saved instead */
@@ -4751,7 +5028,7 @@ function drawBack(){
   var t = backStep();
   b.classList.toggle('hide', !t);
   if (!t) return;
-  var name = STEPNAME[t.to] || 'the last screen';
+  var name = t.openNull ? 'all menus' : (STEPNAME[t.to] || 'the last screen');
   if (w) w.textContent = 'Back to ' + name;
   b.title = 'Back to ' + name;
   b.setAttribute('aria-label', 'Back to ' + name);
@@ -4761,6 +5038,7 @@ function goBack(){
   var move = function(){
     if (t.clearPlan) S.plan = null;
     if (t.setBack) S.back = t.setBack;
+    if (t.openNull) MENUADM.open = null;
     S.step = t.to; render(); window.scrollTo(0,0);
   };
   if (t.guarded) guard(move); else move();
