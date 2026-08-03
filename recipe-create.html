@@ -358,6 +358,17 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow .sd{font-family:var(--sans);font-size:11px;opacity:.45;flex:0 0 auto}
 .srm{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:none;border:none;color:var(--vino);opacity:.45;cursor:pointer;padding:6px 2px;flex:0 0 auto}
 .srm:hover{opacity:1;text-decoration:underline}
+/* a folder — a menu, or a section inside one. Deliberately taller and quieter than a
+   recipe row: you are choosing a place, not reading a dish. */
+.fold{display:flex;align-items:baseline;gap:12px;width:100%;background:#fff;border:1px solid rgba(64,2,7,.14);
+  border-radius:3px;padding:13px 14px;margin-bottom:7px;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.fold:hover{border-color:rgba(64,2,7,.45);background:rgba(232,217,199,.3)}
+.fold .fn{font-family:var(--serif);font-size:19px;flex:0 0 auto}
+.fold .fm{font-family:var(--sans);font-size:12px;opacity:.55;flex:1 1 auto}
+.fold .fc{font-family:var(--sans);font-size:13px;opacity:.5;flex:0 0 auto;font-variant-numeric:tabular-nums}
+.fold.dim{opacity:.6}
+.crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
+@media(max-width:520px){.fold{flex-wrap:wrap}.fold .fm{flex:1 0 100%;order:3}}
 .newr{font-family:var(--sans);font-size:13px;background:none;border:1px dashed rgba(64,2,7,.35);border-radius:3px;color:var(--vino);padding:9px 14px;margin:14px 0 4px;cursor:pointer}
 .newr:hover{border-style:solid;background:rgba(232,217,199,.3)}
 
@@ -1392,11 +1403,35 @@ function loadSaved(){
   /* 400 was the cap while there were five recipes. Ordered newest-first, a cap does
      not trim the list — it silently deletes the OLDEST recipes off the end, which are
      exactly the ones you open the search for. The whole book is well under 2000. */
-  return sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived' +
-            '&order=updated_at.desc&limit=2000')
-    .then(function(list){ S.saved = list||[]; S.listErr=null; })
-    .catch(function(e){ S.saved=[]; S.listErr = e.message; });
+  /* The folders are menu → section, so which menus each recipe is on has to come back
+     WITH the list. If that one call fails we do not quietly file three hundred recipes
+     under "Not on a menu" — that reads as a fact and it is a lie. The flag drops the
+     screen back to the plain list and says why. */
+  return Promise.all([
+    sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived' +
+       '&order=updated_at.desc&limit=2000'),
+    sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
+    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
+      .catch(function(){ return null; })
+  ]).then(function(res){
+    S.saved = res[0] || []; S.listErr = null;
+    S.foldErr = !res[1] || !res[2];
+    var m = {}; (res[1] || []).forEach(function(r){ (m[r.recipe_id] = m[r.recipe_id] || []).push(r.menu_id); });
+    S.rmenus = m;
+    SAVEDMENUS = res[2] || [];
+  })
+    .catch(function(e){ S.saved=[]; S.rmenus={}; S.foldErr=true; S.listErr = e.message; });
 }
+/* every menu, archived ones too — a recipe can sit on a menu that has been put away,
+   and a folder list that skips it hides the recipe altogether */
+var SAVEDMENUS = [];
+function menuNameOf(id){
+  for (var i = 0; i < SAVEDMENUS.length; i++) if (SAVEDMENUS[i].id === id) return SAVEDMENUS[i].name;
+  return 'A menu that is no longer there';
+}
+function menusOf(r){ return (S.rmenus || {})[r.id] || []; }
+/* his order, not the alphabet — Crudo comes before Dessert on the menu and on the screen */
+function secOrder(s){ var i = SECTIONS.indexOf(s); return i < 0 ? 900 : i; }
 
 /* ───────── the ingredients he added himself ─────────
    Aung's list is the stock take and nothing else. This is the short list of things
@@ -2950,9 +2985,6 @@ function render(){
     var all   = S.sq ? findRecipes(S.sq, S.saved) : S.saved;
     var live  = all.filter(function(r){ return !r.archived; });
     var gone  = all.filter(function(r){ return  r.archived; });
-    var mains = live.filter(function(r){ return r.kind==='main'; });
-    var bats  = live.filter(function(r){ return r.kind==='batch'; });
-    var openGone = S.showGone || (!!S.sq && !!gone.length);
     var card = function(r){
       var mu2 = r.makes_unit || '';
       if (mu2 === 'portions' && r.makes_qty == 1) mu2 = 'portion';
@@ -2968,6 +3000,126 @@ function render(){
                     : '<button class="srm" data-rmr="'+r.id+'">Remove</button>') +
       '</div>';
     };
+    /* ── the folders ──
+       Menu first, then the section inside it, then the dishes. Three hundred recipes in
+       one column is a wall you scroll past rather than read; the folder you want is one
+       of about eight, and the dish is one of about nine once you are in it.
+
+       A dish on three menus shows up in all three. That is not a duplicate — it really
+       is on three menus, and Remove takes the recipe away, not the copy. */
+    var folders = function(){
+      var out = [], mains2 = live.filter(function(r){ return r.kind==='main'; });
+      SAVEDMENUS.forEach(function(m){
+        var n = mains2.filter(function(r){ return menusOf(r).indexOf(m.id) >= 0; }).length;
+        /* a menu that has been put away is only worth a folder while something is still
+           on it — an empty one that is still running is worth showing, so he can see it */
+        if (!n && m.archived) return;
+        out.push({ key:m.id, name:m.name, n:n, dim:!n || m.archived,
+                   note: m.archived ? 'put away' : (n ? '' : 'nothing on it yet') });
+      });
+      var loose = mains2.filter(function(r){ return !menusOf(r).length; }).length;
+      if (loose) out.push({ key:'__none', name:'Not on a menu', n:loose,
+                            note:'written, but not put on anything yet' });
+      var nb = live.filter(function(r){ return r.kind==='batch'; }).length;
+      if (nb) out.push({ key:'__batch', name:'Batch recipes', n:nb,
+                         note:'sauces, stocks, doughs — used inside the dishes' });
+      if (gone.length) out.push({ key:'__gone', name:'Removed', n:gone.length, dim:true,
+                                  note:'nothing is destroyed — put any of them back' });
+      return out;
+    };
+    /* what is actually in the open folder */
+    var inFolder = function(k){
+      if (k === '__gone')  return gone;
+      if (k === '__batch') return live.filter(function(r){ return r.kind==='batch'; });
+      var mains3 = live.filter(function(r){ return r.kind==='main'; });
+      if (k === '__none')  return mains3.filter(function(r){ return !menusOf(r).length; });
+      return mains3.filter(function(r){ return menusOf(r).indexOf(k) >= 0; });
+    };
+    var foldName = function(k){
+      return k === '__none'  ? 'Not on a menu'
+           : k === '__batch' ? 'Batch recipes'
+           : k === '__gone'  ? 'Removed'
+           : menuNameOf(k);
+    };
+    /* the sections present in this folder, in his order, with the unsectioned last */
+    var groupsOf = function(rs){
+      var seen = {}, g = [];
+      rs.forEach(function(r){
+        var s = r.section || '__nosec';
+        if (!seen[s]){ seen[s] = { key:s, name:(r.section || 'No section yet'), rs:[] }; g.push(seen[s]); }
+        seen[s].rs.push(r);
+      });
+      g.sort(function(a,b){
+        if (a.key === '__nosec') return 1;
+        if (b.key === '__nosec') return -1;
+        var d = secOrder(a.key) - secOrder(b.key);
+        return d || a.name.localeCompare(b.name);
+      });
+      return g;
+    };
+    var fbtn = function(f){
+      return '<button class="fold'+(f.dim?' dim':'')+'" data-fold="'+esc(f.key)+'">' +
+        '<span class="fn">'+esc(f.name)+'</span>' +
+        '<span class="fm">'+esc(f.note||'')+'</span>' +
+        '<span class="fc">'+f.n+'</span></button>';
+    };
+    var sbtn = function(g){
+      return '<button class="fold" data-fsec="'+esc(g.key)+'">' +
+        '<span class="fn">'+esc(g.name)+'</span>' +
+        '<span class="fm"></span>' +
+        '<span class="fc">'+g.rs.length+'</span></button>';
+    };
+
+    var body;
+    if (S.sq){
+      /* searching goes straight past the folders — you are looking for one dish and you
+         do not know, or care, which menu it is on */
+      var mains = live.filter(function(r){ return r.kind==='main'; });
+      var bats  = live.filter(function(r){ return r.kind==='batch'; });
+      body = (!live.length && !gone.length
+              ? '<div class="todo"><b>Nothing saved matches “'+esc(S.sq)+'”.</b> ' +
+                'Every word you type has to be in the name or the section, so fewer words ' +
+                'find more — try just “vitello”. If it really isn’t written yet, ' +
+                '<b>Start a new recipe</b> above.</div>'
+              : '<div class="crumb">Looking through all '+S.saved.length+' recipes, every menu.</div>') +
+             (mains.length ? '<div class="shd">Main recipes · '+mains.length+'</div>' + mains.map(card).join('') : '') +
+             (bats.length  ? '<div class="shd">Batch recipes · '+bats.length+'</div>' + bats.map(card).join('')  : '') +
+             (gone.length  ? '<div class="shd">Removed — but it matches, so here it is</div>' + gone.map(card).join('') : '');
+    }
+    else if (S.foldErr){
+      body = '<div class="todo"><b>Could not work out which menu each recipe is on, so they are ' +
+             'all listed together below.</b> Nothing is lost and nothing is wrong with the recipes — ' +
+             'the folders come back on their own next time the list loads.</div>' +
+             (live.filter(function(r){ return r.kind==='main'; }).length
+               ? '<div class="shd">Main recipes</div>' + live.filter(function(r){ return r.kind==='main'; }).map(card).join('') : '') +
+             (live.filter(function(r){ return r.kind==='batch'; }).length
+               ? '<div class="shd">Batch recipes</div>' + live.filter(function(r){ return r.kind==='batch'; }).map(card).join('') : '');
+    }
+    else if (!S.fmenu){
+      var fs2 = folders();
+      body = '<div class="crumb">Tap a menu to see what is on it.</div>' +
+             (fs2.length ? fs2.map(fbtn).join('')
+                         : '<div class="tip">No menus yet. Make one on the Menus screen and the dishes will file themselves.</div>');
+    }
+    else {
+      var rs2 = inFolder(S.fmenu), gs = groupsOf(rs2);
+      /* one section in the folder is not a folder — do not make him tap twice to see
+         the same nine dishes */
+      var flat = gs.length <= 1 || S.fmenu === '__gone';
+      if (flat || S.fsec){
+        var pick = flat ? (gs[0] || { name:null, rs:rs2 })
+                        : (gs.filter(function(g){ return g.key === S.fsec; })[0] || { name:S.fsec, rs:[] });
+        body = '<div class="crumb">'+esc(foldName(S.fmenu)) +
+                 (pick.name && !flat ? ' · <b>'+esc(pick.name)+'</b>' : (pick.name && gs.length ? ' · '+esc(pick.name) : '')) +
+                 ' · '+pick.rs.length+' recipe'+(pick.rs.length===1?'':'s')+'</div>' +
+               (pick.rs.length ? pick.rs.map(card).join('')
+                               : '<div class="tip">Nothing in here.</div>');
+      } else {
+        body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
+               ' across '+gs.length+' sections</div>' + gs.map(sbtn).join('');
+      }
+    }
+
     w.innerHTML = '<div class="pane">' +
       (S.listErr
         ? '<div class="todo"><b>Could not reach the recipe list.</b> '+esc(S.listErr)+'</div>'
@@ -2977,7 +3129,7 @@ function render(){
           : '<div class="q">Saved recipes</div>' +
             '<div class="sub">Open one to change it — the sheet comes back exactly as you left it, and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s newest stock take every time, so nothing here is a frozen price.</div>' +
             '<div class="sfind"><input id="sq" value="'+esc(S.sq||'')+'" ' +
-                'placeholder="search '+S.saved.length+' recipes — burrata, vitello, pasta…">' +
+                'placeholder="search all '+S.saved.length+' recipes — burrata, vitello, pasta…">' +
               (S.sq ? '<button class="sclr" id="sclr">Clear</button>' : '') +
               '<span class="scount">'+(S.sq
                  ? (live.length+gone.length) + ' of ' + S.saved.length
@@ -2985,21 +3137,7 @@ function render(){
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
             '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
-            (S.sq && !live.length && !gone.length
-              ? '<div class="todo"><b>Nothing saved matches “'+esc(S.sq)+'”.</b> ' +
-                'Every word you type has to be in the name or the section, so fewer words ' +
-                'find more — try just “vitello”. If it really isn’t written yet, ' +
-                '<b>Start a new recipe</b> above.</div>'
-              : '') +
-            (mains.length ? '<div class="shd">Main recipes'+(S.sq?' · '+mains.length:'')+'</div>' + mains.map(card).join('') : '') +
-            (bats.length  ? '<div class="shd">Batch recipes'+(S.sq?' · '+bats.length:'')+'</div>' + bats.map(card).join('')  : '') +
-            (gone.length
-              ? (S.sq
-                  ? '<div class="shd">Removed — but it matches, so here it is</div>'
-                  : '<button class="newr" id="showgone">'+(S.showGone ? 'Hide' : 'Show')+' removed ('+gone.length+')</button>' +
-                    (openGone ? '<div class="shd">Removed — nothing is destroyed</div>' : '')) +
-                (openGone ? gone.map(card).join('') : '')
-              : '')
+            body
       ) + '</div>';
     /* the caret stays where it was: render() rebuilds this pane on every keystroke */
     var sq = $('sq');
@@ -4745,6 +4883,12 @@ document.addEventListener('click', function(e){
     if (f){ f.how = S.found.how; useImported(f); render(); window.scrollTo(0,0); }
     return;
   }
+  /* ── opening a folder on Saved recipes ── */
+  var fd = e.target.closest('[data-fold]');
+  if (fd){ S.fmenu = fd.dataset.fold; S.fsec = null; S.sq = ''; render(); window.scrollTo(0,0); return; }
+  var fsx = e.target.closest('[data-fsec]');
+  if (fsx){ S.fsec = fsx.dataset.fsec; render(); window.scrollTo(0,0); return; }
+
   if (e.target.id === 'showgone'){ S.showGone = !S.showGone; render(); return; }
   if (e.target.id === 'sclr'){ S.sq = ''; render(); var c = $('sq'); if (c) c.focus(); return; }
   if (e.target.id === 'fclr'){ S.fq = ''; render(); var c2 = $('fq'); if (c2) c2.focus(); return; }
@@ -5190,7 +5334,17 @@ function notSelf(to){
 }
 function backStep(){
   var s = S.step;
-  if (s === 'list' || s === 'saved') return { to: notSelf(S.back) };
+  if (s === 'list') return { to: notSelf(S.back) };
+  /* Saved recipes is now folders, so Back comes out of them one layer at a time —
+     out of the search first, then out of the section, then out of the menu, and only
+     then off the screen. Backing straight out of an open folder loses your place. */
+  if (s === 'saved'){
+    if (S.sq)    return { to:'saved', clearSq:true,   name:'the folders' };
+    if (S.fsec)  return { to:'saved', clearSec:true,  name:menuNameOf(S.fmenu) === 'A menu that is no longer there'
+                                                            ? 'the sections' : menuNameOf(S.fmenu) };
+    if (S.fmenu) return { to:'saved', clearMenu:true, name:'all the menus' };
+    return { to: notSelf(S.back) };
+  }
   /* inside a menu, Back is out of it to the list — not off the screen altogether */
   if (s === 'menus')   return MENUADM.open ? { to:'menus', openNull:true } : { to: notSelf(S.back) };
   if (s === 'found')   return { to:'type' };
@@ -5212,7 +5366,7 @@ function drawBack(){
   var t = backStep();
   b.classList.toggle('hide', !t);
   if (!t) return;
-  var name = t.openNull ? 'all menus' : (STEPNAME[t.to] || 'the last screen');
+  var name = t.name ? t.name : t.openNull ? 'all menus' : (STEPNAME[t.to] || 'the last screen');
   if (w) w.textContent = 'Back to ' + name;
   b.title = 'Back to ' + name;
   b.setAttribute('aria-label', 'Back to ' + name);
@@ -5223,6 +5377,9 @@ function goBack(){
     if (t.clearPlan) S.plan = null;
     if (t.setBack) S.back = t.setBack;
     if (t.openNull) MENUADM.open = null;
+    if (t.clearSq)   S.sq = '';
+    if (t.clearSec)  S.fsec = null;
+    if (t.clearMenu){ S.fmenu = null; S.fsec = null; }
     S.step = t.to; render(); window.scrollTo(0,0);
   };
   if (t.guarded) guard(move); else move();
