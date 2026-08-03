@@ -1574,6 +1574,26 @@ function loadMicros(menuId){
 var MICBRAND = { vino:'FF410207', vinoMid:'FF5E0A10', cream:'FFF5EDE0',
                  sabbia:'FFE1D3C2', sabbiaLight:'FFEDE5D8', line:'FFCFC0AD', ink:'FF2A1A10' };
 
+/* ── the Micros family codes ──
+   Read off Aung's own form (Copy of R's Micros Request Food -New Menu 18.12.2025.xlsx),
+   not invented. Every family line on his sheet carries its code in column B, and the
+   dishes under it are numbered inside that block — 10600 Insalate, then 10601, 10602.
+   The FAMILY code is a fixed thing and belongs on the form; the ITEM code for a brand
+   new dish is the next free number in the block and stays Aung's to give.
+   The order on his sheet follows the menu, not the numbers — Caviar 10300 sits well
+   below Grill 12000 — so this is a lookup, never a sequence. */
+var MICFAM = { 'Food':10000, 'Crudo':10001, 'Caviar':10300, 'Insalate':10600,
+               'Antipasti':10800, 'Pizza':11000, 'Pasta':11200, 'Secondi':11500,
+               'Pesce':11501, 'Carne':11800, 'Grill':12000, 'Side Dish':15000,
+               'Condiment':35500 };
+function micFamCode(section){
+  var k = String(section||'').trim();
+  if (MICFAM[k] != null) return MICFAM[k];
+  /* one spelling difference should not lose the code */
+  var hit = Object.keys(MICFAM).filter(function(n){ return n.toLowerCase() === k.toLowerCase(); })[0];
+  return hit ? MICFAM[hit] : null;
+}
+
 function micWorkbook(ExcelJS, menuName){
   var rows = MICREQ.rows.filter(function(r){ return r.take; });
   var B = MICBRAND;
@@ -1585,14 +1605,19 @@ function micWorkbook(ExcelJS, menuName){
 
   var wb = new ExcelJS.Workbook();
   wb.creator = "Roberto's DIFC — Kitchen App";
-  var ws = wb.addWorksheet((menuName || 'Micros Request').slice(0,28) || 'Micros Request', {
+  /* his tab is called "Micros Request" — checked on the 18.12.2025 file. The menu is
+     in the filename and in the header, so the tab matches what he opens every time. */
+  var ws = wb.addWorksheet('Micros Request', {
     views: [{ state:'frozen', ySplit:8 }],
     pageSetup: { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0,
                  margins:{ left:.3, right:.3, top:.4, bottom:.5, header:.2, footer:.2 } }
   });
-  ws.columns = [{width:1.7},{width:12.7},{width:27.6},{width:22.5},{width:4.7},{width:12.5},
-                {width:19.2},{width:18.1},{width:10.7},{width:10},{width:12.5},{width:14.1},
-                {width:14.4},{width:24.5},{width:3},{width:12.5},{width:10},{width:8}];
+  /* his widths, column for column, straight off the 18.12.2025 form — including the
+     ones past N that the first build stopped short of */
+  ws.columns = [{width:1.73},{width:12.73},{width:27.63},{width:22.45},{width:4.73},{width:12.54},
+                {width:19.18},{width:18.09},{width:10.73},{width:8.43},{width:12.54},{width:14.09},
+                {width:14.36},{width:24.54},{width:8.73},{width:12.73},{width:10.18},{width:7.91},
+                {width:0.54},{width:11.18},{width:15.27},{width:8.73}];
 
   /* paint a stripe of cells first, then write the values into it — a value written
      with put() only touches the value, so the stripe underneath is not lost */
@@ -1636,19 +1661,22 @@ function micWorkbook(ExcelJS, menuName){
   put('L3', menuName || '', { font:{ name:'Calibri', size:9, color:{argb:B.vinoMid} },
         align:{ horizontal:'right' } });
 
+  /* His own way of ticking it: the three boxes stay as boxes and the chosen one is
+     highlighted yellow. That is what Aung looks for. An invented "X" would be us
+     changing the convention on a form that is his, not ours. */
   put('B5', 'Type of Request:  Please Tick One',
-      { font:{ name:'Calibri', size:10, bold:true, color:{argb:B.vino} } });
-  put('D5', '□ Modification', { font:BODYF });
+      { font:{ name:'Calibri', size:11, bold:true, color:{argb:B.vino} } });
+  put('D5', '□ Modification', { font:BODYF, align:{ horizontal:'center' } });
   ws.mergeCells('F5:H5');
-  put('F5', 'X Addition', { font:{ name:'Calibri', size:11, bold:true, color:{argb:B.cream} },
-        fill:B.vinoMid, align:{ horizontal:'center' } });
+  put('F5', '□ Addition', { font:{ name:'Calibri', size:11, bold:true, color:{argb:'FF000000'} },
+        fill:'FFFFFF00', align:{ horizontal:'center' } });
   ws.mergeCells('I5:K5');
-  put('I5', '□ Deletion', { font:BODYF });
+  put('I5', '□ Deletion', { font:BODYF, align:{ horizontal:'center' } });
 
   /* ── the two header rows ── */
   var hAlign = { vertical:'middle', horizontal:'center', wrapText:true };
-  stripe(7, 2, 18, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
-  stripe(8, 2, 18, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
+  stripe(7, 2, 21, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
+  stripe(8, 2, 21, { fill:B.vino, font:HEADF, border:ROWB, align:hAlign });
   ws.getRow(7).height = 20; ws.getRow(8).height = 24;
 
   ws.mergeCells('B7:B8'); put('B7', 'Micros Code');
@@ -1666,6 +1694,11 @@ function micWorkbook(ExcelJS, menuName){
   put('P7', 'Old Price'); put('P8', 'All Inclusive');
   ws.mergeCells('Q7:R7'); put('Q7', 'Price Status');
   put('Q8', '+ / -'); put('R8', '%');
+  /* T and U are on his form too. They are for a price CHANGE — what the item sold and
+     what the change is worth — so an addition leaves them empty, but the columns are
+     his and taking them off would be us editing his form. */
+  put('T7', 'Qty Sold');    put('T8', 'Last period');
+  put('U7', 'Total Sales'); put('U8', 'Impact +/-');
 
   var money = { horizontal:'right' };
   var R = 9, fam = null;
@@ -1674,12 +1707,15 @@ function micWorkbook(ExcelJS, menuName){
        No code on it: the Micros codes are Aung's to assign, ours would be invented. */
     if (r.section !== fam){
       fam = r.section;
-      stripe(R, 2, 18, { fill:B.sabbia, font:FAMF, border:ROWB });
+      stripe(R, 2, 21, { fill:B.sabbia, font:FAMF, border:ROWB });
       ws.getRow(R).height = 19;
+      /* the family code IS known — it is on his form and it does not change */
+      var fc = micFamCode(fam);
+      if (fc != null) put('B'+R, fc, { align:{ horizontal:'center' } });
       put('C'+R, fam); put('D'+R, fam);
       R++;
     }
-    stripe(R, 2, 18, { fill:'FFFFFFFF', font:BODYF, border:ROWB });
+    stripe(R, 2, 21, { fill:'FFFFFFFF', font:BODYF, border:ROWB });
     put('C'+R, r.name);
     put('D'+R, r.micros);
     put('E'+R, null, { f:'LEN(D'+R+')', align:{ horizontal:'center' } });
@@ -1699,8 +1735,9 @@ function micWorkbook(ExcelJS, menuName){
   /* the foot — says where it came from, and that the empty column is deliberate */
   var F = R + 1;
   ws.mergeCells('B'+F+':N'+F);
-  put('B'+F, 'Micros codes left blank for Aung to assign. Cost %, name length and net price are ' +
-             'formulas — the sheet recalculates when a figure is corrected.',
+  put('B'+F, 'Family codes are the existing ones. Item codes are left blank for Aung — a new ' +
+             'dish takes the next free number in its family. Cost %, name length and net price ' +
+             'are formulas, so the sheet recalculates when a figure is corrected.',
       { font:{ name:'Calibri', size:9, italic:true, color:{argb:B.vinoMid} } });
   ws.mergeCells('B'+(F+1)+':N'+(F+1));
   put('B'+(F+1), "Roberto's DIFC · Kitchen Recipes app",
@@ -2750,6 +2787,8 @@ function render(){
     var noPrice = take.filter(function(r){ return r.price == null; });
     var noCost  = take.filter(function(r){ return r.cost  == null; });
     var over    = take.filter(function(r){ return (r.micros||'').length > 16; });
+    var noFam   = take.map(function(r){ return r.section; })
+                      .filter(function(s, i, a){ return a.indexOf(s) === i && micFamCode(s) == null; });
 
     w.innerHTML = '<div class="pane">' +
       '<div class="q">Micros request for Aung</div>' +
@@ -2781,6 +2820,14 @@ function render(){
         ' — usually a batch inside them that is not finished. The cost column is left empty rather than guessed.</div>' : '') +
       (over.length ? '<div class="todo"><b>'+over.length+' till name'+(over.length===1?' is':'s are')+' over 16 characters.</b> ' +
         'Micros cuts them off. Shorten '+(over.length===1?'it':'them')+' below.</div>' : '') +
+      /* A section that is not one of Aung's families goes out with no family code, and he
+         has to work out where it belongs. Better said here than found by him. */
+      (noFam.length ? '<div class="todo"><b>'+noFam.length+' section'+(noFam.length===1?'':'s')+
+        ' Micros has no family for:</b> ' + esc(noFam.join(', ')) + '. ' +
+        'His families are Crudo, Insalate, Antipasti, Pizza, Pasta, Secondi, Pesce, Carne, Grill, ' +
+        'Caviar, Side Dish and Condiment. The form goes out with the family code empty for ' +
+        (noFam.length===1?'it':'them')+' — rename the section on the recipe to match, or let Aung place ' +
+        (noFam.length===1?'it':'them')+'.</div>' : '') +
 
       '<div class="shd">On '+esc(menu ? menu.name : 'this menu')+'</div>' +
       MICREQ.rows.map(function(r, i){
