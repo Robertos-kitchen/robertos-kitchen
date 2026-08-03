@@ -174,6 +174,24 @@ function erode(bin,w,h){
   }
   return out;
 }
+function dilate(bin,w,h){
+  const out=new Uint8Array(bin);
+  for (let y=1;y<h-1;y++) for (let x=1;x<w-1;x++){
+    const k=y*w+x;
+    if (!bin[k] && (bin[k-1]||bin[k+1]||bin[k-w]||bin[k+w])) out[k]=1;
+  }
+  return out;
+}
+/* Eat in, then grow back. Anything joined to the plate by a neck thinner than twice
+   the bite is severed and never grows back, while the plate itself returns to its own
+   size. This is what turns a wing WELDED to the rim into a separate piece, which is
+   the case the largest-piece rule could not touch: it was not a separate piece. */
+function open(bin,w,h,k){
+  let m=bin;
+  for (let i=0;i<k;i++) m=erode(m,w,h);
+  for (let j=0;j<k;j++) m=dilate(m,w,h);
+  return m;
+}
 /* one pixel of softness so the cut does not saw against a flat ground */
 function feather(bin,w,h){
   const a=new Uint8Array(w*h);
@@ -190,22 +208,51 @@ function feather(bin,w,h){
 }
 
 /* ── 2. the ellipse the plate makes, and the affine that squares it up ─────── */
-function ellipseOf(bin,w,h){
+function momentFit(bin,w,h,keep){
   let n=0,sx=0,sy=0;
-  for (let p=0;p<bin.length;p++) if(bin[p]){ const x=p%w; n++; sx+=x; sy+=(p-x)/w; }
+  for (let p=0;p<bin.length;p++) if(bin[p] && (!keep||keep[p])){ const x=p%w; n++; sx+=x; sy+=(p-x)/w; }
   if (!n) return null;
   const cx=sx/n, cy=sy/n;
   let xx=0,yy=0,xy=0;
-  for (let p=0;p<bin.length;p++) if(bin[p]){
+  for (let p=0;p<bin.length;p++) if(bin[p] && (!keep||keep[p])){
     const x=p%w, y=(p-x)/w, dx=x-cx, dy=y-cy;
     xx+=dx*dx; yy+=dy*dy; xy+=dx*dy;
   }
   xx/=n; yy/=n; xy/=n;
   const tr=xx+yy, det=xx*yy-xy*xy;
   const disc=Math.sqrt(Math.max(0,tr*tr/4-det));
-  const a=2*Math.sqrt(Math.max(tr/2+disc,1e-6));
-  const b=2*Math.sqrt(Math.max(tr/2-disc,1e-6));
-  return { cx, cy, a, b, ang:0.5*Math.atan2(2*xy, xx-yy), round:b/a };
+  return { cx, cy,
+    a:2*Math.sqrt(Math.max(tr/2+disc,1e-6)),
+    b:2*Math.sqrt(Math.max(tr/2-disc,1e-6)),
+    ang:0.5*Math.atan2(2*xy, xx-yy), n };
+}
+function radius(e,x,y){
+  const c=Math.cos(-e.ang), s=Math.sin(-e.ang), dx=x-e.cx, dy=y-e.cy;
+  const u=(dx*c-dy*s)/e.a, v=(dx*s+dy*c)/e.b;
+  return Math.sqrt(u*u+v*v);
+}
+/* A single moment fit is an average, and an average is exactly what a wing hanging off
+   the rim corrupts — it drags the centre, swells one axis, and the plate comes out an
+   oval instead of a circle. So fit, throw away everything sitting well outside the fit,
+   and fit again. Three passes is enough for the plate to shrug the wing off entirely. */
+function ellipseOf(bin,w,h){
+  let e=momentFit(bin,w,h,null);
+  if (!e) return null;
+  for (let pass=0; pass<3; pass++){
+    const keep=new Uint8Array(w*h);
+    let kept=0;
+    for (let p=0;p<bin.length;p++){
+      if (!bin[p]) continue;
+      const x=p%w, y=(p-x)/w;
+      if (radius(e,x,y)<=1.12){ keep[p]=1; kept++; }
+    }
+    if (kept < 200) break;
+    const next=momentFit(bin,w,h,keep);
+    if (!next) break;
+    e=next;
+  }
+  e.round=e.b/e.a;
+  return e;
 }
 
 /* ── 3. colour off the plate, with the highlight kept ──────────────────────── */
@@ -321,13 +368,35 @@ async function run(file){
     for (let i=0;i<bin.length;i++) bin[i]=m.data[i]>128?1:0;
 
     const raw=bin.reduce((a,v)=>a+v,0);
+
+    /* sever anything welded on by a thin neck, then keep one object, then fill it */
+    const bite=Math.max(2, Math.round(Math.sqrt(raw)*0.035));
+    bin=open(bin,w,h,bite);
     const lp=largestPiece(bin,w,h);
-    const shardPx=raw-lp.n;
     const fh=fillHoles(lp.mask,w,h);
-    bin=erode(fh.mask,w,h);
+    bin=fh.mask;
+
+    /* the ellipse, fitted so a leftover wing cannot drag it, and then USED as the
+       boundary: a plate is convex, so whatever is outside the plate's own ellipse is
+       not the plate, connected to it or not. This is the line that ends the shard. */
+    const e=ellipseOf(bin,w,h);
+    let clipped=0, agree=0;
+    if (e){
+      let inMask=0, inEll=0;
+      for (let p=0;p<bin.length;p++){
+        const x=p%w, y=(p-x)/w, r=radius(e,x,y);
+        if (r<=1.0) inEll++;
+        if (bin[p]){
+          if (r<=1.0){ inMask++; }
+          else { bin[p]=0; clipped++; }
+        }
+      }
+      agree = inEll ? inMask/inEll : 0;
+    }
+    bin=erode(bin,w,h);
+    const shardPx=raw-bin.reduce((a,v)=>a+v,0);
     const alpha=feather(bin,w,h);
 
-    const e=ellipseOf(bin,w,h);
     if (!e || lp.n < w*h*0.01){
       el('warn').innerHTML='<div class="warn"><b>Nothing could be picked out of this one.</b> '+
         'Rather than show something wrong, nothing is shown.</div>';
@@ -355,6 +424,10 @@ async function run(file){
     if (col.clippedPct>4) msgs.push('About '+col.clippedPct.toFixed(0)+'% of the plate was burnt out '+
       'in the original. The rim is rolled off as far as it can be, but detail that was never '+
       'recorded cannot be recovered — that one is a lighting fix, not a software one.');
+    if (agree>0 && agree<0.78) msgs.push('This one does not sit inside an ellipse very well ('+
+      Math.round(agree*100)+'% of it does), which usually means a square plate, a bowl or two '+
+      'things on the board. It has still been trimmed to the ellipse, so check this one by eye '+
+      'before trusting it.');
     if (msgs.length) el('warn').innerHTML='<div class="warn">'+msgs.join(' ')+'</div>';
 
     el('did').innerHTML='<div class="did">'+
