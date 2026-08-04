@@ -447,9 +447,14 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .sclr:hover{background:rgba(232,217,199,.4)}
 .scount{font-family:var(--sans);font-size:12px;opacity:.55;flex:0 0 auto}
 .shd{font-family:var(--sans);font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.55;margin:18px 0 6px}
-.srow{display:flex;align-items:baseline;gap:12px;width:100%;background:#fff;border:1px solid rgba(64,2,7,.14);border-radius:3px;padding:6px 13px;margin-bottom:6px}
-.srow:hover{border-color:rgba(64,2,7,.45);background:rgba(232,217,199,.25)}
-.srow.on{border-color:var(--vino);background:rgba(232,217,199,.35)}
+/* Cream, not white. Pure white is not a colour this app owns — the page is sand, the
+   sheet is cream, and a row of white cards cut through both. Hover now goes the other
+   way, cream up to white, so the row he is on is the lightest thing on the screen
+   instead of the darkest. */
+.srow{display:flex;align-items:baseline;gap:12px;width:100%;background:var(--cream);
+  border:1px solid rgba(64,2,7,.14);border-radius:6px;padding:9px 14px;margin-bottom:6px}
+.srow:hover{border-color:rgba(64,2,7,.45);background:#fdfaf5}
+.srow.on{border-color:var(--vino);background:#fff}
 .srow.gone{opacity:.65;background:rgba(232,217,199,.2)}
 .sopen{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;flex:1 1 auto;text-align:left;background:none;border:none;padding:6px 0;cursor:pointer;font:inherit;color:inherit}
 /* the dish is what he is looking for, so it is the loudest thing on its row. It was
@@ -480,10 +485,12 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow .swk.soft{background:rgba(207,192,173,.5);opacity:.85}
 .newr.wrn{border-color:var(--vino);color:var(--vino);font-weight:600}
 /* the one screen for everything half done */
-.trow{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;width:100%;background:#fff;
-  border:1px solid rgba(64,2,7,.14);border-left:3px solid var(--sabbia-dark);border-radius:0 3px 3px 0;
+/* same family as .srow, so it takes the same ground — two lists of recipes that sit on
+   different colours read as two different apps */
+.trow{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;width:100%;background:var(--cream);
+  border:1px solid rgba(64,2,7,.14);border-left:3px solid var(--sabbia-dark);border-radius:0 6px 6px 0;
   padding:10px 13px;margin-bottom:6px;text-align:left;cursor:pointer;font:inherit;color:inherit}
-.trow:hover{border-color:var(--vino);border-left-color:var(--vino);background:rgba(232,217,199,.3)}
+.trow:hover{border-color:var(--vino);border-left-color:var(--vino);background:#fdfaf5}
 .trow.hard{border-left-color:var(--vino)}
 .trow .tn{font-family:var(--serif);font-size:18px;color:var(--vino);flex:0 0 auto}
 .trow .tk{font-family:var(--sans);font-size:11.5px;opacity:.55;flex:1 1 auto}
@@ -503,15 +510,15 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   .srow .srm{order:7;margin-left:auto}
 }
 .srm{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:none;border:none;color:var(--vino);opacity:.45;cursor:pointer;padding:6px 2px;flex:0 0 auto}
-/* Quiet, but never hidden: hover does not exist on the pass screen or a phone, so this
-   stays on the row at low contrast and comes forward when he goes near it or tabs to it.
-   The target stays a thumb's worth whatever it looks like. */
-.srm.quiet{font-size:17px;line-height:1;letter-spacing:1px;opacity:.3;padding:6px 10px;color:var(--vino-light)}
-.srow:hover .srm.quiet{opacity:.85}
-.srm.quiet:hover,.srm.quiet:focus{opacity:1;color:var(--vino)}
-/* measured, not guessed: at padding 10px it came out 36x29, and the pass screen is a
-   thumb. 13px of padding on a 19px glyph is 45px tall. */
-@media (pointer:coarse){ .srm.quiet{opacity:.5;font-size:19px;padding:13px 14px} }
+/* Quiet means low contrast, never unlabelled. It is the one control on this screen that
+   takes a recipe away, so the word stays on it at every size — it just stops carrying the
+   same weight as the dish's own name. Hover does not exist on the pass screen or a phone,
+   so it is legible sitting still and only firms up when he goes near it or tabs to it. */
+.srm.quiet{font-size:10px;opacity:.4;padding:8px 6px;color:var(--vino-light)}
+.srow:hover .srm.quiet{opacity:.8}
+.srm.quiet:hover,.srm.quiet:focus{opacity:1;color:var(--vino);text-decoration:underline}
+/* measured, not guessed — the pass screen is a thumb */
+@media (pointer:coarse){ .srm.quiet{opacity:.6;font-size:11px;padding:13px 10px} }
 .srm:hover{opacity:1;text-decoration:underline}
 /* a folder — a menu, or a section inside one. A shelf, not a column: the whole book
    is a couple of bands you look at rather than ten lines you scroll past. The vino
@@ -3589,11 +3596,13 @@ function render(){
         '</button>' +
         (r.archived ? needsWork(r) : marksHTML(r)) +
         '<span class="sd">'+new Date(r.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>' +
-        /* Remove destroys something. It had the same weight as the date on every row;
-           it keeps its full word on the removed ones, where putting it back is the point. */
+        /* Quieter, but it keeps the WORD. A bare ⋯ reads as "more options" and this one
+           archives the recipe on the first tap when nothing depends on it — and the
+           handler writes '…' into the button as its working state, which against a ⋯ is
+           no change at all. Nothing that destroys something may be unlabelled. */
         (r.archived ? '<button class="srm" data-undo="'+r.id+'">Put it back</button>'
                     : '<button class="srm quiet" data-rmr="'+r.id+'" ' +
-                        'title="Remove ‘'+esc(r.name)+'’" aria-label="Remove ‘'+esc(r.name)+'’">⋯</button>') +
+                        'aria-label="Remove ‘'+esc(r.name)+'’">Remove</button>') +
       '</div>';
     };
     /* ── the folders ──
