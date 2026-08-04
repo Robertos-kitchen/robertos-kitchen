@@ -500,6 +500,19 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .holdt b{font-family:var(--serif);font-size:19px;color:var(--vino)}
 .holdw{font-size:12px;line-height:1.5;color:var(--vino-light);margin-top:9px}
 .holdw b{color:var(--vino)}
+/* how the method reads — a count, and the steps it found, under the box */
+.stepwrap{margin-top:6px}
+.stepn{font-size:11.5px;line-height:1.55;color:var(--vino-light)}
+.stepn b{color:var(--vino)}
+.steplist{margin:7px 0 0;padding:0 0 0 22px}
+.steplist li{margin:0 0 3px;line-height:1.5;color:var(--ink);opacity:.8}
+.steplist li::marker{color:var(--vino);font-weight:700}
+.stepb{display:inline-block;margin:7px 8px 0 0;font-family:var(--sans);font-size:11px;
+  letter-spacing:.4px;background:rgba(65,2,7,.08);border:1px solid var(--vino);border-radius:4px;
+  color:var(--vino);padding:7px 11px;cursor:pointer;font-weight:600}
+.stepb:hover{background:rgba(65,2,7,.16)}
+.stepw{font-size:11px;color:var(--vino-light);opacity:.8}
+@media (pointer:coarse){ .stepb{padding:10px 13px;font-size:12px} }
 /* the one screen for everything half done */
 /* same family as .srow, so it takes the same ground — two lists of recipes that sit on
    different colours read as two different apps */
@@ -5196,17 +5209,57 @@ function algInner(){
       : '<div class="acon none">Nothing ticked yet — this recipe will show <b>no allergens</b> to the floor. ' +
         'If that is right, leave it; if it is not, tap them above.</div>');
 }
+/* ───── the method reads as steps ─────
+   A dessert method is five or six things done in order, and written as one paragraph the
+   cook at the pass has to read the whole block to find where he is. So the steps are
+   RECOGNISED rather than demanded: a line each is a step, and a plain paragraph is still
+   a perfectly good answer — it simply counts as one. Nothing is imposed on how he writes.
+
+   The text stored is the text he typed. No new field, no format to learn, nothing to
+   migrate — the line breaks he already puts in ARE the steps. */
+function methodSteps(text){
+  return String(text || '').split(/\r?\n/)
+    .map(function(l){ return l.replace(/^\s*(?:\d+\s*[.)\-–]|[-–•*])\s*/, '').trim(); })
+    .filter(function(l){ return l.length; });
+}
+/* Only ever offered, never done behind his back: it puts each sentence on its own line
+   and he reads it back. A program guessing where a step ends inside "50 to 55 grams" and
+   silently rewriting a method is not a trade worth making. */
+function proseToSteps(text){
+  return String(text || '').trim()
+    .replace(/([.!?])\s+(?=[A-Z(])/g, '$1\n')
+    .split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean).join('\n');
+}
+function stepsNote(v){
+  var st = methodSteps(v);
+  if (!st.length) return '';
+  if (st.length === 1){
+    var words = st[0].split(/\s+/).length;
+    /* a short one-liner is genuinely one step — leave him alone */
+    if (words < 32) return '<div class="stepn">Reads as <b>one step</b>.</div>';
+    return '<div class="stepn">Reads as <b>one step</b> of ' + words + ' words. ' +
+      'At the pass that is a paragraph to read through.' +
+      '<button class="stepb" id="mksteps">Put each sentence on its own line</button>' +
+      '<span class="stepw">You can change any of it afterwards.</span></div>';
+  }
+  return '<div class="stepn">Reads as <b>' + st.length + ' steps</b>.' +
+    '<ol class="steplist">' + st.map(function(s){
+      return '<li>' + esc(s.length > 96 ? s.slice(0,96) + '…' : s) + '</li>'; }).join('') + '</ol></div>';
+}
 function methodInner(){
   var ph = S.photos || [];
   return '<div class="mhd">How it is made</div>' +
     howto('method', 'Written here, saved with the recipe, and read off the same sheet at the pass. ' +
-      'It can be left empty — a recipe with no method saves perfectly well.', 'About the method') +
+      'A new line is a new step, and one paragraph is a perfectly good answer — it counts as one ' +
+      'step. It can be left empty too: a recipe with no method saves perfectly well.',
+      'About the method') +
     MSEC.map(function(s){
       var v = (S.method && S.method[s.k]) || '';
       return '<div class="msec">' +
         '<label class="ml" for="m-'+s.k+'">'+s.t+'</label>' +
         '<textarea class="mbox" id="m-'+s.k+'" data-m="'+s.k+'" rows="1" ' +
           'placeholder="'+esc(s.p)+'">'+esc(v)+'</textarea>' +
+        '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v) + '</div>' +
       '</div>';
     }).join('') +
     '<div class="mhd ph2">Photos</div>' +
@@ -5249,7 +5302,11 @@ function wireMethod(){
   MSEC.forEach(function(s){
     var t = $('m-'+s.k); if (!t) return;
     grow(t);
-    t.addEventListener('input', function(){ mth()[s.k] = this.value; grow(this); });
+    t.addEventListener('input', function(){
+      mth()[s.k] = this.value; grow(this);
+      /* the count follows what he is typing — never redraw the box he is typing in */
+      var n = $('stepn-'+s.k); if (n) n.innerHTML = stepsNote(this.value);
+    });
   });
   /* the floor's fields carry a live length against what one A4 actually holds */
   FSEC.forEach(function(s){
@@ -5636,6 +5693,19 @@ document.addEventListener('click', function(e){
     if (pane) pane.classList.toggle('on', HOWTO_OPEN[hk]);
     var c = hb.querySelector('.hwc'); if (c) c.textContent = HOWTO_OPEN[hk] ? '⌃' : '⌄';
     fitBar();                      /* it changes how tall the pinned bands are */
+    return;
+  }
+  /* offered, then done in front of him — the box shows the result and he can undo it by
+     hand. It never runs on its own. */
+  if (e.target.closest('#mksteps')){
+    var mb = $('m-method');
+    if (mb){
+      mb.value = proseToSteps(mb.value);
+      mth().method = mb.value;
+      grow(mb);
+      var nn = $('stepn-method'); if (nn) nn.innerHTML = stepsNote(mb.value);
+      mb.focus();
+    }
     return;
   }
   /* straight back to the sheet he was on — nothing is cleared, nothing is re-read */
