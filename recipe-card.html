@@ -343,9 +343,18 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 /* the whole set is in the page, hidden, so nothing is rebuilt when he hits print */
 #psheet{display:none}
 .pblock{break-inside:avoid;page-break-inside:avoid;margin-bottom:26px}
+/* the photo floats, so the block has to close around it or the next recipe rides up
+   beside a picture that is not its own */
+.pblock::after{content:"";display:table;clear:both}
 .pkind{font-size:9px;letter-spacing:2.4px;text-transform:uppercase;color:#555;margin-bottom:3px}
 .pname{font-family:var(--serif);font-size:27px;line-height:1.1;margin-bottom:3px}
 .pmeta{font-size:11.5px;color:#444;margin-bottom:12px}
+/* the picture on the folder page — beside the words, not instead of them, and sized so
+   adding it never pushes a recipe onto a second sheet */
+.pfoto{float:right;width:58mm;margin:0 0 10px 12mm;text-align:center}
+.pfoto img{width:100%;height:40mm;object-fit:cover;display:block;border:1px solid #999}
+.pfcap{display:block;font-size:8.5pt;letter-spacing:1.4px;text-transform:uppercase;color:#555;margin-top:4px}
+@media(max-width:620px){ .pfoto{float:none;width:100%;margin:0 0 12px} .pfoto img{height:46mm} }
 
 /* ── allergens ──
    Not a chip row. At the pass this is read at arm's length in a hurry, so it is one
@@ -1265,7 +1274,10 @@ function viewProd(){
 
 function printSheet(){
   var comps = compList();
-  var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes}}]
+  /* `photos` has to be on here, and was not — the same omission that once kept the plated
+     dish off the station card. The folder sheet rebuilds the dish as a plain object, and
+     anything left out of that object simply does not exist on the page. */
+  var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes, photos:R.photos}}]
     .concat(comps.slice(1).map(function(x){ return {k:x.k, c:SUBS[x.k], inside:x.inside}; }));
   return '<div id="psheet">' + all.map(function(a){
     var onDish = a.k==='dish', c = a.c;
@@ -1293,6 +1305,15 @@ function printSheet(){
           (c.makes && c.makes.qty
             ? 'The recipe as written makes ' + esc(amount(c.makes.qty, c.makes.unit)) + '.'
             : 'These are not the quantities written on the recipe.') + '</div>'
+        : '') +
+      /* The folder sheet was built without photos at all — the dish and every batch printed
+         as words only. It is the page that goes on the section board and into the folder
+         somebody learns from, which is exactly where a picture of the finished thing earns
+         its ink. Only a real one: a component with no photo prints nothing rather than an
+         empty frame. */
+      ((c.photos || []).length
+        ? '<div class="pfoto"><img src="'+esc(c.photos[0].u || c.photos[0])+'" alt="'+esc(c.name)+'">' +
+          '<span class="pfcap">'+(onDish ? 'The plated dish' : 'The finished batch')+'</span></div>'
         : '') +
       algBar(a.k) +
       '<table class="ing">'+ingRows(c.lines,pmulOf(a.k),false)+'</table>' +
@@ -1627,6 +1648,10 @@ document.addEventListener('click', function(e){
    button because the module around it already owns that. Opened on its own, neither
    fires and the page still starts on the menu. */
 var Q = new URLSearchParams(location.search);
+/* ?printall=1 opens on the folder page — the dish and every batch, the thing that goes on
+   the section board. A link of its own, the same as ?make= for the production sheet, so it
+   can be bookmarked or sent to a printer without walking through the card. */
+if (Q.get('printall') === '1') document.body.classList.add('printall');
 if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
 
 busy = true; render();
