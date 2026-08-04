@@ -493,6 +493,13 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   border-radius:3px;padding:2px 7px;flex:0 0 auto;white-space:nowrap}
 .srow .swk.soft{background:rgba(207,192,173,.5);opacity:.85}
 .newr.wrn{border-color:var(--vino);color:var(--vino);font-weight:600}
+/* the dish he already has open, offered before the two doors that take it off the screen */
+.holdon{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
+  border-radius:0 7px 7px 0;padding:13px 15px;margin:0 0 16px}
+.holdt{font-size:14px;line-height:1.5;color:var(--ink);margin-bottom:10px}
+.holdt b{font-family:var(--serif);font-size:19px;color:var(--vino)}
+.holdw{font-size:12px;line-height:1.5;color:var(--vino-light);margin-top:9px}
+.holdw b{color:var(--vino)}
 /* the one screen for everything half done */
 /* same family as .srow, so it takes the same ground — two lists of recipes that sit on
    different colours read as two different apps */
@@ -4015,7 +4022,33 @@ function render(){
 
   else if (S.step === 'type'){
     b.classList.add('off'); b.textContent='Next';
-    w.innerHTML = '<div class="pane">' + parkedNote() + '<div class="q">What are you making?</div>' +
+    /* ── the way back to what he already has open ──
+       Two taps of Back from the sheet land here, and the only things on this screen say
+       "Main" and "Batch" — so that is what he taps, and choosing a kind starts a NEW
+       recipe: the name, the lines and the method all come off the screen at once. If the
+       recipe was saved, nothing is even parked, because a saved sheet is not dirty.
+
+       What that looked like from the pass on 4 August: a chef saved "Mascarpone mousse
+       pistacchio" at 11:45, came back through here, found an empty sheet, assumed it was
+       lost and typed it again — and Save answered "there is already a recipe called
+       that". So he added a word to the name. Two rows for one dessert, three minutes
+       apart, and the first one deleted by hand.
+
+       He is not choosing between main and batch at this moment. He is trying to get back
+       to his dish. So it is offered first, by name, before the two doors that wipe it. */
+    var hold = (S.id || (S.name||'').trim() || (S.rows||[]).length) ? {
+      name: (S.name||'').trim() || 'the recipe you have open',
+      saved: !!S.id,
+      lines: (S.rows||[]).length
+    } : null;
+    w.innerHTML = '<div class="pane">' + parkedNote() +
+      (hold ? '<div class="holdon"><div class="holdt"><b>' + esc(hold.name) + '</b> is still open' +
+                (hold.lines ? ' — ' + hold.lines + ' line' + (hold.lines===1?'':'s') : '') +
+                (hold.saved ? ', saved' : ', not saved yet') + '.</div>' +
+              '<button class="okb" id="holdback">Carry on with it</button>' +
+              '<div class="holdw">Choosing below starts a <b>new</b> recipe and takes this one off the screen.' +
+                (hold.saved ? ' It is saved, so it stays in Saved recipes.' : '') + '</div></div>' : '') +
+      '<div class="q">What are you making?</div>' +
       howto('kind', 'A main goes on the menu. A batch is something you make once and use in other dishes.',
         'Main or batch') +
       '<div class="two">' +
@@ -5603,6 +5636,12 @@ document.addEventListener('click', function(e){
     if (pane) pane.classList.toggle('on', HOWTO_OPEN[hk]);
     var c = hb.querySelector('.hwc'); if (c) c.textContent = HOWTO_OPEN[hk] ? '⌃' : '⌄';
     fitBar();                      /* it changes how tall the pinned bands are */
+    return;
+  }
+  /* straight back to the sheet he was on — nothing is cleared, nothing is re-read */
+  if (e.target.closest('#holdback')){
+    S.step = (S.rows && S.rows.length) ? 'sheet' : 'write';
+    render(); window.scrollTo(0,0);
     return;
   }
   var k = e.target.closest('[data-k]');
