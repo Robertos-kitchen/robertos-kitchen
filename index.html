@@ -1601,6 +1601,31 @@ function showUpdateBanner(newSW) {
                'recipe-create.html', 'recipe-card.html', 'food-bible.html', 'menu-pdfs.html'];
   var boot = {}, reloading = false;
   function tagOf(res){ return res.headers.get('ETag') || res.headers.get('Last-Modified') || ''; }
+  /* THE RELOAD LOOP, 4 Aug 2026. This guard used to reload whenever the tag was
+     merely DIFFERENT, and that is not the same question as "is there a new version".
+     GitHub Pages writes the ETag as W/"<build time in hex>-<size in hex>", and the
+     build time is NOT identical on every edge server: the very same untouched file
+     came back as 6a71e319-60b2d from one and 6a71e31a-60b2d from the next — one
+     second apart, byte-for-byte the same file. So the app flipped between the two
+     tags and reloaded itself every five minutes, all day, on the wall screen and in
+     his hand, with nothing deployed at all.
+     What identifies the CONTENT is the size half. What identifies a real deploy is a
+     build time minutes newer — never one second. Both are asked below, and a one
+     second disagreement between two servers is now ignored, because it never meant
+     anything. */
+  var SKEW = 120000;                       // ms of edge-to-edge disagreement to ignore
+  function parseTag(t){
+    var m = /"([0-9a-f]+)-([0-9a-f]+)"/i.exec(t);          // GitHub Pages ETag
+    if (m) return { size: m[2], at: parseInt(m[1], 16) * 1000 };
+    var d = Date.parse(t);                                  // Last-Modified fallback
+    return isFinite(d) ? { size: null, at: d } : null;
+  }
+  function isNewer(now, was){
+    var a = parseTag(now), b = parseTag(was);
+    if (!a || !b) return now !== was;                       // a shape we don't know — behave as before
+    if (a.size !== null && b.size !== null && a.size !== b.size) return true;   // the file itself changed
+    return a.at > b.at + SKEW;                              // a genuinely newer build, not clock skew
+  }
   function busy(){
     var el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // don't nuke someone mid-typing
@@ -1624,7 +1649,7 @@ function showUpdateBanner(newSW) {
           var tag = tagOf(res);
           if (!tag) return;
           if (!(f in boot)) { boot[f] = tag; return; }      // first run: remember what we booted with
-          if (tag !== boot[f] && !reloading && !busy()) {    // newer version is live → refresh
+          if (isNewer(tag, boot[f]) && !reloading && !busy()) {   // newer version is live → refresh
             reloading = true;
             location.reload();
           }
