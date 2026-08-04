@@ -225,8 +225,25 @@ td.px{font-size:11.5px;color:var(--vino-light)}
   border:1px solid var(--sabbia-dark);background:transparent;color:var(--vino-light);cursor:pointer;text-align:left}
 .pmodes button.on{border-color:var(--vino);background:rgba(65,2,7,.09);color:var(--vino)}
 .pmodes small{display:block;font-weight:400;opacity:.85;font-size:10.5px;margin-top:2px}
-.pcols{display:grid;grid-template-columns:minmax(240px,330px) 1fr;gap:26px}
-@media(max-width:820px){ .pcols{grid-template-columns:1fr;gap:16px} }
+/* ── the gutter between what you weigh and what you do ──
+   26px and no rule put a wrapped ingredient name a few pixels from the method beside it.
+   A chef checking "605 — of what?" must never have to work out which column he is reading,
+   so the two are separated by a real gutter and a line down it, and the ingredient column
+   is boxed on its own ground. */
+.pcols{display:grid;grid-template-columns:minmax(250px,340px) 1fr;gap:0}
+.pcols > div:first-child{padding-right:30px;border-right:1px solid var(--sabbia-dark)}
+.pcols > div:last-child{padding-left:34px}
+@media(max-width:820px){
+  .pcols{grid-template-columns:1fr;gap:20px}
+  .pcols > div:first-child{padding-right:0;border-right:none;border-bottom:1px solid var(--sabbia-dark);padding-bottom:16px}
+  .pcols > div:last-child{padding-left:0}
+}
+/* a number and its ingredient are one thing: they sit on one band, middle-aligned, so a
+   name that wraps to two lines still reads against its own figure and not the one below */
+.pcols table.ing td{vertical-align:middle;padding:8px 6px}
+.pcols table.ing tr:nth-child(odd) td{background:rgba(207,192,173,.22)}
+.pcols table.ing td.q{padding-right:4px}
+.pcols table.ing td.n{padding-left:2px}
 .pch{font-size:9px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:var(--vino-light);
   border-bottom:1px solid var(--sabbia-dark);padding-bottom:5px;margin-bottom:4px}
 .pshot{margin-top:12px}
@@ -341,6 +358,8 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 .algv{font-size:15px;line-height:1.55;color:var(--ink);display:flex;flex-wrap:wrap;gap:4px 16px}
 .algi{font-weight:600}
 .algs{display:block;font-size:10.5px;font-weight:400;letter-spacing:.2px;color:var(--vino-light)}
+/* the one-line version of the same thing: paper only, never on screen */
+.algall{display:none}
 .alg.none{background:none;border-left-color:var(--sabbia-dark)}
 .alg.none .algv{display:block;font-size:12.5px;color:#8a7a62;font-weight:400}
 .alg.none .algl{color:#8a7a62}
@@ -356,8 +375,16 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
   .alg{background:none!important;border:2px solid #000;border-left:2px solid #000;
     border-radius:0;padding:8px 10px;margin:12px 0}
   .algl,.algi,.algv{color:#000!important}
-  .algv{font-size:12pt}
-  .algs{color:#333!important;font-size:9pt}
+  /* One line of allergens, then one line of where they come from. It was one block per
+     allergen with the same batch names under each — four repeats of the same sentence,
+     a third of the page, and the recipe fell onto a second sheet because of it. */
+  .algv{font-size:11.5pt;display:block}
+  .algi{display:inline;font-weight:700}
+  .algi + .algi::before{content:" · ";font-weight:400}
+  .algs{display:none}                      /* said once below instead of under each */
+  .algall{display:block;font-size:8.5pt;font-weight:400;color:#333!important;
+    margin-top:3px;line-height:1.35}
+  .alg{padding:6px 9px;margin:9px 0}
   .alg.none{border:1px dashed #000}
   .alg.none .algv,.alg.none .algl{color:#000!important}
   .top,.why,.gnav,.noprint,.stp,.port,.parent,.tabs,.frame{display:none!important}
@@ -396,6 +423,13 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
   .pband{border-bottom:.5pt solid #666}
   .pno{background:none!important;color:#000!important;border:1.2pt solid #000;font-weight:700}
   .pmodes,.pinc{display:none!important}
+  /* the gutter has to survive the printer: the tint behind the rows will not print, so the
+     binding between a number and its name is carried by a rule under every row and a rule
+     down the middle — both ink. */
+  .pcols > div:first-child{border-right:.5pt solid #999;padding-right:8mm}
+  .pcols > div:last-child{padding-left:9mm}
+  .pcols table.ing tr:nth-child(odd) td{background:none!important}
+  .pcols table.ing td{border-bottom:.5pt solid #bbb;padding:5px 5px}
   /* one recipe per page, for handing a page to each commis */
   body.perpage .pblk{break-before:page;page-break-before:always}
   body.perpage .pblk:first-of-type{break-before:auto;page-break-before:auto}
@@ -921,13 +955,22 @@ function algFor(key){
 }
 function algBar(key){
   var l = algFor(key);
+  /* On paper the sources were repeated under every allergen — the same three batch names
+     four times over, which turned a two-line box into a third of the page and pushed a
+     recipe onto a second sheet. Every source, once, in one line: the same information,
+     and the allergens stay where a printed card can hold them. */
+  var srcAll = [];
+  l.forEach(function(x){ (x.from||[]).forEach(function(f){
+    if (srcAll.indexOf(f) < 0) srcAll.push(f); }); });
   return '<div class="alg' + (l.length ? '' : ' none') + '">' +
     '<span class="algl">Allergens</span>' +
     (l.length
       ? '<div class="algv">' + l.map(function(x){
           return '<span class="algi">' + esc(algName(x.k)) +
             (x.from.length ? '<span class="algs">from ' + esc(x.from.join('; ')) + '</span>' : '') +
-          '</span>'; }).join('') + '</div>'
+          '</span>'; }).join('') +
+          (srcAll.length ? '<span class="algall">All of it comes from ' +
+            esc(srcAll.join(', ')) + '.</span>' : '') + '</div>'
       : '<div class="algv">Nothing ticked on this recipe — <b>this card cannot answer an allergy ' +
         'question.</b> The chef ticks them where the recipe is written; nothing here is worked ' +
         'out from an ingredient’s name.</div>') +
@@ -1425,12 +1468,14 @@ function hasAny(m, keys){
    reaching an undefined local instead of this, and nothing happened when a dish was
    tapped. Tested from the console it worked perfectly, because the console is a
    different scope. Never name a global after a browser built-in. */
-function openDish(id){
+function openDish(id, then){
   busy = true; loadErr = null; view = 'loading'; render();
   loadRecipe(id).then(function(){
     comp = 'dish'; gComp = 'dish'; gi = 0; mult = 1; portions = 1; photoOpen = null;
+    prod = false; prodMode = {}; prodInc = {};      /* a new dish starts on its own recipe */
     movedAt = null; movedWhat = null;
     busy = false; view = layout; render(); window.scrollTo(0,0); watch();
+    if (typeof then === 'function') then();
   }).catch(function(e){
     busy = false; loadErr = e.message; view = 'home'; render();
   });
@@ -1588,7 +1633,19 @@ busy = true; render();
 loadMenu()
   .then(function(){
     busy = false;
-    if (Q.get('id')) openDish(Q.get('id')); else render();
+    /* ?make=12 opens straight onto the production sheet for twelve. It is how the sheet
+       gets a link of its own — bookmarked at the section, sent to the pastry chef, or
+       opened and printed without walking through the card first. */
+    var make = parseFloat(String(Q.get('make') || '').replace(',', '.'));
+    if (Q.get('id')){
+      openDish(Q.get('id'), function(){
+        if (isFinite(make) && make > 0){
+          setScale(make, true, (R.makes && R.makes.qty > 0) ? R.makes.qty : 1);
+          if (prodList().length) prod = true;
+          render();
+        }
+      });
+    } else render();
   })
   .catch(function(e){ busy = false; loadErr = e.message; render(); });
 </script>
