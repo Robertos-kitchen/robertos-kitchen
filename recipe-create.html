@@ -465,10 +465,18 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 
 /* ───── the three marks ───── */
 .srow .mks{display:flex;gap:4px;flex:0 0 auto}
+/* each mark is a button — it says what is missing and it is the way to go and write it */
 .mk{font-family:var(--sans);font-size:8.5px;letter-spacing:.9px;text-transform:uppercase;font-weight:700;
-  padding:4px 7px;border-radius:3px;white-space:nowrap;
+  padding:5px 8px;border-radius:3px;white-space:nowrap;cursor:pointer;
   background:var(--sabbia-light);border:1px solid var(--sabbia-dark);color:var(--vino-light);opacity:.5}
+.mk:hover,.mk:focus{opacity:1;border-color:var(--vino);color:var(--vino);outline:none}
 .mk.on{background:rgba(75,81,40,.15);border-color:var(--oliva);color:var(--oliva);opacity:1}
+.mk.on:hover,.mk.on:focus{border-color:var(--oliva);color:var(--oliva);background:rgba(75,81,40,.28)}
+@media (pointer:coarse){ .mk{padding:9px 10px;font-size:9.5px} }
+/* where he landed, said out loud for a moment — a page that only moves leaves him
+   hunting for what changed */
+@keyframes jumped{ 0%{box-shadow:0 0 0 3px rgba(186,155,2,.55)} 100%{box-shadow:0 0 0 3px rgba(186,155,2,0)} }
+.jumped{animation:jumped 1.8s ease-out 1;border-radius:6px}
 /* the same three colours in the folder line as on the rows underneath it */
 .crumb .ss{font-weight:700}
 .crumb .ss.done{color:var(--oliva)}
@@ -1952,14 +1960,47 @@ function levelOf(r){
   var ms = marksOf(r), n = ms.filter(function(x){ return x.on; }).length;
   return n === ms.length ? 'done' : (n === 0 ? 'empty' : 'part');
 }
+/* Each mark is the way in to the thing it is about. Seeing that the method is missing and
+   then having to open the dish and find the method yourself is two jobs where the row has
+   already done the first one. */
+var JUMPSEC = { Lines:'lines', Method:'method', Floor:'floor', Makes:'makes' };
 function marksHTML(r){
   if (!S.tally) return '';
   /* the words are not thrown away — they are on the mark itself, and in full on
      Needs finishing, which is the screen for reading them */
   var why = issuesOf(r).map(function(x){ return x.s; }).join(' · ');
   return '<span class="mks"'+(why?' title="'+esc(why)+'"':'')+'>' + marksOf(r).map(function(x){
-    return '<span class="mk'+(x.on?' on':'')+'">'+(x.on?'✓ ':'')+x.k+'</span>';
+    var sec = JUMPSEC[x.k];
+    return '<button class="mk'+(x.on?' on':'')+'" data-jump="'+r.id+'" data-sec="'+sec+'" ' +
+      'aria-label="'+esc(r.name)+' — '+x.k.toLowerCase()+' '+(x.on?'written':'not written yet')+
+      '. Open it here." title="Open ‘'+esc(r.name)+'’ at the '+x.k.toLowerCase()+'">' +
+      (x.on?'✓ ':'')+x.k+'</button>';
   }).join('') + '</span>';
+}
+/* where each mark lands. `makes` lives in the costing rather than on the sheet, so that
+   one opens the costing on the way past — landing him on a panel he still has to open is
+   the same dead end as not jumping at all. */
+var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot' };
+function jumpTo(sec){
+  if (sec === 'makes' && S.footShut){
+    S.footShut = false;
+    try{ localStorage.setItem('rcpFoot','open'); }catch(x){}
+    foot();
+  }
+  var el = document.querySelector(JUMPAT[sec] || '');
+  if (!el) return;
+  /* under everything pinned to the top, or he lands on a heading hidden behind the bar */
+  var cs = getComputedStyle(document.documentElement);
+  var px = function(v){ return parseFloat(cs.getPropertyValue(v)) || 0; };
+  var y = Math.max(0, el.getBoundingClientRect().top + window.pageYOffset
+          - (px('--barh') + px('--costh') + px('--msgh') + 14));
+  /* the two-number form, not scrollTo({top,behavior}). This page has no doctype, so it
+     renders in quirks mode — document.scrollingElement is BODY and the object form is
+     ignored outright: the highlight landed on the method and the page never moved. */
+  window.scrollTo(0, y);
+  /* say where he landed — a page that just moves leaves him hunting for what changed */
+  el.classList.remove('jumped'); void el.offsetWidth; el.classList.add('jumped');
+  setTimeout(function(){ el.classList.remove('jumped'); }, 1800);
 }
 /* Said once for the folder instead of once on every row. Four rows carrying the same
    sentence is the same fact printed four times; "4 started" is that fact, once, and it
@@ -5729,6 +5770,24 @@ document.addEventListener('click', function(e){
     var u = S.lastRm; if (!u) return;
     S.rows.splice(Math.min(u.at, S.rows.length), 0, u.row);
     S.lastRm = null; syncText(); rows(); foot(); drawUndo(); return;
+  }
+  /* a mark on the saved list — open the recipe AND land on the part it is about.
+     Deliberately not `data-open`: that branch does querySelector('[data-open="id"]') and
+     rewrites the first match's label to "Opening…", which would eat a mark's own word. */
+  var jp = e.target.closest('[data-jump]');
+  if (jp){
+    var jid = jp.dataset.jump, jsec = jp.dataset.sec;
+    if (parkCurrent()) flash(parkedFlash());
+    var was = jp.textContent; jp.textContent = 'Opening…';
+    openRecipe(jid).then(function(){
+      markClean(); render(); window.scrollTo(0,0);
+      /* after the sheet is drawn, and after the pinned bands have published their heights */
+      setTimeout(function(){ fitBar(); jumpTo(jsec); }, 60);
+    }).catch(function(err){
+      jp.textContent = was;
+      flash('That recipe could not be opened — ' + plain(err.message), true);
+    });
+    return;
   }
   var op = e.target.closest('[data-open]');
   if (op){
