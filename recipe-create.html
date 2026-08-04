@@ -452,9 +452,28 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .srow.on{border-color:var(--vino);background:rgba(232,217,199,.35)}
 .srow.gone{opacity:.65;background:rgba(232,217,199,.2)}
 .sopen{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;flex:1 1 auto;text-align:left;background:none;border:none;padding:6px 0;cursor:pointer;font:inherit;color:inherit}
-.srow .sn{font-family:var(--serif);font-size:18px;flex:0 0 auto}
-.srow .sm{font-family:var(--sans);font-size:12px;opacity:.6;flex:1 1 auto}
+/* the dish is what he is looking for, so it is the loudest thing on its row. It was
+   losing to a filled grey band that was wider than it and sat in the middle of the row. */
+.srow .sn{font-family:var(--serif);font-size:21px;line-height:1.15;color:var(--ink);flex:0 0 auto}
+.srow .sm{font-family:var(--sans);font-size:11.5px;opacity:.55;flex:1 1 auto}
 .srow .sd{font-family:var(--sans);font-size:11px;opacity:.45;flex:0 0 auto}
+
+/* ───── the three marks ───── */
+.srow .mks{display:flex;gap:4px;flex:0 0 auto}
+.mk{font-family:var(--sans);font-size:8.5px;letter-spacing:.9px;text-transform:uppercase;font-weight:700;
+  padding:4px 7px;border-radius:3px;white-space:nowrap;
+  background:var(--sabbia-light);border:1px solid var(--sabbia-dark);color:var(--vino-light);opacity:.5}
+.mk.on{background:rgba(75,81,40,.15);border-color:var(--oliva);color:var(--oliva);opacity:1}
+/* the same three colours in the folder line as on the rows underneath it */
+.crumb .ss{font-weight:700}
+.crumb .ss.done{color:var(--oliva)}
+.crumb .ss.part{color:#6b5a02}
+.crumb .ss.empty{color:var(--vino-light);opacity:.7}
+/* a colour down the edge, so the eye sorts before it reads */
+.srow{border-left:3px solid transparent}
+.srow.lv-done{border-left-color:var(--oliva)}
+.srow.lv-part{border-left-color:var(--oro)}
+.srow.lv-empty{border-left-color:var(--sabbia-dark)}
 /* what still needs him, on the row — never a colour on its own, always the words */
 .srow .swk{font-family:var(--sans);font-size:11px;color:var(--vino);background:rgba(186,155,2,.16);
   border-radius:3px;padding:2px 7px;flex:0 0 auto;white-space:nowrap}
@@ -477,8 +496,22 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 @media(max-width:640px){
   .srow{flex-wrap:wrap}
   .srow .swk{flex:1 0 100%;white-space:normal;order:5}
+  /* the marks drop to their own line rather than pushing the row off the screen —
+     a row you have to drag sideways to read is a row nobody reads */
+  .srow .mks{order:4;flex:1 0 100%;margin-top:2px}
+  .srow .sd{order:6}
+  .srow .srm{order:7;margin-left:auto}
 }
 .srm{font-family:var(--sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:none;border:none;color:var(--vino);opacity:.45;cursor:pointer;padding:6px 2px;flex:0 0 auto}
+/* Quiet, but never hidden: hover does not exist on the pass screen or a phone, so this
+   stays on the row at low contrast and comes forward when he goes near it or tabs to it.
+   The target stays a thumb's worth whatever it looks like. */
+.srm.quiet{font-size:17px;line-height:1;letter-spacing:1px;opacity:.3;padding:6px 10px;color:var(--vino-light)}
+.srow:hover .srm.quiet{opacity:.85}
+.srm.quiet:hover,.srm.quiet:focus{opacity:1;color:var(--vino)}
+/* measured, not guessed: at padding 10px it came out 36x29, and the pass screen is a
+   thumb. 13px of padding on a 19px glyph is 45px tall. */
+@media (pointer:coarse){ .srm.quiet{opacity:.5;font-size:19px;padding:13px 14px} }
 .srm:hover{opacity:1;text-decoration:underline}
 /* a folder — a menu, or a section inside one. A shelf, not a column: the whole book
    is a couple of bands you look at rather than ten lines you scroll past. The vino
@@ -1882,6 +1915,57 @@ function issuesOf(r){
     if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ s:'not on a menu' });
   }
   return out;
+}
+/* ───── three marks instead of the sentence ─────
+   Every dish needs the same things written, so the list can show WHICH rather than spell
+   it out per row. On a list of thirty, the same fourteen-word sentence printed twenty-two
+   times is not information — no row looks different from any other, and the sentence is
+   wider and heavier than the dish's own name.
+
+   A batch is judged on different things on purpose: nobody cooks a batch off a card at
+   the pass and the floor never reads one, so a batch with no method is not unfinished.
+   What a batch must say is how much it makes, or nothing using it can carry a cost. */
+function marksOf(r){
+  var t = S.tally && S.tally[r.id];
+  var out = [{ k:'Lines', on: !!(t && t.lines && !t.noIng && !t.noQty) }];
+  if (r.kind === 'main'){
+    var m = normMethod(r.method);
+    out.push({ k:'Method', on: hasMethod(m) });
+    out.push({ k:'Floor',  on: FSEC.some(function(f){ return String(m[f.k] || '').trim(); }) });
+  } else {
+    out.push({ k:'Makes', on: r.makes_qty != null });
+  }
+  return out;
+}
+/* green finished, amber started, plain nothing written — so the eye sorts the list before
+   it reads a word of it. Empty when the tally did not load: a row painted "finished" off
+   a count that never arrived is worse than a row painted nothing. */
+function levelOf(r){
+  if (!S.tally) return '';
+  var ms = marksOf(r), n = ms.filter(function(x){ return x.on; }).length;
+  return n === ms.length ? 'done' : (n === 0 ? 'empty' : 'part');
+}
+function marksHTML(r){
+  if (!S.tally) return '';
+  /* the words are not thrown away — they are on the mark itself, and in full on
+     Needs finishing, which is the screen for reading them */
+  var why = issuesOf(r).map(function(x){ return x.s; }).join(' · ');
+  return '<span class="mks"'+(why?' title="'+esc(why)+'"':'')+'>' + marksOf(r).map(function(x){
+    return '<span class="mk'+(x.on?' on':'')+'">'+(x.on?'✓ ':'')+x.k+'</span>';
+  }).join('') + '</span>';
+}
+/* Said once for the folder instead of once on every row. Four rows carrying the same
+   sentence is the same fact printed four times; "4 started" is that fact, once, and it
+   also tells him the order to work in. */
+function stateSummary(rs){
+  if (!S.tally || !rs || !rs.length) return '';
+  var n = { done:0, part:0, empty:0 };
+  rs.forEach(function(r){ if (r.archived) return; var l = levelOf(r); if (l) n[l]++; });
+  var bits = [];
+  if (n.done)  bits.push('<b class="ss done">'+n.done+' ready</b>');
+  if (n.part)  bits.push('<b class="ss part">'+n.part+' started</b>');
+  if (n.empty) bits.push('<b class="ss empty">'+n.empty+' not begun</b>');
+  return bits.length ? ' · ' + bits.join(' · ') : '';
 }
 function needsWork(r){
   var is = issuesOf(r); if (!is.length) return '';
@@ -3496,16 +3580,20 @@ function render(){
       var mu2 = r.makes_unit || '';
       if (mu2 === 'portions' && r.makes_qty == 1) mu2 = 'portion';
       var makes = r.makes_qty ? r.makes_qty+' '+mu2 : null;
-      return '<div class="srow'+(S.id===r.id?' on':'')+(r.archived?' gone':'')+'" id="row-'+r.id+'">' +
+      var lv = r.archived ? '' : levelOf(r);
+      return '<div class="srow'+(S.id===r.id?' on':'')+(r.archived?' gone':'')+(lv?' lv-'+lv:'')+'" id="row-'+r.id+'">' +
         '<button class="sopen" data-open="'+r.id+'">' +
           '<span class="sn">'+esc(r.name)+'</span>' +
           '<span class="sm">'+(r.section?esc(r.section)+' · ':'') +
             (makes ? 'makes '+esc(makes) : '<i>doesn\'t say how much it makes</i>')+'</span>' +
         '</button>' +
-        needsWork(r) +
+        (r.archived ? needsWork(r) : marksHTML(r)) +
         '<span class="sd">'+new Date(r.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>' +
+        /* Remove destroys something. It had the same weight as the date on every row;
+           it keeps its full word on the removed ones, where putting it back is the point. */
         (r.archived ? '<button class="srm" data-undo="'+r.id+'">Put it back</button>'
-                    : '<button class="srm" data-rmr="'+r.id+'">Remove</button>') +
+                    : '<button class="srm quiet" data-rmr="'+r.id+'" ' +
+                        'title="Remove ‘'+esc(r.name)+'’" aria-label="Remove ‘'+esc(r.name)+'’">⋯</button>') +
       '</div>';
     };
     /* ── the folders ──
@@ -3626,12 +3714,13 @@ function render(){
                         : (gs.filter(function(g){ return g.key === S.fsec; })[0] || { name:S.fsec, rs:[] });
         body = '<div class="crumb">'+esc(foldName(S.fmenu)) +
                  (pick.name && !flat ? ' · <b>'+esc(pick.name)+'</b>' : (pick.name && gs.length ? ' · '+esc(pick.name) : '')) +
-                 ' · '+pick.rs.length+' recipe'+(pick.rs.length===1?'':'s')+'</div>' +
+                 ' · '+pick.rs.length+' recipe'+(pick.rs.length===1?'':'s') +
+                 stateSummary(pick.rs) + '</div>' +
                (pick.rs.length ? pick.rs.map(card).join('')
                                : '<div class="tip">Nothing in here.</div>');
       } else {
         body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
-               ' across '+gs.length+' sections</div>' +
+               ' across '+gs.length+' sections' + stateSummary(rs2) + '</div>' +
                '<div class="folds">' + gs.map(sbtn).join('') + '</div>';
       }
     }
