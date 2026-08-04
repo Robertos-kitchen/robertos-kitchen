@@ -4972,6 +4972,71 @@ function drawFohState(){
 }
 function drawCut(){ var c = $('cutwrap'); if (c){ c.innerHTML = cutInner(); drawFohState(); } }
 
+/* ── the backdrop, taken to a true white ──────────────────────────────────────────
+   The Food Bible lays a dish photograph straight onto the paper with no frame: the
+   white the dish was shot on is made to take the colour of the sheet, so the plate
+   appears to sit on the page. That only works if the backdrop really is white. The
+   house shoot is not — measured off the files, the ground runs 233–250 and carries a
+   blue cast (243,244,249) against warm paper (251,247,240). Near enough to look right
+   in a folder, far enough to print as a cool grey panel behind every plate.
+
+   So it is fixed here, once, when the photo comes in, rather than asked of anybody.
+
+   Two things it must not do. It must not touch a photograph that has no seamless
+   backdrop — a plate on a table, a pass, a fridge — so the ground is measured first
+   and anything dark or busy is left completely alone. And it must not eat the white
+   china, which is only a little darker than the backdrop behind it. Hence the ramp:
+   nothing below the floor moves at all, the ground is carried to white, and in between
+   it eases, so no edge appears where the correction stops.
+
+   Returns true if it changed anything, because the person who loaded the photo should
+   be told the app touched it. */
+function levelGround(ctx, w, h){
+  var d, p;
+  try { d = ctx.getImageData(0, 0, w, h); p = d.data; }
+  catch(e){ return false; }                 /* never let a colour fix break an upload */
+
+  /* the ground, read off a one-pixel border — a seamless backdrop reaches every edge */
+  var lum = [], i, x, y, o;
+  var stepX = Math.max(1, Math.floor(w/120)), stepY = Math.max(1, Math.floor(h/120));
+  for (x = 0; x < w; x += stepX){
+    for (y of [1, h-2]){ o = (y*w + x)*4; lum.push(0.299*p[o] + 0.587*p[o+1] + 0.114*p[o+2]); }
+  }
+  for (y = 0; y < h; y += stepY){
+    for (x of [1, w-2]){ o = (y*w + x)*4; lum.push(0.299*p[o] + 0.587*p[o+1] + 0.114*p[o+2]); }
+  }
+  if (lum.length < 40) return false;
+  lum.sort(function(a,b){ return a-b; });
+  var pct = function(q){ return lum[Math.min(lum.length-1, Math.floor(lum.length*q))]; };
+  /* Read at the MIDDLE of the border, not the darkest tenth of it. These plates are lit
+     with a soft shadow that reaches the edge of the frame, so the darkest tenth is the
+     shadow, not the backdrop — judged on that, the desserts came out as "no backdrop"
+     and were left grey. The median is the paper the dish was stood on. */
+  var g50 = pct(0.50), g90 = pct(0.90);
+
+  /* not a studio backdrop: too dark to be one, or too varied to be seamless. A
+     photograph of the dining room reads 81 here and is left completely alone. */
+  if (g50 < 205 || (g90 - g50) > 30) return false;
+  /* already white enough that touching it would only add risk */
+  if (g50 >= 252) return false;
+
+  /* a fixed 34-wide ramp under the backdrop: wide enough that the correction fades in
+     invisibly, narrow enough that it never reaches down into the food */
+  var HI = g90, LO = Math.max(150, HI - 34);
+  var span = HI - LO, t;
+  for (i = 0; i < p.length; i += 4){
+    var L = 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
+    if (L <= LO) continue;
+    t = L >= HI ? 1 : (L - LO) / span;
+    t = t * t * (3 - 2*t);                  /* smoothstep — no visible seam at the join */
+    p[i]   += (255 - p[i])   * t;
+    p[i+1] += (255 - p[i+1]) * t;
+    p[i+2] += (255 - p[i+2]) * t;
+  }
+  ctx.putImageData(d, 0, 0);
+  return true;
+}
+
 /* A kitchen photo off a phone is 4–8 MB. Shrunk to the long side of 1400px it is
    still sharper than any screen it will be read on, and small enough to save with
    the recipe. Never re-encoded twice — this runs once, when the photo comes in. */
@@ -4985,8 +5050,12 @@ function shrinkPhoto(file){
       var sc = Math.min(1, MAX/Math.max(w,h));
       var c = document.createElement('canvas');
       c.width = Math.round(w*sc); c.height = Math.round(h*sc);
-      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-      res({ u: c.toDataURL('image/jpeg', 0.75), n: file.name || 'photo' });
+      var cx = c.getContext('2d', { willReadFrequently:true });
+      cx.drawImage(im, 0, 0, c.width, c.height);
+      /* before the encode, not after — the backdrop is corrected on the pixels the
+         recipe will actually keep, and the photo is still only encoded once */
+      var levelled = levelGround(cx, c.width, c.height);
+      res({ u: c.toDataURL('image/jpeg', 0.75), n: file.name || 'photo', levelled: levelled });
     };
     im.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('that is not an image the app can open')); };
     im.src = url;
@@ -5003,11 +5072,20 @@ function addPhotos(files){
   Promise.all(list.map(function(f){
     return shrinkPhoto(f).catch(function(e){ bad.push(f.name); return null; });
   })).then(function(out){
-    out.filter(Boolean).forEach(function(p){ S.photos.push(p); });
+    var ok = out.filter(Boolean), cleaned = 0;
+    ok.forEach(function(p){
+      if (p.levelled) cleaned++;
+      /* the flag is for the sentence below, not for the recipe — only the photo and its
+         name are kept, so nothing new lands in the saved record */
+      S.photos.push({ u: p.u, n: p.n });
+    });
     drawMethod();
     var n = $('pnote');
     if (n && bad.length) n.textContent = bad.length+' could not be read — '+bad.join(', ')+'. The rest are here.';
-    else if (n) n.textContent = S.photos.length+' photo'+(S.photos.length===1?'':'s')+' · Save to keep them';
+    else if (n) n.textContent = S.photos.length+' photo'+(S.photos.length===1?'':'s') +
+      /* say it plainly: the app changed the picture, and this is what it did */
+      (cleaned ? ' · backdrop taken to white on '+(cleaned===1?'one':cleaned) : '') +
+      ' · Save to keep them';
   });
 }
 
