@@ -296,8 +296,31 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 /* both, on purpose: pointer:coarse is the honest test but cannot be proved on a
    desktop at phone width, and a 33px target shipping unverified is how it stays 33px */
 @media (pointer:coarse),(max-width:640px){ .sshut{padding:14px 14px;font-size:11px} .foot .slim{min-height:60px} }
-/* no 130px held back on the right any more — nothing is floating over it to hold it for */
-.foot .in{position:relative;max-width:1040px;margin:0 auto;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+/* Opened, it is a box he can see the edges of. Five figures laid straight on the paper
+   read as five loose things near each other — cost, portions, price and food cost are one
+   calculation and they belong inside one frame, so his eye takes the group before it takes
+   any single number. Cream against the strip's sand, a maroon hairline, and a rule between
+   each figure so "7.88 AED" and "1 PORTIONS" cannot be read as one column.
+   No 130px held back on the right any more — nothing is floating over it to hold it for. */
+.foot .in{position:relative;max-width:1040px;margin:12px auto 14px;padding:14px 16px;
+  background:var(--cream);border:1.5px solid var(--vino);border-radius:8px;
+  box-shadow:0 2px 8px rgba(43,1,4,.09);
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+/* width, not a side margin — a margin would have stopped it centring under the slim line
+   it replaces, and the box would sit off to the left of the numbers it is framing */
+.foot .in{width:calc(100% - 32px)}
+@media (max-width:640px){ .foot .in{width:calc(100% - 24px);margin:10px auto 12px;padding:12px 13px} }
+/* each figure in its own cell, so the group reads as a table and not as a sentence.
+   The gap goes to zero because the cells carry their own padding now — left as it was,
+   22px of gap PLUS 20px of padding put the rule nowhere near the middle. */
+.foot .grp{column-gap:0;row-gap:14px}
+.foot .grp > div{padding:0 20px;border-right:1px solid var(--sabbia-dark)}
+.foot .grp > div:first-child{padding-left:0}
+.foot .grp > div:last-child{padding-right:0;border-right:none}
+@media (max-width:640px){
+  .foot .grp{column-gap:20px}
+  .foot .grp > div{border-right:none;padding:0}
+}
 .foot .l{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);opacity:.85}
 .foot .v{font-family:var(--serif);font-size:26px;line-height:1.05;color:var(--vino)}
 .foot .v small{font-family:var(--sans);font-size:10px;letter-spacing:1px;color:var(--vino-light);opacity:.9}
