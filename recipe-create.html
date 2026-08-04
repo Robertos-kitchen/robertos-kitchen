@@ -6554,10 +6554,19 @@ window.addEventListener('orientationchange', fitBar);
    own question, not ours — it is the only thing standing between a shut lid and an
    afternoon of work. */
 window.addEventListener('beforeunload', function(ev){
-  /* same reasoning: what is in Unsaved work is on the machine and will be there when he
-     comes back, so it is not a reason to hold the tab open */
+  /* Put it down BEFORE asking. The question alone was the whole safety net, and a
+     question only helps if somebody is there to answer it: a chef writing on a phone
+     gets a call, the browser drops the tab in the background, and nothing is asked at
+     all — the sheet, the method and the floor's words are simply gone. Parked first, the
+     worst case is he comes back to it in Unsaved work. */
+  parkCurrent();
   if (!isDirty()) return;
   ev.preventDefault(); ev.returnValue = '';
+});
+/* beforeunload is the one that does NOT fire when a phone evicts a background tab —
+   visibilitychange is. This is the one that actually saves the work on a phone. */
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'hidden') parkCurrent();
 });
 /* the serif and the sans arrive after the first paint — the same words measure
    differently once they land, so measure again when they do */
