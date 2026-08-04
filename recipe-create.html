@@ -186,6 +186,23 @@ label.tick:after{content:'';font-size:13px;line-height:1}
 label.tick.on{background:var(--vino);border-color:var(--vino)}
 label.tick.on:after{content:'✓';color:var(--cream)}
 
+/* Yield and waste, on the row. Two small boxes in the Trim column itself, so ticking
+   never opens a panel underneath and the sheet never jumps under a chef's thumb. */
+.inl{display:flex;gap:5px;justify-content:center;margin-top:7px}
+.inl .p{display:flex;align-items:center;border:1px solid var(--sabbia-dark);border-radius:5px;background:#fff;overflow:hidden}
+.inl .p .l{font-size:9px;letter-spacing:1px;font-weight:700;color:var(--vino-light);padding-left:6px}
+.inl .p input{width:38px;border:none;background:transparent;padding:6px 2px;font-size:14px;text-align:right;outline:none;
+  font-family:var(--sans);font-variant-numeric:tabular-nums;color:var(--ink);height:auto;line-height:normal}
+.inl .p input:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
+.inl .p .pc{padding:0 5px 0 1px;color:var(--vino-light);font-size:11px}
+/* the numbers the sheet still remembers while the tick is off — greyed, never gone */
+.chip{display:block;margin-top:6px;font-size:10.5px;line-height:14px;color:var(--sabbia-dark);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.qmark{display:block;margin:5px auto 0;background:none;border:none;padding:2px;cursor:pointer;
+  font-family:var(--sans);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--vino-light);
+  text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--sabbia-dark)}
+.qmark:hover{color:var(--vino)}
+
 tr.drop td{background:var(--sabbia-light) !important;padding:11px 14px 13px}
 .dropin{display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap}
 .dropin .f{display:flex;flex-direction:column;gap:4px}
@@ -846,6 +863,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   button.rm{font-size:22px;padding:0;width:44px;height:44px}
   label.tick{width:40px;height:40px;border-radius:6px}
   label.tick.on:after{font-size:19px}
+  /* the two trim boxes have to take a thumb too, not just a mouse */
+  .inl .p input{width:46px;padding:10px 3px;font-size:16px}
+  .inl .p .l{font-size:10px}
+  .qmark{font-size:10.5px;padding:8px 4px}
+  .chip{font-size:12px;margin-top:8px}
   table.sheet td{padding-top:9px;padding-bottom:9px}
   col.cq{width:104px}    /* the bigger touch font needs more room — 92px cut "0.00035" by 9px */
 
@@ -1476,8 +1498,12 @@ function linesFor(recipeId, rowsArr){
              stock_code: mineB ? null : (r.code || null),
              stock_name: mineB ? null : (it ? it.name : null),
              qty:r.qty, unit:r.unit || (it ? defUnit(it) : null),
-             trim_on: !!r.adj, yield_pct: r.adj ? (r.yield||100) : null,
-             waste_pct: r.adj ? (r.waste||0) : null };
+             /* The numbers are written down whether the tick is on or off. `trim_on` is
+                what decides if they count towards the cost — throwing them away on save
+                was how a yield worked out on a whole fish disappeared for good the next
+                time the sheet was opened. */
+             trim_on: !!r.adj, yield_pct: r.yield == null ? 100 : r.yield,
+             waste_pct: r.waste || 0 };
   });
 }
 
@@ -2788,6 +2814,20 @@ function nameAgrees(a, b){
 }
 function itemOf(r){ return r.code ? r.opts.filter(function(o){ return o.code===r.code; })[0] : null; }
 function badUnit(r){ var it = itemOf(r); return !!it && !basePrice(it); }
+/* Yield and waste count ONLY while the tick is on. Untick used to wipe them back to
+   100 and 0, which is why a chef who tapped it twice lost the numbers he had worked
+   out on a fish. Now the numbers are kept and simply not applied, so the tick is a
+   switch and never a shredder. Everything that costs a line asks through here. */
+function trimYield(r){ return r.adj ? (r.yield||100) : 100; }
+function trimWaste(r){ return r.adj ? (r.waste||0)  : 0;   }
+/* is there anything worth remembering on this line at all */
+function trimSet(r){ return (r.yield != null && r.yield != 100) || !!r.waste; }
+/* what it says on the side when the tick is off — short, it lives in a narrow column */
+function trimChip(r){
+  return (r.yield != 100 ? r.yield + '%' : '') +
+         (r.yield != 100 && r.waste ? ' · ' : '') +
+         (r.waste ? r.waste + '%' : '');
+}
 function rowCost(r){
   /* July is the list. Something that has left it has no price — we do not carry
      May's or June's figure forward, because a stale price is a wrong price. */
@@ -2795,7 +2835,7 @@ function rowCost(r){
   var it = itemOf(r); if (!it || !r.qty) return null;
   var bp = basePrice(it); if (!bp) return null;
   var c = qtyInBase(r.qty, r.unit || defUnit(it)) * bp.v;
-  return c / ((r.yield||100)/100) * (1 + (r.waste||0)/100);
+  return c / (trimYield(r)/100) * (1 + trimWaste(r)/100);
 }
 /* the one sentence that shows what the two boxes actually did, live */
 function ywSum(r){
@@ -4203,7 +4243,9 @@ function render(){
          a clipped number is worse than no number. Widened from 66px, which fit "0.03"
          and silently cut everything smaller. checkFit() below now proves it. */
       '<colgroup><col style="width:30px"><col style="width:32%"><col><col class="cq"><col style="width:56px">' +
-        '<col style="width:82px"><col style="width:46px"><col style="width:32px"></colgroup>' +
+      /* Trim holds the tick AND, when it is on, the two small boxes — so nothing has
+         to open under the row and the sheet never jumps. 46px fit the tick alone. */
+        '<col style="width:82px"><col style="width:132px"><col style="width:32px"></colgroup>' +
       '<thead><tr>' +
         /* The unit column had no heading, so a lone "g" beside a number read as part of
            the number. "How do I know if that 1 is a kilo or a gram" is the question it
@@ -4482,7 +4524,10 @@ function rowHTML(r, i){
                                 (fix ? ' — <span class="fix" data-rowfix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') + '</i>'
           : r.opts.length===1  ? '<i class="one">only one — picked</i>'
           : need               ? '<i class="many">'+r.opts.length+' to choose from</i>'
-          : (r.yield!=100 || r.waste)
+          /* only while the tick is ON. Kept-but-not-counting numbers say so in the Trim
+             column, greyed — saying "yield 60%" here as well would read as if it were
+             still being charged for. */
+          : (r.adj && (r.yield!=100 || r.waste))
                               ? '<i class="adj">'+(r.yield!=100?'yield '+r.yield+'%':'')+
                                 (r.yield!=100&&r.waste?' · ':'')+(r.waste?'waste '+r.waste+'%':'')+'</i>' : '';
 
@@ -4538,7 +4583,22 @@ function rowHTML(r, i){
         return us; })().map(function(x){
           return '<option'+(x===u?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></span></td>' +
     '<td class="money'+(c==null?' zero':'')+'">'+fmt(c)+'</td>' +
-    '<td class="tk"><label class="tick'+(r.adj?' on':'')+'"><input type="checkbox" data-i="'+i+'" data-f="adj"'+(r.adj?' checked':'')+'></label></td>' +
+    /* The two boxes live HERE, on the row, instead of a full-width panel dropping open
+       underneath and shoving the rest of the sheet down every time a tick is touched.
+       And when the tick goes off the numbers are not thrown away — they sit under it,
+       greyed, so a chef can see the sheet still remembers what he cleaned off the fish
+       and can put it back with one tap. */
+    '<td class="tk"><label class="tick'+(r.adj?' on':'')+'"><input type="checkbox" data-i="'+i+'" data-f="adj"'+(r.adj?' checked':'')+'></label>' +
+      (r.adj
+        ? '<div class="inl">' +
+            '<div class="p"><span class="l">Y</span><input class="dcell" data-i="'+i+'" data-f="yield" inputmode="decimal" value="'+r.yield+'" aria-label="Yield % for '+esc(r.word)+'"><span class="pc">%</span></div>' +
+            '<div class="p"><span class="l">W</span><input class="dcell" data-i="'+i+'" data-f="waste" inputmode="decimal" value="'+r.waste+'" aria-label="Waste % for '+esc(r.word)+'"><span class="pc">%</span></div>' +
+          '</div>' +
+          /* the teaching stays folded — it is read once, and it is in the way every
+             other time the box is opened */
+          '<button class="qmark" data-help="'+i+'">'+(r.help?'hide':'what these do')+'</button>'
+        : (trimSet(r) ? '<span class="chip" title="Kept — tick Trim to use it again">'+trimChip(r)+'</span>' : '')) +
+    '</td>' +
     '<td class="x"><button class="rm" data-rm="'+i+'">×</button></td></tr>';
 
   var drop = r.adding ?
@@ -4562,12 +4622,10 @@ function rowHTML(r, i){
         'makes every dish that uses it look cheaper than it is.' +
         (r.addErr ? '<br><b class="bad">'+esc(r.addErr)+'</b>' : '') + '</div>' +
     '</div></td></tr>'
-    : !r.adj ? '' :
+    /* Only when he ASKS for it now. The two boxes moved onto the row above, so this
+       row is the explanation and nothing else — and it stays shut until tapped. */
+    : !r.help ? '' :
     '<tr class="drop"><td colspan="8"><div class="dropin">' +
-      '<div class="f"><label>Yield %</label><div class="bx">' +
-        '<input class="dcell" data-i="'+i+'" data-f="yield" inputmode="decimal" value="'+r.yield+'"><span class="pc">%</span></div></div>' +
-      '<div class="f"><label>Waste %</label><div class="bx">' +
-        '<input class="dcell" data-i="'+i+'" data-f="waste" inputmode="decimal" value="'+r.waste+'"><span class="pc">%</span></div></div>' +
       '<div class="exp"><b>Yield</b> — what\'s left after you clean it. 4 kg octopus in, 2.4 kg out, that\'s 60.<br>' +
       '<b>Waste</b> — what you lose on top: trim, spillage, the plate that comes back.' +
       /* This is the part nobody could see, and it is the whole point of the two
@@ -5636,7 +5694,9 @@ document.addEventListener('change', function(e){
   }
   if (t.dataset.f === 'adj'){
     r.adj = t.checked;
-    if (!r.adj){ r.yield = 100; r.waste = 0; }               /* untick = back to no trim */
+    /* NOTHING is wiped. Untick stops the numbers counting towards the cost — it does
+       not throw away work. They stay on the line, greyed, and come straight back. */
+    if (!r.adj) r.help = false;                              /* the explanation goes with it */
     redrawRow(+i); foot();
     if (r.adj){ var f = document.querySelector('.dcell[data-i="'+i+'"][data-f="yield"]'); if (f){ f.focus(); f.select(); } }
   }
@@ -5874,6 +5934,14 @@ document.addEventListener('click', function(e){
       rr.addErr = 'Not added — ' + minePlain(err.message) + ' What you typed is still here.';
       redrawRow(j);
     });
+    return;
+  }
+  /* "what these do" — the yield and waste explanation, folded away until asked for */
+  var hlp = e.target.closest('[data-help]');
+  if (hlp){
+    var hi = +hlp.dataset.help;
+    S.rows[hi].help = !S.rows[hi].help;
+    redrawRow(hi);
     return;
   }
   var rm = e.target.closest('[data-rm]');
