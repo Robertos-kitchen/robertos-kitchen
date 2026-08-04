@@ -85,25 +85,56 @@ img{display:block;max-width:100%}
 /* `cover` filled the band edge to edge and threw away whatever did not fit — and what
    did not fit was the dish. A phone photo is tall, this band is wide, so a plate came
    out as a strip with its near and far rims cut off: the one thing the page exists to
-   show, gone. `contain` fits the whole photograph inside the band instead. A tall photo
-   is then narrower than the band and the deep vino shows either side of it, which is a
-   frame, not a fault — and every plate arrives whole. */
-.shot{position:relative;height:58mm;overflow:hidden;background:var(--vino-deep);flex:0 0 auto}
-.shot img{width:100%;height:100%;object-fit:contain}
+   show, gone. `contain` fits the whole photograph inside the band instead.
+
+   The band itself then went, on 4 August. It existed to be something for a photograph
+   not the shape of the band to sit against, and it was doing that job with a slab of
+   deep vino either side of the plate. The house library settled it: all 41 dishes are
+   shot three-quarter on pure white, and the vessels are not plates — they are oval
+   platters, wooden boards, a marble tray, a scalloped bowl. Nothing that can be cropped
+   to a shape. So the photograph is simply laid on the paper: `multiply` makes its white
+   ground take the colour underneath it, and the mask feathers the outer edge away, so
+   the dish sits on the sheet with no band, no frame and no fill. Whatever is left over
+   either side of a photograph is now paper, which needs no explaining.
+
+   The height stays fixed because the page is still exactly one A4 and the sheet has to
+   be able to say when the writing has outgrown it. 82mm, not 58: with nothing dark to
+   fill, the picture can be the size it deserves and still leave the writing its room.
+
+   In print this needs nothing. The sheet is white paper, so the photograph merges with
+   no trick at all — the blend is only doing work on screen. */
+.shot{position:relative;height:82mm;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+/* sized to the picture, not to the band — the mask has to feather the edge of the
+   photograph, and an element wider than its own picture would feather empty paper */
+/* 82mm and not 100%: a percentage max-height is resolved against the flex container, and
+   in print layout that container height does not resolve, so the constraint disappeared
+   and a portrait photograph laid itself out at its intrinsic 1200px — 317mm of it, onto
+   a second sheet. An absolute length always resolves. Found by printing, not by reading. */
+.shot img{max-width:100%;max-height:82mm;width:auto;height:auto;mix-blend-mode:multiply;
+  -webkit-mask-image:radial-gradient(ellipse 72% 70% at 50% 50%,#000 62%,transparent 100%);
+  mask-image:radial-gradient(ellipse 72% 70% at 50% 50%,#000 62%,transparent 100%)}
+/* no photograph yet is the one case that still wants the dark band: it is a hole in the
+   page and it should look like one, rather than like paper somebody forgot to fill */
+.shot.empty{height:58mm;overflow:hidden;background:var(--vino-deep)}
 .shot .none{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;
   color:rgba(245,237,224,.62);text-align:center;padding:6mm}
 .shot .none b{font-family:var(--serif);font-weight:400;font-size:14pt;color:rgba(245,237,224,.8)}
 .shot .none span{font-size:7.5pt;letter-spacing:2.4px;text-transform:uppercase}
-.shot .cred{position:absolute;right:2.5mm;bottom:2mm;font-size:6.5pt;letter-spacing:1.6px;text-transform:uppercase;
-  color:rgba(245,237,224,.8);text-shadow:0 0 3mm rgba(43,1,4,.9)}
+/* on paper, not on a dark band — cream lettering on cream paper is no lettering */
+.shot .cred{position:absolute;right:2.5mm;bottom:1mm;font-size:6.5pt;letter-spacing:1.6px;text-transform:uppercase;
+  color:#a3907a}
+.shot.empty .cred{bottom:2mm;color:rgba(245,237,224,.8);text-shadow:0 0 3mm rgba(43,1,4,.9)}
 
 /* the name, and the menu line exactly as a guest reads it */
 .title{display:flex;flex-direction:column;gap:1.5mm}
 .title h1{font-family:var(--serif);font-weight:400;margin:0;font-size:27pt;line-height:.96;color:var(--vino)}
 .title .desc{font-family:var(--serif);font-style:italic;font-size:11.5pt;line-height:1.3;color:var(--ink);max-width:150mm}
 
-/* the middle: what he says, and what it is */
-.mid{display:grid;grid-template-columns:1fr 62mm;gap:6mm;flex:1 1 auto;align-items:start}
+/* the middle: what he says, and what it is.
+   It no longer takes the slack — `.breathe` below does. Left to grow, the middle pushed
+   the service note down onto the allergen rule, and a note touching that rule reads as
+   part of it. */
+.mid{display:grid;grid-template-columns:1fr 62mm;gap:6mm;flex:0 0 auto;align-items:start}
 .story{margin-top:4mm}
 .lab{font-size:7.5pt;letter-spacing:2.8px;text-transform:uppercase;font-weight:700;color:var(--vino-light);
   display:block;margin-bottom:1.8mm}
@@ -113,6 +144,21 @@ img{display:block;max-width:100%}
 .lst li{font-size:9.5pt;line-height:1.35;padding:1.4mm 0;border-bottom:.2mm solid rgba(207,192,173,.7)}
 .lst li:last-child{border-bottom:none}
 .todo{font-family:var(--serif);font-style:italic;font-size:9.5pt;line-height:1.5;color:#93826c}
+/* The garnish is not a third subject alongside the ingredients: it is the last thing
+   that goes on before the plate leaves the pass. So it closes the ingredients under a
+   hairline rather than starting a new heading of equal weight. */
+.side .garnish{margin-top:-1mm;border-top:.25mm solid var(--sabbia-dark);padding-top:3mm}
+.side .garnish .lab{color:#a3907a;letter-spacing:2.2px}
+/* And a preparation time is not an ingredient at all. It is a service note, so it comes
+   out of the column and sits full width at the foot of the writing, where a note goes. */
+.note{display:flex;align-items:baseline;gap:4mm;flex:0 0 auto;
+  border-top:.3mm solid var(--sabbia-dark);padding-top:2.5mm}
+.note .lab{margin-bottom:0;flex:0 0 auto}
+.note .val{font-size:9.5pt;line-height:1.35}
+.note .todo{display:inline}
+/* the white the writing leaves behind, held between the note and the allergens so it
+   reads as a margin rather than as a page that ran out */
+.breathe{flex:1 1 auto;min-height:4mm}
 
 /* the two strips that must never be hunted for */
 .strips{display:flex;flex-direction:column;gap:3.5mm;flex:0 0 auto}
@@ -133,12 +179,26 @@ img{display:block;max-width:100%}
 
 /* ══ small screens: the same page, same order, reflowed so it stays readable.
       An A4 squeezed onto a phone is 4pt type, which is not a page anybody can
-      use — so below 900px it becomes one column at reading size. ══ */
-@media (max-width:900px){
+      use — so below 900px it becomes one column at reading size.
+
+      `screen and`, not bare `max-width` — A4 is 794px wide at 96dpi, which is under this
+      breakpoint, so every rule in here was also matching when the page printed. The
+      printer was being handed the phone: one column, 20px gaps, reading-size type. It
+      happened to fit on one sheet before; with a photograph worth looking at it came to
+      302mm and went out on two. Paper gets the A4 layout, which is the one the whole
+      sheet is measured in millimetres for. ══ */
+@media screen and (max-width:900px){
   .desk{padding:14px 0 50px}
   .tools{padding:0 14px}
   .sheet{width:100%;min-height:0;padding:20px 18px 26px;gap:20px;box-shadow:none}
-  .shot{height:46vw;min-height:190px;max-height:280px}
+  /* on a phone the photograph is the first thing and it should be worth looking at, so
+     it gets its own aspect rather than a slice of the viewport width */
+  .shot{height:auto;min-height:0;max-height:none}
+  .shot img{max-height:62vh}
+  .shot.empty{height:46vw;min-height:190px;max-height:280px}
+  /* the note wraps onto its own line before it squeezes the label */
+  .note{flex-wrap:wrap;gap:2px 4mm}
+  .breathe{display:none}
   .title h1{font-size:34px}
   .title .desc{font-size:17px}
   .mid{display:flex;flex-direction:column;gap:22px}
@@ -508,7 +568,7 @@ function sheet(d){
       '<span class="house">Roberto’s DIFC &nbsp;·&nbsp; Food Bible 2026</span>' +
     '</div>' +
 
-    '<div class="shot">' +
+    '<div class="shot'+(img ? '' : ' empty')+'">' +
       (img ? '<img src="'+img+'" alt="'+esc(d.name)+'"><span class="cred">'+esc(d.cred||'')+'</span>'
            : '<div class="none"><b>No photograph yet</b><span>the dish photo goes here</span></div>') +
     '</div>' +
@@ -529,14 +589,20 @@ function sheet(d){
         '<div><span class="lab">Ingredients'+mark(sm(d,'ing'))+'</span>' +
           (d.ing.length ? '<ul class="lst">'+d.ing.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')+'</ul>'
                         : todo('Not written yet.')) + '</div>' +
-        '<div><span class="lab">Garnish</span>' +
+        '<div class="garnish"><span class="lab">Garnish</span>' +
           (d.garnish.length ? '<ul class="lst">'+d.garnish.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')+'</ul>'
                             : todo('Not written yet.')) + '</div>' +
-        '<div><span class="lab">More information</span>' +
-          (d.more ? '<div class="prose" style="font-size:9.5pt">'+esc(d.more)+'</div>'
-                  : todo('Not written yet.')) + '</div>' +
       '</div>' +
     '</div>' +
+
+    /* the service note, full width at the foot of the writing rather than a third
+       heading in a column of ingredients */
+    '<div class="note"><span class="lab">More information</span>' +
+      (d.more ? '<span class="val">'+esc(d.more)+'</span>'
+              : todo('Not written yet.')) +
+    '</div>' +
+
+    '<div class="breathe"></div>' +
 
     '<div class="strips">' +
       /* An untouched allergen row and a genuinely allergen-free dish look identical,
@@ -665,6 +731,13 @@ function render(){
 function checkOneSheet(){
   var sh = document.querySelector('.sheet'), out = document.getElementById('fit');
   if (!sh || !out) return;
+  /* Only the A4 layout can be measured against A4. Below 900px the sheet is deliberately
+     reflowed to reading size on one column and is metres tall — measuring that against
+     297mm says "this runs onto a second sheet, the allergens go with it" about a page
+     that prints perfectly well on one. A false alarm here costs somebody cutting real
+     writing out of a recipe to fix a problem that was never there, so on a phone the
+     page says nothing rather than something untrue. */
+  if (window.matchMedia && window.matchMedia('(max-width:900px)').matches){ out.innerHTML = ''; return; }
   var probe = document.createElement('div');
   probe.style.cssText = 'width:100mm;position:absolute;visibility:hidden;pointer-events:none';
   document.body.appendChild(probe);
