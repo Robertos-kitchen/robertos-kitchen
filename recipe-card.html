@@ -377,9 +377,14 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 .plating .plt{font-size:15px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
 .passq{display:flex;flex-wrap:wrap;margin:12px 0 0;border:1px solid var(--sabbia-dark);
   border-radius:7px;overflow:hidden;background:var(--cream)}
-.pq{flex:1 1 150px;padding:11px 14px;border-right:1px solid var(--sabbia-dark);min-width:0}
-.pq.wide{flex:1 1 100%;border-right:none;border-top:1px solid var(--sabbia-dark)}
+/* three equal boxes; on a phone they stack and the rule moves with them */
+.pq{flex:1 1 0;padding:11px 14px;border-right:1px solid var(--sabbia-dark);min-width:132px}
 .pq:last-child{border-right:none}
+@media(max-width:560px){
+  .passq{display:block}
+  .pq{border-right:none;border-bottom:1px solid var(--sabbia-dark)}
+  .pq:last-child{border-bottom:none}
+}
 .pqk{display:block;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);
   font-weight:700;margin-bottom:4px}
 .pqv{font-family:var(--serif);font-size:26px;line-height:1.05;color:var(--vino)}
@@ -1000,12 +1005,15 @@ function passSquare(key){
   /* Plating is deliberately not in here. It is already a step group of its own further
      down — the chef simply never had a box to write it in, which is what he was asking
      for. Printing it twice on one card is how two versions of it start to disagree. */
+  /* three small boxes, equal, side by side — the three things checked in a glance as the
+     plate goes out. Allergens sit with them rather than in a band of their own: it is the
+     same question asked at the same moment. */
   return '<div class="passq">' +
       '<div class="pq"><span class="pqk">On the pass</span>' +
         '<span class="pqv">' + (mins ? esc(mins) + ' <small>min</small>' : '<i>not said</i>') + '</span></div>' +
       '<div class="pq"><span class="pqk">Goes out on</span>' +
         '<span class="pqv sm">' + (crock ? esc(crock) : '<i>not said</i>') + '</span></div>' +
-      '<div class="pq wide"><span class="pqk">Allergens</span>' +
+      '<div class="pq"><span class="pqk">Allergens</span>' +
         '<span class="pqv sm">' + (alg.length
           ? alg.map(function(x){ return esc(algName(x.k)); }).join(' · ')
           : '<i>nothing ticked — this card cannot answer an allergy question</i>') + '</span></div>' +

@@ -4814,37 +4814,43 @@ function redrawRow(i){                      /* only this row — never blow away
    type, so a two-line prep and a twenty-step method both read whole, with no bar
    to drag. Empty is a perfectly good answer — a recipe with no method is never
    flagged as unfinished, because plenty of them genuinely have none. */
-/* ───── at the pass ─────
-   Three things the section asked for, and all three are about the moment the dish leaves
-   the kitchen: how it goes on the plate, how long it can stand there before it is no
-   longer worth sending, and what it goes out on.
+/* ───── plating ─────
+   Plating is not one line, it is several — mousse, then glaze, then the coin — so it gets
+   the same box the method gets, steps and all. It was written as a single caption first
+   time and that was wrong: a chef plating reads it the way he reads a method.
+
+   Under it, the two small things that are true of the finished plate rather than done to
+   it: how long it can stand on the pass, and what it goes out on. Allergens are ticked
+   just above, and the three of them come back together as three boxes on the card, which
+   is where they are read at speed.
 
    A batch has none of this on purpose. Nobody plates a stock, nothing stands on the pass
-   in a container, and a sauce does not have crockery — the same reason a batch is not
-   judged on having a method or the floor's words. */
-function passInner(){
+   in a container, and a sauce has no crockery. */
+function platingInner(){
   var m = S.method || {};
-  return '<div class="mhd">At the pass</div>' +
-    howto('pass', 'What the section reads at the moment the dish goes out. It is on the recipe ' +
-      'card with the allergens, so the person plating and the person carrying it are reading ' +
-      'the same thing.', 'What this is for') +
+  var v = m.plating || '';
+  return '<div class="mhd">Plating</div>' +
+    howto('plating', 'A new line is a step, the same as the method. It prints on the recipe card ' +
+      'with the allergens, so the person plating and the person carrying it are reading the ' +
+      'same thing.', 'About plating') +
     '<div class="msec">' +
-      '<label class="ml" for="m-plating">How it is plated</label>' +
+      '<label class="ml" for="m-plating">How it goes on the plate</label>' +
       '<textarea class="mbox" id="m-plating" data-m="plating" rows="1" ' +
-        'placeholder="Mousse first, glaze to the edge, coin off centre.">' + esc(m.plating || '') + '</textarea>' +
+        'placeholder="Two discs, mousse between&#10;Glaze to the edge&#10;Coin off centre">' + esc(v) + '</textarea>' +
+      '<div class="stepwrap" id="stepn-plating">' + stepsNote(v, 'plating') + '</div>' +
     '</div>' +
     '<div class="prow">' +
       '<div class="pcell">' +
-        '<label class="ml" for="m-pass">How long it can stand on the pass</label>' +
+        '<label class="ml" for="m-pass">On the pass</label>' +
         '<div class="punit"><input class="pnum" id="m-pass" data-m="pass" inputmode="numeric" ' +
           'placeholder="—" value="' + esc(m.pass || '') + '"><span>minutes</span></div>' +
-        '<div class="mhint">Leave it empty if it does not wait.</div>' +
+        '<div class="mhint">Empty if it does not wait.</div>' +
       '</div>' +
       '<div class="pcell wide">' +
-        '<label class="ml" for="m-crockery">What it goes out on</label>' +
+        '<label class="ml" for="m-crockery">Goes out on</label>' +
         '<input class="pnum wide" id="m-crockery" data-m="crockery" ' +
           'placeholder="Copper pan" value="' + esc(m.crockery || '') + '">' +
-        '<div class="mhint">The plate, pan or board — not the cutlery, that is below.</div>' +
+        '<div class="mhint">The plate, pan or board — not the cutlery.</div>' +
       '</div>' +
     '</div>';
 }
@@ -4852,7 +4858,7 @@ function methodHTML(){
   return (S.kind === 'main' ? '<div class="mnu" id="mnubox">' + menuInner() + '</div>' : '') +
          '<div class="alg" id="alg">' + algInner() + '</div>' +
          '<div class="mth" id="mth">' + methodInner() + '</div>' +
-         (S.kind === 'main' ? '<div class="pss" id="pssbox">' + passInner() + '</div>' : '') +
+         (S.kind === 'main' ? '<div class="pss" id="pssbox">' + platingInner() + '</div>' : '') +
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
 }
 
@@ -5347,7 +5353,11 @@ function proseToSteps(text){
     .replace(/([.!?])\s+(?=[A-Z(])/g, '$1\n')
     .split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean).join('\n');
 }
-function stepsNote(v){
+/* `k` says which box this note belongs to. It used to be assumed to be the method, and the
+   moment a second box wanted the same treatment that assumption would have rewritten the
+   method from the plating box's button. */
+function stepsNote(v, k){
+  k = k || 'method';
   var st = methodSteps(v);
   if (!st.length) return '';
   if (st.length === 1){
@@ -5356,7 +5366,7 @@ function stepsNote(v){
     if (words < 32) return '<div class="stepn">Reads as <b>one step</b>.</div>';
     return '<div class="stepn">Reads as <b>one step</b> of ' + words + ' words. ' +
       'At the pass that is a paragraph to read through.' +
-      '<button class="stepb" id="mksteps">Put each sentence on its own line</button>' +
+      '<button class="stepb" data-mksteps="' + k + '">Put each sentence on its own line</button>' +
       '<span class="stepw">You can change any of it afterwards.</span></div>';
   }
   return '<div class="stepn">Reads as <b>' + st.length + ' steps</b>.' +
@@ -5376,7 +5386,7 @@ function methodInner(){
         '<label class="ml" for="m-'+s.k+'">'+s.t+'</label>' +
         '<textarea class="mbox" id="m-'+s.k+'" data-m="'+s.k+'" rows="1" ' +
           'placeholder="'+esc(s.p)+'">'+esc(v)+'</textarea>' +
-        '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v) + '</div>' +
+        '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v, s.k) + '</div>' +
       '</div>';
     }).join('') +
     '<div class="mhd ph2">Photos</div>' +
@@ -5422,7 +5432,7 @@ function wireMethod(){
     t.addEventListener('input', function(){
       mth()[s.k] = this.value; grow(this);
       /* the count follows what he is typing — never redraw the box he is typing in */
-      var n = $('stepn-'+s.k); if (n) n.innerHTML = stepsNote(this.value);
+      var n = $('stepn-'+s.k); if (n) n.innerHTML = stepsNote(this.value, s.k);
     });
   });
   /* the floor's fields carry a live length against what one A4 actually holds */
@@ -5437,9 +5447,15 @@ function wireMethod(){
   });
   var c = $('m-code');
   if (c) c.addEventListener('input', function(){ mth().code = this.value; });
-  /* at the pass — plating grows like the method, the other two are one line each */
+  /* plating behaves exactly like the method — a new line is a step, and it says how many */
   var pl = $('m-plating');
-  if (pl){ grow(pl); pl.addEventListener('input', function(){ mth().plating = this.value; grow(this); }); }
+  if (pl){
+    grow(pl);
+    pl.addEventListener('input', function(){
+      mth().plating = this.value; grow(this);
+      var n = $('stepn-plating'); if (n) n.innerHTML = stepsNote(this.value, 'plating');
+    });
+  }
   ['pass','crockery'].forEach(function(k){
     var e = $('m-'+k); if (!e) return;
     e.addEventListener('input', function(){
@@ -5827,13 +5843,15 @@ document.addEventListener('click', function(e){
   }
   /* offered, then done in front of him — the box shows the result and he can undo it by
      hand. It never runs on its own. */
-  if (e.target.closest('#mksteps')){
-    var mb = $('m-method');
+  var mk = e.target.closest('[data-mksteps]');
+  if (mk){
+    var key = mk.getAttribute('data-mksteps');
+    var mb = $('m-' + key);
     if (mb){
       mb.value = proseToSteps(mb.value);
-      mth().method = mb.value;
+      mth()[key] = mb.value;
       grow(mb);
-      var nn = $('stepn-method'); if (nn) nn.innerHTML = stepsNote(mb.value);
+      var nn = $('stepn-' + key); if (nn) nn.innerHTML = stepsNote(mb.value, key);
       mb.focus();
     }
     return;
