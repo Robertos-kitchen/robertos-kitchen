@@ -183,6 +183,56 @@ body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
   border-left:3px solid var(--oro);border-radius:0 4px 4px 0;font-size:12.5px;
   line-height:1.5;color:var(--ink);background:rgba(186,155,2,.10)}
 
+/* ═════ the production sheet ═════ */
+.phd{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;flex-wrap:wrap;
+  border-bottom:2px solid var(--vino);padding-bottom:12px;margin-bottom:16px}
+.pdish{font-family:var(--serif);font-size:34px;line-height:1.05;color:var(--vino)}
+.pdish small,.pfor small{display:block;font-family:var(--sans);font-size:10px;letter-spacing:2.2px;
+  text-transform:uppercase;color:var(--vino-light);margin-bottom:4px}
+.pfor{text-align:right;font-family:var(--serif);font-size:29px;color:var(--vino);line-height:1}
+.pfor span{font-size:15px}
+.phero{display:flex;gap:20px;align-items:flex-start;margin-bottom:6px}
+.pherotxt{flex:1 1 auto;min-width:0}
+.pshero{flex:0 0 auto;width:196px}
+.pshero img{width:100%;height:148px;object-fit:cover;border-radius:7px;display:block;border:1px solid var(--sabbia-dark)}
+.pcap{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);margin-top:5px;text-align:center}
+@media(max-width:700px){ .phero{flex-wrap:wrap} .pshero{width:100%} }
+.psumh{font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;font-weight:700;color:var(--vino-light);margin-bottom:7px}
+table.psum{width:100%;border-collapse:collapse}
+table.psum td{padding:9px 8px 9px 0;border-bottom:1px solid var(--sabbia-dark);vertical-align:middle}
+table.psum tr:last-child td{border-bottom:none}
+td.pn{font-family:var(--serif);font-size:18px;line-height:1.15}
+td.pq2{font-family:var(--serif);font-size:19px;font-weight:600;color:var(--vino);white-space:nowrap}
+td.px{font-size:11.5px;color:var(--vino-light)}
+.pinc{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--vino-light);cursor:pointer;white-space:nowrap}
+.pinc input{width:17px;height:17px;accent-color:#410207}
+.poff{font-size:11.5px;color:var(--vino-light);font-style:italic;margin-top:8px;opacity:.85}
+/* where one recipe ends and the next begins — space, a heavy rule, and its own name */
+.pblk{margin-top:38px;break-inside:avoid;page-break-inside:avoid}
+.pcut{border-top:3px solid var(--vino)}
+.pband{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:9px 0 12px;
+  border-bottom:1px solid var(--sabbia-dark);margin-bottom:14px}
+.pno{font-family:var(--sans);font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;font-weight:700;
+  color:var(--cream);background:var(--vino);border-radius:3px;padding:4px 9px;white-space:nowrap}
+.pbh{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;flex:1 1 auto}
+.pbt{font-family:var(--serif);font-size:25px;color:var(--vino);line-height:1.1}
+.pbt small{display:block;font-family:var(--sans);font-size:9.5px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--vino-light);margin-bottom:3px}
+.pbm{font-size:12px;color:var(--vino-light);line-height:1.5;text-align:right}
+.pbm b{color:var(--vino)}
+.pmodes{display:flex;gap:7px;margin:0 0 12px;flex-wrap:wrap}
+.pmodes button{font-family:var(--sans);font-size:11px;font-weight:600;padding:8px 12px;border-radius:5px;
+  border:1px solid var(--sabbia-dark);background:transparent;color:var(--vino-light);cursor:pointer;text-align:left}
+.pmodes button.on{border-color:var(--vino);background:rgba(65,2,7,.09);color:var(--vino)}
+.pmodes small{display:block;font-weight:400;opacity:.85;font-size:10.5px;margin-top:2px}
+.pcols{display:grid;grid-template-columns:minmax(240px,330px) 1fr;gap:26px}
+@media(max-width:820px){ .pcols{grid-template-columns:1fr;gap:16px} }
+.pch{font-size:9px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:var(--vino-light);
+  border-bottom:1px solid var(--sabbia-dark);padding-bottom:5px;margin-bottom:4px}
+.pshot{margin-top:12px}
+.pshot img{width:100%;max-width:228px;height:128px;object-fit:cover;border-radius:6px;display:block;
+  border:1px solid var(--sabbia-dark)}
+
 /* The dish and its batches are two different things and must never look alike:
    the dish is the serif name in Vino, the batches are smaller and carry the same
    olive mark they carry on the ingredient line. */
@@ -334,6 +384,21 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
      numbers on the page are not the recipe. A tinted box prints as nothing. */
   .pscale{background:none!important;border:1.5px solid #000;border-left:1.5px solid #000;
     color:#000!important;font-size:10pt;font-weight:600}
+  /* ── the production sheet on paper ──
+     Everything that separates one recipe from the next is a RULE, never a tint: a chef
+     weighing the mousse sugar into the lady finger is the mistake this is here to stop,
+     and background graphics default to off at the printer. */
+  .pdish,.pfor,.pbt,td.pq2,.pbm b{color:#000!important}
+  .psumh,.px,.pch,.pbm,.pbt small,.pdish small,.pfor small,.pcap{color:#333!important}
+  .phd{border-bottom:1.5pt solid #000}
+  .pblk{margin-top:11mm}
+  .pcut{border-top:3pt solid #000}
+  .pband{border-bottom:.5pt solid #666}
+  .pno{background:none!important;color:#000!important;border:1.2pt solid #000;font-weight:700}
+  .pmodes,.pinc{display:none!important}
+  /* one recipe per page, for handing a page to each commis */
+  body.perpage .pblk{break-before:page;page-break-before:always}
+  body.perpage .pblk:first-of-type{break-before:auto;page-break-before:auto}
   /* one component, or the whole folder page */
   body.printall .pcur{display:none}
   body.printall #psheet{display:block}
@@ -997,6 +1062,9 @@ function viewStation(){
     '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap">' +
       '<button class="btn ghost" data-print="one">Print ' + esc(onDish ? 'the dish' : 'this batch') + '</button>' +
       '<button class="btn ghost" data-print="all">Print the dish and all its batches</button>' +
+      /* the card grows the one thing the pass actually asks for */
+      (onDish && prodList().length
+        ? '<button class="btn" id="toprod">What do I make?</button>' : '') +
     '</div>' +
     '</div>' +          /* ends .pcur */
     printSheet() +
@@ -1022,8 +1090,136 @@ function stepsHTML(fl){
    page you hand someone being trained — the dish is useless on paper on its own,
    because every line of it is a batch. The whole set is always in the page,
    hidden on screen, so printing never has to rebuild or reload anything. */
+/* ═════════ "I want 12 tiramisu — what do I make?" ═════════
+   A chef with twelve desserts to build is holding one job, not four recipes. This turns
+   the card into the sheet for that job: what has to be made, then every batch in full with
+   its own method beside its own quantities, then how it goes together — and it prints as
+   it reads.
+
+   Scaled first, because that is the question he asked: the exact quantity for twelve. Whole
+   batches are a tap away per batch, for the ones where 1.19 batches is a silly answer and
+   two is the real one.
+
+   Waste and trim are deliberately NOT in this. They are how a dish is COSTED; they are not
+   what anybody weighs. The quantities here are the written ones multiplied, and nothing
+   else — that is Francesco's rule, 4 Aug. */
+var prod = false, prodMode = {}, prodInc = {}, prodPer = false;
+
+/* what the dish needs of one batch, and how that sits against a whole batch of it */
+function prodNeed(line){
+  var s = SUBS[line.sub]; if (!s) return null;
+  var need = (line.q || 0) * mult;
+  var a = inBase(need, line.u), b = inBase(s.makes && s.makes.qty, s.makes && s.makes.unit);
+  /* different measurements, or a batch that never says what it makes — then there is no
+     honest fraction to give, and none is given. The quantity needed is still true. */
+  var frac = (a && b && a.base === b.base && b.v > 0) ? a.v / b.v : null;
+  return { k:line.sub, s:s, need:need, u:line.u, frac:frac,
+           whole: frac == null ? null : Math.max(1, Math.ceil(frac - 1e-9)) };
+}
+function prodList(){
+  return (R.lines || []).filter(function(l){ return l.sub && SUBS[l.sub]; })
+    .map(prodNeed).filter(Boolean);
+}
+function prodMultOf(n){
+  if (prodMode[n.k] === 'whole' && n.whole != null) return n.whole;
+  return n.frac != null ? n.frac : 1;      /* no yield known — show it as written */
+}
+function portionsNow(){ return mult * ((R.makes && R.makes.qty > 0) ? R.makes.qty : 1); }
+
 /* only the component he scaled carries the multiplier onto paper */
 function pmulOf(k){ return k === comp ? mult : 1; }
+/* ── the sheet ── */
+function prodBlock(n, i, shown){
+  var m = prodMultOf(n), s = n.s, w = n.whole;
+  var spare = (w != null && n.frac != null) ? (w / n.frac - 1) * n.need : 0;
+  var nested = (s.lines || []).filter(function(l){ return l.sub && SUBS[l.sub]; });
+  return '<div class="pblk">' +
+    '<div class="pcut"></div>' +
+    '<div class="pband"><span class="pno">Batch ' + (i+1) + ' of ' + shown + '</span>' +
+      '<div class="pbh"><div class="pbt"><small>Make this — for ' + num(portionsNow()) + ' portions</small>' +
+        esc(s.name) + '</div>' +
+        '<div class="pbm">You need <b>' + show(n.need, n.u).q + ' ' + show(n.need, n.u).u + '</b><br>' +
+          (n.frac == null
+            ? 'this batch does not say how much it makes'
+            : prodMode[n.k] === 'whole'
+              ? w + ' batch' + (w===1?'':'es') + ' as written'
+              : 'scaled <b>×' + num(Math.round(m*100)/100) + '</b> · nothing spare') +
+        '</div></div></div>' +
+    (n.frac != null
+      ? '<div class="pmodes noprint">' +
+          '<button data-pm="exact" data-pk="' + n.k + '" class="' + (prodMode[n.k]!=='whole'?'on':'') + '">' +
+            'Exactly ' + show(n.need,n.u).q + ' ' + show(n.need,n.u).u +
+            '<small>×' + num(Math.round(n.frac*100)/100) + '</small></button>' +
+          '<button data-pm="whole" data-pk="' + n.k + '" class="' + (prodMode[n.k]==='whole'?'on':'') + '">' +
+            w + ' whole batch' + (w===1?'':'es') +
+            '<small>' + (spare > 0.5 ? show(spare,n.u).q + ' ' + show(spare,n.u).u + ' spare' : 'exact') + '</small></button>' +
+        '</div>'
+      : '') +
+    '<div class="pcols">' +
+      '<div><div class="pch">Ingredients</div>' +
+        '<table class="ing">' + ingRows(s.lines, m, false) + '</table>' +
+        (prodMode[n.k]==='whole' && spare > 0.5
+          ? '<div class="notscaled"><b>' + show(spare,n.u).q + ' ' + show(spare,n.u).u + ' spare.</b> ' +
+            w + ' batch' + (w===1?'':'es') + ' makes more than this needs.</div>' : '') +
+        (nested.length
+          ? '<div class="notscaled"><b>Made with ' + nested.map(function(l){ return esc(SUBS[l.sub].name); }).join(' and ') +
+            '.</b> Those are their own recipes — this sheet does not work out how much of them to make.</div>' : '') +
+      '</div>' +
+      '<div><div class="pch">Method</div>' + stepsHTML(flat(s.method)) +
+        ((s.photos || []).length
+          ? '<div class="pshot"><img src="' + esc(s.photos[0].u || s.photos[0]) + '" alt="' + esc(s.name) + '">' +
+            '<div class="pcap">' + esc(s.name) + '</div></div>' : '') +
+      '</div>' +
+    '</div></div>';
+}
+function viewProd(){
+  var list = prodList();
+  var on = list.filter(function(n){ return prodInc[n.k] !== false; });
+  var ph = (R.photos || [])[0];
+  var rows = list.map(function(n){
+    return '<tr><td class="pn">' + esc(n.s.name) + '</td>' +
+      '<td class="pq2">' + show(n.need,n.u).q + ' ' + show(n.need,n.u).u + '</td>' +
+      '<td class="px">' + (n.frac == null ? 'no yield on this batch'
+          : num(Math.round(n.frac*100)/100) + ' of a batch · one makes ' + show(n.s.makes.qty, n.s.makes.unit).q + ' ' + show(n.s.makes.qty, n.s.makes.unit).u) + '</td>' +
+      '<td style="text-align:right"><label class="pinc noprint">' +
+        '<input type="checkbox" data-pinc="' + n.k + '"' + (prodInc[n.k]!==false?' checked':'') + '> recipe below</label></td></tr>';
+  }).join('');
+  var off = list.filter(function(n){ return prodInc[n.k] === false; });
+
+  return '<div class="wrap">' +
+    '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">' +
+      '<button class="btn ghost" id="prodback">&larr; Back to the recipe</button>' +
+      '<label class="pinc"><input type="checkbox" id="prodper"' + (prodPer?' checked':'') + '> each recipe on its own page</label>' +
+      '<button class="btn ghost" id="prodprint" style="margin-left:auto">Print this sheet</button>' +
+    '</div>' +
+    '<div id="psheetprod">' +
+      '<div class="phd">' +
+        '<div class="pdish"><small>Production sheet · ' + esc(R.section || '') + '</small>' + esc(R.name) + '</div>' +
+        '<div class="pfor"><small>Making</small>' + num(portionsNow()) + ' <span>portions</span></div>' +
+      '</div>' +
+      '<div class="phero">' +
+        '<div class="pherotxt">' +
+          '<div class="psumh">What has to be made</div>' +
+          '<table class="psum"><tbody>' + rows + '</tbody></table>' +
+          (off.length ? '<div class="poff">Not on this sheet: ' +
+            off.map(function(n){ return esc(n.s.name); }).join(', ') +
+            ' — the quantity is above, the recipe was left off.</div>' : '') +
+        '</div>' +
+        (ph ? '<div class="pshero"><img src="' + esc(ph.u || ph) + '" alt="' + esc(R.name) + '">' +
+              '<div class="pcap">The finished plate</div></div>' : '') +
+      '</div>' +
+      on.map(function(n,i){ return prodBlock(n, i, on.length); }).join('') +
+      '<div class="pblk"><div class="pcut"></div>' +
+        '<div class="pband"><span class="pno">The dish</span>' +
+          '<div class="pbh"><div class="pbt"><small>Then put it together</small>' + esc(R.name) + '</div>' +
+            '<div class="pbm"><b>' + num(portionsNow()) + '</b> portions</div></div></div>' +
+        '<div class="pcols">' +
+          '<div><div class="pch">Per portion</div><table class="ing">' + ingRows(R.lines, 1, false) + '</table></div>' +
+          '<div><div class="pch">Method</div>' + stepsHTML(flat(R.method)) + '</div>' +
+        '</div></div>' +
+    '</div></div>';
+}
+
 function printSheet(){
   var comps = compList();
   var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes}}]
@@ -1254,9 +1450,21 @@ function render(){
         esc(when(movedAt)) + '. What is on this card is the older one. ' +
         '<button class="btn" id="reopen">Show the new one</button></div>'
       : '') +
-    '<div class="why">'+cur.w+'</div>' + cur.v();
+    /* the production sheet takes the whole pane — it IS the job, not a view of the dish */
+    (prod ? viewProd() : '<div class="why">'+cur.w+'</div>' + cur.v());
   wireScale();
 }
+/* the ticks: which recipes come onto the sheet, and whether each gets its own page */
+document.addEventListener('change', function(e){
+  var el = e.target;
+  if (el && el.dataset && el.dataset.pinc !== undefined){
+    prodInc[el.dataset.pinc] = el.checked; render(); return;
+  }
+  if (el && el.id === 'prodper'){
+    prodPer = el.checked;
+    document.body.classList.toggle('perpage', prodPer);
+  }
+});
 /* The box is typed into, so it must never be redrawn under the fingers — every keystroke
    would put the caret back at the start and "20.5" would go in as "5.02". So the
    quantities are re-rendered on input and this box is left exactly as it is. */
@@ -1342,6 +1550,12 @@ document.addEventListener('click', function(e){
   if (b && b.dataset.comp){ comp=b.dataset.comp; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
   var jr = t.closest?t.closest('tr[data-jump]'):null;
   if (jr){ comp=jr.dataset.jump; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
+  /* ── into and out of the production sheet ── */
+  if (b && b.id === 'toprod'){ prod = true; render(); window.scrollTo(0,0); return; }
+  if (b && b.id === 'prodback'){ prod = false; render(); window.scrollTo(0,0); return; }
+  if (b && b.id === 'prodprint'){ document.body.classList.remove('printall'); window.print(); return; }
+  var pm = t.closest ? t.closest('[data-pm]') : null;
+  if (pm){ prodMode[pm.dataset.pk] = pm.dataset.pm; render(); return; }
   /* − and + still work with a thumb, and they step in the units he is looking at: on a
      dish that is one portion, on a batch one batch. Below 1 they go in halves, so half a
      batch is reachable by tapping and not only by typing. */
