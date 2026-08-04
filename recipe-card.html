@@ -171,7 +171,17 @@ body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
 .stp{display:flex;align-items:center;border:1.5px solid var(--sabbia-dark);border-radius:6px;background:#fff;overflow:hidden}
 .stp button{width:48px;height:46px;border:none;background:none;font-size:21px;color:var(--vino);cursor:pointer;font-family:var(--sans);line-height:1}
 .stp .v{min-width:60px;text-align:center;font-size:17px;font-weight:700;color:var(--vino);font-variant-numeric:tabular-nums}
+/* Typed, not only tapped. Fifteen portions was fifteen taps of +, and half a batch and
+   twenty and a half could not be asked for at all. */
+.stp input.v{border:none;outline:none;background:none;font-family:var(--sans);width:74px;
+  padding:0 4px;-moz-appearance:textfield}
+.stp input.v::-webkit-outer-spin-button,.stp input.v::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.stp input.v:focus{background:rgba(186,155,2,.12)}
 .scaled{font-size:12.5px;color:var(--oliva)}
+/* on paper, where it cannot be tapped away */
+.pscale{margin:8px 0 4px;padding:8px 11px;border:1px solid var(--sabbia-dark);
+  border-left:3px solid var(--oro);border-radius:0 4px 4px 0;font-size:12.5px;
+  line-height:1.5;color:var(--ink);background:rgba(186,155,2,.10)}
 
 /* The dish and its batches are two different things and must never look alike:
    the dish is the serif name in Vino, the batches are smaller and carry the same
@@ -320,6 +330,10 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
   .notscaled{background:none!important;border:1px solid #000;border-left:1px solid #000;
     color:#000!important;font-size:10pt}
   .notscaled b{color:#000!important}
+  /* the same reason again, and it matters more here: this is the line that says the
+     numbers on the page are not the recipe. A tinted box prints as nothing. */
+  .pscale{background:none!important;border:1.5px solid #000;border-left:1.5px solid #000;
+    color:#000!important;font-size:10pt;font-weight:600}
   /* one component, or the whole folder page */
   body.printall .pcur{display:none}
   body.printall #psheet{display:block}
@@ -904,6 +918,52 @@ function viewCard(){
 
 /* ═══ B — the station ═══ */
 var comp='dish', mult=1, photoOpen=null;
+
+/* ───── how much of it are we making ─────
+   The dish had no scale control at all on this screen — only a batch did, and that one
+   was two buttons: fifteen portions meant fifteen taps of +, and half a batch or twenty
+   and a half portions could not be asked for at all. The team asked for both.
+
+   So the number is typed as well as tapped, and it takes a decimal. A chef asks for the
+   thing he is cooking — "cook for 15" on a dish, "×2.5" on a batch — so the dish is
+   asked in PORTIONS and the multiplier worked out from what the recipe says it makes.
+   A dish that makes 2 portions, cooked for 15, is ×7.5 and nobody has to do that sum. */
+function niceNum(n){
+  return String(Math.round(n * 1000) / 1000);
+}
+/* One place decides what a typed or tapped number means, so the − + buttons and the box
+   can never disagree. `want` is in the units on screen — portions on a dish, batches on a
+   batch — and `mult` is always the plain multiplier the quantities are scaled by. */
+function setScale(want, onDish, per){
+  if (!isFinite(want) || want <= 0) return;                 /* 0 portions is not a question */
+  want = Math.min(want, 500);                               /* a typo, not an order */
+  mult = onDish ? want / (per || 1) : want;
+  mult = Math.round(mult * 1000) / 1000;
+}
+function scaleBar(c, onDish){
+  var per = (onDish && c.makes && c.makes.qty > 0) ? c.makes.qty : 1;
+  var shown = onDish ? mult * per : mult;
+  var unitWord = onDish
+    ? ((c.makes && c.makes.unit ? String(c.makes.unit) : 'portions').replace(/^portions$/, shown === 1 ? 'portion' : 'portions'))
+    : '';
+  return '<div class="port noprint" style="margin-top:0">' +
+    '<span class="lab">' + (onDish ? 'Cook for' : 'Batch') + '</span>' +
+    '<div class="stp">' +
+      '<button data-m="-1" aria-label="less">&minus;</button>' +
+      (onDish ? '' : '<span class="v" style="min-width:0;padding-left:9px">&times;</span>') +
+      '<input class="v" id="scaleq" inputmode="decimal" value="' + esc(niceNum(shown)) + '" ' +
+        'aria-label="' + (onDish ? 'how many portions' : 'how many batches') + '">' +
+      '<button data-m="1" aria-label="more">+</button>' +
+    '</div>' +
+    (onDish ? '<span class="lab">' + esc(unitWord) + '</span>' : '') +
+    /* Never leave a scaled sheet looking like the recipe. What is on screen is not what
+       is written down, and somebody reading it mid-service must be told which. */
+    (mult !== 1
+      ? '<span class="scaled">every quantity is &times;' + esc(niceNum(mult)) +
+        (onDish ? ' &nbsp;·&nbsp; a batch you open is still one batch' : '') + '</span>'
+      : '') +
+  '</div>';
+}
 /* `photos` belongs here too: leaving it out meant the plated dish — the one photo the
    chef actually took on the create screen — never appeared on the station card, which
    is the layout this module opens on. The batches showed theirs; the dish never did. */
@@ -930,10 +990,8 @@ function viewStation(){
     '<div class="cols">' +
       '<div class="left"><div class="card"><div class="h">Ingredients' +
         (onDish?'<span class="sm">tap a batch to open it</span>':'')+'</div>' +
-        (comp!=='dish' ? '<div class="port noprint" style="margin-top:0"><span class="lab">Batch</span>' +
-          '<div class="stp"><button data-m="-1" aria-label="smaller batch">&minus;</button><span class="v">&times;'+mult+'</span>' +
-          '<button data-m="1" aria-label="bigger batch">+</button></div></div>' : '') +
-        '<table class="ing">'+ingRows(c.lines,onDish?1:mult,onDish?'switch':false)+'</table></div></div>' +
+        scaleBar(c, onDish) +
+        '<table class="ing">'+ingRows(c.lines,mult,onDish?'switch':false)+'</table></div></div>' +
       '<div><div class="card"><div class="h">Steps</div>' + stepsHTML(fl) + '</div></div>' +
     '</div>' +
     '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap">' +
@@ -964,6 +1022,8 @@ function stepsHTML(fl){
    page you hand someone being trained — the dish is useless on paper on its own,
    because every line of it is a batch. The whole set is always in the page,
    hidden on screen, so printing never has to rebuild or reload anything. */
+/* only the component he scaled carries the multiplier onto paper */
+function pmulOf(k){ return k === comp ? mult : 1; }
 function printSheet(){
   var comps = compList();
   var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes}}]
@@ -977,8 +1037,26 @@ function printSheet(){
       '<div class="pmeta">'+(onDish?esc(R.section)+' · ':'')+'Makes '+esc(amount(c.makes.qty, c.makes.unit))+
         (used?' · one portion takes '+show(used.q,used.u).q+' '+show(used.q,used.u).u
              : a.inside?' · goes into '+esc(a.inside):'')+'</div>' +
+      /* The sheet prints what he is looking at. It used to print ×1 whatever was on the
+         screen, so a chef scaled to twenty portions, printed, and carried away the recipe
+         for one — and nothing on either sheet said they were different.
+
+         Only the part he actually scaled is scaled: the other blocks are one batch as
+         written, which is the same rule the screen states. And a scaled sheet SAYS so, at
+         the top, in words — a printed page outlives the moment it was printed, and a pile
+         of quantities with nothing to say which dish they are for is how a recipe gets
+         re-entered wrong months later. */
+      (pmulOf(a.k) !== 1
+        ? '<div class="pscale">Scaled &times;' + esc(niceNum(pmulOf(a.k))) + ' — ' +
+          'every quantity below is multiplied. ' +
+          /* plenty of recipes have never had their portions filled in, and "makes
+             ______ portions" with a hole in it is worse than not saying it */
+          (c.makes && c.makes.qty
+            ? 'The recipe as written makes ' + esc(amount(c.makes.qty, c.makes.unit)) + '.'
+            : 'These are not the quantities written on the recipe.') + '</div>'
+        : '') +
       algBar(a.k) +
-      '<table class="ing">'+ingRows(c.lines,1,false)+'</table>' +
+      '<table class="ing">'+ingRows(c.lines,pmulOf(a.k),false)+'</table>' +
       stepsHTML(flat(c.method)) +
     '</div>'; }).join('') + '</div>';
 }
@@ -1177,6 +1255,52 @@ function render(){
         '<button class="btn" id="reopen">Show the new one</button></div>'
       : '') +
     '<div class="why">'+cur.w+'</div>' + cur.v();
+  wireScale();
+}
+/* The box is typed into, so it must never be redrawn under the fingers — every keystroke
+   would put the caret back at the start and "20.5" would go in as "5.02". So the
+   quantities are re-rendered on input and this box is left exactly as it is. */
+function wireScale(){
+  var i = document.getElementById('scaleq');
+  if (!i) return;
+  i.addEventListener('input', function(){
+    var c = current() || {};
+    var onD = comp === 'dish';
+    var per = (onD && c.makes && c.makes.qty > 0) ? c.makes.qty : 1;
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    if (!isFinite(v) || v <= 0) return;      /* mid-typing "." or "" — wait for a number */
+    setScale(v, onD, per);
+    redrawScaled();
+  });
+  /* leaving it empty or nonsense puts back what is actually being shown */
+  i.addEventListener('blur', function(){
+    var c = current() || {};
+    var onD = comp === 'dish';
+    var per = (onD && c.makes && c.makes.qty > 0) ? c.makes.qty : 1;
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    if (!isFinite(v) || v <= 0){ this.value = niceNum(onD ? mult * per : mult); }
+  });
+}
+/* just the numbers, not the page */
+function redrawScaled(){
+  var c = current() || {};
+  var onD = comp === 'dish';
+  var tbl = document.querySelector('.left table.ing') || document.querySelector('table.ing');
+  if (tbl) tbl.innerHTML = ingRows(c.lines, mult, onD ? 'switch' : false);
+  /* the print sheet is a separate copy of the recipe sitting in the page, and it is only
+     built when the whole view renders. Typing in the box redrew the screen and left it
+     behind — so the chef read ×20.5, pressed Print, and carried away ×1. */
+  var ps = document.getElementById('psheet');
+  if (ps) ps.outerHTML = printSheet();
+  var note = document.querySelector('.port .scaled');
+  var txt = mult !== 1
+    ? 'every quantity is ×' + niceNum(mult) + (onD ? '  ·  a batch you open is still one batch' : '')
+    : '';
+  if (note) note.textContent = txt;
+  else if (txt){
+    var p = document.querySelector('.port');
+    if (p){ var s = document.createElement('span'); s.className = 'scaled'; s.textContent = txt; p.appendChild(s); }
+  }
 }
 
 /* The whole front page is redrawn on every keystroke, so the box that was typed into
@@ -1218,7 +1342,20 @@ document.addEventListener('click', function(e){
   if (b && b.dataset.comp){ comp=b.dataset.comp; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
   var jr = t.closest?t.closest('tr[data-jump]'):null;
   if (jr){ comp=jr.dataset.jump; mult=1; photoOpen=null; render(); window.scrollTo(0,0); return; }
-  if (b && b.dataset.m){ mult=Math.max(1,Math.min(20,mult+(+b.dataset.m))); render(); return; }
+  /* − and + still work with a thumb, and they step in the units he is looking at: on a
+     dish that is one portion, on a batch one batch. Below 1 they go in halves, so half a
+     batch is reachable by tapping and not only by typing. */
+  if (b && b.dataset.m){
+    var dir = +b.dataset.m;
+    var cNow = current() || {};
+    var onD = comp === 'dish';
+    var per = (onD && cNow.makes && cNow.makes.qty > 0) ? cNow.makes.qty : 1;
+    var cur = onD ? mult * per : mult;
+    var stepBy = (cur <= 1 && dir < 0) || (cur < 1 && dir > 0) ? 0.5 : 1;
+    var next = Math.round((cur + dir * stepBy) * 1000) / 1000;
+    setScale(next, onD, per);
+    render(); return;
+  }
   if (b && b.dataset.photo){ photoOpen = (photoOpen===b.dataset.photo) ? null : b.dataset.photo; render(); return; }
 
   if (b && b.dataset.gcomp){ gComp=b.dataset.gcomp; gi=0; render(); window.scrollTo(0,0); return; }
