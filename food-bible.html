@@ -25,7 +25,19 @@ body{margin:0;background:#cdbba6;font-family:var(--sans);color:var(--ink);-webki
 img{display:block;max-width:100%}
 
 /* the desk the page sits on — screen only */
-.desk{padding:22px 16px 60px;display:flex;flex-direction:column;align-items:center;gap:16px}
+/* The desk the sheet lies on is the dining room at night — the Ristorante, from the
+   house photograph library. It is scenery and nothing else: it carries no information,
+   so it is screen-only and the print block below takes it straight back off. The room is
+   held under a deep vino wash so it never competes with the sheet; what you should be
+   reading is the paper, and the room only has to say whose paper it is. */
+.desk{padding:22px 16px 60px;display:flex;flex-direction:column;align-items:center;gap:16px;
+  position:relative;background:#cdbba6}
+.desk::before{content:'';position:absolute;inset:0;background:url(venue-ristorante.jpg) center/cover;
+  pointer-events:none}
+.desk::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(43,1,4,.55),rgba(43,1,4,.78))}
+/* the sheet and the controls sit above the room, not in it */
+.desk > *{position:relative;z-index:1}
 .stale{color:var(--oro)}
 /* inside the Recipes module the shell picks the dish, so the walk-through goes */
 /* The walk used to be hidden when embedded, because "the module already owns which
@@ -43,7 +55,7 @@ img{display:block;max-width:100%}
 .mtab.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:700}
 .mtab .mrun{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;background:var(--oro);
   color:#2a1a10;border-radius:2px;padding:2px 5px}
-.mnote{width:100%;max-width:210mm;font-family:var(--sans);font-size:13px;color:var(--vino);line-height:1.5}
+.mnote{width:100%;max-width:210mm;font-family:var(--sans);font-size:13px;color:var(--cream);line-height:1.5}
 .pickwrap{display:flex;align-items:center;gap:8px;flex:1 1 340px;min-width:0;flex-wrap:wrap}
 .pickwrap select,.pickwrap input{flex:1 1 150px;min-width:0;height:40px;border:1px solid var(--sabbia-dark);
   border-radius:3px;background:#fff;color:var(--vino);font-family:var(--sans);font-size:14px;padding:0 10px}
@@ -64,7 +76,9 @@ img{display:block;max-width:100%}
 .tools .btn{background:var(--vino);color:var(--cream);border:none;border-radius:3px;font-family:var(--sans);
   font-size:10.5px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:0 18px;height:44px;cursor:pointer}
 .tools .btn.ghost{background:rgba(255,255,255,.5);color:var(--vino);border:1px solid var(--sabbia-dark)}
-.tools .lab{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--vino);opacity:.75;margin-right:auto}
+/* cream, not vino: these two sit straight on the desk, and the desk is now a dark
+   photograph of the room. In vino they were all but invisible on it. */
+.tools .lab{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cream);opacity:.85;margin-right:auto}
 
 /* ══════════════ THE A4 PAGE ══════════════ */
 .sheet{
@@ -125,6 +139,11 @@ img{display:block;max-width:100%}
   color:#a3907a}
 .shot.empty .cred{bottom:2mm;color:rgba(245,237,224,.8);text-shadow:0 0 3mm rgba(43,1,4,.9)}
 
+/* The photograph and the name are one block, side by side: the dish on the left, what it
+   is called on the right, reading across the way you would look at it on the pass. The
+   photograph stacked above the name instead for a few hours on 4 August, which put the
+   name a third of the way down the sheet and left the top of the page saying nothing. */
+.hero{display:grid;grid-template-columns:94mm 1fr;gap:7mm;align-items:center;flex:0 0 auto}
 /* the name, and the menu line exactly as a guest reads it */
 .title{display:flex;flex-direction:column;gap:1.5mm}
 .title h1{font-family:var(--serif);font-weight:400;margin:0;font-size:27pt;line-height:.96;color:var(--vino)}
@@ -191,6 +210,9 @@ img{display:block;max-width:100%}
   .desk{padding:14px 0 50px}
   .tools{padding:0 14px}
   .sheet{width:100%;min-height:0;padding:20px 18px 26px;gap:20px;box-shadow:none}
+  /* side by side needs width there is none of on a phone, so the name goes back under
+     the photograph — the same order, read down instead of across */
+  .hero{display:flex;flex-direction:column;gap:14px}
   /* on a phone the photograph is the first thing and it should be worth looking at, so
      it gets its own aspect rather than a slice of the viewport width */
   .shot{height:auto;min-height:0;max-height:none}
@@ -224,7 +246,11 @@ img{display:block;max-width:100%}
      the page on 2 August, so only the allergens are left to protect.) */
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{background:#fff}
-  .desk{padding:0;gap:0}
+  /* the dining room is scenery for the screen and must never reach the paper — it
+     carries nothing, and printed it would put a photograph of the room behind a page
+     somebody reads allergens off */
+  .desk{padding:0;gap:0;background:none}
+  .desk::before,.desk::after{display:none!important}
   .tools,.noprint{display:none!important}
   .sheet{width:210mm;min-height:297mm;box-shadow:none;background:#fff;
     break-after:page;page-break-after:always}
@@ -568,14 +594,16 @@ function sheet(d){
       '<span class="house">Roberto’s DIFC &nbsp;·&nbsp; Food Bible 2026</span>' +
     '</div>' +
 
-    '<div class="shot'+(img ? '' : ' empty')+'">' +
-      (img ? '<img src="'+img+'" alt="'+esc(d.name)+'"><span class="cred">'+esc(d.cred||'')+'</span>'
-           : '<div class="none"><b>No photograph yet</b><span>the dish photo goes here</span></div>') +
-    '</div>' +
+    '<div class="hero">' +
+      '<div class="shot'+(img ? '' : ' empty')+'">' +
+        (img ? '<img src="'+img+'" alt="'+esc(d.name)+'"><span class="cred">'+esc(d.cred||'')+'</span>'
+             : '<div class="none"><b>No photograph yet</b><span>the dish photo goes here</span></div>') +
+      '</div>' +
 
-    '<div class="title"><h1>'+esc(d.name)+'</h1>' +
-      (d.desc ? '<div class="desc">'+esc(d.desc)+'</div>'
-              : '<div class="desc" style="color:#93826c">The menu line is not written yet.</div>') +
+      '<div class="title"><h1>'+esc(d.name)+'</h1>' +
+        (d.desc ? '<div class="desc">'+esc(d.desc)+'</div>'
+                : '<div class="desc" style="color:#93826c">The menu line is not written yet.</div>') +
+      '</div>' +
     '</div>' +
 
     '<div class="mid">' +
