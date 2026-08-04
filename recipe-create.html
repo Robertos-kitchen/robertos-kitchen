@@ -770,7 +770,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 }
 </style>
 
-<div class="note"><b>MOCKUP</b> &nbsp; write the ingredients however you like — one line, spaces or commas — the app splits them &nbsp;·&nbsp; real stock list, <span id="nitems"></span> items, live from the Kitchen app — July 2026</div>
+<!-- "write them however you like" was said here AND in the box's own placeholder AND
+     behind How to write them — three times, permanently, for one idea. What is left is
+     the only thing on this line he cannot find out from anywhere else: which stock list
+     the prices are coming off. -->
+<div class="note"><b>MOCKUP</b> &nbsp;·&nbsp; real stock list, <span id="nitems"></span> items — July 2026</div>
 
 <div class="bar">
   <div class="l"><span class="back" id="back" role="button" tabindex="0">‹<span class="bkw" id="backw"></span></span>
@@ -1150,21 +1154,25 @@ var MSEC = [
 var CUTLERY = ['Starter fork','Starter knife','Main fork','Main knife','Molluscs fork',
   'Steak knife','Big spoon','Starter spoon','Small spoon'];
 var FSEC = [
+  /* `h` is a caption, not a lesson — the placeholder in the box already shows the shape
+     of the answer, and the word count sitting next to this line already says how long it
+     may run. Anything longer than a few words here was saying a third time what those two
+     had covered. */
   { k:'foh',     t:'The menu line', wmax:22,
     p:'Thin slices of raw seabass, dressed with Amalfi lemon, artichokes and pickled radish.',
-    h:'Word for word what is printed on the menu — the guest has already read this.' },
+    h:'Word for word off the menu.' },
   { k:'story',   t:'The story', wmax:90,
     p:'Where it comes from, why it is on the menu, what makes it ours.',
-    h:'The paragraph the floor reads before service. About ninety words is what the page holds.' },
+    h:'Read before service.' },
   { k:'ing',     t:'Ingredients', wmax:null, lmax:6,
     p:'Seabass\nAmalfi lemon dressing\nArtichokes\nPickled radish',
-    h:'One per line, as a guest would hear it — not the recipe list, and no quantities.' },
+    h:'One per line, guest words — no quantities.' },
   { k:'garnish', t:'Garnish', wmax:null, lmax:3,
     p:'Chives\nPomegranate\nMustard leaves',
     h:'One per line.' },
   { k:'more',    t:'More information', wmax:35,
     p:'Dressed to order, so it goes out within two minutes — do not hold it. Good with a dry white.',
-    h:'How it is served, what not to do with it, what to suggest alongside.' }
+    h:'How it is served, what to suggest.' }
 ];
 function emptyMethod(){
   return { mise:'', method:'', order:'', plating:'',
@@ -3457,6 +3465,10 @@ function render(){
     var all   = S.sq ? findRecipes(S.sq, S.saved) : S.saved;
     var live  = all.filter(function(r){ return !r.archived; });
     var gone  = all.filter(function(r){ return  r.archived; });
+    /* the headline count is what he can actually open. The removed ones are still loaded
+       — search looks in them, and the Removed folder puts them back — but "69 saved" over
+       a list of 30 openable recipes is a number that cannot be made to add up. */
+    var nlive = S.saved.filter(function(r){ return !r.archived; }).length;
     var card = function(r){
       var mu2 = r.makes_unit || '';
       if (mu2 === 'portions' && r.makes_qty == 1) mu2 = 'portion';
@@ -3554,7 +3566,7 @@ function render(){
                 'Every word you type has to be in the name or the section, so fewer words ' +
                 'find more — try just “vitello”. If it really isn’t written yet, ' +
                 '<b>Start a new recipe</b> above.</div>'
-              : '<div class="crumb">Looking through all '+S.saved.length+' recipes, every menu.</div>') +
+              : '<div class="crumb">Looking through all '+nlive+' recipes, every menu.</div>') +
              (mains.length ? '<div class="shd">Main recipes · '+mains.length+'</div>' + mains.map(card).join('') : '') +
              (bats.length  ? '<div class="shd">Batch recipes · '+bats.length+'</div>' + bats.map(card).join('')  : '') +
              (gone.length  ? '<div class="shd">Removed — but it matches, so here it is</div>' + gone.map(card).join('') : '');
@@ -3612,11 +3624,14 @@ function render(){
               'and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s ' +
               'newest stock take every time, so nothing here is a frozen price.', 'Opening and costs') +
             '<div class="sfind"><input id="sq" value="'+esc(S.sq||'')+'" ' +
-                'placeholder="search all '+S.saved.length+' recipes — burrata, vitello, pasta…">' +
+                'placeholder="search all '+nlive+' recipes — burrata, vitello, pasta…">' +
               (S.sq ? '<button class="sclr" id="sclr">Clear</button>' : '') +
+              /* while searching, the matched removed ones are listed under their own
+                 heading — counting them here would put the total above the number of
+                 recipes there are */
               '<span class="scount">'+(S.sq
-                 ? (live.length+gone.length) + ' of ' + S.saved.length
-                 : S.saved.length + ' saved')+'</span></div>' +
+                 ? live.length + ' of ' + nlive
+                 : nlive + ' saved')+'</span></div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>' +
             '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
@@ -3984,7 +3999,8 @@ function render(){
          going back, and going back is where the trouble was. It has a button now, and
          it says what it does. */
       '<div class="addline"><input id="more" placeholder="olive oil 20g, lemon 1 — type as many as you like">' +
-        '<button class="addb" id="addmore">＋ Add to the sheet</button></div>' +
+        /* it says what it adds, not where it puts it — he is looking at the sheet */
+        '<button class="addb" id="addmore">＋ Add ingredient</button></div>' +
       methodHTML();
       rows(); swapbar(); wireMethod(); drawSaveBar(); drawUndo();
     var addMore = function(){
@@ -4844,8 +4860,7 @@ function budget(s, v){
 function cutInner(){
   var set = (S.method && S.method.cutlery) || [];
   return '<label class="ml">Mise en place — what to set</label>' +
-    '<div class="mhint" style="margin:0 0 8px">The cutlery this dish is eaten with. It is on the ' +
-      'waiter’s page so the table is laid right before the food leaves you.</div>' +
+    '<div class="mhint" style="margin:0 0 8px">What this dish is eaten with.</div>' +
     '<div class="achips">' + CUTLERY.map(function(c){
       return '<button class="ach'+(set.indexOf(c)>-1?' on':'')+'" data-cut="'+esc(c)+'">'+esc(c)+'</button>';
     }).join('') + '</div>';
@@ -4902,8 +4917,7 @@ function fohViewHTML(){
   var desc = ((S.method && S.method.foh) || '').trim();
 
   return '<div class="pane">' +
-    '<div class="fhint">This is the floor’s screen. No method, no cost, no ingredient list — ' +
-      'it is the same recipe, showing only what a guest can be told.</div>' +
+    '<div class="fhint">The floor’s screen — only what a guest can be told.</div>' +
     '<div class="fcard">' +
       '<div class="fnm">' + esc(S.name || 'Untitled') + '</div>' +
       (S.section ? '<div class="fsec">' + esc(S.section) + '</div>' : '') +
@@ -4957,8 +4971,10 @@ function algInner(){
     /* A chef does not need six lines telling him to tap what is in his own dish. The one
        thing worth keeping in front of him is the part he cannot see: that nothing is
        guessed, so an untapped chip means the floor gets told nothing. */
-    '<div class="msub">Tap what is in this recipe. Nothing is worked out from an ingredient’s ' +
-      'name — it is your tick.</div>' +
+    /* "tap what is in this recipe" is what a row of chips already looks like. What is
+       left is the half he cannot see: nothing is guessed, so an untapped chip tells the
+       floor nothing. */
+    '<div class="msub">Nothing is guessed from an ingredient’s name — it is your tick.</div>' +
     howto('allerg', 'Anything a batch inside this dish carries is added on its own and says which ' +
       'batch it came from — change it on that batch and every dish using it follows. ' +
       '<b>Crustaceans</b> is prawn, lobster and crab; oysters, clams and mussels are ' +
