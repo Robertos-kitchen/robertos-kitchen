@@ -369,6 +369,23 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 .algs{display:block;font-size:10.5px;font-weight:400;letter-spacing:.2px;color:var(--vino-light)}
 /* the one-line version of the same thing: paper only, never on screen */
 .algall{display:none}
+/* ── at the pass: the sentence, then the square ── */
+.plating{margin:14px 0 0;padding:12px 15px;background:var(--cream);border:1px solid var(--sabbia-dark);
+  border-left:3px solid var(--oliva);border-radius:0 7px 7px 0}
+.plating .pl{display:block;font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;
+  font-weight:700;color:var(--oliva);margin-bottom:5px}
+.plating .plt{font-size:15px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
+.passq{display:flex;flex-wrap:wrap;margin:12px 0 0;border:1px solid var(--sabbia-dark);
+  border-radius:7px;overflow:hidden;background:var(--cream)}
+.pq{flex:1 1 150px;padding:11px 14px;border-right:1px solid var(--sabbia-dark);min-width:0}
+.pq.wide{flex:1 1 100%;border-right:none;border-top:1px solid var(--sabbia-dark)}
+.pq:last-child{border-right:none}
+.pqk{display:block;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);
+  font-weight:700;margin-bottom:4px}
+.pqv{font-family:var(--serif);font-size:26px;line-height:1.05;color:var(--vino)}
+.pqv small{font-family:var(--sans);font-size:11px;letter-spacing:1px;color:var(--vino-light)}
+.pqv.sm{font-family:var(--sans);font-size:14.5px;font-weight:600;line-height:1.45;color:var(--ink)}
+.pqv i{font-family:var(--sans);font-size:12px;font-style:italic;font-weight:400;color:var(--vino-light);opacity:.85}
 .alg.none{background:none;border-left-color:var(--sabbia-dark)}
 .alg.none .algv{display:block;font-size:12.5px;color:#8a7a62;font-weight:400}
 .alg.none .algl{color:#8a7a62}
@@ -391,9 +408,10 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
   .algi{display:inline;font-weight:700}
   .algi + .algi::before{content:" · ";font-weight:400}
   .algs{display:none}                      /* said once below instead of under each */
-  .algall{display:block;font-size:8.5pt;font-weight:400;color:#333!important;
-    margin-top:3px;line-height:1.35}
+  .algall{display:none}                    /* the names are the answer; the where is on screen */
   .alg{padding:6px 9px;margin:9px 0}
+  /* it sits under the recipe it belongs to, not over the top of it */
+  .algfoot{margin-top:10px}
   .alg.none{border:1px dashed #000}
   .alg.none .algv,.alg.none .algl{color:#000!important}
   .top,.why,.gnav,.noprint,.stp,.port,.parent,.tabs,.frame{display:none!important}
@@ -540,6 +558,11 @@ function shape(rec, lines){
     makes:{ qty:rec.makes_qty, unit:rec.makes_unit || (rec.kind==='main'?'portion':'') },
     allergens:rec.allergens || [], photos:rec.photos || [],
     at:rec.updated_at || null,
+    /* toSteps keeps only the four that are STEPS. These two are facts about the plate, not
+       things you do in order, so they are carried across on their own or the card never
+       sees them at all. */
+    pass:(rec.method && rec.method.pass) || '',
+    crockery:(rec.method && rec.method.crockery) || '',
     method:toSteps(rec.method), lines:toLines(lines) };
 }
 
@@ -962,6 +985,32 @@ function algFor(key){
   out.sort(function(a,b){ return ord.indexOf(a.k) - ord.indexOf(b.k); });
   return out;
 }
+/* ───── at the pass ─────
+   The three the section asked for, on the dish only. Plating in its own place, because it
+   is a sentence somebody reads while their hands are busy; then one square holding the
+   things you check in a glance at the moment it goes out — how long it can stand, what it
+   goes out on, and what is in it.
+
+   A batch gets none of it: nobody plates a stock, and a sauce has no crockery. */
+function passSquare(key){
+  if (key !== 'dish') return '';
+  var mins = String(R.pass || '').trim(), crock = String(R.crockery || '').trim();
+  var alg = algFor('dish');
+  if (!mins && !crock && !alg.length) return '';
+  /* Plating is deliberately not in here. It is already a step group of its own further
+     down — the chef simply never had a box to write it in, which is what he was asking
+     for. Printing it twice on one card is how two versions of it start to disagree. */
+  return '<div class="passq">' +
+      '<div class="pq"><span class="pqk">On the pass</span>' +
+        '<span class="pqv">' + (mins ? esc(mins) + ' <small>min</small>' : '<i>not said</i>') + '</span></div>' +
+      '<div class="pq"><span class="pqk">Goes out on</span>' +
+        '<span class="pqv sm">' + (crock ? esc(crock) : '<i>not said</i>') + '</span></div>' +
+      '<div class="pq wide"><span class="pqk">Allergens</span>' +
+        '<span class="pqv sm">' + (alg.length
+          ? alg.map(function(x){ return esc(algName(x.k)); }).join(' · ')
+          : '<i>nothing ticked — this card cannot answer an allergy question</i>') + '</span></div>' +
+    '</div>';
+}
 function algBar(key){
   var l = algFor(key);
   /* On paper the sources were repeated under every allergen — the same three batch names
@@ -1101,7 +1150,9 @@ function viewStation(){
     (onDish ? '' : '<div class="meta">'+esc(usedLine())+'</div>') +
     /* above the photo and the ingredients, on whichever component is open — the
        question gets asked at the pass, with the ticket in someone's hand */
-    algBar(comp) +
+    /* the square already carries the allergens, so the dish shows one or the other and
+       never both. A batch has no square, so it keeps the bar. */
+    (passSquare(comp) || algBar(comp)) +
     photoStrip(c) +
     '<div class="rule"></div>' +
     '<div class="cols">' +
@@ -1315,9 +1366,14 @@ function printSheet(){
         ? '<div class="pfoto"><img src="'+esc(c.photos[0].u || c.photos[0])+'" alt="'+esc(c.name)+'">' +
           '<span class="pfcap">'+(onDish ? 'The plated dish' : 'The finished batch')+'</span></div>'
         : '') +
-      algBar(a.k) +
       '<table class="ing">'+ingRows(c.lines,pmulOf(a.k),false)+'</table>' +
       stepsHTML(flat(c.method)) +
+      /* Allergens last on paper, and the names only. Under the dish name they were the
+         first thing on the page and the biggest, ahead of the quantities somebody is
+         standing there to read; and the sources repeated the same three batch names for
+         every allergen. What a printed card has to carry is WHICH — the where is on the
+         screen, where it is actually being checked. */
+      '<div class="algfoot">' + algBar(a.k) + '</div>' +
     '</div>'; }).join('') + '</div>';
 }
 

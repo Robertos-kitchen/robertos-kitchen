@@ -745,6 +745,20 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .openerr .in{max-width:1040px;margin:0 auto}
 .openerr.bad{background:#7a1218}
 
+/* ───── at the pass ───── */
+.pss{padding:24px 16px 26px;background:var(--sabbia-light);border-top:1.5px solid var(--sabbia-dark)}
+.prow{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px}
+.pcell{flex:0 0 auto;min-width:200px}
+.pcell.wide{flex:1 1 260px}
+.punit{display:flex;align-items:baseline;gap:8px}
+.punit span{font-size:12px;color:var(--vino-light)}
+.pnum{font-family:var(--serif);font-size:26px;color:var(--vino);background:#fff;
+  border:1px solid var(--sabbia-dark);border-radius:6px;padding:8px 12px;width:110px;outline:none}
+.pnum.wide{width:100%;font-size:18px;font-family:var(--sans)}
+.pnum:focus{border-color:var(--vino)}
+.pnum::placeholder{color:rgba(65,2,7,.3)}
+@media (pointer:coarse){ .pnum{padding:11px 12px} }
+
 /* ───── the floor's half of the same recipe ───── */
 .foh{padding:24px 16px 30px;background:var(--cream);border-top:1.5px solid var(--sabbia-dark)}
 .mcode{max-width:170px;min-height:0;text-transform:uppercase;letter-spacing:1px}
@@ -1247,7 +1261,11 @@ function sectionList(){
    been taken off this screen — three method headings, "Say it like this", the dish
    code — and every one of their keys stays here on purpose: a box disappearing off a
    screen must never delete what somebody already typed into it. */
-var MKEYS = ['mise','method','order','plating'];
+/* `pass` and `crockery` join the keys that survive a save. They live in the same jsonb the
+   method already uses, so there is no column to add and no recipe to migrate — the same
+   reasoning as `foh`: a key in this object needs nothing, works today, and can move to a
+   real column later without a single recipe being redone. */
+var MKEYS = ['mise','method','order','plating','pass','crockery'];
 var FKEYS = ['foh','say','story','ing','garnish','more','code'];
 
 /* One box. It was four — mise en place, method, to order, plating — split by when
@@ -1295,7 +1313,7 @@ var FSEC = [
     h:'How it is served, what to suggest.' }
 ];
 function emptyMethod(){
-  return { mise:'', method:'', order:'', plating:'',
+  return { mise:'', method:'', order:'', plating:'', pass:'', crockery:'',
            foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', cutlery:[] };
 }
 
@@ -4796,10 +4814,45 @@ function redrawRow(i){                      /* only this row — never blow away
    type, so a two-line prep and a twenty-step method both read whole, with no bar
    to drag. Empty is a perfectly good answer — a recipe with no method is never
    flagged as unfinished, because plenty of them genuinely have none. */
+/* ───── at the pass ─────
+   Three things the section asked for, and all three are about the moment the dish leaves
+   the kitchen: how it goes on the plate, how long it can stand there before it is no
+   longer worth sending, and what it goes out on.
+
+   A batch has none of this on purpose. Nobody plates a stock, nothing stands on the pass
+   in a container, and a sauce does not have crockery — the same reason a batch is not
+   judged on having a method or the floor's words. */
+function passInner(){
+  var m = S.method || {};
+  return '<div class="mhd">At the pass</div>' +
+    howto('pass', 'What the section reads at the moment the dish goes out. It is on the recipe ' +
+      'card with the allergens, so the person plating and the person carrying it are reading ' +
+      'the same thing.', 'What this is for') +
+    '<div class="msec">' +
+      '<label class="ml" for="m-plating">How it is plated</label>' +
+      '<textarea class="mbox" id="m-plating" data-m="plating" rows="1" ' +
+        'placeholder="Mousse first, glaze to the edge, coin off centre.">' + esc(m.plating || '') + '</textarea>' +
+    '</div>' +
+    '<div class="prow">' +
+      '<div class="pcell">' +
+        '<label class="ml" for="m-pass">How long it can stand on the pass</label>' +
+        '<div class="punit"><input class="pnum" id="m-pass" data-m="pass" inputmode="numeric" ' +
+          'placeholder="—" value="' + esc(m.pass || '') + '"><span>minutes</span></div>' +
+        '<div class="mhint">Leave it empty if it does not wait.</div>' +
+      '</div>' +
+      '<div class="pcell wide">' +
+        '<label class="ml" for="m-crockery">What it goes out on</label>' +
+        '<input class="pnum wide" id="m-crockery" data-m="crockery" ' +
+          'placeholder="Copper pan" value="' + esc(m.crockery || '') + '">' +
+        '<div class="mhint">The plate, pan or board — not the cutlery, that is below.</div>' +
+      '</div>' +
+    '</div>';
+}
 function methodHTML(){
   return (S.kind === 'main' ? '<div class="mnu" id="mnubox">' + menuInner() + '</div>' : '') +
          '<div class="alg" id="alg">' + algInner() + '</div>' +
          '<div class="mth" id="mth">' + methodInner() + '</div>' +
+         (S.kind === 'main' ? '<div class="pss" id="pssbox">' + passInner() + '</div>' : '') +
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
 }
 
@@ -5384,6 +5437,17 @@ function wireMethod(){
   });
   var c = $('m-code');
   if (c) c.addEventListener('input', function(){ mth().code = this.value; });
+  /* at the pass — plating grows like the method, the other two are one line each */
+  var pl = $('m-plating');
+  if (pl){ grow(pl); pl.addEventListener('input', function(){ mth().plating = this.value; grow(this); }); }
+  ['pass','crockery'].forEach(function(k){
+    var e = $('m-'+k); if (!e) return;
+    e.addEventListener('input', function(){
+      /* minutes is a number of minutes — "4 min" typed in by hand is still four */
+      mth()[k] = (k === 'pass') ? this.value.replace(/[^\d.]/g,'') : this.value;
+      if (k === 'pass' && this.value !== mth()[k]) this.value = mth()[k];
+    });
+  });
 }
 function drawFohState(){
   var f = document.querySelector('.fstate');
