@@ -15,8 +15,15 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .note{background:var(--ink);color:var(--cream);padding:9px 16px;font-size:11px;letter-spacing:.6px;line-height:1.6}
 .note b{color:#e8cf7a;letter-spacing:2px}
 
-.bar{background:var(--vino);color:var(--cream);padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:30}
-.bar .l{display:flex;align-items:center;gap:12px;min-width:0}
+/* It wraps. On a narrow screen the left half is a back button, the dish name, MAIN RECIPE
+   and two dropdowns — every one of them nowrap — so it could not fit and did not try:
+   "MAIN RECIPE" was printed straight through "SAVED RECIPES", and the section dropdown
+   through "SAVE CHANGES". Nothing here can be dropped (they are the section and the menu,
+   which decide where the dish appears at all), so the bar takes a second line instead.
+   Its height is measured, so everything pinned below follows it down on its own. */
+.bar{background:var(--vino);color:var(--cream);padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;row-gap:9px;flex-wrap:wrap;position:sticky;top:0;z-index:30}
+.bar .l{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto;flex-wrap:wrap;row-gap:8px}
+.bar > div:last-child{flex:0 0 auto;margin-left:auto}
 /* a real target for a thumb, not a glyph wedged in the corner */
 /* Back says where it goes, not just "‹". A chevron on its own is a guess about which
    of nine screens you land on; the words are the whole point of it. */
@@ -40,6 +47,25 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .pane{padding:26px 18px}
 .q{font-family:var(--serif);font-size:27px;color:var(--vino);line-height:1.15;margin-bottom:5px}
 .sub{font-size:13px;color:var(--vino-light);line-height:1.5;margin-bottom:20px}
+
+/* ───── written once, read once ─────
+   How a thing works is worth reading the first time and is clutter every time after. A
+   chef who has written twenty recipes does not need to be told again what a batch is —
+   he needs to see his rows. So the teaching prose folds away behind one small word and
+   is still one tap from anybody who wants it.
+
+   What does NOT belong in here: anything about THIS recipe. "3 of 30 are not done",
+   "this dish is on no menu", "no cost yet" are the state of his work, not an
+   explanation, and they stay on the page where he cannot miss them. */
+.howto{margin:0 0 14px}
+.howtob{font-family:var(--sans);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+  font-weight:700;background:none;border:none;border-bottom:1px dotted rgba(65,2,7,.4);
+  color:var(--vino-light);padding:3px 0;cursor:pointer;opacity:.75;line-height:1.4}
+.howtob:hover{opacity:1;border-bottom-style:solid}
+.howtox{display:none;margin-top:9px;background:var(--sabbia-light);border-left:3px solid var(--sabbia-dark);
+  border-radius:0 5px 5px 0;padding:10px 13px;font-size:12.5px;line-height:1.6;color:var(--vino-light)}
+.howtox.on{display:block}
+.howtox b{color:var(--vino)}
 
 .two{display:flex;gap:12px;flex-wrap:wrap}
 .big{flex:1;min-width:230px;text-align:left;background:var(--cream);border:1.5px solid var(--sabbia-dark);border-radius:7px;padding:18px;cursor:pointer;font-family:var(--sans)}
@@ -257,16 +283,21 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .foot .slim .sopenb{margin-left:auto;font-family:var(--sans);font-size:10px;letter-spacing:1.6px;
   text-transform:uppercase;color:var(--vino);font-weight:700;opacity:.9;white-space:nowrap}
 .foot .slim:hover .sopenb{opacity:1;text-decoration:underline}
-.sshut{position:absolute;right:14px;top:10px;background:rgba(65,2,7,.09);border:1px solid var(--vino);
+/* In the flow, not pinned to the corner. Absolutely positioned it sat over a strip of
+   reserved padding, and reserved padding is a guess: the moment the button grew — a
+   border, bolder type, a bigger touch target — it reached past what was held for it and
+   landed on "All 5 done". A button that takes its own space cannot do that at any size. */
+.sshut{align-self:flex-start;margin-left:auto;background:rgba(65,2,7,.09);border:1px solid var(--vino);
   border-radius:4px;color:var(--vino);font-family:var(--sans);font-size:10px;letter-spacing:1.6px;
-  text-transform:uppercase;font-weight:700;padding:10px 12px;cursor:pointer}
+  text-transform:uppercase;font-weight:700;padding:10px 12px;cursor:pointer;white-space:nowrap}
 .sshut:hover{background:rgba(65,2,7,.18)}
 /* a thumb, not a mouse — and on a phone the open panel is 340px of an 812px screen,
    so the way out of it is the one control that must never be fiddly */
 /* both, on purpose: pointer:coarse is the honest test but cannot be proved on a
    desktop at phone width, and a 33px target shipping unverified is how it stays 33px */
 @media (pointer:coarse),(max-width:640px){ .sshut{padding:14px 14px;font-size:11px} .foot .slim{min-height:60px} }
-.foot .in{position:relative;max-width:1040px;margin:0 auto;padding:11px 130px 11px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+/* no 130px held back on the right any more — nothing is floating over it to hold it for */
+.foot .in{position:relative;max-width:1040px;margin:0 auto;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .foot .l{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);opacity:.85}
 .foot .v{font-family:var(--serif);font-size:26px;line-height:1.05;color:var(--vino)}
 .foot .v small{font-family:var(--sans);font-size:10px;letter-spacing:1px;color:var(--vino-light);opacity:.9}
@@ -3577,7 +3608,9 @@ function render(){
           ? '<div class="q">Nothing saved yet</div><div class="sub">The first recipe you save shows up here.</div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>'
           : '<div class="q">Saved recipes</div>' +
-            '<div class="sub">Open one to change it — the sheet comes back exactly as you left it, and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s newest stock take every time, so nothing here is a frozen price.</div>' +
+            howto('saved', 'Open one to change it — the sheet comes back exactly as you left it, ' +
+              'and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s ' +
+              'newest stock take every time, so nothing here is a frozen price.', 'Opening and costs') +
             '<div class="sfind"><input id="sq" value="'+esc(S.sq||'')+'" ' +
                 'placeholder="search all '+S.saved.length+' recipes — burrata, vitello, pasta…">' +
               (S.sq ? '<button class="sclr" id="sclr">Clear</button>' : '') +
@@ -3682,9 +3715,9 @@ function render(){
 
     w.innerHTML = '<div class="pane">' +
       '<div class="q">Micros request for Aung</div>' +
-      '<div class="sub">The form you have always sent, built from the menu instead of typed again — ' +
+      howto('micros', 'The form you have always sent, built from the menu instead of typed again — ' +
         'typed twice is how the till ends up saying one price and the recipe another. ' +
-        '<b>The item codes stay empty:</b> those are Aung\'s to assign.</div>' +
+        '<b>The item codes stay empty:</b> those are Aung\'s to assign.', 'Why it is built for you') +
 
       '<div class="sfind"><select id="micmenu">' + MENUS.map(function(m){
           return '<option value="'+m.id+'"'+(m.id===MICREQ.menuId?' selected':'')+'>'+esc(m.name)+'</option>'; }).join('') +
@@ -3802,7 +3835,8 @@ function render(){
   else if (S.step === 'type'){
     b.classList.add('off'); b.textContent='Next';
     w.innerHTML = '<div class="pane">' + parkedNote() + '<div class="q">What are you making?</div>' +
-      '<div class="sub">A main goes on the menu. A batch is something you make once and use in other dishes.</div>' +
+      howto('kind', 'A main goes on the menu. A batch is something you make once and use in other dishes.',
+        'Main or batch') +
       '<div class="two">' +
       '<button class="big" data-k="main"><div class="t">Main recipes</div><div class="d">Goes to the pass, gets a POS key.</div></button>' +
       '<button class="big" data-k="batch"><div class="t">Batch recipes</div><div class="d">A sauce, a stock, a dough. Link it into any recipe.</div></button>' +
@@ -3899,7 +3933,8 @@ function render(){
     w.innerHTML = '<div class="pane">' + parkedNote() +
       '<input class="name" id="nm" placeholder="Octopus" value="'+esc(S.name)+'">' +
       '<div class="q" style="font-size:21px">What goes in it?</div>' +
-      '<div class="sub">However you like — one line, spaces or commas. The app sorts them out.</div>' +
+      howto('write', 'However you like — one line, spaces or commas. The app sorts them out.',
+        'How to write them') +
       '<textarea class="dumpbox" id="dp" rows="4" placeholder="olive oil lemon garlic parsley salt black pepper"></textarea>' +
       importedNote() + bringHTML(true) +
       '<div class="split" id="sp"></div></div>';
@@ -3915,7 +3950,12 @@ function render(){
   else if (S.step === 'sheet'){
     b.textContent = S.id ? 'Save changes' : 'Save'; b.classList.remove('off');
     w.innerHTML =
-      '<div class="hint"><b>Costed off Aung\'s ' + new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'}) + ' stock take.</b> Go down Ingredient, then down Qty. Nothing opens. Tick the last box only on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.</div>' +
+      /* which stock take the money comes off is a fact about THIS sheet and stays;
+         how to move down the columns is a thing you learn once */
+      '<div class="hint"><b>Costed off Aung\'s ' + new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'}) + ' stock take.</b> ' +
+        howto('sheet', 'Go down Ingredient, then down Qty. Nothing opens. Tick the last box only ' +
+          'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.',
+          'Working the sheet') + '</div>' +
       parkedNote() +
       '<div class="savebar" id="savebar"></div>' +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
@@ -3923,7 +3963,8 @@ function render(){
         S.plan.recs.length + ' from ' + esc(S.plan.file) + '</button>' : '') +
       (S.fromTodo ? '<button class="newr" id="backtotodo" style="margin:0 0 10px">‹ Back to what needs finishing</button>' : '') +
       '<div class="swapbar" id="sb"></div>' +
-      '<div class="ibleg"><b>I</b> an ingredient from Aung\'s list &nbsp;·&nbsp; <b>B</b> a batch — tap either to go and look at it</div>' +
+      howto('ibleg', '<b>I</b> an ingredient from Aung\'s list &nbsp;·&nbsp; <b>B</b> a batch — ' +
+        'tap either to go and look at it', 'I and B') +
       '<div class="sheetwrap"><table class="sheet">' +
       /* Qty must hold a kilo quantity written out — 0.0035 is six characters and
          a clipped number is worse than no number. Widened from 66px, which fit "0.03"
@@ -4601,11 +4642,11 @@ function menusInner(){
 
   return '<div class="pane">' +
     '<div class="q">Menus</div>' +
-    '<div class="sub">Every menu the kitchen has, and what is on each one. This is what the recipe ' +
+    howto('menuadm', 'Every menu the kitchen has, and what is on each one. This is what the recipe ' +
       'card and the Food Bible filter by — a dish on no menu shows on no card at all.<br>' +
       '<b>A menu for one night is normal.</b> When the night is over <b>turn it off</b>: everything on it ' +
       'is kept and it stops filling up the picker on the recipe. That is what stops this list becoming ' +
-      'a hundred menus nobody can choose between.</div>' +
+      'a hundred menus nobody can choose between.', 'Turning menus off') +
     '<div class="mnew" style="margin:0 0 18px"><input id="manew" placeholder="A new menu — New Year’s Eve 2026">' +
       '<button class="okb" id="manewok">Make this menu</button><span class="err" id="manewe"></span></div>' +
     (live.length ? live.map(card).join('') : '<div class="tip">No menus yet.</div>') +
@@ -4740,9 +4781,9 @@ function menuInner(){
       '<span class="err" id="mne"></span></div>';
 
   return '<div class="mhd">On which menus</div>' +
-    '<div class="msub">A dish can be on more than one — Burrata is on the à la carte and on Christmas. ' +
+    howto('menus', 'A dish can be on more than one — Burrata is on the à la carte and on Christmas. ' +
       'This is what the recipe card and the Food Bible filter by, so a waiter training on one menu ' +
-      'sees only its dishes. <b>A dish on no menu shows on no card at all.</b></div>' +
+      'sees only its dishes. <b>A dish on no menu shows on no card at all.</b>', 'What menus do') +
     '<div class="mchips">' + MENUS.map(function(m){
       var yes = on.indexOf(m.id) > -1;
       return '<button class="mchip'+(yes?' on':'')+'" data-menu="'+m.id+'">' +
@@ -4763,9 +4804,10 @@ function menuInner(){
 function fohInner(){
   var m = S.method || {};
   return '<div class="mhd">For the floor</div>' +
-    '<div class="msub">The dish in guest words. The floor never sees the method or what it ' +
-      'costs — it sees this, the allergens above, and the photo. Written here once, by you, ' +
-      'because a dish described in two places ends up saying two different things.</div>' +
+    '<div class="msub">The dish in guest words.</div>' +
+    howto('foh', 'The floor never sees the method or what it costs — it sees this, the allergens ' +
+      'above, and the photo. Written here once, by you, because a dish described in two places ends ' +
+      'up saying two different things.', 'What the floor sees') +
 
     FSEC.map(function(s){
       var v = m[s.k] || '';
@@ -4912,13 +4954,17 @@ function algInner(){
   all.sort(function(a,b){ return order.indexOf(a) - order.indexOf(b); });
 
   return '<div class="mhd">Allergens</div>' +
-    '<div class="msub">Tap what is in this recipe. Anything a batch inside it carries is added on ' +
-      'its own and says which batch it came from — change it on that batch and every dish using it ' +
-      'follows. Nothing is worked out from an ingredient’s name: a missed allergen is the one ' +
-      'mistake here that can hurt somebody, so it is your tick, not a guess. ' +
+    /* A chef does not need six lines telling him to tap what is in his own dish. The one
+       thing worth keeping in front of him is the part he cannot see: that nothing is
+       guessed, so an untapped chip means the floor gets told nothing. */
+    '<div class="msub">Tap what is in this recipe. Nothing is worked out from an ingredient’s ' +
+      'name — it is your tick.</div>' +
+    howto('allerg', 'Anything a batch inside this dish carries is added on its own and says which ' +
+      'batch it came from — change it on that batch and every dish using it follows. ' +
       '<b>Crustaceans</b> is prawn, lobster and crab; oysters, clams and mussels are ' +
-      '<b>Molluscs</b>, on their own — “shellfish” covers both and is the word that gets ' +
-      'this wrong.</div>' +
+      '<b>Molluscs</b>, on their own — “shellfish” covers both and is the word that gets this ' +
+      'wrong. A missed allergen is the one mistake here that can hurt somebody.',
+      'Batches, and the shellfish trap') +
     '<div class="achips">' + ALLERGENS.map(function(a){
       var on = mine.indexOf(a.k) > -1, viaB = inh[a.k];
       /* the chip stays just the word — at 360px "Fish from ZZ fish stock, inside ZZ
@@ -4938,8 +4984,8 @@ function algInner(){
 function methodInner(){
   var ph = S.photos || [];
   return '<div class="mhd">How it is made</div>' +
-    '<div class="msub">Written here, saved with the recipe, and read off the same sheet at the pass. ' +
-      'It can be left empty — a recipe with no method saves perfectly well.</div>' +
+    howto('method', 'Written here, saved with the recipe, and read off the same sheet at the pass. ' +
+      'It can be left empty — a recipe with no method saves perfectly well.', 'About the method') +
     MSEC.map(function(s){
       var v = (S.method && S.method[s.k]) || '';
       return '<div class="msec">' +
@@ -4949,8 +4995,8 @@ function methodInner(){
       '</div>';
     }).join('') +
     '<div class="mhd ph2">Photos</div>' +
-    '<div class="msub">The plate as it should look, or a cut nobody can describe in words. ' +
-      'Take one with the phone or pick one off it — several at a time is fine.</div>' +
+    howto('photo', 'The plate as it should look, or a cut nobody can describe in words. ' +
+      'Take one with the phone or pick one off it — several at a time is fine.', 'About the photo') +
     (ph.length ? '<div class="pgrid">' + ph.map(photoHTML).join('') + '</div>' : '') +
     '<button class="newr" id="addph">＋ Add a photo</button>' +
     '<span class="pnote" id="pnote">'+(ph.length ? ph.length+' photo'+(ph.length===1?'':'s')+' · tap one to see it big' : '')+'</span>';
@@ -5356,7 +5402,27 @@ document.addEventListener('keydown', function(e){
   var all = [].slice.call(document.querySelectorAll('.cell'));
   var n = all[all.indexOf(t)+1]; if (n) n.focus();
 });
+/* One small word instead of a paragraph. `key` is stable so a panel he opened stays open
+   when the screen redraws around it — an id minted per render closes itself the moment he
+   ticks something, which reads as the app fighting him. */
+var HOWTO_OPEN = {};
+function howto(key, html, label){
+  var on = !!HOWTO_OPEN[key];
+  return '<div class="howto"><button class="howtob" data-howto="'+key+'">' +
+      (label || 'How this works') + ' <span class="hwc">' + (on ? '⌃' : '⌄') + '</span></button>' +
+      '<div class="howtox'+(on?' on':'')+'" id="hw-'+key+'">' + html + '</div></div>';
+}
 document.addEventListener('click', function(e){
+  var hb = e.target.closest('.howtob');
+  if (hb){
+    var hk = hb.getAttribute('data-howto');
+    HOWTO_OPEN[hk] = !HOWTO_OPEN[hk];
+    var pane = document.getElementById('hw-'+hk);
+    if (pane) pane.classList.toggle('on', HOWTO_OPEN[hk]);
+    var c = hb.querySelector('.hwc'); if (c) c.textContent = HOWTO_OPEN[hk] ? '⌃' : '⌄';
+    fitBar();                      /* it changes how tall the pinned bands are */
+    return;
+  }
   var k = e.target.closest('[data-k]');
   if (k){
     /* Two things went wrong here, and both of them lost a whole recipe.
