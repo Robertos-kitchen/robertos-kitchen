@@ -799,7 +799,26 @@ function show(q, u){
   return { q:num(q), u:u };
 }
 function steps(m){ var o=[]; MS.forEach(function(s){ if(m[s.k]&&m[s.k].length) o.push({t:s.t,list:m[s.k]}); }); return o; }
-function flat(m){ var o=[]; steps(m).forEach(function(g){ g.list.forEach(function(x){ o.push({g:g.t,x:x}); }); }); return o; }
+/* ── plating is its own job ──
+   It was flattened in with the method and carried on its numbering — the plating read
+   "8", straight after the last step of cooking it. Two different people do those two
+   things, often hours apart, and a plating instruction numbered 8 belongs to a list of
+   seven the plater never did. It comes out of the method here and gets a box of its own,
+   numbered from 1. */
+function flat(m){
+  var o=[]; steps(m).forEach(function(g){
+    if (g.t === 'Plating') return;
+    g.list.forEach(function(x){ o.push({g:g.t,x:x}); });
+  });
+  return o;
+}
+function platingSteps(m){ return (m && m.plating) || []; }
+function platingHTML(m){
+  var l = platingSteps(m); if (!l.length) return '';
+  return '<div class="card platecard"><div class="h">Plating<span class="sm">the plate, not the cooking</span></div>' +
+    l.map(function(x,i){ return '<div class="sstep"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('') +
+  '</div>';
+}
 
 /* A batch line is named by the batch itself, never by what was typed to find it.
    The typed line still reads "0.03 kg R - Tonnata sauce" — the quantity is already
@@ -1011,7 +1030,7 @@ function passSquare(key){
   return '<div class="passq">' +
       '<div class="pq"><span class="pqk">On the pass</span>' +
         '<span class="pqv">' + (mins ? esc(mins) + ' <small>min</small>' : '<i>not said</i>') + '</span></div>' +
-      '<div class="pq"><span class="pqk">Goes out on</span>' +
+      '<div class="pq"><span class="pqk">Crockery</span>' +
         '<span class="pqv sm">' + (crock ? esc(crock) : '<i>not said</i>') + '</span></div>' +
       '<div class="pq"><span class="pqk">Allergens</span>' +
         '<span class="pqv sm">' + (alg.length
@@ -1168,7 +1187,8 @@ function viewStation(){
         (onDish?'<span class="sm">tap a batch to open it</span>':'')+'</div>' +
         scaleBar(c, onDish) +
         '<table class="ing">'+ingRows(c.lines,mult,onDish?'switch':false)+'</table></div></div>' +
-      '<div><div class="card"><div class="h">Steps</div>' + stepsHTML(fl) + '</div></div>' +
+      '<div><div class="card"><div class="h">Steps</div>' + stepsHTML(fl) + '</div>' +
+        (onDish ? platingHTML(c.method) : '') + '</div>' +
     '</div>' +
     '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap">' +
       '<button class="btn ghost" data-print="one">Print ' + esc(onDish ? 'the dish' : 'this batch') + '</button>' +
@@ -1326,7 +1346,12 @@ function viewProd(){
             '<div class="pbm"><b>' + num(portionsNow()) + '</b> portions</div></div></div>' +
         '<div class="pcols">' +
           '<div><div class="pch">Per portion</div><table class="ing">' + ingRows(R.lines, 1, false) + '</table></div>' +
-          '<div><div class="pch">Method</div>' + stepsHTML(flat(R.method)) + '</div>' +
+          '<div><div class="pch">Method</div>' + stepsHTML(flat(R.method)) +
+          /* plating is a separate job, so it keeps its own heading and its own numbers */
+          (platingSteps(R.method).length
+            ? '<div class="pch" style="margin-top:14px">Plating</div>' +
+              platingSteps(R.method).map(function(x,i){ return '<div class="sstep"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('')
+            : '') + '</div>' +
         '</div></div>' +
     '</div></div>';
 }
@@ -1376,6 +1401,10 @@ function printSheet(){
         : '') +
       '<table class="ing">'+ingRows(c.lines,pmulOf(a.k),false)+'</table>' +
       stepsHTML(flat(c.method)) +
+      (platingSteps(c.method).length
+        ? '<div class="h" style="font-size:17px;margin:18px 0 6px">Plating</div>' +
+          platingSteps(c.method).map(function(x,i){ return '<div class="sstep"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('')
+        : '') +
       /* Allergens last on paper, and the names only. Under the dish name they were the
          first thing on the page and the biggest, ahead of the quantities somebody is
          standing there to read; and the sources repeated the same three batch names for
@@ -1580,8 +1609,10 @@ function render(){
         esc(when(movedAt)) + '. What is on this card is the older one. ' +
         '<button class="btn" id="reopen">Show the new one</button></div>'
       : '') +
-    /* the production sheet takes the whole pane — it IS the job, not a view of the dish */
-    (prod ? viewProd() : '<div class="why">'+cur.w+'</div>' + cur.v());
+    /* The paragraph that used to sit here — "B — The station. This is the one we build" —
+       was written while the three layouts were being chosen between. It is a note from the
+       workshop, and it was being read by chefs at the pass. Gone. */
+    (prod ? viewProd() : cur.v());
   wireScale();
 }
 /* the ticks: which recipes come onto the sheet, and whether each gets its own page */

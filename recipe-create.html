@@ -1738,10 +1738,31 @@ function unparkAt(i){
 }
 /* Everything half written, in one place, on the screen a new recipe starts from.
    Each one comes back or goes in the bin — his call, never the app's. */
-function parkedNote(){
-  var l = parkedList(); if (!l.length) return '';
+/* ───── it does not nag ─────
+   This was on five screens, including the sheet he is typing on — and since the tab now
+   parks itself whenever a phone puts it in the background, a chef who switched apps came
+   back to "UNSAVED WORK · 1 · Pistachio Tiramisu'" sitting above the recipe that was open
+   in front of him. Being told about work you are looking at is not a safety net, it is
+   somebody tapping you on the shoulder.
+
+   So it is off every working screen. It survives in one place — the "What are you making?"
+   screen, which is where a chef is starting something and might want to pick up what he
+   abandoned — and it never lists the recipe already open. The parking itself is untouched:
+   nothing is lost, it just stops talking about it. */
+function parkedNote(quiet){
+  if (quiet) return '';
+  /* Open and Delete act on the position in the REAL list, so the real position has to be
+     carried through the filter. Renumbering the rows here would have pointed Delete at
+     whichever recipe happened to take that slot — the wrong one, silently. */
+  var l = parkedList().map(function(p, i){ return { p:p, i:i }; })
+    .filter(function(x){
+      /* the one on screen is not "unsaved work", it is the work */
+      return !(x.p.id && S.id && String(x.p.id) === String(S.id));
+    });
+  if (!l.length) return '';
   return '<div class="parked"><div class="ph">Unsaved work · ' + l.length + '</div>' +
-    l.map(function(p, i){
+    l.map(function(x){
+      var p = x.p, i = x.i;
       var when = '';
       try { when = new Date(p.at).toLocaleString('en-GB',
             { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); } catch(e){}
@@ -3863,7 +3884,7 @@ function render(){
       }
     }
 
-    w.innerHTML = '<div class="pane">' + parkedNote() +
+    w.innerHTML = '<div class="pane">' + parkedNote(true) +
       (S.listErr
         ? '<div class="todo"><b>Could not reach the recipe list.</b> '+esc(S.listErr)+'</div>'
         : !S.saved.length
@@ -3939,7 +3960,7 @@ function render(){
     /* Unsaved work belongs here more than anywhere: it IS unfinished work, and this is
        the door he opens to ask "is anything not done?". He could not find it before
        because it only ever showed on the What are you making? screen. */
-    w.innerHTML = '<div class="pane">' + parkedNote() +
+    w.innerHTML = '<div class="pane">' + parkedNote(true) +
       (!S.tally
         ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
           'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
@@ -4221,7 +4242,7 @@ function render(){
 
   else if (S.step === 'write'){
     b.textContent='Make the sheet'; gate();
-    w.innerHTML = '<div class="pane">' + parkedNote() +
+    w.innerHTML = '<div class="pane">' + parkedNote(true) +
       '<input class="name" id="nm" placeholder="Octopus" value="'+esc(S.name)+'">' +
       '<div class="q" style="font-size:21px">What goes in it?</div>' +
       howto('write', 'However you like — one line, spaces or commas. The app sorts them out.',
@@ -4247,7 +4268,7 @@ function render(){
         howto('sheet', 'Go down Ingredient, then down Qty. Nothing opens. Tick the last box only ' +
           'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.',
           'Working the sheet') + '</div>' +
-      parkedNote() +
+      parkedNote(true) +
       '<div class="savebar" id="savebar"></div>' +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
       (S.fromPlan && S.plan ? '<button class="newr" id="backtoplan" style="margin:0 0 10px">‹ Back to the ' +
@@ -4847,7 +4868,7 @@ function platingInner(){
         '<div class="mhint">Empty if it does not wait.</div>' +
       '</div>' +
       '<div class="pcell wide">' +
-        '<label class="ml" for="m-crockery">Goes out on</label>' +
+        '<label class="ml" for="m-crockery">Crockery</label>' +
         '<input class="pnum wide" id="m-crockery" data-m="crockery" ' +
           'placeholder="Copper pan" value="' + esc(m.crockery || '') + '">' +
         '<div class="mhint">The plate, pan or board — not the cutlery.</div>' +
