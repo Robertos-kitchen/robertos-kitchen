@@ -1,3 +1,4 @@
+<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Create a Recipe — Mockup</title>
@@ -1940,9 +1941,12 @@ function issuesOf(r){
    A batch is judged on different things on purpose: nobody cooks a batch off a card at
    the pass and the floor never reads one, so a batch with no method is not unfinished.
    What a batch must say is how much it makes, or nothing using it can carry a cost. */
+/* "Lines" was the word the code uses for the rows on the sheet. It means nothing to a
+   chef reading a list of dishes, and the mark also takes him to the ingredients when he
+   taps it — so it says the thing it checks and names where it lands. */
 function marksOf(r){
   var t = S.tally && S.tally[r.id];
-  var out = [{ k:'Lines', on: !!(t && t.lines && !t.noIng && !t.noQty) }];
+  var out = [{ k:'Ingredients', on: !!(t && t.lines && !t.noIng && !t.noQty) }];
   if (r.kind === 'main'){
     var m = normMethod(r.method);
     out.push({ k:'Method', on: hasMethod(m) });
@@ -1963,7 +1967,7 @@ function levelOf(r){
 /* Each mark is the way in to the thing it is about. Seeing that the method is missing and
    then having to open the dish and find the method yourself is two jobs where the row has
    already done the first one. */
-var JUMPSEC = { Lines:'lines', Method:'method', Floor:'floor', Makes:'makes' };
+var JUMPSEC = { Ingredients:'lines', Method:'method', Floor:'floor', Makes:'makes' };
 function marksHTML(r){
   if (!S.tally) return '';
   /* the words are not thrown away — they are on the mark itself, and in full on
