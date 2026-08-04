@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Create a Recipe — Mockup</title>
+<title>Create a Recipe — Roberto's Kitchen</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 :root{
@@ -866,7 +866,10 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
      behind How to write them — three times, permanently, for one idea. What is left is
      the only thing on this line he cannot find out from anywhere else: which stock list
      the prices are coming off. -->
-<div class="note"><b>MOCKUP</b> &nbsp;·&nbsp; real stock list, <span id="nitems"></span> items — July 2026</div>
+<!-- The MOCKUP banner is gone. The chefs are writing real recipes into the real database
+     on this screen, and a black bar at the top calling it a mockup tells them the work
+     they are doing does not count. Which stock take the prices come off is still said
+     where it belongs — on the sheet itself, above the ingredients. -->
 
 <div class="bar">
   <div class="l"><span class="back" id="back" role="button" tabindex="0">‹<span class="bkw" id="backw"></span></span>
@@ -922,7 +925,10 @@ var disp = function(n){ return String(n||'').replace(/^(RF|CP)\s+/i,'').replace(
 var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
 var fmt = function(n,d){ return (n==null||isNaN(n))?'—':Number(n).toFixed(d==null?2:d); };
-$('nitems').textContent = ING.length;
+/* the count used to live in the MOCKUP banner, which is gone — every write to it is
+   guarded now, or removing that one line takes the whole screen down with it */
+var setNItems = function(){ var n = $('nitems'); if (n) n.textContent = ING.length; };
+setNItems();
 
 /* ───────── the chef's words vs Aung's words ───────── */
 var SYN = {
@@ -4612,7 +4618,7 @@ function wireAdd(draw){
       err.textContent = nm + ' added \u2713' + (price === 0 ? ' at no cost' : ' at ' + price.toFixed(2) + ' per ' + unit.toLowerCase()) +
                         '. It is on your list for every recipe from now on.';
       setTimeout(function(){ if($('ae')){ $('ae').textContent=''; $('ae').style.color=''; } }, 6000);
-      $('nitems').textContent = ING.length;
+      setNItems();
       draw();
       $('an').focus();
     }).catch(function(e){
