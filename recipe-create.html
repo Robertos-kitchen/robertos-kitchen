@@ -564,6 +564,15 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
   padding:10px 13px;margin-bottom:6px;text-align:left;cursor:pointer;font:inherit;color:inherit}
 .trow:hover{border-color:var(--vino);border-left-color:var(--vino);background:#fdfaf5}
 .trow.hard{border-left-color:var(--vino)}
+/* A dish nobody has started is not a broken recipe — it is an empty page. It reads
+   quieter than the rows above it on purpose: those are dishes going out tonight with
+   something missing, and these have not been begun. Same row, less ink. */
+.trow.ns{border-left-style:dotted;border-left-color:rgba(64,2,7,.35);background:transparent}
+.trow.ns:hover{background:#fdfaf5}
+.trow.ns .tn{color:var(--vino-light)}
+.nsnote{font-family:var(--sans);font-size:12px;opacity:.6;margin:0 0 10px}
+.nssec{font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  opacity:.45;margin:14px 0 5px}
 .trow .tn{font-family:var(--serif);font-size:18px;color:var(--vino);flex:0 0 auto}
 .trow .tk{font-family:var(--sans);font-size:11.5px;opacity:.55;flex:1 1 auto}
 .trow .ti{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
@@ -1985,6 +1994,19 @@ function saveRecipe(){
   }).then(function(){
     return saveRecipeMenus();
   }).then(function(){
+    /* Attach it to the printed dish it was started from, so it stops being counted as
+       not started. Deliberately not fatal: the recipe is already saved by now, and
+       losing the whole save over a link would be trading the chef's work for a count. */
+    if (!S.fromItem) return null;
+    var item = S.fromItem;
+    return sb('menu_items?id=eq.'+item, { method:'PATCH', prefer:'return=minimal',
+                body:{ recipe_id:S.id, updated_at:new Date().toISOString() } })
+      .then(function(){
+        S.fromItem = null;
+        (MENUITEMS || []).forEach(function(mi){ if (mi.id === item) mi.recipe_id = S.id; });
+      })
+      .catch(function(){ /* it saved; the link can be made again by opening it from there */ });
+  }).then(function(){
     /* a batch that just changed must re-cost everywhere it is used — and one that has
        just STOPPED being a batch has to leave the pool, or it stays pickable on a line
        until the page is reloaded */
@@ -2253,6 +2275,8 @@ function newRecipe(){
   S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[];
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
+  /* the printed dish this was started from belongs to the sheet that has just left */
+  S.fromItem = null;
   S.method = emptyMethod(); S.photos = []; S.bigPhoto = null; S.allergens = [];
   /* pre-filled with whoever this screen already knows, so the second recipe somebody
      writes costs them no taps at all — the whole point of remembering it */
@@ -2423,13 +2447,19 @@ function loadSaved(){
     /* `method` comes back with the list so Needs finishing can say when a dish has no
        method written and when the floor's half is empty — both invisible from outside */
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
-       ',created_by_name&order=updated_at.desc&limit=2000'),
+       ',created_by_name,allergens&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
-    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty').catch(function(){ return null; })
+    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty').catch(function(){ return null; }),
+    /* The dishes we PRINT. Needs finishing could only ever see recipes that exist, so a
+       dish nobody has started was invisible to the one screen whose job is to say what
+       is not done. Failing is fine and says so — a missing list must never be shown as
+       "nothing left to write". */
+    sb('menu_items?archived=is.false&select=id,menu_id,name,section,price,menu_letters,recipe_id,position' +
+       '&order=position').catch(function(){ return null; })
   ]).then(function(res){
     S.saved = res[0] || []; S.listErr = null;
     S.foldErr = !res[1] || !res[2];
@@ -2448,12 +2478,35 @@ function loadSaved(){
     var m = {}; (res[1] || []).forEach(function(r){ (m[r.recipe_id] = m[r.recipe_id] || []).push(r.menu_id); });
     S.rmenus = m;
     SAVEDMENUS = res[2] || [];
+    /* null, not [] — the difference between "the menu has nothing left on it" and "the
+       menu did not load", and only one of those may be printed as good news */
+    MENUITEMS = res[4] || null;
   })
     .catch(function(e){ S.saved=[]; S.rmenus={}; S.foldErr=true; S.listErr = e.message; });
 }
 /* every menu, archived ones too — a recipe can sit on a menu that has been put away,
    and a folder list that skips it hides the recipe altogether */
 var SAVEDMENUS = [];
+/* the dishes printed on a menu, whether or not anybody has written the recipe yet.
+   null until it loads, and null if it fails — see MENUITEMS in loadSaved. */
+var MENUITEMS = null;
+/* the printed card's own letters, spelled out. They are NOT the fourteen allergens the
+   recipe ticks: R is raw, V is vegetarian, H is homemade pasta, and S covers both
+   crustaceans and molluscs — a scallop and a prawn are the same letter and two
+   different ticks. So they are shown as what the card says, never turned into ticks. */
+var MENULETTER = { A:'Alcohol', D:'Dairy', E:'Egg', H:'Homemade pasta', N:'Nuts',
+                   R:'Raw', S:'Shellfish', V:'Vegetarian' };
+/* what a dish would actually show the floor: its own ticks plus everything the batches
+   inside it carry, through nested batches — the same walk the sheet does. A dish whose
+   only allergen comes in from a batch is not missing anything. */
+function dishAllergens(r){
+  var t = S.tally && S.tally[r.id];
+  var out = (r.allergens || []).slice();
+  if (t) t.kids.forEach(function(id){
+    batchAllergens(id).forEach(function(x){ if (out.indexOf(x.k) < 0) out.push(x.k); });
+  });
+  return out;
+}
 /* ───────── what is still wrong with a saved recipe ─────────
    Everything that stops it costing, said on the row, so twenty recipes can be looked
    over in one glance instead of opened one at a time. Only what is true: no ingredient
@@ -2511,6 +2564,20 @@ function issuesOf(r){
     if (!r.section)           out.push({ sec:'section', s:'no section — Aung’s form needs one' });
     if (r.menu_price == null) out.push({ sec:'price',   s:'no menu price' });
     if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ sec:'menu', s:'not on a menu' });
+    /* Everything else on this list is money or a blank box. This one is the only thing
+       here that can hurt somebody, and it was never checked: a dish with nothing ticked
+       prints "no allergens" to the floor, and a waiter reads that as "there are none",
+       not as "nobody has said yet". The card in the guest's hand already claims what is
+       in it — so where the menu prints letters and the recipe ticks nothing, say so. */
+    if (!dishAllergens(r).length){
+      var mi = MENUITEMS && MENUITEMS.filter(function(x){ return x.recipe_id === r.id; })[0];
+      var lt = mi && (mi.menu_letters || []).filter(function(k){ return 'RVH'.indexOf(k) < 0; });
+      out.push({ hard:false, sec:'allerg',
+        s: lt && lt.length
+             ? 'no allergens ticked — the card prints ' +
+               lt.map(function(k){ return MENULETTER[k] || k; }).join(', ')
+             : 'no allergens ticked — the floor is told there are none' });
+    }
   }
   return out;
 }
@@ -2573,7 +2640,7 @@ var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot'
   price:'#foot', section:'.bar', menu:'.bar',
   /* all three live in the one plating block, so they land on it together and the caret
      picks out which of the three was actually missing */
-  plating:'#pssbox', crockery:'#pssbox', pass:'#pssbox' };
+  plating:'#pssbox', crockery:'#pssbox', pass:'#pssbox', allerg:'#alg' };
 /* which box the caret belongs in once it has landed */
 var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn',
   plating:'#m-plating', crockery:'#m-crockery', pass:'#m-pass' };
@@ -4454,6 +4521,11 @@ function render(){
                opening — a door labelled "Needs finishing" with nothing behind it is noise */
             (function(){
               var n = S.saved.filter(function(x){ return !x.archived && issuesOf(x).length; }).length;
+              /* a dish on the menu with no recipe is unfinished work too — leaving it out
+                 of the count is how the door came to say "✓" over forty-eight of them */
+              var byId = {}; S.saved.forEach(function(r){ if (!r.archived) byId[r.id] = 1; });
+              n += (MENUITEMS || []).filter(function(mi){
+                     return !mi.recipe_id || !byId[mi.recipe_id]; }).length;
               return n ? '<button class="newr wrn" id="totodo">Needs finishing · ' + n + '</button>'
                        : '<button class="newr" id="totodo">Nothing needs finishing ✓</button>';
             })() +
@@ -4505,6 +4577,45 @@ function render(){
     var mainsBad = bad.filter(function(x){ return x.r.kind === 'main'; });
     var batsBad  = bad.filter(function(x){ return x.r.kind === 'batch'; });
     var hardCount = bad.filter(hardOf).length;
+    /* ── the dishes nobody has started ──
+       This screen used to count only what had been written, so it could say "4 of 16 are
+       not done" on a night when forty-eight printed dishes had no recipe at all. Sixteen
+       was never the job — the menu is. A dish counts as started when a recipe is attached
+       to it, not when a name matches: the card prints "Tiramisù al Pistacchio" and the
+       recipe is saved as "Pistachio Tiramisu'", and no string match will ever agree. */
+    var liveById = {}; live2.forEach(function(r){ liveById[r.id] = r; });
+    var notStarted = (MENUITEMS || []).filter(function(mi){
+      return !mi.recipe_id || !liveById[mi.recipe_id];
+    });
+    var bySec = [], secOf = {};
+    notStarted.forEach(function(mi){
+      var k = mi.section || 'No section';
+      if (!secOf[k]) { secOf[k] = { k:k, rows:[] }; bySec.push(secOf[k]); }
+      secOf[k].rows.push(mi);
+    });
+    var nsrow = function(mi){
+      var lt = (mi.menu_letters || []).filter(function(k){ return 'RVH'.indexOf(k) < 0; });
+      return '<button class="trow ns" data-start="'+esc(mi.id)+'">' +
+        '<span class="tn">'+esc(mi.name)+'</span>' +
+        '<span class="tk">'+(mi.price == null ? 'market price' : mi.price)+
+          (lt.length ? ' · card prints ' + lt.map(function(k){ return MENULETTER[k] || k; }).join(', ') : '')+
+        '</span>' +
+        '<span class="ti"><em class="go">start it — the name, the section and the price come with it</em></span>' +
+      '</button>';
+    };
+    var nsBlock = MENUITEMS == null
+      /* a list that did not load must never be shown as an empty one: "nothing left to
+         write" is the most dangerous sentence this screen could print by accident */
+      ? '<div class="todo">Could not read the printed menu, so the dishes nobody has ' +
+        'started cannot be counted here. What is below is only the recipes that exist.</div>'
+      : (notStarted.length
+          ? '<div class="shd">Not started · '+notStarted.length+'</div>' +
+            '<div class="nsnote">On the menu, no recipe written. Tap one to start it.</div>' +
+            bySec.map(function(g){
+              return '<div class="nssec">'+esc(g.k)+' · '+g.rows.length+'</div>' +
+                     g.rows.map(nsrow).join('');
+            }).join('')
+          : '');
     /* Unsaved work belongs here more than anywhere: it IS unfinished work, and this is
        the door he opens to ask "is anything not done?". He could not find it before
        because it only ever showed on the What are you making? screen. */
@@ -4512,17 +4623,28 @@ function render(){
       (!S.tally
         ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
           'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
-        : !bad.length
+        : !bad.length && !notStarted.length && MENUITEMS != null
           ? '<div class="q">' + (parkedList().length ? 'Nothing saved needs finishing' : 'Nothing needs finishing') + '</div>' +
-            '<div class="sub">All '+live2.length+' recipes have an ingredient and an amount on every line, ' +
-            'every batch inside them is still there, and every dish has its section, its price and a menu.' +
+            '<div class="sub">Every dish on the menu has a recipe, all '+live2.length+' recipes have an ingredient ' +
+            'and an amount on every line, every batch inside them is still there, and every dish has its ' +
+            'section, its price, its allergens and a menu.' +
             /* saying "nothing needs finishing" above a box full of unsaved work is a lie */
             (parkedList().length ? ' <b>What is in Unsaved work above has not been saved yet</b>, so it is not counted here.' : '') +
             '</div>'
           : '<div class="q">Needs finishing</div>' +
-            '<div class="sub"><b>'+bad.length+' of '+live2.length+'</b> are not done. ' +
-            (hardCount ? '<b>'+hardCount+'</b> of them cannot be costed at all — those are first, in red. ' : '') +
+            '<div class="sub">' +
+            /* The menu first, because it is the bigger number and it was the invisible one.
+               "4 of 16 are not done" was true and still left forty-eight dishes unsaid. */
+            (notStarted.length
+               ? '<b>'+notStarted.length+'</b> dish' + (notStarted.length===1?'':'es') + ' on the menu ' +
+                 (notStarted.length===1?'has':'have') + ' no recipe. '
+               : '') +
+            (bad.length
+               ? '<b>'+bad.length+' of '+live2.length+'</b> written so far are not done. ' +
+                 (hardCount ? '<b>'+hardCount+'</b> of those cannot be costed at all — they are first, in red. ' : '')
+               : '') +
             'Tap one to put it right; you come back here afterwards.</div>' +
+            nsBlock +
             (mainsBad.length ? '<div class="shd">Main recipes · '+mainsBad.length+'</div>' + mainsBad.map(trow).join('') : '') +
             (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '')
       ) + '</div>';
@@ -6690,6 +6812,28 @@ document.addEventListener('click', function(e){
       jp.textContent = was;
       flash('That recipe could not be opened — ' + plain(err.message), true);
     });
+    return;
+  }
+  /* ── a dish on the menu that has never been written ──
+     Everything the card already says — the name, the course, the price — is typed in for
+     him, because it is printed on a menu we wrote and asking him to copy it out is asking
+     him to introduce the typo. Deliberately NOT the allergens: those are letters on a
+     card, not the fourteen ticks, and a tick nobody made is the one thing here that can
+     hurt somebody. He ticks them. */
+  var st = e.target.closest('[data-start]');
+  if (st){
+    var mi = (MENUITEMS || []).filter(function(x){ return x.id === st.dataset.start; })[0];
+    if (!mi){ flash('That dish is no longer on the menu — open Saved recipes again.', true); return; }
+    if (parkCurrent()) flash(parkedFlash());
+    newRecipe();
+    S.kind = 'main'; S.name = mi.name; S.section = mi.section || '';
+    S.price = mi.price == null ? null : Number(mi.price);
+    /* what it was started from, so saving can attach the recipe to the menu dish and it
+       stops being counted as not started */
+    S.fromItem = mi.id;
+    S.fromTodo = true; S.step = 'sheet';
+    render(); window.scrollTo(0,0);
+    flash('Started ' + mi.name + ' — the allergens are yours to tick.');
     return;
   }
   var op = e.target.closest('[data-open]');
