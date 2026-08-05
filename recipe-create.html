@@ -1742,6 +1742,13 @@ function saveRecipe(){
   }).then(function(){
     /* a batch that just changed must re-cost everywhere it is used */
     return S.kind === 'batch' ? loadBatches() : null;
+  }).then(function(out){
+    /* Saved is the answer to the question Unsaved work asks. It used to keep asking it
+       anyway — save the recipe properly and the same line was still sitting on the
+       starting screen next time, so the only way to be rid of a row about work that was
+       already safe was the bin. */
+    dropParkFor(S.id, head.name);
+    return out;
   });
 }
 
@@ -1859,12 +1866,29 @@ function loadPark(){
   try { var v = JSON.parse(localStorage.getItem(PARKLS) || '[]'); S.parkedList = Array.isArray(v) ? v : []; }
   catch(e){ S.parkedList = []; }
 }
+/* Everything a piece of work IS, without when it was put down. Two snapshots that match
+   on this are the same work, however many times it has been picked up and put back. */
+function workSig(p){
+  var c = {}; for (var k in p) if (k !== 'at' && k !== 'photosDropped') c[k] = p[k];
+  return JSON.stringify(c);
+}
 function parkCurrent(){
   if (!isDirty()) return false;
   var snap = parkSnapshot();
-  /* the same recipe put down twice is one piece of work, not two */
+  /* Putting the same sheet down again, unchanged, is not new work. It used to be filed
+     as if it were — the row jumped to the top of the list with a fresh time on it — so
+     opening something out of Unsaved work, reading it and going back made it look like
+     something had just happened. Nothing had. Leave the line exactly where it was. */
+  var same = parkedList().filter(function(p){ return workSig(p) === workSig(snap); })[0];
+  if (same){ S.parkedLabel = same.label; S.parkedWasSaved = !!same.id; return true; }
+  /* The same recipe put down twice is one piece of work, not two. A recipe that exists is
+     the same recipe whatever it is called — matching on the name as well meant renaming
+     one and putting it down left TWO rows for a single recipe, under both names, and
+     saving it could only ever answer one of them. A sheet that has never been saved has
+     no id to be known by, so for those the name is all there is. */
   var l = parkedList().filter(function(p){
-    return !(String(p.id) === String(snap.id) && p.label === snap.label); });
+    return snap.id ? String(p.id) !== String(snap.id)
+                   : !(!p.id && p.label === snap.label); });
   l.unshift(snap);
   S.parkedList = l.slice(0, PARKMAX);
   savePark();
@@ -1884,10 +1908,27 @@ function parkedFlash(){
     : '“' + S.parkedLabel + '” is in Unsaved work — carry on with it any time.';
 }
 function dropPark(i){ parkedList().splice(i, 1); savePark(); }
+/* Called the moment a save lands. The row for this recipe is answered and goes — and it
+   only ever comes back if he changes something again and leaves it unsaved again.
+   A recipe saved for the first time was parked before it had an id, so the line it left
+   behind is matched on its name instead. */
+function dropParkFor(id, name){
+  var n = String(name || '').trim(), l = parkedList();
+  var keep = l.filter(function(p){
+    if (id && String(p.id) === String(id)) return false;
+    if (!p.id && n && p.label === n) return false;
+    return true;
+  });
+  if (keep.length === l.length) return;
+  S.parkedList = keep; savePark();
+}
 function unparkAt(i){
   var p = parkedList()[i]; if (!p) return;
   parkCurrent();                                  /* whatever he is on now joins the list */
-  var l = parkedList(), k = l.indexOf(p); if (k > -1) l.splice(k, 1);
+  /* The row STAYS in the list while he works on it. Taking it out on the way in meant a
+     look-and-go-back had to file it all over again as new; and if the phone killed the
+     tab in between, the only copy went with it. It is hidden from the list while it is
+     the recipe on screen (see parkedNote), and it leaves the list when it is saved. */
   savePark();
   newRecipe();
   S.id = p.id || null; S.kind = p.kind; S.name = p.name || ''; S.section = p.section || '';
