@@ -75,6 +75,41 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .q{font-family:var(--serif);font-size:27px;color:var(--vino);line-height:1.15;margin-bottom:5px}
 .sub{font-size:13px;color:var(--vino-light);line-height:1.5;margin-bottom:20px}
 
+/* ── THE ROOM, on the opening screen only ──
+   Same logic as the Food Bible: the venue full-bleed behind everything, held under a
+   vino wash so it never competes with what you are reading. It is fixed, so the sheet
+   moves over it rather than dragging it along.
+   Only on "What are you making?" — a chef picking sixty ingredients should not be
+   reading a table over a photograph, so every later step keeps the plain sabbia. */
+body.roomstep{background:#cdbba6}
+body.roomstep::before,body.roomstep::after{content:'';position:fixed;inset:0;z-index:0;
+  pointer-events:none}
+body.roomstep::before{background:url(venue-cortina.jpg) center/cover}
+/* The wash is the light one. The Food Bible's gradient runs light at the top and deep
+   at the bottom, which is backwards here — the question and the two grey buttons sit at
+   the TOP, over the brightest part of the room (sky, tablecloths). So the light wash is
+   kept and a short scrim is carried across the first 260px, where the type is. */
+body.roomstep::after{background:linear-gradient(180deg,
+  rgba(43,1,4,.76) 0, rgba(43,1,4,.52) 200px, rgba(43,1,4,.38) 55%, rgba(43,1,4,.62) 100%)}
+body.roomstep>*{position:relative;z-index:1}
+/* the type that sits straight on the room has to be read off it */
+body.roomstep .q{color:#fbf3e9}
+body.roomstep .sub{color:rgba(251,243,233,.82)}
+/* the ember accent measures 3.6:1 against the room here — too thin for a 10.5px label,
+   so on this step it lightens to 5.2:1 */
+body.roomstep .howtob{color:#f2d3b8}
+body.roomstep .howtox{color:rgba(251,243,233,.86)}
+/* the import row sits low enough to land on tablecloths, which are the brightest thing
+   in the room — it gets its own plate rather than the whole photograph getting darker */
+body.roomstep .bring{background:rgba(26,6,6,.56);border-radius:8px;padding:13px 14px;
+  margin-top:18px}
+body.roomstep .brb{color:#fbf3e9;border-color:rgba(245,237,224,.55);background:rgba(245,237,224,.12)}
+body.roomstep .brb:hover{background:rgba(245,237,224,.24)}
+body.roomstep .brn{color:rgba(251,243,233,.88);opacity:1}
+/* the cards keep their cream — they are the thing you are choosing between, and they
+   need to lift off the room */
+body.roomstep .big{box-shadow:0 14px 30px -16px rgba(20,4,4,.7)}
+
 /* ───── written once, read once ─────
    How a thing works is worth reading the first time and is clutter every time after. A
    chef who has written twenty recipes does not need to be told again what a batch is —
@@ -4199,6 +4234,8 @@ function runWorkbook(){
 /* ───────── render ───────── */
 function render(){
   var w = $('wrap'), b = $('act');
+  /* the room is on the opening screen and nowhere else — see body.roomstep above */
+  document.body.classList.toggle('roomstep', S.step === 'type');
   $('foot').style.display = S.step==='sheet' ? 'block' : 'none';
   if (S.step !== 'sheet') document.body.style.paddingBottom = '';   /* only the sheet sits under the bar */
   $('tolist').textContent  = S.step==='list'  ? 'Back to the recipe' : "Aung's list";

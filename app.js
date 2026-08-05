@@ -2161,16 +2161,30 @@ function openRecipes(){
   hideAllPages();
   var v=document.getElementById('recipes-view');
   v.style.cssText='';
-  v.innerHTML='<div class="ops-title">Recipes</div>'+
-    '<div class="ops-subtitle">One dish, written once. The pass and the floor read the same '+
-      'record — change it in one place and it changes in both.</div>'+
+  // The room at the top, then the doors on paper. `aria-label` is on the button because
+  // a <button> only takes phrasing content — the name inside a heading announced as
+  // nothing at all on a screen reader.
+  v.innerHTML='<div class="rcp-paper">'+
+    '<div class="rcp-hero">'+
+      '<img src="img/recipes-terrace.jpg" alt="The terrace at Roberto\'s DIFC at night">'+
+      '<div class="rcp-hero-in">'+
+        '<div class="rcp-eyebrow">Roberto\'s Kitchen</div>'+
+        '<h2>Recipes</h2>'+
+        '<div class="rcp-hero-rule"></div>'+
+        '<p>One dish, written once. The pass and the floor read the same record.</p>'+
+      '</div>'+
+    '</div>'+
     '<div class="rcp-doors">'+RECIPE_SCREENS.map(function(s){
-      return '<button class="rcp-door" data-rcp="'+s.view+'">'+
-        '<span class="rcp-code">'+s.code+'</span>'+
-        '<span class="rcp-name">'+escHtml(s.name)+'</span>'+
+      return '<button class="rcp-door" type="button" data-rcp="'+s.view+'" '+
+        'aria-label="Open '+escHtml(s.name)+'">'+
+        '<span class="rcp-top">'+
+          '<span class="rcp-code">'+s.code+'</span>'+
+          '<span class="rcp-name">'+escHtml(s.name)+'</span>'+
+        '</span>'+
         '<span class="rcp-meta">'+escHtml(s.meta)+'</span>'+
-        '<span class="rcp-go">Open &rarr;</span></button>';
-    }).join('')+'</div>';
+        '<span class="rcp-go">Open<span class="rcp-arw">&rarr;</span></span></button>';
+    }).join('')+'</div>'+
+  '</div>';
   document.querySelector('.footer-bar').style.display='flex';
   document.getElementById('foot-label').textContent='Recipes';
 }
