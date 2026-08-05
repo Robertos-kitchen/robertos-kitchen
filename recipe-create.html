@@ -591,7 +591,13 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .nsnote{font-family:var(--sans);font-size:12px;opacity:.6;margin:0 0 10px}
 .nssec{font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
   opacity:.45;margin:14px 0 5px}
-.trow .tn{font-family:var(--serif);font-size:18px;color:var(--vino);flex:0 0 auto}
+/* It must be allowed to SHRINK. A recipe somebody typed is "Polpo" and fits; a dish
+   read off the printed menu is "Rombo sul Sale Aromatico, Asparagi e Salsa Ristretta
+   alla Mediterranea", which at 0 0 auto is 503px of unbreakable row on a 375px phone —
+   the whole page scrolled sideways, not just this line. min-width:0 is the half that
+   actually does it: without it a flex item refuses to go below its content. */
+.trow .tn{font-family:var(--serif);font-size:18px;color:var(--vino);
+  flex:0 1 auto;min-width:0;overflow-wrap:break-word}
 .trow .tk{font-family:var(--sans);font-size:11.5px;opacity:.55;flex:1 1 auto}
 .trow .ti{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .trow .ti em{font-style:normal;font-family:var(--sans);font-size:11px;padding:2px 7px;border-radius:3px;
