@@ -41,6 +41,32 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .bar .nm{font-family:var(--serif);font-size:21px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar .ty{font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;background:rgba(245,237,224,.2);border-radius:2px;padding:3px 7px;white-space:nowrap}
 .bar .ty.b{background:var(--oro)}
+/* ── the type is a control, not a label ──
+   It was written on the bar from the first day and it could not be changed: picking
+   "main" on the very first screen was a decision, and the only way out of it was to
+   type the whole recipe again as a batch. It says the same thing it always said and
+   is now the way to change it. The word is on it, so it does not have to be guessed
+   at — a badge that quietly became tappable is a badge nobody taps. */
+/* taller than the label it replaces, on purpose: as a label 19px was plenty, as
+   something a chef hits with a thumb on the pass it is not */
+.bar .ty.tap{cursor:pointer;border:1px solid rgba(245,237,224,.5);padding:9px 10px}
+@media (pointer:coarse){ .bar .ty.tap{padding:11px 12px} }
+.bar .ty.tap:hover{background:rgba(245,237,224,.42)}
+.bar .ty.b.tap:hover{background:var(--oro);filter:brightness(1.12)}
+.bar .ty .tych{opacity:.75;margin-left:6px;font-size:8px}
+/* the strip it opens, on the sheet, where the work is — the same shape as everything
+   else that asks him something here: it says what changes before it changes it */
+.kindbar{margin:0 0 14px}
+.kindbar:empty{display:none}
+.kindask{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
+  border-radius:0 7px 7px 0;padding:13px 15px}
+.kindask.stop{border-left-color:var(--attn);background:var(--attn-soft)}
+.kindask .kt{font-size:14px;line-height:1.5;color:var(--ink);margin-bottom:9px}
+.kindask .kt b{color:var(--vino)}
+.kindask .kw{font-size:12.5px;line-height:1.6;color:var(--vino-light);margin:9px 0 11px}
+.kindask .kw b{color:var(--vino)}
+.kindask .kw li{margin:2px 0}
+.kindask .kw ul{margin:5px 0 0;padding-left:20px}
 .bar .act{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;background:var(--cream);color:var(--vino);border:none;border-radius:3px;padding:8px 14px;font-weight:700;font-family:var(--sans);cursor:pointer;white-space:nowrap}
 .bar .act.off{opacity:.35;pointer-events:none}
 
@@ -1257,6 +1283,10 @@ var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
          open under the strip. Not the same thing as WHO, which is whoever is standing
          at this screen right now. */
           who:null, whoOpen:false, whoUpd:null, whoAt:null,
+      /* changing main ↔ batch after the fact: what is being asked, what is being
+         checked, why it cannot be done, and the values the other kind had before —
+         see changeKind() */
+          kindAsk:null, kindBusy:false, kindStop:null, kindStash:{},
           method:null, photos:[], allergens:[] };
 /* ── the sections ARE Aung's Micros families ──
    They used to be our own words — "Salad / Soup", "Main", "Canapé" — and none of those
@@ -1283,6 +1313,134 @@ function sectionList(){
   if (S.kind === 'batch') out = out.concat(BATCH_ONLY);
   if (S.section && out.indexOf(S.section) < 0) out.push(S.section);
   return out;
+}
+
+/* ═════════ main ↔ batch, after it has been started ═════════
+   Antonio, 5 August: "if we can, we should be able to change the type of recipe, even
+   after we have already chosen. If for example we started a recipe as a main dish and
+   then we realise it is a batch recipe."
+
+   He is right, and it happened the only way it could: the kind was picked on the very
+   first screen, before a single ingredient was written, and nothing on any screen after
+   it could change the answer. The way out was to type the whole recipe again under the
+   other kind — which is exactly the thing that produces two rows for one dish.
+
+   Nothing here is destructive and nothing here saves. Everything a recipe IS — the
+   ingredients, the method, the plating, the allergens, the photos, who wrote it — is
+   the same on both kinds and is not touched. What differs is the small set of things
+   only one kind can have, and every one of them is stashed rather than thrown away, so
+   changing his mind twice costs nothing.
+
+   Two things it will NOT do quietly:
+   · A batch that other recipes are built on cannot become a main. A main is a dish and
+     a dish is never linkable inside another recipe, so those recipes would lose the
+     line AND its cost — silently, which is the worst version of it. It is checked
+     against the database before the change is offered, and refused by name.
+   · "Makes 4" means four portions on a dish and four kilos on a batch. They are not the
+     same number, so it is asked again rather than carried across and quietly re-read. */
+function kindWord(k){ return k === 'batch' ? 'batch recipe' : 'main recipe'; }
+function kindStashNow(){
+  return { price:S.price, makesQty:S.makesQty, makesUnit:S.makesUnit,
+           section:S.section, menus:(S.menus || []).slice() };
+}
+function canAskKind(){ return !!S.kind && (S.step === 'write' || S.step === 'sheet'); }
+function askKind(){
+  if (!canAskKind()) return;
+  S.kindAsk = S.kind === 'main' ? 'batch' : 'main';
+  S.kindStop = null; S.kindBusy = false;
+  if (S.kindAsk === 'main' && S.id){
+    S.kindBusy = true;
+    usedBy(S.id).then(function(names){
+      if (S.kindAsk !== 'main') return;              /* he shut the strip while we asked */
+      S.kindBusy = false;
+      S.kindStop = names.length ? names : null;
+      drawKindBar();
+    });
+  }
+  drawKindBar();
+  var e = $('kindbar'); if (e && e.scrollIntoView) e.scrollIntoView({ block:'center' });
+}
+function closeKind(){ S.kindAsk = null; S.kindStop = null; S.kindBusy = false; drawKindBar(); }
+function applyKind(to){
+  if (!to || !S.kind || to === S.kind) return closeKind();
+  if (to === 'main' && S.kindStop) return;           /* refused, and the strip says by whom */
+  S.kindStash[S.kind] = kindStashNow();
+  var was = S.kindStash[to] || {};
+  S.kind = to;
+  if (to === 'batch'){
+    /* nobody orders a batch: it has no menu price and it is on no menu. Both are kept
+       above, and cleared here so a save cannot write a price onto something with none. */
+    S.price = null;
+    S.menus = [];
+    S.makesUnit = (was.makesUnit && was.makesUnit !== 'portions') ? was.makesUnit : 'kg';
+  } else {
+    S.price = was.price != null ? was.price : null;
+    S.menus = (was.menus || []).slice();
+    if (!S.menus.length && !S.id){
+      var runm = MENUS.filter(function(m){ return m.running; })[0];
+      if (runm) S.menus = [runm.id];
+    }
+    S.makesUnit = 'portions';
+    /* Prep is not one of Aung's families — it is offered on a batch and nowhere else,
+       so a dish left sitting in it reaches his Micros form with no family at all */
+    if (S.section === 'Prep') S.section = (was.section && was.section !== 'Prep') ? was.section : '';
+  }
+  S.makesQty = (was.makesQty != null) ? was.makesQty : null;
+  S.kindAsk = null; S.kindStop = null; S.kindBusy = false;
+  render();
+  flash('Now a ' + kindWord(S.kind) + '. Everything you wrote is still here — say what it makes, then Save.');
+}
+function kindBarInner(){
+  if (!S.kindAsk || !canAskKind()) return '';
+  var to = S.kindAsk, nm = (S.name || '').trim();
+  if (S.kindBusy)
+    return '<div class="kindask"><div class="kt">Checking what is built on this batch…</div></div>';
+  if (to === 'main' && S.kindStop){
+    var n = S.kindStop, one = n.length === 1;
+    return '<div class="kindask stop">' +
+      '<div class="kt"><b>' + esc(nm || 'This batch') + '</b> cannot become a main recipe.</div>' +
+      '<div class="kw">' + n.length + ' recipe' + (one ? '' : 's') + ' ' + (one ? 'is' : 'are') +
+        ' built on it: <b>' + n.map(esc).join('</b>, <b>') + '</b>. ' +
+        'A main recipe is a dish, and a dish can never be linked inside another recipe — so ' +
+        (one ? 'that one' : 'those') + ' would lose the line and the cost that comes with it. ' +
+        'Take it out of ' + (one ? 'that recipe' : 'those recipes') + ' first, then change it here.</div>' +
+      '<button class="cxb" id="kindcx">Leave it as a batch recipe</button></div>';
+  }
+  var keeps = 'The ingredients, the method, the allergens, the photos and whose name is on it ' +
+              'all stay exactly as they are.';
+  var body;
+  if (to === 'batch'){
+    var onm = (S.menus || []).map(menuName);
+    body =
+      '<div class="kt"><b>' + esc(nm || 'This recipe') + '</b> is a main recipe. Make it a batch recipe?</div>' +
+      '<div class="kw">' + keeps + ' What changes:<ul>' +
+        '<li>Say what it makes in <b>kg, L or pieces</b> instead of portions — the number is asked again, because 4 portions is not 4 kg.</li>' +
+        (S.price != null ? '<li>The menu price (<b>' + fmt(S.price) + ' AED</b>) comes off — a batch is not ordered.</li>' : '') +
+        (onm.length ? '<li>It comes off <b>' + onm.map(esc).join('</b> and <b>') + '</b>.</li>' : '') +
+        '<li>Plating, the pass, the crockery and the Food Bible boxes are put away. <b>What you typed in them is kept</b> and comes straight back if you change it back.</li>' +
+        '<li>It becomes linkable inside any other recipe, and <b>Prep</b> joins the sections.</li>' +
+      '</ul>Nothing is written to the database until you press Save.</div>' +
+      '<button class="okb" data-kindto="batch">Make it a batch recipe</button> ' +
+      '<button class="cxb" id="kindcx">Keep it a main recipe</button>';
+  } else {
+    body =
+      '<div class="kt"><b>' + esc(nm || 'This recipe') + '</b> is a batch recipe. Make it a main recipe?</div>' +
+      '<div class="kw">' + keeps + ' What changes:<ul>' +
+        '<li>Say what it makes in <b>portions</b> instead of kg — the number is asked again, because 4 kg is not 4 portions.</li>' +
+        '<li>It gets a menu price, a food cost, and the menus it goes on.</li>' +
+        '<li>Plating, the pass, the crockery and the Food Bible boxes come back on the sheet.</li>' +
+        '<li>It stops being linkable inside other recipes' +
+          (S.section === 'Prep' ? ', and <b>Prep</b> is not one of Aung’s families, so the section is asked again' : '') +
+        '.</li>' +
+      '</ul>Nothing is written to the database until you press Save.</div>' +
+      '<button class="okb" data-kindto="main">Make it a main recipe</button> ' +
+      '<button class="cxb" id="kindcx">Keep it a batch recipe</button>';
+  }
+  return '<div class="kindask">' + body + '</div>';
+}
+function drawKindBar(){
+  var e = $('kindbar'); if (e) e.innerHTML = kindBarInner();
+  if (typeof fitBar === 'function') fitBar();
 }
 
 /* ───────── how it is made — his four headings, in his order ─────────
@@ -1820,8 +1978,10 @@ function saveRecipe(){
   }).then(function(){
     return saveRecipeMenus();
   }).then(function(){
-    /* a batch that just changed must re-cost everywhere it is used */
-    return S.kind === 'batch' ? loadBatches() : null;
+    /* a batch that just changed must re-cost everywhere it is used — and one that has
+       just STOPPED being a batch has to leave the pool, or it stays pickable on a line
+       until the page is reloaded */
+    return (S.kind === 'batch' || (S.id && BATCH[S.id])) ? loadBatches() : null;
   }).then(function(out){
     /* Saved is the answer to the question Unsaved work asks. It used to keep asking it
        anyway — save the recipe properly and the same line was still sitting on the
@@ -2011,6 +2171,7 @@ function unparkAt(i){
      the recipe on screen (see parkedNote), and it leaves the list when it is saved. */
   savePark();
   newRecipe();
+  S.kindAsk = null; S.kindStop = null; S.kindBusy = false; S.kindStash = {};
   S.id = p.id || null; S.kind = p.kind; S.name = p.name || ''; S.section = p.section || '';
   S.text = p.text || ''; S.price = p.price;
   S.makesQty = p.makesQty; S.makesUnit = p.makesUnit;
@@ -2090,6 +2251,8 @@ function newRecipe(){
      writes costs them no taps at all — the whole point of remembering it */
   S.who = WHO ? { emp_id:WHO.emp_id, name:WHO.name } : null;
   S.whoUpd = null; S.whoAt = null; S.whoOpen = false; S.whoAsked = false;
+  /* what the OTHER kind held belongs to the recipe that has just left the screen */
+  S.kindAsk = null; S.kindStop = null; S.kindBusy = false; S.kindStash = {};
   /* A dish on no menu shows up on no card at all — so a new one starts on the menu
      that is running. Untick it if it belongs somewhere else; it is one tap either
      way, and the other way round is a dish nobody can find. */
@@ -2603,7 +2766,14 @@ function loadRecipeMenus(id){
    four menus is not taken off all four and put back on them every time you press
    Save, which is four chances for a half-finished write to lose one. */
 function saveRecipeMenus(){
-  if (!S.id || S.kind !== 'main') return Promise.resolve();
+  if (!S.id) return Promise.resolve();
+  /* A dish that has become a batch has to come OFF the menus it was on, not merely stop
+     being written to them. Skipping the write left the rows behind, and a menu card and
+     the Food Bible both read that table — so the batch would have gone on printing as a
+     dish nobody could order. */
+  if (S.kind !== 'main')
+    return sb('recipe_menus?recipe_id=eq.'+S.id, { method:'DELETE', prefer:'return=minimal' })
+             .then(function(){ S.menus = []; });
   return sb('recipe_menus?recipe_id=eq.'+S.id+'&select=menu_id').then(function(rows){
     var was = (rows||[]).map(function(r){ return r.menu_id; });
     var now = S.menus || [];
@@ -3083,6 +3253,7 @@ function openRecipe(id){
   ]).then(function(both){
     var rec = both[0] && both[0][0]; if (!rec) throw new Error('that recipe is no longer there');
     S.whole = true;          /* read straight off the record — the sheet holds all of it */
+    S.kindAsk = null; S.kindStop = null; S.kindBusy = false; S.kindStash = {};
     S.id = rec.id; S.kind = rec.kind; S.name = rec.name || ''; S.section = rec.section || '';
     S.makesQty = rec.makes_qty; S.makesUnit = rec.makes_unit;
     S.price = rec.menu_price; S.text = '';
@@ -3935,8 +4106,16 @@ function render(){
   $('tolist').textContent  = S.step==='list'  ? 'Back to the recipe' : "Aung's list";
   $('tosaved').textContent = S.step==='saved' ? 'Back to the recipe' : 'Saved recipes';
   $('bty').style.display = S.kind ? 'inline-block' : 'none';
-  $('bty').textContent = S.kind==='batch' ? 'Batch recipe' : 'Main recipe';
-  $('bty').className = 'ty' + (S.kind==='batch' ? ' b' : '');
+  /* The kind can be changed from here while a recipe is open — so the badge says so
+     rather than leaving a tap to be discovered. Everywhere else it is still the label
+     it always was. */
+  var canK = canAskKind();
+  $('bty').innerHTML = (S.kind==='batch' ? 'Batch recipe' : 'Main recipe') +
+    (canK ? '<span class="tych">change ⌄</span>' : '');
+  $('bty').className = 'ty' + (S.kind==='batch' ? ' b' : '') + (canK ? ' tap' : '');
+  if (canK){ $('bty').setAttribute('role','button'); $('bty').setAttribute('tabindex','0');
+             $('bty').title = 'Change this to a ' + kindWord(S.kind==='main' ? 'batch' : 'main'); }
+  else { $('bty').removeAttribute('role'); $('bty').removeAttribute('tabindex'); $('bty').title = ''; }
   $('bnm').textContent = S.name || (S.kind ? (S.kind==='batch'?'New batch recipe':'New main recipe') : 'New recipe');
   drawBack();          /* shown, hidden and labelled from the one place that knows */
 
@@ -4605,6 +4784,7 @@ function render(){
   else if (S.step === 'write'){
     b.textContent='Make the sheet'; gate();
     w.innerHTML = '<div class="pane">' + parkedNote(true) +
+      '<div class="kindbar" id="kindbar"></div>' +
       '<input class="name" id="nm" placeholder="Octopus" value="'+esc(S.name)+'">' +
       '<div class="q" style="font-size:21px">What goes in it?</div>' +
       howto('write', 'However you like — one line, spaces or commas. The app sorts them out.',
@@ -4612,6 +4792,7 @@ function render(){
       '<textarea class="dumpbox" id="dp" rows="4" placeholder="olive oil lemon garlic parsley salt black pepper"></textarea>' +
       importedNote() + bringHTML(true) +
       '<div class="split" id="sp"></div></div>';
+    drawKindBar();
     var nm=$('nm'), dp=$('dp');
     dp.value = S.text;
     (S.name ? dp : nm).focus();
@@ -4632,6 +4813,7 @@ function render(){
           'Working the sheet') + '</div>' +
       parkedNote(true) +
       '<div class="savebar" id="savebar"></div>' +
+      '<div class="kindbar" id="kindbar"></div>' +
       whoBar() +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
       (S.fromPlan && S.plan ? '<button class="newr" id="backtoplan" style="margin:0 0 10px">‹ Back to the ' +
@@ -4664,7 +4846,7 @@ function render(){
         /* it says what it adds, not where it puts it — he is looking at the sheet */
         '<button class="addb" id="addmore">＋ Add ingredient</button></div>' +
       methodHTML();
-      rows(); swapbar(); wireMethod(); drawSaveBar(); drawUndo();
+      rows(); swapbar(); wireMethod(); drawSaveBar(); drawKindBar(); drawUndo();
     var addMore = function(){
       var box = $('more'); if (!box || !box.value.trim()) return;
       var n = 0;
@@ -6259,6 +6441,16 @@ document.addEventListener('click', function(e){
     render(); window.scrollTo(0,0);
     return;
   }
+  /* ── the kind, changed from the badge that states it ──
+     Deliberately above [data-k]: the two buttons on the FIRST screen are a different
+     thing entirely — they start a new recipe — and this one changes the one open. */
+  if (e.target.closest('#bty')){
+    if (S.kindAsk) closeKind(); else askKind();
+    return;
+  }
+  if (e.target.closest('#kindcx')){ closeKind(); return; }
+  var kt = e.target.closest('[data-kindto]');
+  if (kt){ applyKind(kt.getAttribute('data-kindto')); return; }
   var k = e.target.closest('[data-k]');
   if (k){
     /* Two things went wrong here, and both of them lost a whole recipe.
@@ -7219,6 +7411,11 @@ function goBack(){
 $('back').addEventListener('click', goBack);
 $('back').addEventListener('keydown', function(e){
   if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); goBack(); }
+});
+/* the type badge is a button when a recipe is open, so it answers the keyboard like one */
+$('bty').addEventListener('keydown', function(e){
+  if (!canAskKind()) return;
+  if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); if (S.kindAsk) closeKind(); else askKind(); }
 });
 
 /* Everything pinned to the top publishes its real height, and everything below sticks to
