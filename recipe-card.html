@@ -375,6 +375,19 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 .plating .pl{display:block;font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;
   font-weight:700;color:var(--oliva);margin-bottom:5px}
 .plating .plt{font-size:15px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
+/* ── once it is made: the batch's own line ──
+   Olive, like plating, because it is the same kind of thing — an instruction about the
+   food rather than a number to check in a glance. It is a rule beside words, not a chip
+   row and not a square: it is read once, at the moment the batch is put away.
+   `pre-wrap` because a chef writing three lines meant three lines. */
+.storeb{margin:14px 0 0;padding:12px 15px;background:var(--cream);border:1px solid var(--sabbia-dark);
+  border-left:3px solid var(--oliva);border-radius:0 7px 7px 0}
+.stl{display:block;font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;
+  font-weight:700;color:var(--oliva);margin-bottom:5px}
+.stt{display:block;font-size:15px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
+/* on paper it is plain text under its own heading — a tint and a border cost ink and
+   say nothing the heading has not already said */
+.pstore{font-size:14px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
 .passq{display:flex;flex-wrap:wrap;margin:12px 0 0;border:1px solid var(--sabbia-dark);
   border-radius:7px;overflow:hidden;background:var(--cream)}
 /* three equal boxes; on a phone they stack and the rule moves with them */
@@ -443,6 +456,14 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
      numbers on the page are not the recipe. A tinted box prints as nothing. */
   .pscale{background:none!important;border:1.5px solid #000;border-left:1.5px solid #000;
     color:#000!important;font-size:10pt;font-weight:600}
+  /* "Print this batch" prints the screen card itself, so this box goes to paper as it
+     stands — and its cream tint does not, because background graphics default to off.
+     A rule in black, same as every other box on this page. */
+  .storeb{background:none!important;border:1px solid #000;border-left:1px solid #000;
+    margin:9px 0;padding:6px 9px}
+  .stl{color:#000!important}
+  .stt{color:#000!important;font-size:11.5pt}
+  .pstore{color:#000!important;font-size:11.5pt}
   /* ── the production sheet on paper ──
      Everything that separates one recipe from the next is a RULE, never a tint: a chef
      weighing the mousse sugar into the lady finger is the mistake this is here to stop,
@@ -568,6 +589,10 @@ function shape(rec, lines){
        sees them at all. */
     pass:(rec.method && rec.method.pass) || '',
     crockery:(rec.method && rec.method.crockery) || '',
+    /* a batch's own fact, carried the same way and for the same reason: it is not a step,
+       so toSteps never sees it, and anything left out of this object does not exist on
+       the card or on any sheet printed off it */
+    store:(rec.method && rec.method.store) || '',
     method:toSteps(rec.method), lines:toLines(lines) };
 }
 
@@ -1038,6 +1063,21 @@ function passSquare(key){
           : '<i>nothing ticked — this card cannot answer an allergy question</i>') + '</span></div>' +
     '</div>';
 }
+/* ───── once it is made ─────
+   A batch is put away and found again, so how it is kept belongs on the batch's own card
+   and on the sheet the person making it is holding. The dish never shows it: a plate is
+   not stored, and the batches inside it each carry their own answer on their own tab.
+
+   Nothing when it is empty. Seventy-odd recipes were written before this box existed, and
+   an empty box captioned "Once it is made" on every one of them is a card that says less
+   while taking more room. Where it is missing is a question for the create screen. */
+function storeBox(key){
+  if (key === 'dish') return '';
+  var c = SUBS[key]; if (!c) return '';
+  var t = String(c.store || '').trim(); if (!t) return '';
+  return '<div class="storeb"><span class="stl">Once it is made</span>' +
+    '<span class="stt">' + esc(t) + '</span></div>';
+}
 function algBar(key){
   var l = algFor(key);
   /* On paper the sources were repeated under every allergen — the same three batch names
@@ -1187,6 +1227,7 @@ function viewStation(){
     /* the square already carries the allergens, so the dish shows one or the other and
        never both. A batch has no square, so it keeps the bar. */
     (passSquare(comp) || algBar(comp)) +
+    storeBox(comp) +
     photoStrip(c) +
     '<div class="rule"></div>' +
     '<div class="cols">' +
@@ -1304,6 +1345,14 @@ function prodBlock(n, i, shown){
             '.</b> Those are their own recipes — this sheet does not work out how much of them to make.</div>' : '') +
       '</div>' +
       '<div><div class="pch">Method</div>' + stepsHTML(flat(s.method)) +
+        /* the production sheet is exactly where this is read: it is the page in the hand
+           of the person who has just made the batch and is about to put it away. It sits
+           under that batch's own method, not in a list at the end of the sheet — three
+           batches with three different shelf lives collected in one box is how the wrong
+           one gets read. */
+        (String(s.store || '').trim()
+          ? '<div class="pch" style="margin-top:14px">Once it is made</div>' +
+            '<div class="pstore">' + esc(String(s.store).trim()) + '</div>' : '') +
         ((s.photos || []).length
           ? '<div class="pshot"><img src="' + esc(s.photos[0].u || s.photos[0]) + '" alt="' + esc(s.name) + '">' +
             '<div class="pcap">' + esc(s.name) + '</div></div>' : '') +
@@ -1417,6 +1466,14 @@ function printSheet(){
       (platingSteps(c.method).length
         ? '<div class="h" style="font-size:17px;margin:18px 0 6px">Plating</div>' +
           platingSteps(c.method).map(function(x,i){ return '<div class="sstep"><span class="no">'+(i+1)+'</span><span>'+esc(x)+'</span></div>'; }).join('')
+        : '') +
+      /* On a batch only, and after the steps, because it is what happens when the steps
+         are finished. This is the sheet that gets taped up at the section and the one in
+         the training folder — both outlive the shift, which is exactly when nobody is
+         left to ask how long the thing keeps. */
+      (!onDish && String(c.store || '').trim()
+        ? '<div class="h" style="font-size:17px;margin:18px 0 6px">Once it is made</div>' +
+          '<div class="pstore">' + esc(String(c.store).trim()) + '</div>'
         : '') +
       /* Allergens last on paper, and the names only. Under the dish name they were the
          first thing on the page and the biggest, ahead of the quantities somebody is

@@ -1418,6 +1418,7 @@ function kindBarInner(){
         (S.price != null ? '<li>The menu price (<b>' + fmt(S.price) + ' AED</b>) comes off — a batch is not ordered.</li>' : '') +
         (onm.length ? '<li>It comes off <b>' + onm.map(esc).join('</b> and <b>') + '</b>.</li>' : '') +
         '<li>Plating, the pass, the crockery and the Food Bible boxes are put away. <b>What you typed in them is kept</b> and comes straight back if you change it back.</li>' +
+        '<li><b>How to store it</b> joins the sheet — a batch is made ahead and put away, a dish is not.</li>' +
         '<li>It becomes linkable inside any other recipe, and <b>Prep</b> joins the sections.</li>' +
       '</ul>Nothing is written to the database until you press Save.</div>' +
       '<button class="okb" data-kindto="batch">Make it a batch recipe</button> ' +
@@ -1429,6 +1430,7 @@ function kindBarInner(){
         '<li>Say what it makes in <b>portions</b> instead of kg — the number is asked again, because 4 kg is not 4 portions.</li>' +
         '<li>It gets a menu price, a food cost, and the menus it goes on.</li>' +
         '<li>Plating, the pass, the crockery and the Food Bible boxes come back on the sheet.</li>' +
+        '<li><b>How to store it</b> is put away — nobody puts a plated dish in the fridge. <b>What you typed is kept</b> and comes back if you change it back.</li>' +
         '<li>It stops being linkable inside other recipes' +
           (S.section === 'Prep' ? ', and <b>Prep</b> is not one of Aung’s families, so the section is asked again' : '') +
         '.</li>' +
@@ -1455,7 +1457,12 @@ function drawKindBar(){
    method already uses, so there is no column to add and no recipe to migrate — the same
    reasoning as `foh`: a key in this object needs nothing, works today, and can move to a
    real column later without a single recipe being redone. */
-var MKEYS = ['mise','method','order','plating','pass','crockery'];
+/* `store` is a batch's own key — how it is kept once it is made. It lives in the same
+   jsonb for the same reason `pass` and `crockery` do: nothing to migrate, no SQL to run
+   by hand, and it moves to a real column later without a single recipe being redone.
+   It is in MKEYS, not just on the batch sheet, so a batch turned into a main and back
+   again still says how to store it. */
+var MKEYS = ['mise','method','order','plating','pass','crockery','store'];
 var FKEYS = ['foh','say','story','ing','garnish','more','code'];
 
 /* One box. It was four — mise en place, method, to order, plating — split by when
@@ -1503,7 +1510,7 @@ var FSEC = [
     h:'How it is served, what to suggest.' }
 ];
 function emptyMethod(){
-  return { mise:'', method:'', order:'', plating:'', pass:'', crockery:'',
+  return { mise:'', method:'', order:'', plating:'', pass:'', crockery:'', store:'',
            foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', cutlery:[] };
 }
 
@@ -5944,6 +5951,36 @@ function stepsNote(v, k){
     '<ol class="steplist">' + st.map(function(s){
       return '<li>' + esc(s.length > 96 ? s.slice(0,96) + '…' : s) + '</li>'; }).join('') + '</ol></div>';
 }
+/* ───────── once it is made: how it is kept ─────────
+   A batch is the only kind of recipe that gets put away. It is made hours or days before
+   anybody eats it, and every time it is made the same three questions come up at the
+   section — what does it go in, where does it live, how long is it good for. Nothing on
+   this sheet asked them, so the answer lived in whichever chef made it last.
+
+   ONE box, not three. Same call as the method on 2 August: three boxes nobody fills are
+   three boxes to scroll past on every batch, and a chef writes "vac-pac, fridge, 3 days"
+   in one line far quicker than he fills a form. The shelf life is inside it rather than
+   on a line of its own — the placeholder shows the shape so it does not get left out.
+
+   A main recipe never sees this. A dish is plated and goes out; it has "On the pass" for
+   the only waiting it ever does. The key survives a save either way (see MKEYS), so a
+   batch turned into a main and back again still says how to store it. */
+function storeInner(){
+  if (S.kind !== 'batch') return '';
+  var v = (S.method && S.method.store) || '';
+  return '<div class="mhd ph2">Once it is made</div>' +
+    howto('store', 'What it goes in, where it lives and how long it is good for. ' +
+      'It prints on the batch card and on the production sheet, next to the batch it ' +
+      'belongs to — so whoever makes it and whoever finds it in the fridge a day later ' +
+      'read the same answer. It can be left empty: a batch with nothing here saves ' +
+      'perfectly well.', 'About storing it') +
+    '<div class="msec">' +
+      '<label class="ml" for="m-store">How to store it</label>' +
+      '<textarea class="mbox" id="m-store" data-m="store" rows="1" ' +
+        'placeholder="Vac-pac in 500 g bags, labelled with the date. Fridge. Use within 3 days.">' +
+        esc(v) + '</textarea>' +
+    '</div>';
+}
 function methodInner(){
   var ph = S.photos || [];
   return '<div class="mhd">How it is made</div>' +
@@ -5960,6 +5997,7 @@ function methodInner(){
         '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v, s.k) + '</div>' +
       '</div>';
     }).join('') +
+    storeInner() +
     '<div class="mhd ph2">Photos</div>' +
     howto('photo', 'The plate as it should look, or a cut nobody can describe in words. ' +
       'Take one with the phone or pick one off it — several at a time is fine.', 'About the photo') +
@@ -6026,6 +6064,13 @@ function wireMethod(){
       mth().plating = this.value; grow(this);
       var n = $('stepn-plating'); if (n) n.innerHTML = stepsNote(this.value, 'plating');
     });
+  }
+  /* batch only, and it may not be on the sheet at all — the guard is the same one every
+     other box here uses, because a main recipe never draws it */
+  var st = $('m-store');
+  if (st){
+    grow(st);
+    st.addEventListener('input', function(){ mth().store = this.value; grow(this); });
   }
   ['pass','crockery'].forEach(function(k){
     var e = $('m-'+k); if (!e) return;
