@@ -544,6 +544,11 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .trow .ti em{font-style:normal;font-family:var(--sans);font-size:11px;padding:2px 7px;border-radius:3px;
   background:rgba(207,192,173,.5);color:var(--vino-light)}
 .trow .ti em.h{background:rgba(186,155,2,.2);color:var(--vino);font-weight:600}
+/* one that goes somewhere says so — 44px high so it can be hit with a thumb, and an
+   underline so it does not just look like a label that happens to be tappable */
+.trow .ti em.go{cursor:pointer;text-decoration:underline;text-underline-offset:2px;
+  text-decoration-color:rgba(64,2,7,.3);min-height:44px;display:inline-flex;align-items:center}
+.trow .ti em.go:hover{background:var(--vino);color:var(--cream);text-decoration-color:transparent}
 /* .srow does not wrap, so a 100% basis inside it pushes the row past the screen
    instead of dropping to a second line — it has to be told it may wrap first */
 @media(max-width:640px){
@@ -1580,20 +1585,43 @@ function rememberWho(w){
   catch(e){}
   return WHO;
 }
+/* ── who is offered ──
+   Three people write recipes here — Francesco's call, 5 August. The whole active kitchen
+   list was fifteen names, and thirteen of them are stewards and commis who will never
+   write one: a wall of names to read past every time, and thirteen chances to tap the
+   wrong one.
+
+   This is the only thing hardcoded, and only because there is nothing in the database
+   that says "writes recipes" — `staff` knows designations, not who does this job. The
+   emp_id and the designation still come off the record; only the shortlist is here. If
+   a fourth person starts, their name is typed once and it is saved exactly the same way,
+   so nobody is ever blocked by this list being short. */
+var WRITERS = ['Andrea Falcone', 'Antonio Stellacci', 'Danilo Valla'];
+
 /* The kitchen's own staff list, the same one every accountable action in the app reads.
-   Loaded once and kept — it is nine or ten names and it does not change during a service. */
+   Loaded once and kept — it does not change during a service. */
 var STAFF = null, STAFFERR = null;
 function loadStaff(){
   if (STAFF) return Promise.resolve(STAFF);
   return sb('staff?select=id,name,emp_id,designation,sort_order&active=is.true&order=sort_order')
     .then(function(r){
-      STAFF = (r || []).slice().sort(function(a,b){
-        return ((a.sort_order==null?9999:a.sort_order) - (b.sort_order==null?9999:b.sort_order)) ||
-               (a.name||'').localeCompare(b.name||'');
+      var all = r || [];
+      /* In the order Francesco named them, not the roster's — and a writer who is not
+         on the active staff list is still offered, with no emp_id, rather than quietly
+         disappearing off this screen the day somebody edits the roster. */
+      STAFF = WRITERS.map(function(nm){
+        var hit = all.filter(function(p){
+          return (p.name||'').trim().toLowerCase() === nm.toLowerCase(); })[0];
+        return hit || { name:nm, emp_id:null, designation:'' };
       });
       STAFFERR = null; return STAFF;
     })
-    .catch(function(e){ STAFFERR = e.message; STAFF = []; return STAFF; });
+    .catch(function(e){
+      STAFFERR = e.message;
+      /* the list not loading must never stop a recipe being signed */
+      STAFF = WRITERS.map(function(nm){ return { name:nm, emp_id:null, designation:'' }; });
+      return STAFF;
+    });
 }
 /* The strip. It sits on the sheet with the other facts about the recipe, and the names
    open UNDER it rather than over the page, so the work stays in front of whoever is
@@ -1611,18 +1639,24 @@ function whoSeed(){
   if (!S.id && !(S.who && S.who.name) && WHO && WHO.name)
     S.who = { emp_id:WHO.emp_id, name:WHO.name };
 }
+/* The sheet asks who WROTE the recipe in front of it. The import screen asks who is
+   bringing the file in — a different question with a different answer, because the sheet
+   may still be holding a dish somebody else wrote. */
+function whoOnScreen(){ return S.step === 'plan' ? WHO : S.who; }
 function whoBar(){
   whoSeed();
-  var need = !(S.who && S.who.name);
+  var onPlan = S.step === 'plan';
+  var cur = whoOnScreen();
+  var need = !(cur && cur.name);
   return '<div class="whobar'+(need?' ask':'')+'" id="whobar">' +
-    '<span class="wl">Written by</span>' +
+    '<span class="wl">'+(onPlan ? 'Brought in by' : 'Written by')+'</span>' +
     '<span class="wn">' + (need
       ? '<i>Not said yet — one tap, and this screen remembers you.</i>'
-      : esc(S.who.name)) + '</span>' +
+      : esc(cur.name)) + '</span>' +
     '<button class="wch" id="whoch">' + (S.whoOpen ? 'Close' : need ? 'Say who' : 'Change') + '</button>' +
     /* only when it is somebody else. "Written by Aung · last changed by Aung" is a line
        that costs a reader a second and tells him nothing. */
-    (S.whoUpd && (need || S.whoUpd !== S.who.name)
+    (!onPlan && S.whoUpd && (need || S.whoUpd !== cur.name)
       ? '<span class="wed">Last changed by ' + esc(S.whoUpd) +
         (S.whoAt ? ' · ' + new Date(S.whoAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '') +
         '</span>'
@@ -1630,46 +1664,92 @@ function whoBar(){
     /* Only after he has tried to save. Said before that, it is a telling-off for
        something he has not done yet. */
     (need && S.whoAsked
-      ? '<span class="wed" style="opacity:1;color:var(--attn)">Save is waiting on this. ' +
+      ? '<span class="wed" style="opacity:1;color:var(--attn)">' +
+        (onPlan ? 'Bringing them in is waiting on this — every recipe in the file gets the name. '
+                : 'Save is waiting on this. ') +
         'It is one tap, it is asked once, and nothing you have written is at risk.</span>'
       : '') +
     (S.whoOpen ? whoNames() : '') +
   '</div>';
 }
 function whoNames(){
-  if (!STAFF) return '<div class="wholist"><div class="wsay">Getting the kitchen list…</div></div>';
-  /* A list that will not load must never be the thing that stops a recipe being saved.
-     The name gets typed instead and the recipe goes in. */
-  if (!STAFF.length) return '<div class="wholist"><div class="wsay">' +
-      (STAFFERR ? 'The kitchen list would not load — ' + esc(plain(STAFFERR)) + '.'
-                : 'Nobody is on the active kitchen list.') +
-      ' Type the name instead.</div>' +
-      '<input id="whotype" placeholder="Aung Kyaw" style="font-family:var(--sans);font-size:14px;' +
-        'padding:11px 12px;min-height:44px;border:1px solid var(--sabbia-dark);border-radius:4px;' +
-        'background:#fff;color:var(--ink);width:100%">' +
-      '<button id="whotypeok">Use this name</button></div>';
-  return '<div class="wholist">' + STAFF.map(function(p, i){
-    return '<button data-who="'+i+'">' + esc(p.name || '') +
-      (p.designation ? '<span>'+esc(p.designation)+'</span>' : '') + '</button>';
-  }).join('') + '</div>';
+  if (!STAFF) return '<div class="wholist"><div class="wsay">Getting the names…</div></div>';
+  /* The three, then a box for anybody else. The box is always there, not a fallback for
+     when something breaks: a shortlist that cannot be stepped outside of is a shortlist
+     that eventually signs a recipe with the wrong person's name because the right one
+     was not on it. Typed or tapped, it is saved exactly the same way. */
+  return '<div class="wholist">' +
+    STAFF.map(function(p, i){
+      return '<button data-who="'+i+'">' + esc(p.name || '') +
+        (p.designation ? '<span>'+esc(p.designation)+'</span>' : '') + '</button>';
+    }).join('') +
+    (STAFFERR ? '<div class="wsay">The kitchen list would not load — ' + esc(plain(STAFFERR)) +
+                '. The three names still work; anybody else, type it.</div>' : '') +
+    '<div class="wsay">Somebody else? Type the name.</div>' +
+    '<input id="whotype" placeholder="Their name" style="font-family:var(--sans);font-size:14px;' +
+      'padding:11px 12px;min-height:44px;border:1px solid var(--sabbia-dark);border-radius:4px;' +
+      'background:#fff;color:var(--ink);width:100%;box-sizing:border-box">' +
+    '<button id="whotypeok">Use this name</button>' +
+  '</div>';
 }
+/* ── the signature, wherever a recipe is made ──
+   Save is not the only way a recipe row is created. Bringing in a file makes every batch
+   in it and then the dish — four rows in one second — and turning an ingredient line into
+   a batch makes another. None of those went through saveRecipe(), so all of them were
+   still writing recipes with nobody's name on them AFTER this was supposed to be fixed:
+   four went in this morning, an hour after it went live, every one of them blank.
+
+   One helper, called by every path that creates a recipe, so the next one that gets added
+   is the only place this can go wrong again. */
+function signNew(){
+  whoSeed();
+  /* WHO first, deliberately. S.who is the CREATOR OF THE RECIPE ON THE SHEET, and on the
+     import screen that can still be the last dish somebody opened — signing Antonio's
+     import with Danilo's name because Danilo wrote the recipe that happened to be open.
+     A row being made now belongs to whoever is standing at the screen now. */
+  var w = (WHO && WHO.name) ? WHO
+        : (S.step !== 'plan' && S.who && S.who.name) ? S.who
+        : null;
+  /* On the import screen there is no falling back to the sheet's author at all. The gate
+     on "Create them" already asks, and this is the second lock on the same door: no name
+     is honest, the wrong name is not. */
+  if (!w || !w.name) return {};
+  return { created_by: w.emp_id || null, created_by_name: w.name,
+           updated_by: w.emp_id || null, updated_by_name: w.name };
+}
+/* Adds the signature to a body without the caller having to remember the field names.
+   Silently drops them again if this database has not had updated_by added yet. */
+function signed(body){
+  var s = signNew();
+  for (var k in s) body[k] = s[k];
+  return body;
+}
+
 /* Nothing saves without a name on it — but it is never a refusal and never a dialog.
    The strip opens where it stands, the page goes to it and marks it, and one tap is the
    whole answer. From then on this screen knows, and no later recipe asks again. */
 function askWhoFirst(){
   whoSeed();                         /* never ask for something this screen already knows */
-  if (S.who && S.who.name) return false;
+  var cur = whoOnScreen();
+  if (cur && cur.name) return false;
   S.whoOpen = true; S.whoAsked = true;
-  loadStaff().then(function(){ if (S.step === 'sheet'){ render(); jumpTo('who'); } });
-  render(); jumpTo('who');
+  /* Was tied to the sheet, and the strip is on the import screen now too. Tied to the
+     strip actually being on the page instead, so adding it to a third screen needs
+     nothing changed here. */
+  var again = function(){ render(); if ($('whobar')) jumpTo('who'); };
+  loadStaff().then(again);
+  again();
   return true;
 }
 /* Picking a name says two things at once, and both of them are true: this recipe is
    his, and he is the one standing at this screen. */
 function whoPicked(w){
   if (!w || !w.name) return;
-  S.who = { emp_id:w.emp_id || null, name:w.name };
-  rememberWho(S.who);
+  var picked = { emp_id:w.emp_id || null, name:w.name };
+  /* On the import screen this says who is bringing the file in — it must not overwrite
+     the author of whatever recipe is still open on the sheet behind it. */
+  if (S.step !== 'plan') S.who = picked;
+  rememberWho(picked);
   S.whoOpen = false; S.whoAsked = false;
   render();
 }
@@ -2210,36 +2290,40 @@ var SAVEDMENUS = [];
    picked on a line, no quantity on a line, a batch inside it that has been removed, or
    a batch that never said how much it makes. All four cost the dish nothing and all
    four are invisible until you open it. */
+/* Every one of these carries WHERE it is fixed. Naming what is missing and then leaving
+   somebody to find the box themselves is half a job — and the box for a menu price is
+   inside the costing, which is shut, so "find it yourself" meant opening a panel he had
+   no reason to know was the right one. `sec` is a key in JUMPAT below. */
 function issuesOf(r){
   if (!S.tally) return [];                      /* the count did not load — claim nothing */
   var t = S.tally[r.id], out = [];
   /* what stops it costing comes first — those are the ones that quietly make a dish
      look cheaper than it is */
-  if (!t || !t.lines) out.push({ hard:true, s:'nothing in it yet' });
+  if (!t || !t.lines) out.push({ hard:true, sec:'lines', s:'nothing in it yet' });
   else {
-    if (t.noIng) out.push({ hard:true, s:t.noIng + (t.noIng===1 ? ' line with no ingredient' : ' lines with no ingredient') });
-    if (t.noQty) out.push({ hard:true, s:t.noQty + (t.noQty===1 ? ' line with no amount' : ' lines with no amount') });
+    if (t.noIng) out.push({ hard:true, sec:'lines', s:t.noIng + (t.noIng===1 ? ' line with no ingredient' : ' lines with no ingredient') });
+    if (t.noQty) out.push({ hard:true, sec:'lines', s:t.noQty + (t.noQty===1 ? ' line with no amount' : ' lines with no amount') });
     var gone = 0, seen = {};
     t.kids.forEach(function(id){
       if (seen[id]) return; seen[id] = 1;
       var b = BATCH[id]; if (b && b.archived) gone++;
     });
-    if (gone) out.push({ hard:true, s:gone + (gone===1 ? ' batch in it has been removed' : ' batches in it have been removed') });
+    if (gone) out.push({ hard:true, sec:'lines', s:gone + (gone===1 ? ' batch in it has been removed' : ' batches in it have been removed') });
   }
-  if (r.kind === 'batch' && r.makes_qty == null) out.push({ hard:true, s:'doesn’t say how much it makes' });
+  if (r.kind === 'batch' && r.makes_qty == null) out.push({ hard:true, sec:'makes', s:'doesn’t say how much it makes' });
   if (r.kind === 'main'){
     /* Batches are left out of these two on purpose: nobody cooks a batch off a card at
        the pass and the floor never reads one, so a batch with no method is not unfinished.
        A dish with none is — the pass has nothing to cook from, and the Food Bible page
        the floor reads comes out blank. */
     var m = normMethod(r.method);
-    if (!hasMethod(m)) out.push({ s:'no method — nothing for the pass to cook from' });
+    if (!hasMethod(m)) out.push({ sec:'method', s:'no method — nothing for the pass to cook from' });
     if (!FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
-      out.push({ s:'nothing for the floor — the Food Bible page is blank' });
-    if (r.makes_qty == null)  out.push({ s:'doesn’t say how many portions' });
-    if (!r.section)           out.push({ s:'no section — Aung’s form needs one' });
-    if (r.menu_price == null) out.push({ s:'no menu price' });
-    if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ s:'not on a menu' });
+      out.push({ sec:'floor', s:'nothing for the floor — the Food Bible page is blank' });
+    if (r.makes_qty == null)  out.push({ sec:'makes',   s:'doesn’t say how many portions' });
+    if (!r.section)           out.push({ sec:'section', s:'no section — Aung’s form needs one' });
+    if (r.menu_price == null) out.push({ sec:'price',   s:'no menu price' });
+    if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ sec:'menu', s:'not on a menu' });
   }
   return out;
 }
@@ -2295,12 +2379,29 @@ function marksHTML(r){
 /* where each mark lands. `makes` lives in the costing rather than on the sheet, so that
    one opens the costing on the way past — landing him on a panel he still has to open is
    the same dead end as not jumping at all. */
-var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot', who:'#whobar' };
+var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot', who:'#whobar',
+  /* The menu price and the portions live INSIDE the costing, which is shut by default.
+     Landing on the shut bar was the same dead end as not moving at all — so these open
+     it, land on it, and put the caret in the actual box. */
+  price:'#foot', section:'.bar', menu:'.bar' };
+/* which box the caret belongs in once it has landed */
+var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn' };
 function jumpTo(sec){
-  if (sec === 'makes' && S.footShut){
+  if ((sec === 'makes' || sec === 'price') && S.footShut){
     S.footShut = false;
     try{ localStorage.setItem('rcpFoot','open'); }catch(x){}
     foot();
+  }
+  /* The section and the menu are on the bar, which is pinned to the top and already in
+     front of him. Scrolling to it does nothing visible, so it is opened where it is:
+     the caret goes in, and the dropdown is marked so the eye finds which of the two. */
+  var box = JUMPBOX[sec] ? document.querySelector(JUMPBOX[sec]) : null;
+  if (box && (sec === 'section' || sec === 'menu')){
+    window.scrollTo(0, 0);
+    try { box.focus(); } catch(e){}
+    box.classList.remove('jumped'); void box.offsetWidth; box.classList.add('jumped');
+    setTimeout(function(){ box.classList.remove('jumped'); }, 1800);
+    return;
   }
   var el = document.querySelector(JUMPAT[sec] || '');
   if (!el) return;
@@ -2316,6 +2417,11 @@ function jumpTo(sec){
   /* say where he landed — a page that just moves leaves him hunting for what changed */
   el.classList.remove('jumped'); void el.offsetWidth; el.classList.add('jumped');
   setTimeout(function(){ el.classList.remove('jumped'); }, 1800);
+  /* and the caret goes in the box, so the next thing he does is type the number rather
+     than look for where to type it */
+  if (box) setTimeout(function(){
+    try { box.focus(); box.select && box.select(); } catch(e){}
+  }, 80);
 }
 /* Said once for the folder instead of once on every row. Four rows carrying the same
    sentence is the same fact printed four times; "4 started" is that fact, once, and it
@@ -3768,6 +3874,8 @@ function runWorkbook(){
         menu_price: R.kind === 'main' && R.f.price != null ? R.f.price : null,
         method: R.method, photos: [], updated_at: new Date().toISOString()
       };
+      /* a file brought in by Antonio is Antonio's work, all four rows of it */
+      signed(head);
       return sb('recipes', { method:'POST', body:head }).then(function(out){
         var rec = out && out[0];
         if (!rec) throw new Error('the database did not return the recipe');
@@ -4179,8 +4287,12 @@ function render(){
         '<span class="tk">'+(r.kind==='batch'?'batch':'main')+
           (r.section?' · '+esc(r.section):'')+
           (r.makes_qty?' · makes '+r.makes_qty+' '+esc(mu3):'')+'</span>' +
+        /* Each one is the way into the box that fixes it. The row is already a button, so
+           these cannot be buttons too — they carry the destination and the row's handler
+           reads which one was actually hit. Tapping the row anywhere still just opens it. */
         '<span class="ti">'+x.is.map(function(i){
-          return '<em class="'+(i.hard?'h':'')+'">'+esc(i.s)+'</em>'; }).join('') + '</span>' +
+          return '<em class="'+(i.hard?'h ':'')+(i.sec?'go':'')+'"'+(i.sec?' data-sec="'+i.sec+'"':'')+
+                 (i.sec?' title="Open ‘'+esc(r.name)+'’ where this is fixed"':'')+'>'+esc(i.s)+'</em>'; }).join('') + '</span>' +
       '</button>';
     };
     var mainsBad = bad.filter(function(x){ return x.r.kind === 'main'; });
@@ -4623,6 +4735,11 @@ function planInner(){
       'before the dish points at it. You still pick every ingredient afterwards; this only saves you ' +
       'opening them one at a time and re-typing the links.</div>' +
 
+    /* The same strip as the sheet. A file brings in four recipes in one second, and
+       before this every one of them went in with nobody's name on it — the one place
+       where being unsigned multiplies. */
+    whoBar() +
+
     (S.planRan
       ? '<div class="'+(failed.length?'todo':'okline')+'">' +
           (failed.length
@@ -5007,9 +5124,9 @@ function makeBatchFor(i){
   var f = foundSub(nm);
   if (f){
     var built = rowsFromFound(f);
-    return sb('recipes', { method:'POST', body:{
+    return sb('recipes', { method:'POST', body: signed({
         kind:'batch', name:disp(f.name), section:'Prep',
-        makes_qty:f.makesQty==null?null:f.makesQty, makes_unit:f.makesUnit||null } })
+        makes_qty:f.makesQty==null?null:f.makesQty, makes_unit:f.makesUnit||null }) })
       .then(function(out){
         var id = out[0].id;
         return (built.length ? sb('recipe_lines', { method:'POST', prefer:'return=minimal',
@@ -5040,7 +5157,7 @@ function makeEmptyBatch(i){
       rows(); foot();
     });
   };
-  sb('recipes', { method:'POST', body:{ kind:'batch', name:nm, section:'Prep' } })
+  sb('recipes', { method:'POST', body: signed({ kind:'batch', name:nm, section:'Prep' }) })
     .then(function(out){ return link(out[0].id); })
     .catch(function(){                                  /* one already has that name — use it */
       return sb('recipes?kind=eq.batch&archived=is.false&name=eq.'+encodeURIComponent(nm)+'&select=id')
@@ -6066,6 +6183,14 @@ document.addEventListener('input', function(e){
 document.addEventListener('keydown', function(e){
   if (e.key !== 'Enter') return;
   var t = e.target;
+  /* Typing a name and pressing Enter is what anybody does. Without this it does nothing,
+     and the name sits in a box looking as though it has been accepted. */
+  if (t && t.id === 'whotype'){
+    e.preventDefault();
+    var v = t.value.trim();
+    if (v) whoPicked({ emp_id:null, name:v });
+    return;
+  }
   if (!t.classList || !t.classList.contains('cell')) return;
   e.preventDefault();
   var all = [].slice.call(document.querySelectorAll('.cell'));
@@ -6312,6 +6437,11 @@ document.addEventListener('click', function(e){
   var op = e.target.closest('[data-open]');
   if (op){
     var openId = op.dataset.open;
+    /* Which of the missing things he actually tapped. Opening the recipe at the top and
+       leaving him to find the menu-price box — inside a costing panel that is shut — is
+       half the job the row has already done by naming what is missing. */
+    var hitIssue = e.target.closest('em[data-sec]');
+    var openSec = hitIssue ? hitIssue.dataset.sec : null;
     /* it used to stop him and ask; it puts the half-written one to one side instead */
     if (parkCurrent()) flash(parkedFlash());
     var btn = document.querySelector('[data-open="'+openId+'"]');
@@ -6319,7 +6449,9 @@ document.addEventListener('click', function(e){
     if (btn && !fromTodo) btn.textContent = 'Opening…';
     openRecipe(openId).then(function(){
       /* the promise on that screen is "you come back here afterwards", so keep the way back */
-      S.fromTodo = fromTodo; markClean(); render(); window.scrollTo(0,0); })
+      S.fromTodo = fromTodo; markClean(); render(); window.scrollTo(0,0);
+      /* after the sheet is drawn and the pinned bands have published their heights */
+      if (openSec) setTimeout(function(){ fitBar(); jumpTo(openSec); }, 60); })
       .catch(function(err){
         if (btn) btn.outerHTML = '<div class="todo"><b>Could not open it.</b> '+esc(plain(err.message))+'</div>';
       });
@@ -6488,6 +6620,9 @@ document.addEventListener('click', function(e){
   }
   if (e.target.id === 'oneatatime'){ S.plan=null; S.step='found'; render(); window.scrollTo(0,0); return; }
   if (e.target.id === 'doall'){
+    /* asked BEFORE anything is created, not after: four rows go in a second apart and
+       there is no going back and signing them once they are there */
+    if (askWhoFirst()) return;
     e.target.disabled = true; e.target.textContent = 'Creating…';
     runWorkbook().then(function(){ window.scrollTo(0,0); });
     return;
