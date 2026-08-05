@@ -2320,6 +2320,23 @@ function issuesOf(r){
     if (!hasMethod(m)) out.push({ sec:'method', s:'no method — nothing for the pass to cook from' });
     if (!FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
       out.push({ sec:'floor', s:'nothing for the floor — the Food Bible page is blank' });
+    /* Plating, the pass and the crockery were saved and printed and never once checked, so
+       a dish with no plating instruction was reported as FINISHED. It is not a small gap:
+       the recipe card gives plating its own box and numbers it from 1, because plating and
+       cooking are two different people's jobs — so a dish without it prints a sheet that
+       silently drops the step somebody is stood there to do.
+
+       These are the kitchen's own card, not the floor's page: the Food Bible reads none
+       of the three. */
+    if (!String(m.plating || '').trim())
+      out.push({ sec:'plating', s:'no plating — the card prints the box empty' });
+    if (!String(m.crockery || '').trim())
+      out.push({ sec:'crockery', s:'doesn’t say what it goes out on' });
+    /* Worded as a question, not a fault, and deliberately last. The box's own hint says
+       "empty if it does not wait", so a blank here can honestly mean the dish goes
+       straight out — this says nobody has answered, which is true either way. */
+    if (!String(m.pass || '').trim())
+      out.push({ sec:'pass', s:'nobody has said how long it can stand on the pass' });
     if (r.makes_qty == null)  out.push({ sec:'makes',   s:'doesn’t say how many portions' });
     if (!r.section)           out.push({ sec:'section', s:'no section — Aung’s form needs one' });
     if (r.menu_price == null) out.push({ sec:'price',   s:'no menu price' });
@@ -2383,9 +2400,13 @@ var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot'
   /* The menu price and the portions live INSIDE the costing, which is shut by default.
      Landing on the shut bar was the same dead end as not moving at all — so these open
      it, land on it, and put the caret in the actual box. */
-  price:'#foot', section:'.bar', menu:'.bar' };
+  price:'#foot', section:'.bar', menu:'.bar',
+  /* all three live in the one plating block, so they land on it together and the caret
+     picks out which of the three was actually missing */
+  plating:'#pssbox', crockery:'#pssbox', pass:'#pssbox' };
 /* which box the caret belongs in once it has landed */
-var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn' };
+var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn',
+  plating:'#m-plating', crockery:'#m-crockery', pass:'#m-pass' };
 function jumpTo(sec){
   if ((sec === 'makes' || sec === 'price') && S.footShut){
     S.footShut = false;
