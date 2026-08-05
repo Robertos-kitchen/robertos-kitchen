@@ -627,6 +627,29 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .sbt b{color:var(--vino)}
 .sbwhy{font-size:12.5px;color:var(--attn);line-height:1.5;margin:-4px 0 10px;padding:0 2px}
 
+/* ───── who wrote it ─────
+   A fact about the recipe, so it sits on the sheet with the other facts and is asked
+   the same way everything else here is asked — in place, never in a dialog. The names
+   open UNDER the strip rather than over the sheet, so the work stays visible while
+   somebody picks. Every target is 44px so it can be hit with a wet thumb. */
+.whobar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;
+  border:1px solid rgba(64,2,7,.14);border-radius:6px;padding:9px 13px;margin:0 0 10px}
+.whobar.ask{background:var(--attn-soft);border-color:var(--attn)}
+.whobar .wl{font-family:var(--sans);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--vino-light);font-weight:700;flex:0 0 auto}
+.whobar .wn{font-family:var(--serif);font-size:20px;color:var(--vino);line-height:1.1;flex:1 1 auto;min-width:0}
+.whobar .wn i{font-family:var(--sans);font-size:12.5px;font-style:normal;color:var(--attn)}
+.whobar .wch{font-family:var(--sans);font-size:12px;color:var(--vino);background:none;border:none;
+  border-bottom:1px solid rgba(64,2,7,.35);cursor:pointer;padding:0;min-height:44px;flex:0 0 auto}
+.whobar .wed{flex:1 0 100%;font-family:var(--sans);font-size:11.5px;opacity:.55;margin-top:-4px}
+.wholist{flex:1 0 100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  gap:6px;margin-top:4px;max-height:46vh;overflow:auto}
+.wholist button{font-family:var(--sans);font-size:13.5px;text-align:left;padding:10px 12px;min-height:44px;
+  border:1px solid var(--sabbia-dark);border-radius:4px;background:#fff;color:var(--ink);cursor:pointer;line-height:1.3}
+.wholist button:hover{border-color:var(--vino)}
+.wholist button span{display:block;font-size:10.5px;opacity:.55;margin-top:2px}
+.wholist .wsay{font-size:12.5px;opacity:.6;padding:8px 2px;grid-column:1/-1}
+
 .pnote2{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:6px;
   padding:11px 13px;font-size:13px;line-height:1.55;color:var(--vino-light);margin:0 0 14px}
 .pnote2 b{color:var(--vino)}
@@ -1225,6 +1248,10 @@ var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
       /* put away by default: writing a recipe is reading the rows, and the sheet
          being whole matters more than a number he looks at when he prices it */
       footShut:(function(){ try{ return localStorage.getItem('rcpFoot') !== 'open'; }catch(x){ return true; } })(),
+      /* who wrote THIS recipe (the record's own creator), and whether the names are
+         open under the strip. Not the same thing as WHO, which is whoever is standing
+         at this screen right now. */
+          who:null, whoOpen:false, whoUpd:null, whoAt:null,
           method:null, photos:[], allergens:[] };
 /* ── the sections ARE Aung's Micros families ──
    They used to be our own words — "Salad / Soup", "Main", "Canapé" — and none of those
@@ -1525,6 +1552,127 @@ function linesFor(recipeId, rowsArr){
   });
 }
 
+/* ═════════ who wrote it ═════════
+   `created_by` and `created_by_name` have been columns on `recipes` since the module was
+   built and nothing has ever written to them: seventy-seven recipes, not one with a name
+   on it. A recipe nobody is named on is a recipe nobody can be asked about — and the
+   question a chef actually has, standing in front of a sheet he does not follow, is who
+   wrote this.
+
+   Asked ONCE. The screen remembers the person, so the second recipe they write is
+   pre-filled and saving is no extra tap at all. Save changes never stops to ask.
+
+   Remembered for twelve hours, not for ever. This is a shared screen on a section: a name
+   left on it overnight would sign the next morning's work with the wrong chef, which is
+   worse than being asked again. */
+var WHOLS = 'rcpWho', WHOFOR = 12*60*60*1000;
+var WHO = (function(){
+  try { var v = JSON.parse(localStorage.getItem(WHOLS) || 'null');
+        if (v && v.name && v.at && (Date.now() - v.at) < WHOFOR) return { emp_id:v.emp_id||null, name:v.name };
+  } catch(e){}
+  return null;
+})();
+/* Whoever taps a name is standing at this screen — true whether they are naming
+   themselves on a new recipe or correcting the name on an old one. */
+function rememberWho(w){
+  WHO = { emp_id:w.emp_id || null, name:w.name };
+  try { localStorage.setItem(WHOLS, JSON.stringify({ emp_id:WHO.emp_id, name:WHO.name, at:Date.now() })); }
+  catch(e){}
+  return WHO;
+}
+/* The kitchen's own staff list, the same one every accountable action in the app reads.
+   Loaded once and kept — it is nine or ten names and it does not change during a service. */
+var STAFF = null, STAFFERR = null;
+function loadStaff(){
+  if (STAFF) return Promise.resolve(STAFF);
+  return sb('staff?select=id,name,emp_id,designation,sort_order&active=is.true&order=sort_order')
+    .then(function(r){
+      STAFF = (r || []).slice().sort(function(a,b){
+        return ((a.sort_order==null?9999:a.sort_order) - (b.sort_order==null?9999:b.sort_order)) ||
+               (a.name||'').localeCompare(b.name||'');
+      });
+      STAFFERR = null; return STAFF;
+    })
+    .catch(function(e){ STAFFERR = e.message; STAFF = []; return STAFF; });
+}
+/* The strip. It sits on the sheet with the other facts about the recipe, and the names
+   open UNDER it rather than over the page, so the work stays in front of whoever is
+   picking. Nothing here opens on top of anything. */
+/* Two of the ways onto a sheet never go through newRecipe() — tapping Main or Batch on
+   the type screen only sets the kind — so seeding the remembered name in newRecipe()
+   alone left the strip asking a chef who he was on every second recipe, which is the
+   whole thing this was supposed to stop. It is done here instead, on the one path both
+   routes share.
+
+   Only on a recipe that has never been saved. A record that has been opened keeps
+   whatever name is written on it, including none: the seventy-one older recipes were
+   not written by whoever happens to be standing here now. */
+function whoSeed(){
+  if (!S.id && !(S.who && S.who.name) && WHO && WHO.name)
+    S.who = { emp_id:WHO.emp_id, name:WHO.name };
+}
+function whoBar(){
+  whoSeed();
+  var need = !(S.who && S.who.name);
+  return '<div class="whobar'+(need?' ask':'')+'" id="whobar">' +
+    '<span class="wl">Written by</span>' +
+    '<span class="wn">' + (need
+      ? '<i>Not said yet — one tap, and this screen remembers you.</i>'
+      : esc(S.who.name)) + '</span>' +
+    '<button class="wch" id="whoch">' + (S.whoOpen ? 'Close' : need ? 'Say who' : 'Change') + '</button>' +
+    /* only when it is somebody else. "Written by Aung · last changed by Aung" is a line
+       that costs a reader a second and tells him nothing. */
+    (S.whoUpd && (need || S.whoUpd !== S.who.name)
+      ? '<span class="wed">Last changed by ' + esc(S.whoUpd) +
+        (S.whoAt ? ' · ' + new Date(S.whoAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '') +
+        '</span>'
+      : '') +
+    /* Only after he has tried to save. Said before that, it is a telling-off for
+       something he has not done yet. */
+    (need && S.whoAsked
+      ? '<span class="wed" style="opacity:1;color:var(--attn)">Save is waiting on this. ' +
+        'It is one tap, it is asked once, and nothing you have written is at risk.</span>'
+      : '') +
+    (S.whoOpen ? whoNames() : '') +
+  '</div>';
+}
+function whoNames(){
+  if (!STAFF) return '<div class="wholist"><div class="wsay">Getting the kitchen list…</div></div>';
+  /* A list that will not load must never be the thing that stops a recipe being saved.
+     The name gets typed instead and the recipe goes in. */
+  if (!STAFF.length) return '<div class="wholist"><div class="wsay">' +
+      (STAFFERR ? 'The kitchen list would not load — ' + esc(plain(STAFFERR)) + '.'
+                : 'Nobody is on the active kitchen list.') +
+      ' Type the name instead.</div>' +
+      '<input id="whotype" placeholder="Aung Kyaw" style="font-family:var(--sans);font-size:14px;' +
+        'padding:11px 12px;min-height:44px;border:1px solid var(--sabbia-dark);border-radius:4px;' +
+        'background:#fff;color:var(--ink);width:100%">' +
+      '<button id="whotypeok">Use this name</button></div>';
+  return '<div class="wholist">' + STAFF.map(function(p, i){
+    return '<button data-who="'+i+'">' + esc(p.name || '') +
+      (p.designation ? '<span>'+esc(p.designation)+'</span>' : '') + '</button>';
+  }).join('') + '</div>';
+}
+/* Nothing saves without a name on it — but it is never a refusal and never a dialog.
+   The strip opens where it stands, the page goes to it and marks it, and one tap is the
+   whole answer. From then on this screen knows, and no later recipe asks again. */
+function askWhoFirst(){
+  whoSeed();                         /* never ask for something this screen already knows */
+  if (S.who && S.who.name) return false;
+  S.whoOpen = true; S.whoAsked = true;
+  loadStaff().then(function(){ if (S.step === 'sheet'){ render(); jumpTo('who'); } });
+  render(); jumpTo('who');
+  return true;
+}
+/* Picking a name says two things at once, and both of them are true: this recipe is
+   his, and he is the one standing at this screen. */
+function whoPicked(w){
+  if (!w || !w.name) return;
+  S.who = { emp_id:w.emp_id || null, name:w.name };
+  rememberWho(S.who);
+  S.whoOpen = false; S.whoAsked = false;
+  render();
+}
 /* Save — the recipe, then its lines. Never a stored cost: it re-costs off the stock take every time. */
 function saveRecipe(){
   var head = {
@@ -1552,10 +1700,37 @@ function saveRecipe(){
   if (S.id && !S.whole){
     delete head.photos; delete head.method; delete head.allergens;
   }
-  var step1 = S.id
-    ? sb('recipes?id=eq.'+S.id, { method:'PATCH', body:head })
-    : sb('recipes', { method:'POST', body:head });
-  return step1.then(function(out){
+  /* Who wrote it is written on every save, not only the first, because it can be
+     corrected on the strip afterwards — a name typed onto the wrong recipe has to be
+     fixable without deleting the work.
+
+     Who last changed it is only written when this screen actually knows who is at it.
+     Falling back to the creator would put his name on somebody else's edit, which is
+     not a smaller lie for being a convenient one. */
+  if (S.who && S.who.name){
+    head.created_by = S.who.emp_id || null;
+    head.created_by_name = S.who.name;
+  }
+  if (WHO && WHO.name){
+    head.updated_by = WHO.emp_id || null;
+    head.updated_by_name = WHO.name;
+  }
+  /* `updated_by` and `updated_by_name` are newer than this page. If the screen is ever
+     opened against a database that has not had them added yet, PostgREST rejects the
+     WHOLE save for an unknown column — and a chef would lose an hour's work over a
+     field nobody has even asked to see. So the save drops them and goes again. It is
+     the recipe that matters; the signature is the part that can wait. */
+  function put(body){
+    return (S.id ? sb('recipes?id=eq.'+S.id, { method:'PATCH', body:body })
+                 : sb('recipes', { method:'POST', body:body }))
+      .catch(function(err){
+        if (!/updated_by/.test(err.message || '') || !('updated_by' in body)) throw err;
+        var b2 = {}; for (var k in body) if (k !== 'updated_by' && k !== 'updated_by_name') b2[k] = body[k];
+        return S.id ? sb('recipes?id=eq.'+S.id, { method:'PATCH', body:b2 })
+                    : sb('recipes', { method:'POST', body:b2 });
+      });
+  }
+  return put(head).then(function(out){
     var rec = out && out[0]; if (!rec) throw new Error('the database did not return the recipe');
     S.id = rec.id;
     return sb('recipe_lines?recipe_id=eq.'+S.id, { method:'DELETE', prefer:'return=minimal' });
@@ -1790,6 +1965,10 @@ function newRecipe(){
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
   S.method = emptyMethod(); S.photos = []; S.bigPhoto = null; S.allergens = [];
+  /* pre-filled with whoever this screen already knows, so the second recipe somebody
+     writes costs them no taps at all — the whole point of remembering it */
+  S.who = WHO ? { emp_id:WHO.emp_id, name:WHO.name } : null;
+  S.whoUpd = null; S.whoAt = null; S.whoOpen = false; S.whoAsked = false;
   /* A dish on no menu shows up on no card at all — so a new one starts on the menu
      that is running. Untick it if it belongs somewhere else; it is one tap either
      way, and the other way round is a dish nobody can find. */
@@ -1953,7 +2132,7 @@ function loadSaved(){
     /* `method` comes back with the list so Needs finishing can say when a dish has no
        method written and when the floor's half is empty — both invisible from outside */
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
-       '&order=updated_at.desc&limit=2000'),
+       ',created_by_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
       .catch(function(){ return null; }),
@@ -2075,7 +2254,7 @@ function marksHTML(r){
 /* where each mark lands. `makes` lives in the costing rather than on the sheet, so that
    one opens the costing on the way past — landing him on a panel he still has to open is
    the same dead end as not jumping at all. */
-var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot' };
+var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot', who:'#whobar' };
 function jumpTo(sec){
   if (sec === 'makes' && S.footShut){
     S.footShut = false;
@@ -2743,6 +2922,12 @@ function openRecipe(id){
     S.photos = Array.isArray(rec.photos) ? rec.photos.filter(function(p){ return p && p.u; }) : [];
     S.bigPhoto = null;
     S.allergens = Array.isArray(rec.allergens) ? rec.allergens.slice() : [];
+    /* the record's own creator, not whoever is at the screen — an old recipe opened by
+       somebody else must keep saying who actually wrote it */
+    S.who = rec.created_by_name ? { emp_id:rec.created_by || null, name:rec.created_by_name } : null;
+    S.whoUpd = rec.updated_by_name || null;
+    S.whoAt = rec.updated_at || null;
+    S.whoOpen = false; S.whoAsked = false;
 
     var lines = both[1] || [];
     S.rows = lines.map(function(l){
@@ -3742,7 +3927,10 @@ function render(){
         '<button class="sopen" data-open="'+r.id+'">' +
           '<span class="sn">'+esc(r.name)+'</span>' +
           '<span class="sm">'+(r.section?esc(r.section)+' · ':'') +
-            (makes ? 'makes '+esc(makes) : '<i>doesn\'t say how much it makes</i>')+'</span>' +
+            (makes ? 'makes '+esc(makes) : '<i>doesn\'t say how much it makes</i>') +
+            /* who to go and ask about it. Nothing said for the ones written before the
+               question was ever asked — an empty space is honest and a guess is not. */
+            (r.created_by_name ? ' · '+esc(r.created_by_name) : '')+'</span>' +
         '</button>' +
         (r.archived ? needsWork(r) : marksHTML(r)) +
         '<span class="sd">'+new Date(r.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>' +
@@ -4270,6 +4458,7 @@ function render(){
           'Working the sheet') + '</div>' +
       parkedNote(true) +
       '<div class="savebar" id="savebar"></div>' +
+      whoBar() +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
       (S.fromPlan && S.plan ? '<button class="newr" id="backtoplan" style="margin:0 0 10px">‹ Back to the ' +
         S.plan.recs.length + ' from ' + esc(S.plan.file) + '</button>' : '') +
@@ -6095,8 +6284,27 @@ document.addEventListener('click', function(e){
       });
     return;
   }
+  /* ── who wrote it ── */
+  if (e.target.id === 'whoch'){
+    S.whoOpen = !S.whoOpen;
+    if (S.whoOpen) loadStaff().then(function(){ if (S.step === 'sheet') render(); });
+    render();
+    return;
+  }
+  var wp = e.target.closest('[data-who]');
+  if (wp){ whoPicked(STAFF && STAFF[+wp.dataset.who]); return; }
+  if (e.target.id === 'whotypeok'){
+    var wt = $('whotype'), wnm = wt ? wt.value.trim() : '';
+    if (!wnm){ if (wt) wt.focus(); return; }
+    whoPicked({ emp_id:null, name:wnm });
+    return;
+  }
+
   /* ── not saved yet ── */
   if (e.target.id === 'sbsave' || e.target.id === 'sbsavego'){
+    /* One tap short of a save, not a save that failed: nothing has been sent, nothing
+       is at risk, and the strip is already open and marked by the time he looks up. */
+    if (askWhoFirst()) return;
     var goAfter = e.target.id === 'sbsavego';
     /* Hold the button itself, not e.target read back later: a save that fails has to
        give it back, or one bad moment on the network leaves a dead button with an
@@ -6485,6 +6693,9 @@ $('act').addEventListener('click', function(){
     setTimeout(function(){ if (t) t.remove(); }, 2600);
     return;
   }
+  /* Same one tap the save bar asks for, asked in the same place — the strip on the
+     sheet — so it does not matter which of the two Saves he reached for. */
+  if (askWhoFirst()) return;
   b.dataset.busy = '1'; b.textContent = 'Saving…';
   saveRecipe().then(function(){
     delete b.dataset.busy; b.textContent = 'Saved ✓';

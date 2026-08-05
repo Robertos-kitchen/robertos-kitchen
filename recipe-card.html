@@ -559,7 +559,7 @@ function toLines(rows){
 }
 function shape(rec, lines){
   return { id:rec.id, name:rec.name || 'Untitled', section:rec.section || '',
-    by:rec.created_by_name || '', kind:rec.kind,
+    by:rec.created_by_name || '', byUpd:rec.updated_by_name || '', kind:rec.kind,
     makes:{ qty:rec.makes_qty, unit:rec.makes_unit || (rec.kind==='main'?'portion':'') },
     allergens:rec.allergens || [], photos:rec.photos || [],
     at:rec.updated_at || null,
@@ -1082,7 +1082,14 @@ var portions = 1;
 function viewCard(){
   return '<div class="wrap">' +
     '<div class="hdr"><div class="rname">'+esc(R.name)+'</div><div class="rsec">'+esc(R.section)+'</div></div>' +
-    '<div class="meta">Makes '+esc(amount(R.makes.qty, R.makes.unit))+' &nbsp;·&nbsp; '+esc(R.by)+'</div>' +
+    /* The name was already read off the record and printed here, but nothing has ever
+       written it — so every card in the kitchen has carried a hanging "·" with nothing
+       after it. The separator now belongs to the name and goes when the name is not
+       there. The one who last changed it is only worth the line when it is somebody
+       else; on most recipes it is the same person twice. */
+    '<div class="meta">Makes '+esc(amount(R.makes.qty, R.makes.unit)) +
+      (R.by ? ' &nbsp;·&nbsp; written by '+esc(R.by) : '') +
+      (R.byUpd && R.byUpd !== R.by ? ' &nbsp;·&nbsp; last changed by '+esc(R.byUpd) : '') + '</div>' +
     '<div class="photos">' + ((R.photos || []).length
       ? R.photos.map(function(p){ return '<img class="ph" src="'+esc(p.u||p)+'" alt="'+esc(R.name)+'">'; }).join('')
       : '<div class="ph">No photo yet.<br>Added on the create screen.</div>') + '</div>' +
@@ -1361,7 +1368,9 @@ function printSheet(){
   /* `photos` has to be on here, and was not — the same omission that once kept the plated
      dish off the station card. The folder sheet rebuilds the dish as a plain object, and
      anything left out of that object simply does not exist on the page. */
-  var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes, photos:R.photos}}]
+  /* `by` has to be on here for the same reason `photos` did: this block rebuilds the dish
+     as a plain object, and anything left out of it does not exist on the printed page. */
+  var all = [{k:'dish', c:{name:R.name, lines:R.lines, method:R.method, makes:R.makes, photos:R.photos, by:R.by}}]
     .concat(comps.slice(1).map(function(x){ return {k:x.k, c:SUBS[x.k], inside:x.inside}; }));
   return '<div id="psheet">' + all.map(function(a){
     var onDish = a.k==='dish', c = a.c;
@@ -1371,7 +1380,11 @@ function printSheet(){
       '<div class="pname">'+esc(c.name)+'</div>' +
       '<div class="pmeta">'+(onDish?esc(R.section)+' · ':'')+'Makes '+esc(amount(c.makes.qty, c.makes.unit))+
         (used?' · one portion takes '+show(used.q,used.u).q+' '+show(used.q,used.u).u
-             : a.inside?' · goes into '+esc(a.inside):'')+'</div>' +
+             : a.inside?' · goes into '+esc(a.inside):'') +
+        /* On paper this matters more than it does on the screen: a sheet in the folder
+           outlives the shift, and whoever picks it up in three months has no other way
+           of knowing who to go and ask about it. */
+        (c.by ? ' · written by '+esc(c.by) : '')+'</div>' +
       /* The sheet prints what he is looking at. It used to print ×1 whatever was on the
          screen, so a chef scaled to twenty portions, printed, and carried away the recipe
          for one — and nothing on either sheet said they were different.
