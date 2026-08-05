@@ -4688,20 +4688,24 @@ function render(){
             '</div>'
           : '<div class="q">Needs finishing</div>' +
             '<div class="sub">' +
-            /* The menu first, because it is the bigger number and it was the invisible one.
-               "4 of 16 are not done" was true and still left forty-eight dishes unsaid. */
-            (notStarted.length
-               ? '<b>'+notStarted.length+'</b> dish' + (notStarted.length===1?'':'es') + ' on the menu ' +
-                 (notStarted.length===1?'has':'have') + ' no recipe. '
-               : '') +
+            /* The sentence reads in the order the screen is stacked, or it sends him
+               looking for the first number at the bottom of the page. */
             (bad.length
                ? '<b>'+bad.length+' of '+live2.length+'</b> written so far are not done. ' +
                  (hardCount ? '<b>'+hardCount+'</b> of those cannot be costed at all — they are first, in red. ' : '')
                : '') +
+            (notStarted.length
+               ? 'Below them, <b>'+notStarted.length+'</b> dish' + (notStarted.length===1?'':'es') + ' on the menu ' +
+                 (notStarted.length===1?'has':'have') + ' no recipe at all. '
+               : '') +
             'Tap one to put it right; you come back here afterwards.</div>' +
-            nsBlock +
+            /* Half-written first, not started last. A dish with four things left on it is
+               tonight's work — it is already on the pass with a hole in it, and finishing
+               it is twenty minutes. A dish nobody has begun is next week's. Putting the
+               forty-eight at the top buried the four that could actually be closed. */
             (mainsBad.length ? '<div class="shd">Main recipes · '+mainsBad.length+'</div>' + mainsBad.map(trow).join('') : '') +
-            (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '')
+            (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '') +
+            nsBlock
       ) + '</div>';
   }
 
