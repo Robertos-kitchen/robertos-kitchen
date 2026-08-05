@@ -570,6 +570,24 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .trow.ns{border-left-style:dotted;border-left-color:rgba(64,2,7,.35);background:transparent}
 .trow.ns:hover{background:#fdfaf5}
 .trow.ns .tn{color:var(--vino-light)}
+/* ── how far the menu is ──
+   Above the heading because it is the answer to the question the screen gets opened
+   with. One bar, three states, and the numbers written out underneath — a bar nobody
+   can read a figure off is decoration. */
+.mprog{margin:0 0 22px}
+.mpn{font-family:var(--sans);font-size:13px;color:var(--vino-light);margin-bottom:7px}
+.mpn b{font-family:var(--serif);font-size:20px;color:var(--vino);letter-spacing:.5px}
+.mpbar{display:flex;height:10px;background:var(--sabbia);border:1px solid rgba(64,2,7,.14);
+  border-radius:2px;overflow:hidden}
+.mpbar i{display:block;height:100%}
+.mpk{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:7px;
+  font-family:var(--sans);font-size:11.5px;opacity:.7}
+.mpk span{display:flex;align-items:center;gap:6px}
+.mpk i{width:9px;height:9px;border-radius:2px;display:block;flex:0 0 auto;
+  border:1px solid rgba(64,2,7,.14)}
+.p-ok{background:var(--vino)}
+.p-part{background:rgba(186,155,2,.55)}
+.p-none{background:transparent}
 .nsnote{font-family:var(--sans);font-size:12px;opacity:.6;margin:0 0 10px}
 .nssec{font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
   opacity:.45;margin:14px 0 5px}
@@ -4616,10 +4634,41 @@ function render(){
                      g.rows.map(nsrow).join('');
             }).join('')
           : '');
+    /* ── how far the menu is, in one line ──
+       The counts underneath answer "what is left"; this answers "how far are we", which
+       is the question actually being asked at the end of a week. It is measured against
+       the MENU, not against what has been written: a screen that says 12 of 16 done while
+       forty-eight dishes have no recipe is measuring the wrong thing, and that is exactly
+       what it used to do. Recipes that are not on the menu — the batches, the petit fours —
+       are not in it: they are not dishes we sell. */
+    var prog = '';
+    if (MENUITEMS && MENUITEMS.length){
+      var pReady = 0, pPart = 0;
+      MENUITEMS.forEach(function(mi){
+        var rec = mi.recipe_id && liveById[mi.recipe_id];
+        if (!rec) return;
+        if (issuesOf(rec).length) pPart++; else pReady++;
+      });
+      var pTot = MENUITEMS.length, pNone = pTot - pReady - pPart;
+      var w100 = function(n){ return (n * 100 / pTot).toFixed(2) + '%'; };
+      prog = '<div class="mprog">' +
+        '<div class="mpn"><b>' + pReady + '</b> of <b>' + pTot + '</b> dishes on the menu ' +
+          'can be cooked from a finished recipe</div>' +
+        '<div class="mpbar">' +
+          (pReady ? '<i class="p-ok"   style="width:'+w100(pReady)+'"></i>' : '') +
+          (pPart  ? '<i class="p-part" style="width:'+w100(pPart)+'"></i>'  : '') +
+          (pNone  ? '<i class="p-none" style="width:'+w100(pNone)+'"></i>'  : '') +
+        '</div>' +
+        '<div class="mpk">' +
+          (pReady ? '<span><i class="p-ok"></i>'+pReady+' ready</span>' : '') +
+          (pPart  ? '<span><i class="p-part"></i>'+pPart+' started</span>' : '') +
+          (pNone  ? '<span><i class="p-none"></i>'+pNone+' not started</span>' : '') +
+        '</div></div>';
+    }
     /* Unsaved work belongs here more than anywhere: it IS unfinished work, and this is
        the door he opens to ask "is anything not done?". He could not find it before
        because it only ever showed on the What are you making? screen. */
-    w.innerHTML = '<div class="pane">' + parkedNote(true) +
+    w.innerHTML = '<div class="pane">' + parkedNote(true) + prog +
       (!S.tally
         ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
           'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
