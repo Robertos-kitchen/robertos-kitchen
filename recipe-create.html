@@ -2458,8 +2458,8 @@ function loadSaved(){
        dish nobody has started was invisible to the one screen whose job is to say what
        is not done. Failing is fine and says so — a missing list must never be shown as
        "nothing left to write". */
-    sb('menu_items?archived=is.false&select=id,menu_id,name,section,price,menu_letters,recipe_id,position' +
-       '&order=position').catch(function(){ return null; })
+    sb('menu_items?archived=is.false&select=id,menu_id,name,section,recipe_section,price,menu_letters' +
+       ',recipe_id,position&order=position').catch(function(){ return null; })
   ]).then(function(res){
     S.saved = res[0] || []; S.listErr = null;
     S.foldErr = !res[1] || !res[2];
@@ -6826,7 +6826,11 @@ document.addEventListener('click', function(e){
     if (!mi){ flash('That dish is no longer on the menu — open Saved recipes again.', true); return; }
     if (parkCurrent()) flash(parkedFlash());
     newRecipe();
-    S.kind = 'main'; S.name = mi.name; S.section = mi.section || '';
+    /* the KITCHEN's section, not the printed heading. The card says "La Via del Sale" and
+       the recipe's list — and Aung's Micros form built off it — says Pesce. Setting the
+       heading here invented a section nobody uses and put a family on the Micros form
+       that Micros has never heard of. */
+    S.kind = 'main'; S.name = mi.name; S.section = mi.recipe_section || '';
     S.price = mi.price == null ? null : Number(mi.price);
     /* what it was started from, so saving can attach the recipe to the menu dish and it
        stops being counted as not started */
