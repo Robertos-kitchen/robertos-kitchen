@@ -1840,12 +1840,26 @@ function hideAllPages(){
   });
   document.getElementById('section-tabs').style.display='none';
   document.querySelector('.footer-bar').style.display='none';
+  kRoom(false);
+}
+// The room is scoped to the front door: it goes on for home and comes off the
+// moment you walk through any station door. `?room=venue-x.jpg` swaps the frame
+// so a room can be reviewed without a rebuild — see room-contrast.py.
+var HOME_ROOM = 'venue-windowwall.jpg';
+function kRoom(on){
+  var b=document.body;
+  b.classList.toggle('roomstep', !!on);
+  if(!on) return;
+  var q=new URLSearchParams(location.search).get('room');
+  b.style.setProperty('--room', 'url(' + (/^venue-[a-z0-9]+\.jpg$/.test(q||'') ? q : HOME_ROOM) + ')');
+  b.style.setProperty('--scrim', 1);
 }
 function openHome(){
   activeStation=HOME_KEY;
   hideAllPages();
   document.getElementById('home-view').style.display='block';
   document.getElementById('foot-label').textContent='Kitchen App';
+  kRoom(true);
   loadKitchenEvents();
 }
 // ══ KITCHEN EVENTS STRIP ══════════════════════════════════════════════
@@ -2257,6 +2271,7 @@ function switchStation(key){
   });
   document.getElementById('section-tabs').style.display='flex';
   document.querySelector('.footer-bar').style.display='flex';
+  kRoom(false);
   if(isPass){
     var pv=document.getElementById('pass-view');if(pv)pv.style.display='block';
     document.getElementById('foot-label').textContent='The Pass · All stations';

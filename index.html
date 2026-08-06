@@ -309,6 +309,32 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .home-tile.primary .home-meta{color:rgba(245,237,224,.78)}
 .home-tile.primary .home-code{opacity:.6}
 
+/* ── The room behind the front door ───────────────────────────────────────
+   The same device as recipe-create.html / recipe-card.html / menu-pdfs.html:
+   two properties on the body, the photograph under a vino wash that runs dark
+   at the top so the heading reads over sky and white tablecloths. Home needs no
+   .onpaper — every tile and every section here is already a cream card. Only
+   the title, the eyebrow and the group labels sit straight on the room, and
+   only those get cream ink. Anything on a light card keeps its own dark ink. */
+body.roomstep{background:#cdbba6;--scrim:1}
+body.roomstep::before,body.roomstep::after{content:'';position:fixed;inset:0;z-index:0;
+  pointer-events:none}
+body.roomstep::before{background:var(--room) center/cover}
+body.roomstep::after{background:linear-gradient(180deg,
+  rgba(43,1,4,calc(.76*var(--scrim))) 0,
+  rgba(43,1,4,calc(.52*var(--scrim))) 200px,
+  rgba(43,1,4,calc(.38*var(--scrim))) 55%,
+  rgba(43,1,4,calc(.62*var(--scrim))) 100%)}
+body.roomstep>*{position:relative;z-index:1}
+body.roomstep .home-view{background:transparent}
+body.roomstep .home-title{color:#fbf3e9}
+body.roomstep .home-subtitle{color:#f2d3b8;opacity:1}
+body.roomstep .home-group-label{color:#fbf3e9;border-bottom-color:rgba(251,243,233,.34)}
+body.roomstep .kev-band-t,body.roomstep .kev-up-h{color:#f2d3b8}
+body.roomstep .home-tile,body.roomstep .home-toggle,body.roomstep .kev-today,
+body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
+  box-shadow:0 14px 30px -18px rgba(20,4,4,.7)}
+
 .ops-view,.check-view{padding:16px 18px 40px;background:var(--sabbia)}
 .ops-title{font-family:var(--font-serif);font-size:30px;color:var(--vino);line-height:1;margin-bottom:4px}
 .ops-subtitle{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin-bottom:14px}
@@ -849,7 +875,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .home-tile.compact .home-meta{font-size:10px;margin-top:3px}
 .home-tile.mgmt{background:var(--sabbia-light)}
 .home-sections-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-.home-section{--accent:var(--vino);position:relative;display:flex;flex-direction:column}
+/* min-width:0 — without it the nowrap chip row sets the column's min-content
+   width and the home screen scrolls sideways by 16px on a 375px phone. */
+.home-section{--accent:var(--vino);position:relative;display:flex;flex-direction:column;min-width:0}
 .home-section.open{grid-column:1 / -1}
 .home-section.ops{--accent:var(--pomodoro)}
 .home-section.mgmt{--accent:var(--oro)}
@@ -1389,7 +1417,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1786560000"></script>
+<script src="app.js?v=1786636800"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
