@@ -23,6 +23,35 @@ body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
 :focus-visible{outline:3px solid var(--oro);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
+/* ── THE ROOM ──────────────────────────────────────────────────────────────────
+   The Food Bible's device, the same one that is on New recipe: the venue full-bleed
+   behind everything, held under a vino wash so it never competes with what you are
+   reading. Fixed, so the screen moves over it.
+
+   Two properties and nothing else — `--room` is the photograph, `--scrim` is how far
+   the wash is carried so the heading reads off that particular room. The scrim is
+   measured against the Cortina screen on New recipe, the one that was approved, never
+   judged by eye. 1 is that wash exactly.
+
+   The heading sits straight on the room; the work goes on paper over it, because
+   nobody should read a list of files off a photograph. */
+body.roomstep{background:#cdbba6;--scrim:1}
+body.roomstep::before,body.roomstep::after{content:'';position:fixed;inset:0;z-index:0;
+  pointer-events:none}
+body.roomstep::before{background:var(--room) center/cover}
+body.roomstep::after{background:linear-gradient(180deg,
+  rgba(43,1,4,calc(.76*var(--scrim))) 0,
+  rgba(43,1,4,calc(.52*var(--scrim))) 200px,
+  rgba(43,1,4,calc(.38*var(--scrim))) 55%,
+  rgba(43,1,4,calc(.62*var(--scrim))) 100%)}
+body.roomstep>*{position:relative;z-index:1}
+body.roomstep .eyebrow{color:#f2d3b8}
+body.roomstep .lede{color:#fbf3e9}
+body.roomstep .stand{color:rgba(251,243,233,.88)}
+body.roomstep .stand b{color:#f7e6cf}
+body.roomstep .onpaper{background:var(--sabbia);border-radius:10px;padding:4px 14px 16px;
+  margin-top:18px;box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}
+
 .wrap{max-width:900px;margin:0 auto;padding:26px 18px 90px}
 .eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--vino-light);margin-bottom:12px}
 .lede{font-family:var(--serif);font-size:clamp(27px,5vw,38px);line-height:1.1;color:var(--vino);
@@ -371,7 +400,8 @@ function render(){
       '<p class="stand">Every menu we print, kept in one place and ready to go to the printer — ' +
         'the à la carte, the wine list, the set menus. <b>Open &amp; print</b> opens the PDF exactly ' +
         'as it was designed.</p>' +
-      body +
+      /* the heading is read off the room; the menus are a list, and a list goes on paper */
+      '<div class="onpaper">' + body + '</div>' +
     '</div>';
 }
 
@@ -391,6 +421,11 @@ document.addEventListener('change', function(e){
     upload(f);
   }
 });
+
+/* the room this screen stands in — the wide dining room. Three lines, and that is the
+   whole of it; see body.roomstep in the stylesheet. */
+document.body.classList.add('roomstep');
+document.body.style.setProperty('--room', 'url(venue-saladining.jpg)');
 
 render();
 load();

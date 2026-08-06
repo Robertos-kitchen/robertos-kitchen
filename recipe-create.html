@@ -75,30 +75,51 @@ html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--
 .q{font-family:var(--serif);font-size:27px;color:var(--vino);line-height:1.15;margin-bottom:5px}
 .sub{font-size:13px;color:var(--vino-light);line-height:1.5;margin-bottom:20px}
 
-/* ── THE ROOM, on the opening screen only ──
+/* ── THE ROOM ──────────────────────────────────────────────────────────────────
    Same logic as the Food Bible: the venue full-bleed behind everything, held under a
    vino wash so it never competes with what you are reading. It is fixed, so the sheet
    moves over it rather than dragging it along.
-   Only on "What are you making?" — a chef picking sixty ingredients should not be
-   reading a table over a photograph, so every later step keeps the plain sabbia. */
-body.roomstep{background:#cdbba6}
+
+   To give a screen a room, set two properties on the body and nothing else:
+     --room   the photograph
+     --scrim  how far the wash is carried, for a room that reads thin under the
+              heading. It is measured, not judged by eye — every room is brought to
+              at least what Cortina reads at on "What are you making?", which is the
+              screen that was approved. 1 means the wash exactly as it is there.
+
+   The heading sits straight on the room. Anything that is WORK — a list, a table, a
+   form — goes on paper over it: a chef reading forty rows must not be reading them
+   off a photograph. That is what `.onpaper` is for. */
+body.roomstep{background:#cdbba6;--scrim:1}
 body.roomstep::before,body.roomstep::after{content:'';position:fixed;inset:0;z-index:0;
   pointer-events:none}
-body.roomstep::before{background:url(venue-cortina.jpg) center/cover}
+body.roomstep::before{background:var(--room) center/cover}
 /* The wash is the light one. The Food Bible's gradient runs light at the top and deep
    at the bottom, which is backwards here — the question and the two grey buttons sit at
    the TOP, over the brightest part of the room (sky, tablecloths). So the light wash is
    kept and a short scrim is carried across the first 260px, where the type is. */
 body.roomstep::after{background:linear-gradient(180deg,
-  rgba(43,1,4,.76) 0, rgba(43,1,4,.52) 200px, rgba(43,1,4,.38) 55%, rgba(43,1,4,.62) 100%)}
+  rgba(43,1,4,calc(.76*var(--scrim))) 0,
+  rgba(43,1,4,calc(.52*var(--scrim))) 200px,
+  rgba(43,1,4,calc(.38*var(--scrim))) 55%,
+  rgba(43,1,4,calc(.62*var(--scrim))) 100%)}
 body.roomstep>*{position:relative;z-index:1}
+/* the work, on paper, over the room */
+body.roomstep .onpaper{background:var(--sabbia);border-radius:10px;padding:15px 13px;
+  margin-top:16px;box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}
 /* the type that sits straight on the room has to be read off it */
 body.roomstep .q{color:#fbf3e9}
 body.roomstep .sub{color:rgba(251,243,233,.82)}
 /* the ember accent measures 3.6:1 against the room here — too thin for a 10.5px label,
    so on this step it lightens to 5.2:1 */
 body.roomstep .howtob{color:#f2d3b8}
-body.roomstep .howtox{color:rgba(251,243,233,.86)}
+/* The explainer it opens is its OWN light box, so it keeps its own dark ink. It was
+   being given cream type here, which put cream on sabbia the moment anybody tapped it. */
+body.roomstep .howtox{background:rgba(250,245,236,.94);border-left-color:rgba(64,2,7,.3)}
+/* the bar that counts how far the menu is sits above the heading, and a figure cannot
+   be read off a photograph either — it gets the same paper the list below it gets */
+body.roomstep .mprog{background:var(--sabbia);border-radius:9px;padding:13px 14px 12px;
+  box-shadow:0 14px 32px -20px rgba(20,4,4,.7)}
 /* the import row sits low enough to land on tablecloths, which are the brightest thing
    in the room — it gets its own plate rather than the whole photograph getting darker */
 body.roomstep .bring{background:rgba(26,6,6,.56);border-radius:8px;padding:13px 14px;
@@ -362,6 +383,50 @@ table.sheet tr.isbatch td:not(:first-child){border-left:none}
 .foot .slim .sopenb{margin-left:auto;font-family:var(--sans);font-size:10px;letter-spacing:1.6px;
   text-transform:uppercase;color:var(--vino);font-weight:700;opacity:.9;white-space:nowrap}
 .foot .slim:hover .sopenb{opacity:1;text-decoration:underline}
+/* ── adding up the lines he taps ──
+   Tapping an ingredient's NAME had no meaning on this sheet, so nothing was taken away
+   to give it one: no button to start it, no mode to leave, no second surface. While
+   anything is picked this strip stops being the costing and becomes the answer, then
+   goes straight back. Nothing about a selection is ever saved — it is a question the
+   chef asked once. */
+/* one line, so it stays pinned like the shut costing does — `.foot:not(.shut)` drops the
+   pinning for the OPEN costing, which is 200px tall and would eat the sheet. This is not.
+
+   Paper, like the costing it replaces. A coloured slab here would be a second band of
+   flat colour directly under the maroon bar, which is the thing this strip was redrawn
+   to stop being. The state is already unmistakable — the rows are marked and the numbers
+   have changed — so it is said with one gold rule and the word, not with a wash. */
+.foot.sel{position:sticky;top:var(--barh,52px);box-shadow:0 4px 12px rgba(43,1,4,.10);
+  background:var(--sabbia-light);border-bottom-color:var(--vino);box-shadow:inset 0 3px 0 var(--oro),0 4px 12px rgba(43,1,4,.10)}
+.foot.sel .slim{cursor:default}
+.foot.sel .slim .sv{color:var(--vino)}
+.foot.sel .slim .sv small{color:var(--vino-light);opacity:.9}
+/* the word that names the state, in the gold the sheet already uses for a badge */
+.foot.sel .slim .swhat{font-family:var(--sans);font-size:11px;letter-spacing:.3px;color:var(--vino-light);
+  line-height:1.4;max-width:300px}
+.foot.sel .slim .swhat b{color:var(--vino)}
+.foot.sel .slim .spick{font-family:var(--sans);font-size:9px;letter-spacing:1.8px;text-transform:uppercase;
+  font-weight:700;color:var(--vino);background:rgba(186,155,2,.20);border:1px solid rgba(186,155,2,.55);
+  border-radius:3px;padding:5px 9px;white-space:nowrap}
+/* 44px at every width, not only under a media query. This is the one control that ends
+   the state, a chef reaches it with a thumb, and the same button elsewhere on this sheet
+   shipped at 33px for exactly as long as nobody measured it. */
+.foot.sel .slim .sclr{margin-left:auto;background:rgba(65,2,7,.09);border:1px solid var(--vino);border-radius:4px;
+  color:var(--vino);font-family:var(--sans);font-size:10px;letter-spacing:1.6px;text-transform:uppercase;
+  font-weight:700;padding:0 16px;min-height:44px;min-width:88px;display:inline-flex;align-items:center;
+  justify-content:center;cursor:pointer;white-space:nowrap}
+.foot.sel .slim .sclr:hover{background:rgba(65,2,7,.18)}
+@media (pointer:coarse),(max-width:640px){ .foot.sel .slim .sclr{font-size:11px;padding:0 18px} }
+/* the line itself: a Vino Amarena edge and the faintest wash of it. The name is NOT
+   recoloured — it is already the maroon this sheet is written in, and tinting it olive
+   made a picked line read as a different KIND of line rather than the same line, chosen. */
+table.sheet tr.main.sel td{background:rgba(65,2,7,.055)}
+table.sheet tr.main.sel td:first-child{box-shadow:inset 4px 0 0 var(--vino)}
+table.sheet tr.main.sel td.w .nm{font-weight:600}
+/* it is tappable, and on a mouse it says so before you tap */
+table.sheet td.w{cursor:pointer}
+table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-decoration-color:var(--sabbia-dark);
+  text-underline-offset:3px}
 /* In the flow, not pinned to the corner. Absolutely positioned it sat over a strip of
    reserved padding, and reserved padding is a guess: the moment the button grew — a
    border, bolder type, a bigger touch target — it reached past what was held for it and
@@ -1343,6 +1408,9 @@ function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[
 
 /* ───────── state ───────── */
 var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
+          /* the lines he has tapped to add up. A question, never part of the recipe —
+             so it is not saved, not in sig(), and starts empty on every sheet. */
+          sel:[],
           id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null, menus:[],
       /* put away by default: writing a recipe is reading the rows, and the sheet
          being whole matters more than a number he looks at when he prices it */
@@ -2267,7 +2335,7 @@ function unparkAt(i){
   S.photos = Array.isArray(p.photos) ? p.photos.filter(function(x){ return x && x.u; }) : [];
   /* the rows are rebuilt off the same words in the same order, then what he had chosen
      is put back on them line by line — a row whose words have changed is left alone */
-  S.rows = splitLine(S.text).map(function(x){ return mkRow(x); });
+  S.rows = splitLine(S.text).map(function(x){ return mkRow(x); }); S.sel = [];
   S.rows.forEach(function(r, idx){
     var sr = (p.rows || [])[idx]; if (!sr || sr.raw !== r.raw) return;
     if (sr.code){
@@ -2331,7 +2399,7 @@ function newRecipe(){
   /* A brand-new sheet IS the whole recipe — there is nothing on the record it does not
      already hold. See `whole` in saveRecipe. */
   S.whole = true;
-  S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[];
+  S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[]; S.sel=[];
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
   /* the printed dish this was started from belongs to the sheet that has just left */
@@ -3402,6 +3470,7 @@ function openRecipe(id){
     S.whoOpen = false; S.whoAsked = false;
 
     var lines = both[1] || [];
+    S.sel = [];                 /* a question about the last sheet, not this one */
     S.rows = lines.map(function(l){
       /* one saved line is one ingredient — read it whole, don't re-split it into words.
          The trailing #n is the internal tag that keeps two identical lines apart. */
@@ -4012,7 +4081,7 @@ function useImported(f){
   /* Straight to the sheet. The screen in between asked him to check the split of a list
      the file had just written for him — a stop with no work in it, and the sheet IS the
      split, line for line. Back still goes there if he wants to retype the words. */
-  S.rows = splitLine(S.text).map(function(p){ return mkRow(p); });
+  S.rows = splitLine(S.text).map(function(p){ return mkRow(p); }); S.sel = [];
   S.lastRm = null;
   S.step = S.rows.length ? 'sheet' : 'write';
 }
@@ -4231,11 +4300,26 @@ function runWorkbook(){
   }).then(function(){ S.planRan = true; drawPlan(); });
 }
 
+/* Which room stands behind which screen. `scrim` is how far the wash is carried so the
+   heading reads off that particular photograph — measured against the Cortina screen,
+   never guessed. Add a step here and it has a room; leave it out and it has sabbia. */
+var ROOMS = {
+  type:   { img:'venue-cortina.jpg',  scrim:1 },      /* What are you making? */
+  todo:   { img:'venue-longroom.jpg', scrim:1.05 },   /* Needs finishing */
+  micros: { img:'venue-corner.jpg',   scrim:1 }       /* Micros request */
+};
+
 /* ───────── render ───────── */
 function render(){
   var w = $('wrap'), b = $('act');
-  /* the room is on the opening screen and nowhere else — see body.roomstep above */
-  document.body.classList.toggle('roomstep', S.step === 'type');
+  /* the room, on the three screens that are a door of their own — see body.roomstep
+     above. A different room on each: the same photograph twice reads as one screen. */
+  var room = ROOMS[S.step];
+  document.body.classList.toggle('roomstep', !!room);
+  if (room){
+    document.body.style.setProperty('--room', 'url(' + room.img + ')');
+    document.body.style.setProperty('--scrim', room.scrim);
+  }
   $('foot').style.display = S.step==='sheet' ? 'block' : 'none';
   if (S.step !== 'sheet') document.body.style.paddingBottom = '';   /* only the sheet sits under the bar */
   $('tolist').textContent  = S.step==='list'  ? 'Back to the recipe' : "Aung's list";
@@ -4736,13 +4820,17 @@ function render(){
                  (notStarted.length===1?'has':'have') + ' no recipe at all. '
                : '') +
             'Tap one to put it right; you come back here afterwards.</div>' +
+            /* The heading is read off the room; the list is not. Forty dishes to fix is
+               work, and work goes on paper. */
+            '<div class="onpaper">' +
             /* Half-written first, not started last. A dish with four things left on it is
                tonight's work — it is already on the pass with a hole in it, and finishing
                it is twenty minutes. A dish nobody has begun is next week's. Putting the
                forty-eight at the top buried the four that could actually be closed. */
             (mainsBad.length ? '<div class="shd">Main recipes · '+mainsBad.length+'</div>' + mainsBad.map(trow).join('') : '') +
             (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '') +
-            nsBlock
+            nsBlock +
+            '</div>'
       ) + '</div>';
   }
 
@@ -4771,6 +4859,8 @@ function render(){
         'typed twice is how the till ends up saying one price and the recipe another. ' +
         '<b>The item codes stay empty:</b> those are Aung\'s to assign.', 'Why it is built for you') +
 
+      /* the heading is read off the room; the form is not — it goes on paper */
+      '<div class="onpaper">' +
       '<div class="sfind"><select id="micmenu">' + MENUS.map(function(m){
           return '<option value="'+m.id+'"'+(m.id===MICREQ.menuId?' selected':'')+'>'+esc(m.name)+'</option>'; }).join('') +
         '</select>' +
@@ -4864,6 +4954,7 @@ function render(){
         'net of VAT, municipality and service. That is the same basis as the food cost on the sheet, so the two ' +
         'agree. The only things written into the form are the name, the cost and the price; everything else on ' +
         'it is a formula, so it still recalculates when Aung corrects a figure.</div>' +
+      '</div>' +
       '</div>';
 
     var mm = $('micmenu');
@@ -5241,7 +5332,7 @@ function importedNote(){
 function reflow(){
   var parts = splitLine(S.text);
   var old = {}; S.rows.forEach(function(r){ old[r.raw] = r; });
-  S.rows = parts.map(function(p){ return old[p.raw] || mkRow(p); });
+  S.rows = parts.map(function(p){ return old[p.raw] || mkRow(p); }); S.sel = [];
   var sp = $('sp'); if (!sp) return;
   if (!parts.length){ sp.innerHTML=''; gate(); return; }
   sp.innerHTML = '<div class="lab">' + parts.length + ' ingredient' + (parts.length===1?'':'s') + ' found</div>' +
@@ -5255,6 +5346,38 @@ function reflow(){
     }).join('') + '</div>' +
     '<div class="tip">Split them wrong? Put a <b>comma</b> between the ones it joined — commas always win.</div>';
   gate();
+}
+
+/* ═════════ adding up the lines he taps ═════════
+   Antonio's question is a plain one — "what do THESE weigh?" — and it is asked about a
+   handful of lines, never about the sheet: two litres of water in a ragù is not there
+   at the end, and a total that includes it answers nothing. So he says which lines,
+   by tapping their names, and the costing strip tells him.
+
+   Nothing here is written down. A selection is a question, not part of the recipe:
+   it is not saved, not part of the unsaved-work signature, and it does not survive
+   the sheet being left. */
+function picked(i){ return !!(S.sel && S.sel.indexOf(i) > -1); }
+function clearPicked(){ if (S.sel && S.sel.length){ S.sel = []; return true; } return false; }
+/* g and kg are one question, ml and L are another, and pieces are a third. Adding a
+   lemon to two kilos of flour would produce a number that looks like an answer and is
+   not one, so each is carried separately and only the ones in play are shown. */
+function pickedTotals(){
+  var g = 0, ml = 0, pcs = 0, cost = 0, noQty = 0, noCost = 0;
+  (S.sel || []).forEach(function(i){
+    var r = S.rows[i]; if (!r) return;
+    var u = String(r.unit || '').toLowerCase();
+    if (r.qty == null || !isFinite(r.qty)) noQty++;
+    else if (u === 'g')  g   += r.qty;
+    else if (u === 'kg') g   += r.qty * 1000;
+    else if (u === 'ml') ml  += r.qty;
+    else if (u === 'l')  ml  += r.qty * 1000;
+    else if (u === 'pcs')pcs += r.qty;
+    else noQty++;                                   /* no unit said yet — not guessed at */
+    var c = rowCost(r);
+    if (c == null) noCost++; else cost += c;
+  });
+  return { g:g, ml:ml, pcs:pcs, cost:cost, noQty:noQty, noCost:noCost, n:(S.sel||[]).length };
 }
 
 function rowHTML(r, i){
@@ -5359,9 +5482,12 @@ function rowHTML(r, i){
             '" data-norow="'+i+'" title="Aung prices it — the recipe is not written yet">B</button>';
       })()
     : '<button class="ibx" data-golist="'+esc(it.code)+'" title="Ingredient — find it on Aung\'s list">I</button>';
-  var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+'">' +
+  var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+
+      (picked(i)?' sel':'')+'">' +
     '<td class="ib">'+tag+'</td>' +
-    '<td class="w"><span class="nm" title="'+esc(r.word)+'">'+esc(r.word)+'</span>' +
+    /* the name is the tap target for adding lines up. It carries no control of its own,
+       which is exactly why it could be given one. */
+    '<td class="w" data-pick="'+i+'"><span class="nm" title="'+esc(r.word)+'">'+esc(r.word)+'</span>' +
       '<span class="meta">'+sub+'</span>' +
       /* said out loud, on the line, because a wrong unit is a wrong cost and there is
          nothing on the sheet to give it away */
@@ -6424,6 +6550,36 @@ function addPhotos(files){
 
 function foot(){
   if (S.step !== 'sheet') return;
+  /* ── while lines are picked, this strip answers HIS question ──
+     It takes over the costing rather than sitting beside it: two totals on one strip,
+     one of the sheet and one of a handful of lines, is exactly how the wrong number
+     gets read out loud. The costing comes back the moment nothing is picked, in
+     whichever state — open or shut — he left it in. */
+  if (S.sel && S.sel.length){
+    var s = pickedTotals(), f0 = $('foot');
+    var amt = [];
+    if (s.g)   amt.push({ v:fmt(s.g,   s.g   % 1 ? 1 : 0), u:'G' });
+    if (s.ml)  amt.push({ v:fmt(s.ml,  s.ml  % 1 ? 1 : 0), u:'ML' });
+    if (s.pcs) amt.push({ v:fmt(s.pcs, s.pcs % 1 ? 1 : 0), u:s.pcs === 1 ? 'PIECE' : 'PIECES' });
+    f0.classList.add('sel');
+    f0.classList.remove('shut');            /* it is one line either way — never 200px */
+    f0.innerHTML = '<div class="slim">' +
+      (amt.length
+        ? amt.map(function(a){ return '<span class="sv">'+a.v+' <small>'+a.u+'</small></span>'; }).join('')
+        : '<span class="sv">—</span>') +
+      '<span class="sv">'+(s.noCost ? 'at least ' : '')+fmt(s.cost)+' <small>AED</small></span>' +
+      '<span class="spick">'+s.n+' picked</span>' +
+      ((s.noQty || s.noCost)
+        ? '<span class="swhat">' +
+            [ s.noQty  ? '<b>'+s.noQty+'</b> with no amount yet, not counted' : '',
+              s.noCost ? s.noCost+' with no cost yet' : '' ].filter(Boolean).join(' · ') +
+          '</span>'
+        : '') +
+      '<button class="sclr" id="selclr">Clear</button></div>';
+    padForFoot();
+    return;
+  }
+  $('foot').classList.remove('sel');
   var t = totals();
   var mk   = (S.makesQty && S.makesQty > 0) ? S.makesQty : null;
   var each = mk ? t.total / mk : null;              /* per portion, or per kg / L / piece */
@@ -6878,8 +7034,26 @@ document.addEventListener('click', function(e){
     redrawRow(hi);
     return;
   }
+  /* tapping a name adds that line to the question, or takes it back out. Deliberately
+     above [data-rm] and every control branch: those all sit in their own cells, so a
+     tap on the quantity, the dropdown, the tick or the × never reaches this. */
+  var pk = e.target.closest('[data-pick]');
+  if (pk && !e.target.closest('input,select,button,a')){
+    var pi = +pk.dataset.pick;
+    if (!S.sel) S.sel = [];
+    var at = S.sel.indexOf(pi);
+    if (at > -1) S.sel.splice(at,1); else S.sel.push(pi);
+    var trp = $('tb').querySelectorAll('tr.main')[pi];
+    if (trp) trp.classList.toggle('sel', picked(pi));   /* the one row, never the sheet */
+    foot();
+    return;
+  }
+  if (e.target.id === 'selclr'){ clearPicked(); rows(); foot(); return; }
   var rm = e.target.closest('[data-rm]');
   if (rm){
+    /* the lines are held by position, so taking one off the sheet would slide the
+       question onto the wrong rows. The question is cheap to ask again. */
+    clearPicked();
     /* The × took the row off the sheet but left it in the typed text, so stepping back
        to the ingredients box and forward again brought it straight back — with whatever
        had been picked on it gone. Take it out of both, and keep it for one undo. */

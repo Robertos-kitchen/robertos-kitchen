@@ -30,6 +30,42 @@ body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* ═══ the front page — three doors, so nothing has to be hunted for ═══ */
+/* ── THE ROOM, on the way in and nowhere else ──────────────────────────────────
+   The Food Bible's device, the same one that is on New recipe: the venue full-bleed
+   behind everything, held under a vino wash so it never competes with what you are
+   reading. Fixed, so the screen moves over it.
+
+   Two properties and nothing else — `--room` is the photograph, `--scrim` is how far
+   the wash is carried so the heading reads off that particular room. The scrim is
+   measured against the Cortina screen on New recipe, the one that was approved, never
+   judged by eye. 1 is that wash exactly.
+
+   Only on "All dishes". Open a card and the room is gone: a chef reading a method at
+   the pass must not be reading it off a photograph. The dish list itself goes on paper
+   for the same reason — the heading is what sits on the room. */
+body.roomstep{background:#cdbba6;--scrim:1}
+body.roomstep::before,body.roomstep::after{content:'';position:fixed;inset:0;z-index:0;
+  pointer-events:none}
+body.roomstep::before{background:var(--room) center/cover}
+body.roomstep::after{background:linear-gradient(180deg,
+  rgba(43,1,4,calc(.76*var(--scrim))) 0,
+  rgba(43,1,4,calc(.52*var(--scrim))) 200px,
+  rgba(43,1,4,calc(.38*var(--scrim))) 55%,
+  rgba(43,1,4,calc(.62*var(--scrim))) 100%)}
+body.roomstep>*{position:relative;z-index:1}
+body.roomstep .eyebrow{color:#f2d3b8}
+body.roomstep .lede{color:#fbf3e9}
+body.roomstep .stand{color:rgba(251,243,233,.88)}
+body.roomstep .stand b{color:#f7e6cf}
+body.roomstep .onpaper{background:var(--sabbia);border-radius:10px;padding:6px 15px 18px;
+  margin-top:22px;box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}
+body.roomstep .foot{margin-top:26px}
+/* paper and ink on paper, never the room */
+@media print{
+  body.roomstep::before,body.roomstep::after{display:none}
+  body.roomstep .onpaper{background:none;box-shadow:none;padding:0;margin-top:0}
+}
+
 .front{max-width:1080px;margin:0 auto;padding:44px 20px 80px}
 .eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--vino-light);margin-bottom:14px}
 .lede{font-family:var(--serif);font-size:clamp(32px,6vw,50px);line-height:1.08;color:var(--vino);
@@ -1629,9 +1665,11 @@ function viewHome(){
       'with it. <b>No cost appears anywhere.</b></p>' +
     (frozen && SNAP ? '<div class="stale">This link cannot reach the kitchen database, so it is ' +
       'showing the recipes <b>as they stood ' + esc(stamp()) + '</b>. Opened inside the app it is live.</div>' : '') +
-    body +
-    '<div class="foot">Blank photos and unticked allergens mean nobody has written them yet — ' +
-      'that is the phase, not a fault. They fill in from the create screen, never from here.</div>' +
+    /* the heading is read off the room; a hundred and forty dishes are not */
+    '<div class="onpaper">' + body +
+      '<div class="foot">Blank photos and unticked allergens mean nobody has written them yet — ' +
+        'that is the phase, not a fault. They fill in from the create screen, never from here.</div>' +
+    '</div>' +
   '</div>';
 }
 /* say when the snapshot was taken, in words, not an ISO string */
@@ -1667,6 +1705,9 @@ function openDish(id, then){
 
 function render(){
   var root = document.getElementById('root');
+  /* the room stands behind the way in and nowhere else — see body.roomstep above */
+  document.body.classList.toggle('roomstep', view === 'home');
+  document.body.style.setProperty('--room', 'url(venue-murano.jpg)');
   if (view === 'loading'){ root.innerHTML = '<div class="front"><div class="load">Opening the recipe…</div></div>'; return; }
   if (view === 'home'){ root.innerHTML = viewHome(); return; }
   var cur = VIEWS.filter(function(v){ return v.k===view; })[0];
