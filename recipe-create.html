@@ -215,6 +215,10 @@ td.w .meta{display:block;font-family:var(--sans);font-size:10.5px;line-height:15
 /* a wrong unit is a wrong cost, so this one is never clipped */
 td.w .meta.warnu{white-space:normal;overflow:visible;height:auto;line-height:14px;margin-top:3px}
 td.w .one{color:var(--oliva)}
+/* what the chef wrote about this line — his voice, so it is set in the serif the sheet
+   writes names in, not in the sans the app talks in */
+td.w .meta.note{font-family:var(--serif);font-size:13px;line-height:16px;height:auto;
+  color:var(--vino-light);font-style:italic;white-space:normal}
 td.w .many{color:var(--attn)}
 td.w .adj{color:var(--vino-light)}
 td.w .fix{color:var(--vino);text-decoration:underline;cursor:pointer}
@@ -1276,21 +1280,48 @@ function parseQty(text){
     return { qty:num(m[2]), unit:m[3]?UNITWORDS[m[3].toLowerCase()]:null, name:m[1].trim() };
   return { qty:null, unit:null, name:t };
 }
+/* ═════════ the words in brackets ═════════
+   Antonio writes icing sugar twice — once into the sponge, once to dust the biscuits —
+   and until now the sheet had no way for him to say which was which. He says it the way
+   he already writes a recipe: "120 g icing sugar (to dust the biscuits)".
+
+   The bracket is taken OFF the name before anything is matched. That is not a nicety —
+   before this, the whole string went to the lookup, matched nothing on Aung's list, and
+   the line silently cost zero. The words are kept beside the line, never inside the text
+   that gets matched, so Aung's next stock take can never see them. */
+function takeNote(text){
+  var t = String(text == null ? '' : text), note = null;
+  /* the LAST bracket, so "Flour (00) (for dusting)" keeps the 00 in the name where it
+     belongs and takes only the remark */
+  t = t.replace(/\s*[\(\[]([^\(\)\[\]]{1,120})[\)\]]\s*$/, function(_, inner){
+    note = inner.trim(); return ' ';
+  });
+  return { text:t.replace(/\s+/g,' ').trim(), note:(note || null) };
+}
+/* his words back, for the ingredients box and for what is shown on the row */
+function withNote(text, note){ return note ? (String(text).trim() + ' (' + note + ')') : String(text).trim(); }
+
 function splitLine(text){
   var out = [];
   String(text).split('\n').forEach(function(line){
     if (!line.trim()) return;
     if (/[,;]/.test(line)){                                  /* the chef said it — don't guess */
-      line.split(/[,;]/).forEach(function(p){
+      /* a comma INSIDE the brackets is part of the remark, not the end of an ingredient —
+         "(to dust, at the pass)" is one line, not two */
+      line.replace(/[\(\[][^\(\)\[\]]*[\)\]]/g, function(m){ return m.replace(/,/g,'').replace(/;/g,''); })
+          .split(/[,;]/).forEach(function(p0){
+        var p = p0.replace(//g, ',').replace(//g, ';');
         if (!p.trim()) return;
-        var q = parseQty(p.trim());
-        out.push({ raw:p.trim(), name:q.name, qty:q.qty, unit:q.unit });
+        var n = takeNote(p.trim()), q = parseQty(n.text);
+        out.push({ raw:p.trim(), name:q.name, qty:q.qty, unit:q.unit, note:n.note });
       });
       return;
     }
     /* no commas: start a new ingredient where a number is followed by more words
        ("1 kg flour 200 gr sugar"), but not at a trailing quantity ("seabass 200 gr") */
-    var segs = line.replace(/(\S)\s+(?=\d[\d.\/]*\s*[a-z]*\s+\S)/gi, "$1\u0001").split("\u0001");
+    var segs = line.replace(/[\(\[][^\(\)\[\]]*[\)\]]/g, function(m){ return m.replace(/\s/g,""); })
+                   .replace(/(\S)\s+(?=\d[\d.\/]*\s*[a-z]*\s+\S)/gi, "$1").split("")
+                   .map(function(x){ return x.replace(//g," "); });
     /* …"but not at a trailing quantity" was the intent, and it did not hold: in
        "seabass 200 gr" the unit's own letters stood in for the words the lookahead
        was looking for, so it split there too and left a second row called "gr"
@@ -1844,7 +1875,11 @@ function sb(path, opts){
 function linesFor(recipeId, rowsArr){
   return rowsArr.map(function(r,i){
     var it = itemOf(r), mineB = isMine(r.code);
-    return { recipe_id:recipeId, position:i, typed_text:r.raw,
+    /* the remark is saved in its OWN column. It must never ride inside typed_text:
+       when Aung retires a code the row falls back to searching on these words, and
+       "icing sugar (to dust the biscuits)" matches nothing on any stock take. */
+    return { recipe_id:recipeId, position:i, typed_text:takeNote(r.raw).text,
+             note: r.note || null,
              child_recipe_id: mineB ? idOf(r.code) : null,
              stock_code: mineB ? null : (r.code || null),
              stock_name: mineB ? null : (it ? it.name : null),
@@ -2230,6 +2265,7 @@ function parkSnapshot(){
            lines:(S.rows || []).length,
            rows:(S.rows || []).map(function(r){
              return { raw:r.raw, code:r.code || null, qty:r.qty, unit:r.unit || null,
+                      note:r.note || null,
                       adj:!!r.adj, yield:r.yield, waste:r.waste }; }) };
 }
 function parkedList(){ if (!S.parkedList) S.parkedList = []; return S.parkedList; }
@@ -3476,8 +3512,10 @@ function openRecipe(id){
          The trailing #n is the internal tag that keeps two identical lines apart. */
       var clean = String(l.typed_text||'').replace(/#\d+$/,'');
       var q = parseQty(clean);
-      var r = mkRow({ raw:clean, name:q.name || clean, qty:q.qty, unit:q.unit });
-      r.raw = l.typed_text || r.raw;
+      var r = mkRow({ raw:clean, name:q.name || clean, qty:q.qty, unit:q.unit, note:l.note || null });
+      /* typed_text is deliberately WITHOUT the remark. Put it back for the screen and
+         for the ingredients box, so stepping back shows him exactly what he wrote. */
+      r.raw = withNote(l.typed_text || r.raw, l.note);
       r.code = l.child_recipe_id ? ('R:'+l.child_recipe_id) : (l.stock_code || null);
       /* the item must still be reachable from this row's options, or the chef re-picks it */
       if (r.code && !itemOf(r)){
@@ -3518,7 +3556,7 @@ function mkRow(part){
     }
     loose = opts.length > 0;
   }
-  var r = { raw:part.raw, word:part.name, opts:opts, loose:loose,
+  var r = { raw:part.raw, word:part.name, note:part.note || null, opts:opts, loose:loose,
             code: (!loose && opts.length === 1) ? opts[0].code : null,   /* auto only when there's no choice to make */
             qty:part.qty, unit:null, yield:100, waste:0, adj:false };
   var it = itemOf(r);
@@ -5439,8 +5477,17 @@ function rowHTML(r, i){
      so it is said, on both lines, and never changed for him: a dish that really does
      use olive oil in two places is a normal dish. */
   var twice = r.code ? S.rows.filter(function(x){ return x.code === r.code; }).length : 0;
+  /* Two goes at typing the same thing and a deliberate split look identical to the sheet
+     — until he says what each one is for. Once EVERY line on that code carries a remark,
+     the wording stops implying a mistake. The cost is unchanged either way: both lines
+     always counted, and still do. */
+  var onPurpose = twice > 1 && S.rows.filter(function(x){ return x.code === r.code; })
+                                     .every(function(x){ return !!x.note; });
   /* one short line, never a paragraph — the sheet must read at a glance */
-  var sub = twice > 1        ? '<i class="many">on this sheet ' + (twice===2?'twice':twice+' times') +
+  var sub = (twice > 1 && onPurpose)
+                             ? '<i class="one">on this sheet ' + (twice===2?'twice':twice+' times') +
+                               ', on purpose — both lines are counted in the cost</i>'
+          : twice > 1        ? '<i class="many">on this sheet ' + (twice===2?'twice':twice+' times') +
                                ' — both lines are counted in the cost</i>'
           : (it && it.myBatch && it.problem)
                                ? '<i class="stale">no cost yet — '+esc(it.problem)+'</i>'
@@ -5488,6 +5535,10 @@ function rowHTML(r, i){
     /* the name is the tap target for adding lines up. It carries no control of its own,
        which is exactly why it could be given one. */
     '<td class="w" data-pick="'+i+'"><span class="nm" title="'+esc(r.word)+'">'+esc(r.word)+'</span>' +
+      /* his own words get their own line. The meta line below is owned by the app's
+         warnings and is clipped to one line — a remark sharing it would be the first
+         thing to disappear, on exactly the rows that need it most. */
+      (r.note ? '<span class="meta note">'+esc(r.note)+'</span>' : '') +
       '<span class="meta">'+sub+'</span>' +
       /* said out loud, on the line, because a wrong unit is a wrong cost and there is
          nothing on the sheet to give it away */

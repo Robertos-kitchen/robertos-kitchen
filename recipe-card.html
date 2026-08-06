@@ -189,6 +189,13 @@ body.roomstep .foot{margin-top:26px}
 .ing tr.gap .n{color:var(--vino-light)}
 .btag{display:inline-block;font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--oliva);
   border:1px solid rgba(75,81,40,.42);border-radius:3px;padding:2px 6px;margin-left:9px;vertical-align:1px;white-space:nowrap}
+/* the chef's own words about a line — set apart from the ingredient name, on its own
+   line so a long remark never pushes the name out of shape, and in the serif because it
+   is him talking, not the app. This is what tells a cook that the second icing sugar is
+   for dusting and not a mistake. */
+.lnote2{display:block;font-family:var(--serif);
+  font-size:13.5px;line-height:1.35;font-style:italic;color:var(--vino-light);margin-top:2px}
+@media print{ .lnote2{color:#000} }
 .ing tr.sub{cursor:pointer}
 .ing tr.sub:hover .n{color:var(--vino)}
 .caret{display:inline-block;color:var(--oliva);font-size:12px;width:15px}
@@ -611,6 +618,10 @@ function toLines(rows){
     .sort(function(a,b){ return (a.position||0) - (b.position||0); })
     .map(function(l){
       return { q:l.qty, u:l.unit, n:l.stock_name || l.typed_text || '(unnamed)',
+               /* what the chef wrote about this line — the reason the same ingredient can
+                  appear twice. The card is where a cook reads it, so it cannot stay on
+                  the create screen. */
+               note:l.note || null,
                sub:l.child_recipe_id };
     });
 }
@@ -914,7 +925,8 @@ function ingRows(lines,m,mode){
       '<td class="u">'+(gap ? '<span class="miss" title="fix it on the create screen">'+esc(gap)+'</span>'
                             : esc(d.u))+'</td>' +
       '<td class="n">'+(isB&&exp?'<span class="caret">&#9654;</span>':'')+esc(lineName(l)) +
-        (isB?'<span class="btag">Batch</span>':'')+'</td></tr>' +
+        (isB?'<span class="btag">Batch</span>':'') +
+        (l.note ? '<span class="lnote2">'+esc(l.note)+'</span>' : '')+'</td></tr>' +
       (isB&&exp ? '<tr class="subpane" id="sp-'+i+'" style="display:none"><td colspan="3">'+subInner(l.sub, m||1, l)+'</td></tr>' : '');
   }).join('');
 }
