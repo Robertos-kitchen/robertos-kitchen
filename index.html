@@ -418,7 +418,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 @media(max-width:700px){
   .home-grid-service{grid-template-columns:1fr}.home-tile{min-height:125px}.home-title{font-size:30px}
-  .home-grid-ops{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .home-grid-ops,.home-grid-mgmt{grid-template-columns:repeat(2,minmax(0,1fr))}
   .home-tile.compact{min-height:96px}
   .home-toggle-hint{font-size:10px;max-width:52%;text-align:right;line-height:1.3;opacity:.7}
   .ops-grid,.ops-two,.report-filter-grid,.order-filter-grid,.recipe-layout,.recipe-detail-body{grid-template-columns:1fr}
@@ -450,14 +450,14 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-pin-input:focus{outline:none;border-color:var(--vino)}
 
 /* Grid */
-.sch-grid{width:100%;border-collapse:collapse;font-family:var(--font-sans);font-size:12px}
-.sch-grid th{background:var(--vino);color:var(--cream);padding:8px 6px;text-align:center;font-size:11px;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;border:1px solid rgba(255,255,255,.15);position:sticky;top:0;z-index:2}
+.sch-grid{width:100%;border-collapse:collapse;font-family:var(--font-sans);font-size:13px}
+.sch-grid th{background:var(--vino);color:var(--cream);padding:9px 7px;text-align:center;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;border:1px solid rgba(255,255,255,.15);position:sticky;top:0;z-index:2}
 .sch-grid th.sch-th-name{text-align:left;padding-left:12px;min-width:160px;position:sticky;left:0;z-index:3}
 .sch-grid th.sch-th-today{background:var(--oliva);color:var(--cream)}
 .sch-grid th.sch-th-role{min-width:120px;text-align:left;padding-left:8px}
-.sch-grid td{padding:4px 4px;border:1px solid var(--sabbia-dark);vertical-align:middle;text-align:center}
-.sch-grid td.sch-td-name{text-align:left;padding:6px 12px;background:var(--sabbia-light);font-size:13px;color:var(--ink);font-weight:600;position:sticky;left:0;white-space:nowrap}
-.sch-grid td.sch-td-role{text-align:left;padding:4px 8px;background:var(--sabbia-light);font-size:11px;color:var(--vino-light);white-space:nowrap}
+.sch-grid td{padding:6px 5px;border:1px solid var(--sabbia-dark);vertical-align:middle;text-align:center}
+.sch-grid td.sch-td-name{text-align:left;padding:7px 12px;background:var(--sabbia-light);font-size:13.5px;color:var(--ink);font-weight:600;position:sticky;left:0;white-space:nowrap}
+.sch-grid td.sch-td-role{text-align:left;padding:5px 8px;background:var(--sabbia-light);font-size:11.5px;color:var(--vino-light);white-space:nowrap}
 .sch-grid tr.sch-station-hdr td{background:var(--vino);color:var(--cream);font-size:10px;letter-spacing:2px;text-transform:uppercase;padding:6px 12px;font-weight:700}
 .sch-grid tr:hover td:not(.sch-td-name){filter:brightness(.97)}
 .sch-grid tr.sch-events-row:hover td{filter:none}
@@ -842,7 +842,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .home-group-label{font-family:var(--font-serif);font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--vino-light);margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--sabbia-dark)}
 .home-group-label:first-of-type{margin-top:6px}
 .home-grid-ops{grid-template-columns:repeat(4,minmax(0,1fr))}
-.home-grid-mgmt{grid-template-columns:repeat(2,minmax(0,1fr));max-width:440px}
+.home-grid-mgmt{grid-template-columns:repeat(2,minmax(0,1fr))}
 .home-tile.compact{min-height:96px;padding:13px 14px;border-radius:8px}
 .home-tile.compact .home-name{font-size:16px}
 .home-tile.compact .home-code{font-size:9px}
@@ -1344,7 +1344,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div class="footer-bar">
   <span class="foot-label" id="foot-label">Evening service</span>
-  <span class="foot-build" id="foot-build">build 2026-07-09.2</span>
 </div>
 
 <div class="undo-toast" id="undo-toast">
@@ -1395,6 +1394,10 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
 <div id="scheduling-view" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+
+  <div style="padding:14px 16px 6px;flex-shrink:0">
+    <div class="ops-title" style="font-size:22px;margin-bottom:0">Scheduling</div>
+  </div>
 
   <!-- Toolbar -->
   <div class="sch-toolbar">
