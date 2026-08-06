@@ -1250,6 +1250,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <span class="home-chips"><span class="home-chip">Closing Report</span><span class="home-chip">Menu Plan</span><span class="home-chip">Team Survey</span></span>
   </button>
   <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:none">
+    <button class="home-tile compact mgmt" onclick="openMyTasks()"><span class="home-code">MINE</span><span><span class="home-name">My Tasks</span><span class="home-meta">Private &#183; today, tomorrow, all</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openMenuPlan()"><span class="home-code">MENU</span><span><span class="home-name">Menu Development Plan</span><span class="home-meta">Dish bank, year calendar, approvals</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
@@ -1306,6 +1307,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="reports-view" class="ops-view" style="display:none"></div>
 <div id="order-view" class="ops-view" style="display:none"></div>
 <div id="fish-view" class="ops-view" style="display:none"></div>
+<div id="mytasks-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
 <!-- Recipes: one way in, three screens on one live record. `recipes-view` is the way
      in; the other three hold a screen each, filled the first time it is opened and
@@ -1352,6 +1354,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <script src="market-list.js?v=1784460000"></script>
 <script src="fish-display.js?v=1786000000"></script>
+<script src="my-tasks.js?v=1786302000"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
      keep cold-boot light on the always-on screens. -->
 <script>
