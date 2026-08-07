@@ -609,6 +609,10 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .mreqacts button{margin:0;font-size:12px;padding:8px 12px}
 .mreqempty{background:rgba(232,217,199,.45);border-radius:4px;padding:16px 18px;
   font-family:var(--sans);font-size:13px;line-height:1.7}
+/* the question sits inside the card it is about, full width under it — never over the
+   page, and never on a card other than the one being removed */
+.mreqask{flex:1 1 100%;margin-top:12px;padding-top:12px;border-top:1px solid rgba(64,2,7,.16)}
+.mreqask b{font-family:var(--sans);font-size:13.5px;color:var(--vino)}
 /* the toolbar over the dish list — search, and what is ticked */
 .micbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
 .micbar input.msrch{flex:1 1 220px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
@@ -3138,7 +3142,10 @@ var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
                   address every request after it opens on. */
                to:null, cc:null, def:null, defErr:null, admin:false, adminTo:'', adminCc:'',
                /* the requests already made — the screen the door now opens on */
-               list:null, listErr:null, listReady:false, open:null, openErr:null };
+               list:null, listErr:null, listReady:false, open:null, openErr:null,
+               /* the sent request being asked about before it is removed — one at a
+                  time, and never open on a card he has not tapped */
+               del:null };
 
 /* ── what has been sent before ──────────────────────────────────────────────────
    Two tables, read once. Nothing here is derived from the recipes: a request is a
@@ -3355,11 +3362,29 @@ function micReqsInner(){
         '</span></span>' +
       '<span class="mreqacts">' +
         (draft
+          /* a draft has been nowhere, so there is nothing to think about before it goes */
           ? '<button class="okb" data-mdraft="'+q.id+'">Open it</button>' +
             '<button class="newr" data-mdel="'+q.id+'">Throw it away</button>'
           : '<button class="okb" data-mreq="'+q.id+'">Review it</button>' +
-            '<button class="newr" data-mfrom="'+q.id+'">Start a new one from it</button>') +
-      '</span></div>';
+            '<button class="newr" data-mfrom="'+q.id+'">Start a new one from it</button>' +
+            '<button class="newr" data-mdelask="'+q.id+'">Remove it</button>') +
+      '</span>' +
+      /* ── removing one that has already gone ──
+         It asks first, and it says the one thing that is easy to forget: taking it off
+         this list does not un-send the email. Aung still has it. The only thing being
+         thrown away is our own record of it — which, for a test sent to yourself, is
+         exactly what you want, and for a real one is not. */
+      (!draft && MICREQ.del === q.id ?
+        '<div class="mreqask"><b>Remove this from the list?</b>' +
+          '<div class="micaskl">' + q.dish_count + ' dish' + (q.dish_count===1?'':'es') +
+            ' on <b>' + esc(q.menu_name||'a menu') + '</b>, sent ' + esc(micWhen(q.sent_at)) +
+            (q.send_to ? ' to <b>' + esc(q.send_to) + '</b>' : '') + '.<br>' +
+            'The email still went — this only throws away our record of it, and it cannot ' +
+            'be brought back.</div>' +
+          '<div class="micaskb"><button class="okb" data-mdelyes="'+q.id+'">Yes — remove it</button>' +
+            '<button class="newr" id="mdelno" style="margin:0">Keep it</button>' +
+            '<span class="brn" id="mdelst"></span></div></div>' : '') +
+      '</div>';
   };
   return '<div class="pane">' +
     '<div class="q">Micros requests</div>' +
@@ -3475,6 +3500,9 @@ function micPastInner(){
     '<div class="micfoot">' +
       '<button class="okb" data-mfrom="'+q.id+'">Start a new request from this one</button>' +
       '<button class="newr" id="micback" style="margin:0">Back to the requests</button>' +
+      /* the same question, asked in the same place — it opens on this request's own card
+         on the list, rather than a second confirm box worded slightly differently here */
+      '<button class="newr" data-mgodel="'+q.id+'" style="margin:0">Remove this request</button>' +
     '</div>' +
     '<div class="tip" style="margin-top:12px">Starting a new one from this puts the same dishes and ' +
       'the same till names back on the screen, costed as they are <b>today</b> — which is what a ' +
@@ -8467,7 +8495,12 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'micback'){
-    MICREQ.open = null; S.step = 'micreqs'; render(); window.scrollTo(0,0); return;
+    MICREQ.open = null; MICREQ.del = null; S.step = 'micreqs'; render(); window.scrollTo(0,0); return;
+  }
+  var mgd = e.target.closest('[data-mgodel]');
+  if (mgd){
+    MICREQ.del = mgd.dataset.mgodel; MICREQ.open = null;
+    S.step = 'micreqs'; render(); window.scrollTo(0,0); return;
   }
   var mrv = e.target.closest('[data-mreq]');
   if (mrv){
@@ -8486,20 +8519,36 @@ document.addEventListener('click', function(e){
     if (dft) micLoadFrom(dft, true);
     return;
   }
-  var mdl = e.target.closest('[data-mdel]');
+  /* ── removing a request ──
+     A draft has been nowhere, so it goes on the tap. One that has been SENT is asked
+     about first, and the question says the thing that is easy to forget: this does not
+     un-send the email. */
+  var mdask = e.target.closest('[data-mdelask]');
+  if (mdask){ MICREQ.del = mdask.dataset.mdelask; render(); return; }
+  if (e.target.id === 'mdelno'){ MICREQ.del = null; render(); return; }
+
+  var mdl = e.target.closest('[data-mdel]') || e.target.closest('[data-mdelyes]');
   if (mdl){
-    /* a draft, and only ever a draft — a sent request has no control that removes it,
-       anywhere on this module */
-    var did = mdl.dataset.mdel;
-    var tgt = (MICREQ.list||[]).filter(function(x){ return x.id === did; })[0];
-    if (tgt && tgt.sent_at) return;
-    mdl.disabled = true; mdl.textContent = 'Throwing it away…';
+    var did = mdl.dataset.mdel || mdl.dataset.mdelyes;
+    var wasT = mdl.textContent;
+    mdl.disabled = true; mdl.textContent = 'Removing it…';
+    var dst = $('mdelst'); if (dst){ dst.className = 'brn'; dst.textContent = ''; }
+    /* the lines go with it — the cascade is on the table, so this is one request, not
+       two that can half fail */
     sb('micros_requests?id=eq.' + did, { method:'DELETE', prefer:'return=minimal' })
-      .then(function(){ if (MICREQ.reqId === did) MICREQ.reqId = null;
-                        return micLoadList(); })
+      .then(function(){
+        if (MICREQ.reqId === did) MICREQ.reqId = null;
+        if (MICREQ.open && MICREQ.open.id === did) MICREQ.open = null;
+        MICREQ.del = null;
+        return micLoadList();
+      })
       .then(function(){ render(); })
-      .catch(function(ex){ mdl.disabled = false; mdl.textContent = 'Throw it away';
-                           flash('It is still there — ' + plain(ex.message), true); });
+      .catch(function(ex){
+        mdl.disabled = false; mdl.textContent = wasT;
+        var d2 = $('mdelst');
+        if (d2){ d2.className = 'brn bad'; d2.textContent = 'Still there — ' + plain(ex.message); }
+        else flash('It is still there — ' + plain(ex.message), true);
+      });
     return;
   }
   if (e.target.id === 'micdraft'){
@@ -9021,7 +9070,7 @@ function goBack(){
     /* coming back onto the requests, read them again — a draft kept a moment ago, or a
        request that has just gone, has to be on the list he lands on */
     if (t.to === 'micreqs'){
-      MICREQ.open = null;
+      MICREQ.open = null; MICREQ.del = null;
       micLoadList().then(function(){ if (S.step === 'micreqs') render(); });
     }
     S.step = t.to; render(); window.scrollTo(0,0);
