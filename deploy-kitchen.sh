@@ -46,7 +46,12 @@ FROM_HTML=$( { grep -aoE '(src|href)="[^"]+"' index.html | sed -E 's/.*="//; s/"
   | sed 's/?.*//' \
   | grep -vE '^(https?:)?//|^data:|^mailto:|^tel:|^#|^$|[+()]' | sort -u || true)
 # Lazy-loaded or referenced from another page — not named by a tag in index.html.
-EXTRAS="my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes.js recipe-create.html recipe-card.html food-bible.html menu-pdfs.html photo-options.html"
+# writing-help.js is the same shape of trap as the dev-guard.js outage above:
+# it is loaded by recipe-create.html, NOT by index.html, so the FROM_HTML scan
+# cannot see it. Shipping recipe-create.html without it would put a page on LIVE
+# that 404s on its first script and then throws on WritingHelp — the Recipes
+# screen would open and do nothing. It ships here or it does not ship.
+EXTRAS="my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes.js recipe-create.html recipe-card.html food-bible.html menu-pdfs.html photo-options.html writing-help.js writing-review.html"
 
 # Images and other assets the PAGES reference. Caught the same day as the
 # dev-guard.js outage: food-bible.html names its room photos inside a JavaScript

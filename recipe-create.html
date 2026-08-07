@@ -729,6 +729,66 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .stepb:hover{background:rgba(65,2,7,.16)}
 .stepw{font-size:11px;color:var(--vino-light);opacity:.8}
 @media (pointer:coarse){ .stepb{padding:10px 13px;font-size:12px} }
+
+/* ───── writing help ─────
+   Deliberately the same furniture as the step note above: it sits in the same
+   place, in the same small type, and it is empty almost always. A box with
+   nothing wrong in it shows nothing at all — the app pushes, it does not nag.
+   The correction IS the button, so accepting one costs a tap and not a hunt. */
+.whwrap:empty{display:none}
+.whwrap{margin-top:7px}
+.whn{font-size:11.5px;line-height:1.55;color:var(--vino-light);margin-bottom:5px}
+.whn b{color:var(--vino)}
+.whrow{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 5px}
+.whwas{font-size:12.5px;color:var(--vino-light);text-decoration:line-through;opacity:.75}
+.wharr{font-size:12px;color:var(--sabbia-dark)}
+/* big enough to hit with a thumb over a hot pass, and it says the word itself
+   rather than "Apply" — reading the button IS reading the correction */
+.whfix{font-family:var(--sans);font-size:13px;font-weight:700;background:rgba(65,2,7,.09);
+  border:1px solid rgba(65,2,7,.28);border-radius:4px;color:var(--vino);
+  padding:7px 12px;cursor:pointer;line-height:1.2}
+.whfix:hover{background:rgba(65,2,7,.17)}
+.whall{font-family:var(--sans);font-size:12px;background:var(--vino);border:none;border-radius:4px;
+  color:var(--cream);padding:8px 14px;cursor:pointer;margin:2px 8px 0 0;font-weight:700}
+.whskip{font-family:var(--sans);font-size:11.5px;background:none;border:none;
+  color:var(--vino-light);text-decoration:underline;cursor:pointer;padding:6px 2px;opacity:.85}
+/* a word nobody knows is a QUESTION — never styled as a correction, because a
+   wrong question costs one tap and a wrong fix costs the printed binder */
+.whask{background:var(--sabbia-light);border-left:3px solid var(--oro);border-radius:0 5px 5px 0;
+  padding:10px 12px;margin:6px 0 4px}
+.whask .whq{font-size:12.5px;color:var(--vino);line-height:1.5;margin-bottom:8px}
+.whask .whq b{font-family:var(--serif);font-size:15px}
+.whask .whwhy{font-size:11.5px;color:var(--vino-light);line-height:1.5;margin:-3px 0 8px;opacity:.9}
+.whacts{display:flex;flex-wrap:wrap;gap:7px}
+.whacts button{font-family:var(--sans);font-size:12px;border-radius:4px;cursor:pointer;padding:8px 12px}
+.whyes{background:var(--vino);border:none;color:var(--cream);font-weight:700}
+.whno{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light)}
+.whbusy{font-size:11.5px;color:var(--vino-light);opacity:.75;font-style:italic}
+
+/* ───── the story helper ─────
+   A button he presses, not a note that appears — he should always know whether
+   the app noticed something or he asked for something. His words stay on the
+   left and are never replaced until he taps Use this. */
+.whsb{font-family:var(--sans);font-size:12px;background:none;border:1px dashed rgba(64,2,7,.35);
+  border-radius:4px;color:var(--vino);padding:8px 13px;cursor:pointer;margin-top:7px}
+.whsb:disabled{opacity:.55;cursor:default}
+.whsp{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--vino);
+  border-radius:0 6px 6px 0;padding:13px 14px;margin-top:9px}
+.whsp .wht{font-family:var(--serif);font-size:15.5px;color:var(--ink);line-height:1.6}
+.whsp .whu{font-size:11.5px;color:var(--vino-light);line-height:1.6;margin-top:9px;opacity:.9}
+.whsp .whu b{color:var(--vino)}
+.whsp .whm{background:var(--sabbia-light);border-radius:5px;padding:9px 11px;margin-top:10px;
+  font-size:12px;color:var(--vino);line-height:1.6}
+.whsp .whm b{font-family:var(--serif);font-size:13.5px}
+/* Measured at 375px, not guessed: at 11px padding the correction button came out
+   40px tall, under the 44px a thumb reliably hits — and this one is tapped with a
+   wet hand next to a hot pass. */
+@media (pointer:coarse){
+  .whfix{padding:14px 16px;font-size:14px}
+  .whacts button,.whall{padding:14px 16px;font-size:13px}
+  .whsb{padding:14px 16px;font-size:13px}
+  .whskip{padding:12px 4px}
+}
 /* the one screen for everything half done */
 /* same family as .srow, so it takes the same ground — two lists of recipes that sit on
    different colours read as two different apps */
@@ -1214,6 +1274,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 <!-- DEV-site write protection. THE ONLY COPY, shared with index.html. Must load
      before any code below can call fetch(). See dev-guard.js for why. -->
 <script src="dev-guard.js?v=1786800000"></script>
+<script src="writing-help.js?v=1786800000"></script>
 <script>/* Create a recipe. One page, nothing opens. Real stock list (2026-05). */
 var ING = JSON.parse(document.getElementById('ING').textContent);
 var MONTH = '2026-07';        /* whatever the newest stock_take_sheets row says */
@@ -1874,6 +1935,12 @@ function parseMethod(text){
 /* ───────── the Kitchen database ───────── */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+/* The AI proxy checks this server-side. It lives in app.js for every screen that
+   index.html loads — but this page is opened on its own and never loads app.js,
+   so without this line the writing help sends an empty secret and every call is
+   rejected. It failed exactly that way the first time it was clicked, and the
+   "no connection" message it fell back to hid the real reason. */
+var KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
 /* A request that never comes back is worse than one that fails, because nothing on the
    screen says so. The kitchen wifi drops for a few seconds mid-save, this promise never
    settles, and the Save button sits on "Saving…" for ever — every tap after it is a
@@ -6801,6 +6868,7 @@ function platingInner(){
       '<textarea class="mbox" id="m-plating" data-m="plating" rows="1" ' +
         'placeholder="Two discs, mousse between&#10;Glaze to the edge&#10;Coin off centre">' + esc(v) + '</textarea>' +
       '<div class="stepwrap" id="stepn-plating">' + stepsNote(v, 'plating') + '</div>' +
+      '<div class="whwrap" id="wh-plating"></div>' +
     '</div>' +
     '<div class="prow">' +
       '<div class="pcell">' +
@@ -7130,6 +7198,11 @@ function fohInner(){
         '<textarea class="mbox" id="m-'+s.k+'" data-m="'+s.k+'" rows="1" ' +
           'placeholder="'+esc(s.p)+'">'+esc(v)+'</textarea>' +
         '<div class="mhint">'+esc(s.h)+' <span class="wc" id="wc-'+s.k+'">'+budget(s,v)+'</span></div>' +
+        '<div class="whwrap" id="wh-'+s.k+'"></div>' +
+        /* only the story gets the helper: it is the one box that is prose rather
+           than instruction, so it is the one box where putting his Italian into
+           English cannot change what anybody DOES. */
+        (s.k === 'story' ? '<div id="whstory">' + whStoryHTML() + '</div>' : '') +
       '</div>';
     }).join('') +
 
@@ -7364,8 +7437,176 @@ function storeInner(){
       '<textarea class="mbox" id="m-store" data-m="store" rows="1" ' +
         'placeholder="Vac-pac in 500 g bags, labelled with the date. Fridge. Use within 3 days.">' +
         esc(v) + '</textarea>' +
+      '<div class="whwrap" id="wh-store"></div>' +
     '</div>';
 }
+/* ═════════ writing help — what the chef sees ═════════
+   Two engines, one place on the screen. The free one runs the moment he leaves
+   a box; the paid one runs once, after Save, and never makes him wait for it.
+
+   The rule both obey: nothing changes until he taps. These chefs are partly
+   learning English from this app, so a silent fix teaches nothing — and a
+   silent fix that is WRONG puts a word into the printed Food Bible that no
+   human ever typed. Accepting a whole box costs one tap instead. */
+var WH_FIND = {};      /* box key -> findings from the free table pass */
+var WH_ASK  = {};      /* box key -> questions about words nobody knows */
+var WH_BUSY = {};      /* box key -> a question is being answered */
+
+/* Every prose box on the sheet, so a word can be asked about against every
+   sentence it appears in rather than one. */
+function whBoxes(){
+  var m = S.method || {}, out = {};
+  ['mise','method','order','plating','store','foh','say','story','ing','garnish','more']
+    .forEach(function(k){ if ((m[k] || '').trim()) out[k] = m[k]; });
+  return out;
+}
+
+function whFixHTML(f, k, i){
+  return '<div class="whrow">' +
+      '<span class="whwas">' + esc(f.wrong) + '</span>' +
+      '<span class="wharr">→</span>' +
+      '<button class="whfix" data-whfix="' + k + ':' + i + '">' + esc(f.right) + '</button>' +
+    '</div>';
+}
+
+/* A word nobody recognises. Never a fix — always a question, even when the
+   answer looks certain. "It's what we call it" is always on screen, so a real
+   house word is closed for good the first time it is raised, by anybody. */
+function whAskHTML(a, k, i){
+  if (WH_BUSY[k + ':' + i]) return '<div class="whask"><div class="whbusy">Looking at every recipe that uses it…</div></div>';
+  return '<div class="whask">' +
+      '<div class="whq">Nobody recognises <b>' + esc(a.wrong) + '</b>' +
+        (a.right ? ' — did you mean <b>' + esc(a.right) + '</b>?' : '.') + '</div>' +
+      (a.why ? '<div class="whwhy">' + esc(a.why) + '</div>' : '') +
+      '<div class="whacts">' +
+        (a.right ? '<button class="whyes" data-whyes="' + k + ':' + i + '">Yes, that\'s it</button>' : '') +
+        '<button class="whno" data-whno="' + k + ':' + i + '">' + (a.right ? 'No — I\'ll type it' : 'Leave it') + '</button>' +
+        '<button class="whno" data-whhouse="' + k + ':' + i + '">It\'s what we call it</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function whDraw(k){
+  var wrap = $('wh-' + k);
+  if (!wrap) return;
+  var fx = WH_FIND[k] || [], as = WH_ASK[k] || [];
+  if (!fx.length && !as.length){ wrap.innerHTML = ''; fitBar(); return; }
+
+  var h = '';
+  if (fx.length){
+    h += '<div class="whn"><b>' + fx.length + ' word' + (fx.length === 1 ? '' : 's') +
+         '</b> to look at. Tap one to change it.</div>';
+    h += fx.map(function(f, i){ return whFixHTML(f, k, i); }).join('');
+    if (fx.length > 1) h += '<button class="whall" data-whall="' + k + '">Fix all ' + fx.length + '</button>';
+    h += '<button class="whskip" data-whskip="' + k + '">Leave them</button>';
+  }
+  h += as.map(function(a, i){ return whAskHTML(a, k, i); }).join('');
+  wrap.innerHTML = h;
+  fitBar();
+}
+
+/* The free pass. No network, no cost, no waiting — and it returns nothing at
+   all for most boxes, which is the whole point. */
+function whScanBox(k){
+  if (!window.WritingHelp) return;
+  var v = (S.method || {})[k] || '';
+  WH_FIND[k] = WritingHelp.scan(v);
+  whDraw(k);
+}
+
+/* Put a correction in, in front of him. Every occurrence in this box, because
+   a word he wrote twice is one decision, not two. */
+function whApply(k, f){
+  var m = mth(), cur = String(m[k] || '');
+  var re = new RegExp('(^|[^\\p{L}\\p{N}-])(' +
+    f.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![\\p{L}\\p{N}-])', 'giu');
+  m[k] = cur.replace(re, function(all, pre){ return pre + f.right; });
+  var box = $('m-' + k);
+  if (box){ box.value = m[k]; grow(box); }
+  drawSaveBar();
+}
+
+/* ── after Save, never during it ──
+   Save writes, the ✓ shows, and this comes back a moment later above the save
+   bar. It is never a gate: no signal means the free pass already ran and this
+   one quietly does not, and the next save catches it. */
+function whAfterSave(){
+  if (!window.WritingHelp) return;
+  var boxes = whBoxes();
+  if (!Object.keys(boxes).length) return;
+  WritingHelp.check(boxes).then(function(found){
+    if (!found.length) return;
+    var fresh = 0;
+    found.forEach(function(f){
+      /* somebody already answered this word — use the answer, do not ask twice */
+      var known = WritingHelp.knownFix(f.wrong);
+      var k = whBoxOf(boxes, f.wrong);
+      if (!k) return;
+      /* the free pass already has this one — do not show it twice */
+      var dup = (WH_FIND[k] || []).some(function(x){ return WritingHelp.covers(x.wrong, f.wrong); });
+      if (dup) return;
+      if (known){
+        (WH_FIND[k] = WH_FIND[k] || []).push({ wrong: f.wrong, right: known, sure: true });
+      } else {
+        (WH_ASK[k] = WH_ASK[k] || []).push(f);
+      }
+      fresh++;
+    });
+    if (!fresh) return;
+    Object.keys(boxes).forEach(whDraw);
+    flash(fresh === 1 ? 'One word to look at — it is on the sheet, above Save.'
+                      : fresh + ' words to look at — they are on the sheet, above Save.');
+  });
+}
+
+function whBoxOf(boxes, term){
+  var re = new RegExp('(^|[^\\p{L}\\p{N}-])' +
+    term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\p{L}\\p{N}-])', 'iu');
+  var hit = null;
+  Object.keys(boxes).forEach(function(k){ if (!hit && re.test(boxes[k])) hit = k; });
+  return hit;
+}
+
+/* ═════════ the story helper ═════════
+   He types what he knows, in Italian or English or both, and gets it back in
+   English. It may not add a fact he did not give it: a story is read out to a
+   guest as though it were true, so an invented grandmother is a lie the
+   restaurant told. Starved of facts it asks instead of writing.
+
+   His words stay in the box. Nothing is replaced until he taps Use this. */
+var WH_STORY = null, WH_STORY_BUSY = false;
+
+function whStoryHTML(){
+  var h = '<button class="whsb" id="whsay"' + (WH_STORY_BUSY ? ' disabled' : '') + '>' +
+    (WH_STORY_BUSY ? 'Reading it…' : 'Put this in English') + '</button>';
+  if (!WH_STORY) return h;
+  if (WH_STORY.offline)
+    return h + '<div class="whsp"><div class="whu">No connection just now — your words are safe in the box. Try again in a moment.</div></div>';
+  h += '<div class="whsp">';
+  if (WH_STORY.story){
+    h += '<div class="wht">' + esc(WH_STORY.story) + '</div>';
+    if (WH_STORY.used && WH_STORY.used.length)
+      h += '<div class="whu"><b>Every word of this came from you:</b> ' +
+           WH_STORY.used.map(esc).join(' · ') + '</div>';
+    h += '<div class="whacts" style="margin-top:11px">' +
+           '<button class="whyes" id="whuse">Use this</button>' +
+           '<button class="whno" id="whdrop">No, keep mine</button>' +
+         '</div>';
+  } else {
+    h += '<div class="whu">There is not enough here yet to make a story, and inventing one ' +
+         'would put words in a waiter\'s mouth. Tell it a bit more and tap again.</div>';
+  }
+  if (WH_STORY.missing && WH_STORY.missing.length)
+    h += '<div class="whm"><b>This would make it better:</b><br>' +
+         WH_STORY.missing.map(esc).join('<br>') + '</div>';
+  return h + '</div>';
+}
+
+function whDrawStory(){
+  var w = $('whstory');
+  if (w){ w.innerHTML = whStoryHTML(); fitBar(); }
+}
+
 function methodInner(){
   var ph = S.photos || [];
   return '<div class="mhd">How it is made</div>' +
@@ -7380,6 +7621,7 @@ function methodInner(){
         '<textarea class="mbox" id="m-'+s.k+'" data-m="'+s.k+'" rows="1" ' +
           'placeholder="'+esc(s.p)+'">'+esc(v)+'</textarea>' +
         '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v, s.k) + '</div>' +
+        '<div class="whwrap" id="wh-'+s.k+'"></div>' +
       '</div>';
     }).join('') +
     storeInner() +
@@ -7428,6 +7670,10 @@ function wireMethod(){
       /* the count follows what he is typing — never redraw the box he is typing in */
       var n = $('stepn-'+s.k); if (n) n.innerHTML = stepsNote(this.value, s.k);
     });
+    /* on blur, not on keystroke: he has finished the thought and is already
+       looking away, which is the cheapest possible moment to interrupt. A red
+       squiggle following the cursor is a nag, and it fires on half-typed words. */
+    t.addEventListener('blur', function(){ whScanBox(s.k); });
   });
   /* the floor's fields carry a live length against what one A4 actually holds */
   FSEC.forEach(function(s){
@@ -7438,6 +7684,7 @@ function wireMethod(){
       var w = $('wc-'+s.k); if (w) w.innerHTML = budget(s, this.value);
       drawFohState();
     });
+    t.addEventListener('blur', function(){ whScanBox(s.k); });
   });
   var c = $('m-code');
   if (c) c.addEventListener('input', function(){ mth().code = this.value; });
@@ -7449,6 +7696,7 @@ function wireMethod(){
       mth().plating = this.value; grow(this);
       var n = $('stepn-plating'); if (n) n.innerHTML = stepsNote(this.value, 'plating');
     });
+    pl.addEventListener('blur', function(){ whScanBox('plating'); });
   }
   /* batch only, and it may not be on the sheet at all — the guard is the same one every
      other box here uses, because a main recipe never draws it */
@@ -7456,6 +7704,7 @@ function wireMethod(){
   if (st){
     grow(st);
     st.addEventListener('input', function(){ mth().store = this.value; grow(this); });
+    st.addEventListener('blur', function(){ whScanBox('store'); });
   }
   ['pass','crockery'].forEach(function(k){
     var e = $('m-'+k); if (!e) return;
@@ -7880,6 +8129,91 @@ document.addEventListener('click', function(e){
     fitBar();                      /* it changes how tall the pinned bands are */
     return;
   }
+  /* ── writing help ──
+     Every one of these runs because he tapped it. Nothing on this screen
+     changes a word he wrote on its own, however certain the change looks. */
+  var wf = e.target.closest('[data-whfix]');
+  if (wf){
+    var pr = wf.getAttribute('data-whfix').split(':'), bk = pr[0], bi = +pr[1];
+    var f = (WH_FIND[bk] || [])[bi];
+    if (f){ whApply(bk, f); WH_FIND[bk].splice(bi, 1); whDraw(bk); }
+    return;
+  }
+  var wa = e.target.closest('[data-whall]');
+  if (wa){
+    var ak = wa.getAttribute('data-whall');
+    (WH_FIND[ak] || []).forEach(function(f){ whApply(ak, f); });
+    WH_FIND[ak] = []; whDraw(ak);
+    return;
+  }
+  /* Leaving them is free and silent — no confirmation, no scolding. */
+  var ws = e.target.closest('[data-whskip]');
+  if (ws){ var sk = ws.getAttribute('data-whskip'); WH_FIND[sk] = []; whDraw(sk); return; }
+
+  /* An answer to a question is worth more than the fix it produces: it is
+     stored, so the same word is never asked about again — by anybody, ever. */
+  var wy = e.target.closest('[data-whyes]');
+  if (wy){
+    var yp = wy.getAttribute('data-whyes').split(':'), yk = yp[0], yi = +yp[1];
+    var q = (WH_ASK[yk] || [])[yi];
+    if (q && q.right){
+      whApply(yk, { wrong: q.wrong, right: q.right });
+      if (window.WritingHelp) WritingHelp.remember(q.wrong, 'fix', q.right);
+      WH_ASK[yk].splice(yi, 1); whDraw(yk);
+    }
+    return;
+  }
+  var wn = e.target.closest('[data-whno]');
+  if (wn){
+    var np = wn.getAttribute('data-whno').split(':');
+    (WH_ASK[np[0]] || []).splice(+np[1], 1); whDraw(np[0]);
+    return;
+  }
+  /* "It's what we call it" — the word joins the house list and is never raised
+     again, on any recipe, for anyone. One tap closes it for good. */
+  var wh = e.target.closest('[data-whhouse]');
+  if (wh){
+    var hp = wh.getAttribute('data-whhouse').split(':'), hk = hp[0], hi = +hp[1];
+    var hq = (WH_ASK[hk] || [])[hi];
+    if (hq){
+      if (window.WritingHelp) WritingHelp.remember(hq.wrong, 'house');
+      WH_ASK[hk].splice(hi, 1);
+      /* it may also be sitting in the free pass on another box — drop it there too */
+      Object.keys(WH_FIND).forEach(function(k){
+        WH_FIND[k] = (WH_FIND[k] || []).filter(function(f){
+          return f.wrong.toLowerCase() !== hq.wrong.toLowerCase();
+        });
+        whDraw(k);
+      });
+      whDraw(hk);
+      flash('“' + hq.wrong + '” is a house word now — nobody will be asked about it again.');
+    }
+    return;
+  }
+
+  /* ── the story helper ── */
+  if (e.target.id === 'whsay'){
+    if (WH_STORY_BUSY || !window.WritingHelp) return;
+    WH_STORY_BUSY = true; WH_STORY = null; whDrawStory();
+    WritingHelp.story((S.method || {}).story || '').then(function(res){
+      WH_STORY_BUSY = false; WH_STORY = res; whDrawStory();
+    });
+    return;
+  }
+  if (e.target.id === 'whuse'){
+    if (WH_STORY && WH_STORY.story){
+      mth().story = WH_STORY.story;
+      var sb = $('m-story');
+      if (sb){ sb.value = WH_STORY.story; grow(sb); }
+      var wc = $('wc-story'); if (wc) wc.innerHTML = budget(FSEC.filter(function(x){ return x.k === 'story'; })[0], WH_STORY.story);
+      drawSaveBar(); drawFohState();
+      WH_STORY = null; whDrawStory(); whScanBox('story');
+      flash('Story updated — it is still yours to change.');
+    }
+    return;
+  }
+  if (e.target.id === 'whdrop'){ WH_STORY = null; whDrawStory(); return; }
+
   /* offered, then done in front of him — the box shows the result and he can undo it by
      hand. It never runs on its own. */
   var mk = e.target.closest('[data-mksteps]');
@@ -8206,6 +8540,11 @@ document.addEventListener('click', function(e){
       var go = S.pendingGo; S.pendingGo = null;
       return Promise.all([loadSaved(), loadBatches()]).then(function(){
         if (goAfter && go) go(); else { drawSaveBar(); flag($('act'), 'Saved ✓'); }
+        /* Deliberately AFTER the ✓ and deliberately not returned: the save is
+           already done and this must never be able to hold it up, fail it, or
+           make him wait on kitchen wifi for it. If there is no signal it
+           quietly does nothing and the next save catches it. */
+        if (!goAfter) whAfterSave();
       });
     }).catch(function(err){
       sbb.disabled = false; sbb.textContent = sbWas;
@@ -9268,6 +9607,11 @@ function flash(msg, bad){
   setTimeout(function(){ if (m.parentNode){ m.remove(); fitBar(); } }, bad ? 9000 : 5000);
   return m;
 }
+/* The words the kitchen has already ruled on. Fired and forgotten on purpose:
+   the table may not exist yet, and until it does the answers live on the
+   device — so nothing here is allowed to hold up opening a recipe. */
+if (window.WritingHelp) WritingHelp.loadTerms();
+
 if (Q.get('id')){
   var wait = flash('Opening the recipe…');
   openRecipe(Q.get('id'))

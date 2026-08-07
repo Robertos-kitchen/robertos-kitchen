@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Check the book · Roberto's</title>
+<link rel="icon" href="favicon.jpg">
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  CHECK THE BOOK — the errors already written, fixed once.
+
+  The Recipes screen helps with NEW writing. This screen is for the writing
+  that is already in the database and already being printed in the Food Bible.
+
+  It is built around one number: the same handful of mistakes repeat across
+  many recipes. "papin bag" is written in six of them. Reviewing recipe by
+  recipe would be six decisions about one word; this screen groups by the WORD,
+  so it is one decision that fixes all six.
+
+  That is why it is quick enough to be worth doing at all: 62 passages of prose
+  collapse to a page of decisions, and most of them are one tap.
+
+  Nothing is written to the database until "Fix everywhere" is tapped, and each
+  word is a separate tap — there is no "accept all" for the questions, because
+  the questions are the ones a person actually has to think about.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--vino-light:#7a1218;
+  --cream:#f5ede0;--oro:#b08d57;--ink:#2b2320;
+  --serif:'Bodoni Moda',Georgia,serif;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--sabbia);font-family:var(--sans);color:var(--ink);
+  -webkit-text-size-adjust:100%}
+.bar{background:var(--vino);color:var(--cream);padding:11px 16px;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:30}
+.bar .ttl{font-family:var(--serif);font-size:19px;letter-spacing:.4px}
+.bar a{color:var(--cream);font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
+  text-decoration:none;background:rgba(245,237,224,.14);border-radius:3px;padding:8px 13px}
+.wrap{max-width:760px;margin:0 auto;padding:22px 16px 60px}
+h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line-height:1.15}
+.sub{font-size:13.5px;color:var(--vino-light);line-height:1.6;margin-bottom:20px}
+.go{font-family:var(--sans);font-size:14px;font-weight:700;background:var(--vino);border:none;
+  border-radius:5px;color:var(--cream);padding:14px 22px;cursor:pointer}
+.go:disabled{opacity:.5;cursor:default}
+.prog{font-size:12.5px;color:var(--vino-light);margin-top:13px;line-height:1.7}
+.prog b{color:var(--vino)}
+.grp{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
+  padding:15px 16px;margin:0 0 13px}
+.grp.ask{border-left:3px solid var(--oro)}
+.grp.sure{border-left:3px solid var(--vino)}
+.grp.done{opacity:.55}
+.gw{font-family:var(--serif);font-size:21px;color:var(--vino);line-height:1.2}
+.gw .to{color:var(--ink)}
+.gu{font-size:11.5px;color:var(--vino-light);text-transform:uppercase;letter-spacing:1.3px;
+  margin:5px 0 9px}
+.gy{font-size:12.5px;color:var(--vino-light);line-height:1.55;margin-bottom:10px}
+.ctx{margin:0 0 11px;padding:0;list-style:none}
+.ctx li{font-size:12px;color:var(--ink);opacity:.8;line-height:1.5;padding:4px 0 4px 12px;
+  border-left:2px solid var(--sabbia-dark);margin-bottom:3px}
+.ctx li b{color:var(--vino);font-weight:700}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+.acts button{font-family:var(--sans);font-size:12.5px;border-radius:4px;cursor:pointer;padding:10px 14px}
+.yes{background:var(--vino);border:none;color:var(--cream);font-weight:700}
+.no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light)}
+.res{font-size:12.5px;color:var(--vino);font-weight:700;padding:9px 0 2px}
+.empty{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
+  padding:22px;text-align:center;color:var(--vino-light);font-size:13.5px;line-height:1.6}
+.warn{background:var(--sabbia-light);border-left:3px solid var(--oro);border-radius:0 6px 6px 0;
+  padding:12px 14px;font-size:12.5px;line-height:1.6;color:var(--vino);margin-bottom:18px}
+.warn b{font-family:var(--serif);font-size:14px}
+@media (pointer:coarse){ .acts button{padding:13px 16px;font-size:13.5px} }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="ttl">Check the book</span>
+  <a href="index.html">← Kitchen</a>
+</div>
+
+<div class="wrap">
+  <h1>The words already in the book</h1>
+  <div class="sub">
+    Every recipe is read once, and the findings are grouped by <b>word</b> rather than by recipe —
+    so a word written in six recipes is one decision here, not six. Nothing changes until you tap.
+  </div>
+
+  <div id="devwarn"></div>
+  <button class="go" id="run">Read every recipe</button>
+  <div class="prog" id="prog"></div>
+  <div id="out" style="margin-top:20px"></div>
+</div>
+
+<script src="dev-guard.js?v=1786800000"></script>
+<script>
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
+
+function sb(path, opt){
+  opt = opt || {};
+  return fetch(SB_URL + '/rest/v1/' + path, {
+    method: opt.method || 'GET',
+    headers: {
+      'Content-Type':'application/json', apikey: SUPABASE_KEY,
+      Authorization: 'Bearer ' + SUPABASE_KEY,
+      Prefer: opt.prefer || 'return=representation'
+    },
+    body: opt.body ? JSON.stringify(opt.body) : undefined
+  }).then(function(r){
+    return r.text().then(function(t){
+      if (!r.ok) throw new Error((JSON.parse(t||'{}').message) || ('HTTP ' + r.status));
+      return t ? JSON.parse(t) : null;
+    });
+  });
+}
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+</script>
+<script src="writing-help.js?v=1786800000"></script>
+<script>
+var KEYS = ['mise','method','order','plating','store','foh','say','story','ing','garnish','more'];
+var RECIPES = [], GROUPS = [];
+
+/* The dev site blocks the paid proxy and every write, which is correct — but on
+   this screen that looks exactly like a broken button, so say so up front. */
+if (window.IS_DEV_HOST && window.DEV_READ_ONLY){
+  $('devwarn').innerHTML = '<div class="warn"><b>This is the DEV site.</b><br>' +
+    'Reading every recipe costs a few pence and writing a fix changes the real book, so both are ' +
+    'blocked here. Tap the DEV badge at the bottom-left and enter the schedule PIN if you mean to ' +
+    'test it for real.</div>';
+}
+
+function prog(msg){ $('prog').innerHTML = msg; }
+
+function boxesOf(rec){
+  var m = rec.method || {}, o = {};
+  KEYS.forEach(function(k){ if ((m[k]||'').trim()) o[k] = m[k]; });
+  return o;
+}
+
+/* Every sentence, across every recipe, that uses this word — so one answer can
+   be given against all of them at once. Asking per passage gave the same word
+   four different answers; asking against all six contexts gave one. */
+function contextsFor(term){
+  var re = new RegExp('(^|[^\\p{L}\\p{N}-])' +
+    term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?![\\p{L}\\p{N}-])','iu');
+  var out = [];
+  RECIPES.forEach(function(rec){
+    var b = boxesOf(rec);
+    Object.keys(b).forEach(function(k){
+      b[k].split(/\n/).forEach(function(line){
+        if (line.trim() && re.test(line)) out.push({ recipe: rec.name, box: k, line: line.trim() });
+      });
+    });
+  });
+  return out;
+}
+
+function run(){
+  $('run').disabled = true;
+  GROUPS = []; $('out').innerHTML = '';
+  prog('Reading the recipes…');
+
+  sb('recipes?archived=is.false&select=id,name,kind,method&order=name').then(function(rows){
+    RECIPES = rows || [];
+    var passages = 0;
+    RECIPES.forEach(function(r){ passages += Object.keys(boxesOf(r)).length; });
+    prog('<b>' + RECIPES.length + '</b> recipes · <b>' + passages + '</b> passages of writing. Looking…');
+
+    /* Pass one, free: the words we already know. Grouped as we go. */
+    var byWord = {};
+    RECIPES.forEach(function(rec){
+      var b = boxesOf(rec);
+      Object.keys(b).forEach(function(k){
+        WritingHelp.scan(b[k]).forEach(function(f){
+          var key = f.wrong.toLowerCase();
+          if (!byWord[key]) byWord[key] = { wrong: f.wrong, right: f.right, sure: true, why: '' };
+        });
+      });
+    });
+
+    /* Pass two, paid: only the words nothing recognises. One call per recipe to
+       surface candidates, then ONE call per unique word to settle it. */
+    var i = 0, candidates = {};
+    function next(){
+      if (i >= RECIPES.length) return settle(byWord, candidates);
+      var rec = RECIPES[i++];
+      prog('Reading <b>' + esc(rec.name) + '</b> … ' + i + ' of ' + RECIPES.length);
+      return WritingHelp.check(boxesOf(rec)).then(function(found){
+        found.forEach(function(f){
+          var key = f.wrong.toLowerCase();
+          if (byWord[key] || WritingHelp.isHouse(f.wrong)) return;
+          /* the free pass already caught this one from a different angle —
+             "to cock" and "cock" are one mistake, not two decisions */
+          if (Object.keys(byWord).some(function(w){ return WritingHelp.covers(byWord[w].wrong, f.wrong); })) return;
+          if (!candidates[key]) candidates[key] = f.wrong;
+        });
+        return next();
+      });
+    }
+    return next();
+  }).catch(function(e){
+    prog('Could not read the recipes — ' + esc(e.message));
+    $('run').disabled = false;
+  });
+}
+
+function settle(byWord, candidates){
+  var terms = Object.keys(candidates), j = 0;
+  function next(){
+    if (j >= terms.length){
+      Object.keys(byWord).forEach(function(k){ GROUPS.push(byWord[k]); });
+      GROUPS.forEach(function(g){ g.uses = contextsFor(g.wrong); });
+      GROUPS = GROUPS.filter(function(g){ return g.uses.length; })
+                     .sort(function(a,b){ return b.uses.length - a.uses.length; });
+      prog('Done. <b>' + GROUPS.length + '</b> word' + (GROUPS.length===1?'':'s') +
+           ' to decide, across <b>' + RECIPES.length + '</b> recipes.');
+      $('run').disabled = false;
+      draw();
+      return;
+    }
+    var term = candidates[terms[j++]];
+    prog('Working out <b>' + esc(term) + '</b> from every recipe that uses it… ' + j + ' of ' + terms.length);
+    var ctx = contextsFor(term).map(function(c){ return '(' + c.recipe + ' · ' + c.box + ') ' + c.line; });
+    return WritingHelp.resolveTerm(term, ctx).then(function(r){
+      /* "house" means it is really their word — record it so nobody, on any
+         screen, is ever asked about it again. */
+      if (r.verdict === 'house'){ WritingHelp.remember(term, 'house'); return next(); }
+      byWord[term.toLowerCase()] = {
+        wrong: term,
+        right: r.verdict === 'fix' ? r.meant : null,
+        sure: false,
+        why: r.why
+      };
+      return next();
+    });
+  }
+  return next();
+}
+
+function draw(){
+  if (!GROUPS.length){
+    $('out').innerHTML = '<div class="empty">Nothing to change. Every word in the book is either ' +
+      'right or already known to be yours.</div>';
+    return;
+  }
+  $('out').innerHTML = GROUPS.map(function(g, i){
+    if (g.done) return '<div class="grp done"><div class="res">' + esc(g.done) + '</div></div>';
+    var recipes = {}; g.uses.forEach(function(u){ recipes[u.recipe] = 1; });
+    var n = Object.keys(recipes).length;
+    return '<div class="grp ' + (g.sure ? 'sure' : 'ask') + '">' +
+      '<div class="gw">' + esc(g.wrong) +
+        (g.right ? ' <span class="to">→ ' + esc(g.right) + '</span>' : '') + '</div>' +
+      '<div class="gu">' + g.uses.length + ' time' + (g.uses.length===1?'':'s') +
+        ' · ' + n + ' recipe' + (n===1?'':'s') + (g.sure ? '' : ' · nobody recognises it') + '</div>' +
+      (g.why ? '<div class="gy">' + esc(g.why) + '</div>' : '') +
+      '<ul class="ctx">' + g.uses.slice(0,4).map(function(u){
+        return '<li><b>' + esc(u.recipe) + '</b> · ' + esc(u.line.slice(0,120)) + '</li>';
+      }).join('') + (g.uses.length > 4 ? '<li>… and ' + (g.uses.length-4) + ' more</li>' : '') + '</ul>' +
+      '<div class="acts">' +
+        (g.right ? '<button class="yes" data-fix="' + i + '">Fix everywhere (' + g.uses.length + ')</button>' : '') +
+        '<button class="no" data-house="' + i + '">It\'s what we call it</button>' +
+        '<button class="no" data-skip="' + i + '">Leave it</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+/* Write the change into every recipe that carries the word. One PATCH per
+   recipe, and only the prose keys are touched — the ingredients, costs, photos
+   and allergens on that record are never in the body we send. */
+function fixEverywhere(g){
+  var re = new RegExp('(^|[^\\p{L}\\p{N}-])(' +
+    g.wrong.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')(?![\\p{L}\\p{N}-])','giu');
+  var touched = RECIPES.filter(function(rec){
+    var b = boxesOf(rec);
+    return Object.keys(b).some(function(k){ return re.test(b[k]); });
+  });
+  return touched.reduce(function(chain, rec){
+    return chain.then(function(){
+      var m = JSON.parse(JSON.stringify(rec.method || {})), changed = false;
+      KEYS.forEach(function(k){
+        if (typeof m[k] !== 'string' || !m[k]) return;
+        var was = m[k];
+        m[k] = was.replace(re, function(all, pre){ return pre + g.right; });
+        if (m[k] !== was) changed = true;
+      });
+      if (!changed) return;
+      rec.method = m;
+      return sb('recipes?id=eq.' + rec.id, { method:'PATCH', prefer:'return=minimal', body:{ method: m } });
+    });
+  }, Promise.resolve()).then(function(){ return touched.length; });
+}
+
+document.addEventListener('click', function(e){
+  var f = e.target.closest('[data-fix]');
+  if (f){
+    var g = GROUPS[+f.getAttribute('data-fix')];
+    f.disabled = true; f.textContent = 'Changing…';
+    fixEverywhere(g).then(function(n){
+      WritingHelp.remember(g.wrong, 'fix', g.right);
+      g.done = '“' + g.wrong + '” → “' + g.right + '” in ' + n + ' recipe' + (n===1?'':'s') + ' ✓';
+      draw();
+    }).catch(function(err){
+      f.disabled = false;
+      f.textContent = 'Fix everywhere (' + g.uses.length + ')';
+      alert('Nothing was changed — ' + err.message);
+    });
+    return;
+  }
+  var h = e.target.closest('[data-house]');
+  if (h){
+    var gh = GROUPS[+h.getAttribute('data-house')];
+    WritingHelp.remember(gh.wrong, 'house');
+    gh.done = '“' + gh.wrong + '” is a house word — nobody will be asked about it again ✓';
+    draw();
+    return;
+  }
+  var s = e.target.closest('[data-skip]');
+  if (s){ GROUPS[+s.getAttribute('data-skip')].done = 'Left as it is.'; draw(); return; }
+});
+
+$('run').addEventListener('click', run);
+WritingHelp.loadTerms();
+</script>
+</body>
+</html>
