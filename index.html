@@ -67,6 +67,31 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .leg-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--vino)}
 .leg-sq{width:34px;height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;letter-spacing:.8px}
 .sq-sos{background:#cc0000;color:#fff}.sq-bu{background:#c49200;color:#fff}.sq-ok{background:var(--oliva);color:#fff}
+.sq-pending{background:var(--sabbia-dark);color:var(--vino)}.sq-check{background:#c49200;color:#fff}.sq-discard{background:#cc0000;color:#fff}
+/* Foldable legend — Prep List opens on the Pass view and the Chef Checklist is its own
+   page, so both showed the badges with nothing to read them by. Folded shut by default:
+   teaching text sits behind a tap, only the state of the work stays on screen. */
+.k-legend{border:1px solid var(--sabbia-dark);border-radius:8px;background:var(--cream);margin:0 0 14px}
+.k-legend-sum{list-style:none;cursor:pointer;padding:10px 14px;font-size:12px;font-weight:600;letter-spacing:.4px;color:var(--vino);display:flex;align-items:center;gap:8px;min-height:44px;box-sizing:border-box}
+.k-legend-sum::-webkit-details-marker{display:none}
+.k-legend-sum::before{content:"›";display:inline-block;font-size:16px;line-height:1;transition:transform .15s ease;opacity:.65}
+.k-legend[open] .k-legend-sum::before{transform:rotate(90deg)}
+.k-legend-sum:hover{background:var(--sabbia-light)}
+.k-legend-body{display:flex;flex-wrap:wrap;gap:10px 18px;padding:0 14px 12px}
+.k-legend-body .leg-item{font-size:12px}
+
+/* ── SCHEDULING: sideways-scroll affordance ── */
+.sch-scroll-shell{position:relative}
+.sch-scroll-fade,.sch-scroll-hint{opacity:0;transition:opacity .18s ease;pointer-events:none}
+.sch-scroll-fade{position:absolute;top:0;right:0;bottom:0;width:44px;
+  background:linear-gradient(to right,rgba(245,237,224,0),rgba(245,237,224,.92));z-index:3}
+.sch-scroll-hint{position:absolute;right:10px;bottom:10px;z-index:4;background:var(--vino);color:var(--cream);
+  font-size:11px;font-weight:600;letter-spacing:.4px;padding:6px 11px;border-radius:14px;
+  box-shadow:0 2px 8px rgba(65,2,7,.25);white-space:nowrap}
+/* more to the right → fade. more to the right AND not scrolled yet → hint as well. */
+.sch-scroll-shell.can-scroll-right .sch-scroll-fade{opacity:1}
+.sch-scroll-shell.can-scroll-right.at-start .sch-scroll-hint{opacity:1}
+@media print{.sch-scroll-fade,.sch-scroll-hint{display:none}}
 
 /* â”€â”€ COUNTER â”€â”€ */
 .sec-counter{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 18px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
@@ -1300,7 +1325,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </div>
 
 <div id="legend-bar" class="legend">
-  <div class="leg-item"><div class="leg-sq sq-sos">SOS</div> Not enough â€” prioritise now</div>
+  <div class="leg-item"><div class="leg-sq sq-sos">SOS</div> Not enough — prioritise now</div>
   <div class="leg-item"><div class="leg-sq sq-bu">BU</div> Enough to start, need more</div>
   <div class="leg-item"><div class="leg-sq sq-ok">OK</div> Good for the full day</div>
 </div>
@@ -1324,7 +1349,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 <div id="report-view" class="report-view" style="display:none">
   <div class="report-header">
     <div class="report-title">Service Reports</div>
-    <div class="report-subtitle">SOS Â· BU Â· OK history by date</div>
+    <div class="report-subtitle">SOS · BU · OK history by date</div>
   </div>
   <div class="report-controls">
     <div class="report-date-field">
@@ -1385,7 +1410,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </div>
 
 <script src="market-list.js?v=1784460000"></script>
-<script src="fish-display.js?v=1786000000"></script>
+<script src="fish-display.js?v=1786900000"></script>
 <script src="my-tasks.js?v=1786302000"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
      keep cold-boot light on the always-on screens. -->
@@ -1422,7 +1447,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1786800000"></script>
+<script src="app.js?v=1786900000"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1505,7 +1530,15 @@ window.FB_INBOX = {
 
   <!-- Weekly grid -->
   <div id="sch-week-view" style="flex:1;overflow:auto">
-    <div id="sch-grid-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
+    <!-- The grid always scrolled sideways, but with no edge to the page there was nothing
+         saying so: on a phone 32% of the week is on screen and it reads as cropped. The
+         shell holds a fade and a hint over the scroller; both are driven by measurement in
+         schedScrollAffordance() and neither exists when the week already fits. -->
+    <div id="sch-scroll-shell" class="sch-scroll-shell">
+      <div id="sch-grid-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
+      <div class="sch-scroll-fade" aria-hidden="true"></div>
+      <div class="sch-scroll-hint" aria-hidden="true">More days →</div>
+    </div>
   </div>
 
   <!-- Day view -->

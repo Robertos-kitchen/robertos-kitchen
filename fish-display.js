@@ -423,7 +423,10 @@ async function openFishDisplay(){
 const FD_STYLE = `<style id="fd-style">
 .fd-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .fd-grid{display:flex;gap:20px;align-items:flex-start}
-@media(max-width:820px){.fd-grid{flex-direction:column}}
+/* stretch, not flex-start: once the flex direction is column, align-items sizes the
+   panels across, and flex-start left them shrink-to-fit — so the name column could never
+   claim the width the stacked layout had just freed up. */
+@media(max-width:820px){.fd-grid{flex-direction:column;align-items:stretch}}
 .fd-left{flex:2;min-width:0}.fd-right{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
 .fd-coltitle{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--vino-light);border-bottom:1.5px solid var(--vino);padding-bottom:5px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:baseline}
 .fd-coltitle small{font-size:9px;letter-spacing:.5px;color:var(--vino-light);opacity:.6;text-transform:none}
@@ -434,6 +437,28 @@ const FD_STYLE = `<style id="fd-style">
 .fd-row{display:grid;gap:1px;border-bottom:1px solid var(--sabbia-dark);align-items:stretch}
 .fd-row{grid-template-columns:1fr .5fr .5fr .6fr}
 .fd-row.fd-cav{grid-template-columns:1fr .5fr .5fr}
+/* Phone: four columns inside 375px left the name 129px, so "Seabass Wild Line Caught"
+   was cut to a few letters — unreadable on the sheet the raw bar works off during
+   service. Below 560px the name takes its own full-width line above the figures, and
+   the header keeps only the numeric labels (the panel title above already says which
+   list it is). Column count still matches the header, so Qty/Kg/Price stay aligned. */
+@media(max-width:560px){
+  .fd-head-fish{grid-template-columns:repeat(3,1fr)}
+  .fd-head-cav{grid-template-columns:repeat(2,1fr)}
+  .fd-head span:first-child{display:none}
+  .fd-row{grid-template-columns:repeat(3,1fr)}
+  .fd-row.fd-cav{grid-template-columns:repeat(2,1fr)}
+  .fd-namecell{grid-column:1/-1;border-bottom:1px dotted var(--sabbia-dark)}
+  .fd-namecell+.fd-num{border-left:none}
+}
+/* Tablet band: the panels already stack full-width at 820px, but the figure columns kept
+   their desktop share — 132px each to hold "12.5", while the name was squeezed to 265px
+   and still lost a long one. Cap the figures instead of stacking; the name then gets the
+   rest and the sheet stays one line per fish (a 25-row raw-bar list read at a glance). */
+@media(min-width:561px) and (max-width:820px){
+  .fd-head-fish,.fd-row{grid-template-columns:minmax(0,1fr) 84px 84px 96px}
+  .fd-head-cav,.fd-row.fd-cav{grid-template-columns:minmax(0,1fr) 84px 84px}
+}
 .fd-name{position:relative;font-family:var(--font-serif);font-size:19px;color:var(--ink);padding:8px 10px;cursor:pointer;text-transform:capitalize}
 .fd-row.set .fd-name{color:var(--vino);font-weight:600}
 .fd-row.fd-cav .fd-name{font-size:16px}

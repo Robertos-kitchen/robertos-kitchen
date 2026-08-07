@@ -524,6 +524,27 @@ function renderTabs() {
 }
 
 // â”€â”€ PASS VIEW â”€â”€
+// The status words only ever appeared on the station screens' legend bar, but Prep List
+// opens on the Pass view and the Chef Checklist is a page of its own — people go straight
+// to both during service and meet SOS / BU / Discard with nothing to read them by.
+// <details> so it folds shut by default and costs a tap to open, no JS and no state to keep.
+function kLegend(items){
+  return `<details class="k-legend"><summary class="k-legend-sum">What do these mean?</summary>`
+    + `<div class="k-legend-body">`
+    + items.map(i=>`<div class="leg-item"><div class="leg-sq ${i.sq}">${i.code}</div> ${i.text}</div>`).join('')
+    + `</div></details>`;
+}
+const PREP_LEGEND = [
+  {sq:'sq-sos',    code:'SOS',  text:'Not enough — prioritise now'},
+  {sq:'sq-bu',     code:'BU',   text:'Backup: enough to start, need more'},
+  {sq:'sq-ok',     code:'OK',   text:'Good for the full day'},
+  {sq:'sq-pending',code:'—',    text:'Pending — nobody has checked it yet'}
+];
+const CHECK_LEGEND = [
+  {sq:'sq-ok',     code:'OK',   text:'Good to serve'},
+  {sq:'sq-check',  code:'CHK',  text:'To check — a chef must look at it'},
+  {sq:'sq-discard',code:'BIN',  text:'Discard — do not serve it'}
+];
 function renderPassView() {
   const c=allCounts();
   const pct=(v)=>c.total?Math.round(v/c.total*100):0;
@@ -550,6 +571,7 @@ function renderPassView() {
       <div class="pass-progress-track"><div class="pass-progress-ok" style="width:${pct(c.ok)}%"></div><div class="pass-progress-bu" style="width:${pct(c.bu)}%"></div><div class="pass-progress-sos" style="width:${pct(c.sos)}%"></div></div>
     </div>
     <div style="height:18px"></div>
+    ${kLegend(PREP_LEGEND)}
     <div class="pass-section-title">Station by station</div>
     <div class="pass-station-grid">${stationRows}</div>`;
 }
@@ -575,6 +597,7 @@ function renderCheckView(){
       <div class="check-card-meta">${total.ok} OK · ${total.review} To check · ${total.discard} Discard · ${total.none} not checked</div>
       <button class="check-reset" onclick="resetChefChecklist()">Reset checklist</button>
     </div>
+    ${kLegend(CHECK_LEGEND)}
     ${body}`;
 }
 function checkStatusLabel(status){return {ok:'OK',review:'To check',discard:'Discard'}[status]||'To check';}
@@ -892,15 +915,19 @@ async function renderDashboard(){
     '</div>';
   }).join('');
 
+  // "booked", not just "covers": the Closing Report shows covers SERVED (COMPLETE
+  // bookings only), so 88 here against 0 there is normal before service ends. Both
+  // numbers are right — only the labels were missing, and a careful reader already
+  // read the pair as a bug. The figures below are untouched.
   const coversCard = nightCovers !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${nightCovers}</div>
-        <div class="ops-label">Tonight's covers</div>
+        <div class="ops-label">Tonight's covers booked</div>
         ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
        </div>`
     : `<div class="ops-card dash-covers-card dash-no-covers">
         <div class="ops-num">${liveTonight ? liveTonight.booked : '—'}</div>
-        <div class="ops-label">Tonight's covers</div>
+        <div class="ops-label">Tonight's covers booked</div>
         <div class="dash-covers-sync">${liveTonight ? 'Live from SevenRooms' : 'Not synced — use laptop to sync'}</div>
        </div>`;
 
@@ -920,7 +947,7 @@ async function renderDashboard(){
     </div>
     ${upcomingDays.length > 1 ? `
     <div class="ops-panel" style="margin-bottom:16px">
-      <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · tap a day to see its flow</span></div>
+      <div class="ops-panel-head">Upcoming covers booked <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms · tap a day to see its flow</span></div>
       <div class="dash-covers-row">${coversRow}</div>
     </div>` : ''}
     <div class="dash-live-row">
@@ -3244,6 +3271,8 @@ function kplOpen(){
   // same element ids (add-staff panels/inputs), so getElementById would hit the hidden
   // copy and the tool's own panels would never open. Re-rendered on close.
   var lgrid = document.getElementById('sch-grid-wrap'); if(lgrid) lgrid.innerHTML = '';
+  // grid emptied → nothing to scroll, so drop the fade/hint that sit over it
+  if(typeof schedScrollAffordance === 'function') schedScrollAffordance();
   if(!schedWeekStart) schedWeekStart = getMonday(new Date());
   var el = document.getElementById('kpl-full');
   if(!el){
@@ -4854,6 +4883,25 @@ function renderSchedWeek() {
   // work and avoids duplicate element ids for the Move/Add panels). Just sync the tool.
   if (toolOpen) { if (typeof krtRender === 'function') krtRender(); return; }
   document.getElementById('sch-grid-wrap').innerHTML = schedCapBannerHtml() + schedWeekTableHtml(schedWeekStart);
+  schedScrollAffordance();
+}
+// The week grid has always scrolled sideways; nothing ever said so. Measure the scroller
+// and let CSS show a right-edge fade while there is more week to the right, plus a "More
+// days →" pill until the first scroll. Purely additive — no day-picker, no grid rebuild,
+// and when the whole week already fits (laptop) neither ever appears.
+function schedScrollAffordance(){
+  var wrap = document.getElementById('sch-grid-wrap');
+  var shell = document.getElementById('sch-scroll-shell');
+  if(!wrap || !shell) return;
+  var slack = wrap.scrollWidth - wrap.clientWidth;
+  // 4px, not 0: sub-pixel layout leaves a hairline of "scroll" on grids that really do fit.
+  shell.classList.toggle('can-scroll-right', slack > 4 && wrap.scrollLeft < slack - 4);
+  shell.classList.toggle('at-start', wrap.scrollLeft <= 4);
+  if(!wrap._schScrollBound){
+    wrap._schScrollBound = true;
+    wrap.addEventListener('scroll', schedScrollAffordance, { passive:true });
+    window.addEventListener('resize', schedScrollAffordance);
+  }
 }
 // One day cell for a person — shared by the single-week grid and the several-weeks
 // grid so both look and behave identically. Returns the <td> + its hours/days count.
