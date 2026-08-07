@@ -532,6 +532,12 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .mictick{flex:0 0 auto;display:flex;align-items:center;min-height:44px;padding:0 2px;cursor:pointer}
 .mictick input{width:20px;height:20px;accent-color:var(--vino);cursor:pointer}
 .micnm{font-family:var(--serif);font-size:17px;flex:1 1 200px;min-width:0;line-height:1.2}
+/* the dish name IS the way into the recipe — on both screens, and big enough for a thumb */
+.micopen{font-family:inherit;font-size:inherit;line-height:inherit;background:none;border:none;
+  padding:0;margin:0;text-align:left;color:var(--vino);cursor:pointer;
+  border-bottom:1px dotted rgba(64,2,7,.45);min-height:30px}
+.micopen:hover,.micopen:focus{border-bottom-style:solid;outline:none}
+.mrsnap .micopen{font-family:var(--sans);font-size:12.5px}
 .micsec{display:block;font-family:var(--sans);font-size:11px;opacity:.55}
 .micfld{display:flex;align-items:center;gap:7px;flex:0 0 auto}
 .micin{width:170px;border:1px solid var(--sabbia-dark);border-radius:4px;padding:10px 10px;
@@ -2512,6 +2518,9 @@ function newRecipe(){
   var run = MENUS.filter(function(m){ return m.running; })[0];
   S.menus = run ? [run.id] : [];
   S.plan = null; S.planRan = false; S.fromPlan = false; S.fromTodo = false;
+  /* a fresh recipe has nothing to do with the Micros screen somebody came off an hour
+     ago — leaving it set sends Back on THIS recipe to a request he is not making */
+  S.micReturn = null;
 }
 
 /* ───────── the two things both called a batch ─────────
@@ -3435,7 +3444,12 @@ function micPastInner(){
         (it.family_code!=null ? ' · family '+it.family_code : '')+'</td></tr>';
     }
     var pct = (it.cost != null && it.net_price) ? (it.cost/it.net_price*100) : null;
-    body += '<tr><td>'+esc(it.name)+'</td>' +
+    /* the recipe may have gone since; then it is a name and nothing more, rather than
+       a link that answers "that recipe could not be opened" */
+    body += '<tr><td>'+(it.recipe_id
+        ? '<button class="micopen" type="button" data-micopen="'+esc(it.recipe_id)+'">'+
+          esc(it.name)+'</button>'
+        : esc(it.name))+'</td>' +
       '<td class="till">'+esc(it.till_name||'')+'</td>' +
       '<td class="n">'+(it.cost==null?'—':fmt(+it.cost))+'</td>' +
       '<td class="n">'+(it.price==null?'—':fmt(+it.price))+'</td>' +
@@ -3656,7 +3670,15 @@ function micFlatSheet(wb, tabName, title, sub, cols, B){
     pageSetup: { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0,
                  margins:{ left:.3, right:.3, top:.4, bottom:.5, header:.2, footer:.2 } }
   });
-  ws.columns = cols.map(function(c){ return { width:c.w }; });
+  /* ── room for the filter button ──
+     Excel draws the drop-down inside the header cell, hard against its right edge. A
+     column sized to its text alone has the button sitting on top of the last letters,
+     and every header then reads as if it belongs to the column next to it. So each
+     column is at least wide enough for its own title PLUS the button, and never
+     narrower than the button itself. */
+  ws.columns = cols.map(function(c){
+    return { width: Math.max(c.w, String(c.t).length + 4, 9) };
+  });
   var last = cols.length;
   for (var c = 1; c <= last; c++){
     ws.getRow(1).getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.vino} };
@@ -3673,16 +3695,16 @@ function micFlatSheet(wb, tabName, title, sub, cols, B){
     cell.value = cl.t;
     cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.vino} };
     cell.font = { name:'Calibri', size:9.5, bold:true, color:{argb:B.cream} };
-    cell.alignment = { vertical:'middle', horizontal:cl.n ? 'right' : 'left', wrapText:true };
+    /* every title left, including the number columns. Right-aligned, the title runs
+       straight into its own filter button. */
+    cell.alignment = { vertical:'middle', horizontal:'left', wrapText:true };
   });
-  ws.getRow(4).height = 26;
+  ws.getRow(4).height = 32;
   ws.autoFilter = { from:{ row:4, column:1 }, to:{ row:4, column:last } };
   return ws;
 }
 
-/* ── sheet 2: the dishes, line by line ── */
 var MICMONEY = '#,##0.00';
-
 /* ── sheet 2: the dishes, and every batch OPENED UP UNDERNEATH THE DISH IT BELONGS TO ──
    A line that says "Hot Chocolate Sifon · batch · 0.2 kg" tells Aung nothing about what
    is in it or whose dish it is — he was left holding two sheets side by side working it
@@ -3690,34 +3712,40 @@ var MICMONEY = '#,##0.00';
    it, indented, carrying the dish's name in column A and the batch's name in "Inside
    batch". Every row on this sheet says which dish it belongs to.
 
+   EVERY SUMMARY SITS ABOVE WHAT IT SUMS. The dish's total is the first row of the dish,
+   not the last, and a batch carries its own "what it costs to make one" on the line that
+   names it — so the answer is read before scrolling, and the rows underneath are the
+   working. That means the formulas point DOWN the sheet, which is the whole idea.
+
    TWO COST COLUMNS, and the difference is the whole point:
      "Cost in the dish"      — what this dish pays for that line. Only the dish's own
                                lines carry it; a batch line carries the cost of the
                                amount the dish uses. The dish total sums these.
-     "Cost to make the batch"— what the things inside a batch cost to make it. These are
-                               a breakdown, NOT a second charge, so they are kept out of
-                               the dish total. One column instead of two and every dish
-                               with a batch in it would read double. */
+     "Cost to make the batch"— what a whole batch costs to make, on the line that names
+                               it, and what each thing in it costs underneath. A
+                               breakdown, NOT a second charge, so it is kept out of the
+                               dish total. One column instead of two and every dish with
+                               a batch in it would read double. */
 function micRecipeSheet(wb, B, menuName, rows){
   var cols = [
     { t:'Dish', w:30 }, { t:'Family', w:14 }, { t:'Name in Micros', w:18 },
     { t:'Portions', w:9, n:true },
     { t:'Inside batch', w:26 },
     { t:'#', w:5, n:true },
-    { t:'Ingredient / batch', w:36 }, { t:'Type', w:13 }, { t:'Stock code', w:12 },
+    { t:'Ingredient / batch', w:38 }, { t:'Type', w:13 }, { t:'Stock code', w:12 },
     { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
     { t:'Unit price', w:11, n:true }, { t:'per', w:6 },
-    { t:'Cost in the dish', w:13, n:true },
-    { t:'Cost to make the batch', w:15, n:true },
+    { t:'Cost in the dish', w:14, n:true },
+    { t:'Cost to make the batch', w:16, n:true },
     { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true },
-    { t:'Note', w:44 }
+    { t:'Note', w:46 }
   ];
   var ws = micFlatSheet(wb, 'Recipes', 'Recipes behind the request — ' + menuName,
-    'Every row says which dish it belongs to. A batch is opened up under the dish that uses it: ' +
-    '"Inside batch" is empty for the dish\'s own ingredients and carries the batch name for the ' +
-    'things inside one. "Cost in the dish" is what the dish pays and adds up to the dish total; ' +
-    '"Cost to make the batch" is the breakdown inside a batch and is deliberately left out of it, ' +
-    'so nothing is counted twice.',
+    'Every row says which dish it belongs to, and every total sits ABOVE the rows it adds up. ' +
+    'A batch is opened up under the dish that uses it: "Inside batch" is empty for the dish\'s own ' +
+    'ingredients and carries the batch name for the things inside one. "Cost in the dish" is what ' +
+    'the dish pays and adds up to the dish total; "Cost to make the batch" is the breakdown inside ' +
+    'a batch and is deliberately left out of it, so nothing is counted twice.',
     cols, B);
 
   var C_DISH = 14, C_BATCH = 15;
@@ -3727,10 +3755,23 @@ function micRecipeSheet(wb, B, menuName, rows){
       row.getCell(c).font = { name:'Calibri', size:11, color:{argb:B.ink} };
     [12, C_DISH, C_BATCH].forEach(function(c){ row.getCell(c).numFmt = MICMONEY; });
   };
+  var band = function(row, fill, boldCols){
+    for (var c = 1; c <= cols.length; c++){
+      row.getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:fill} };
+      row.getCell(c).font = { name:'Calibri', size:11,
+        bold: boldCols.indexOf(c) > -1, color:{argb:B.vino} };
+    }
+    [12, C_DISH, C_BATCH].forEach(function(c){ row.getCell(c).numFmt = MICMONEY; });
+  };
 
   rows.forEach(function(r){
     var m = MAINS[r.id] || { lines:[] };
-    var lines = m.lines || [], mine = [];
+    var lines = m.lines || [];
+
+    /* the dish's headline is written FIRST and filled in afterwards — its total adds
+       rows that do not exist yet, which is the price of putting the answer on top */
+    var headRow = R; R++;
+    var mine = [];
 
     /* one line, and — if it is a batch — everything inside it, as far down as it goes.
        `costCol` says which of the two money columns this level writes into: the dish's
@@ -3759,12 +3800,6 @@ function micRecipeSheet(wb, B, menuName, rows){
       row.getCell(18).value = f.note || '';
       body(row);
       if (f.note) row.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
-      if (kid){
-        /* the batch line is the heading for what follows it, so it is marked as one */
-        for (var c = 1; c <= cols.length; c++)
-          row.getCell(c).font = { name:'Calibri', size:11, bold:c === 7 || c === 8, color:{argb:B.vino} };
-        row.getCell(12).numFmt = MICMONEY; row.getCell(costCol).numFmt = MICMONEY;
-      }
       R++;
 
       if (kid && stack.indexOf(l.child_recipe_id) < 0){
@@ -3773,60 +3808,54 @@ function micRecipeSheet(wb, B, menuName, rows){
         klines.forEach(function(kl, ki){
           sub.push(emit(kl, ki, path, depth + 1, stack.concat([l.child_recipe_id]), C_BATCH));
         });
-        var t = ws.getRow(R);
-        t.getCell(1).value = r.name;
-        t.getCell(5).value = path;
-        t.getCell(7).value = Array(depth + 2).join('    ') + 'What it costs to make ' +
-          (kid.makesQty != null ? kid.makesQty + ' ' : '') + (kid.makesUnit || '') + ' of ' + kid.name;
-        t.getCell(8).value = 'batch total';
-        /* named cells, not a range: a batch inside a batch sits in the same column, and
-           a SUM over the block would count it and its own ingredients both */
-        t.getCell(C_BATCH).value = sub.length
+        /* the batch's own summary goes ON THE LINE THAT NAMES IT, not on a row after
+           its ingredients: what a whole batch costs to make, read before the working.
+           Named cells, not a range — a batch inside a batch sits in the same column and
+           a SUM over the block would count it and its own ingredients both. */
+        var c = batchCost(l.child_recipe_id);
+        row.getCell(C_BATCH).value = sub.length
           ? { formula: sub.map(function(n){ return 'O' + n; }).join('+') } : null;
-        t.getCell(18).value = klines.length
-          ? 'The ' + klines.length + ' row' + (klines.length === 1 ? '' : 's') + ' above are what is in it.'
-          : 'Nothing is written on this batch yet.';
-        body(t);
-        for (var c2 = 1; c2 <= cols.length; c2++){
-          t.getCell(c2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.cream} };
-          t.getCell(c2).font = { name:'Calibri', size:10.5, italic:true, color:{argb:B.vinoMid} };
-        }
-        R++;
+        row.getCell(18).value =
+          'Makes ' + (kid.makesQty != null ? kid.makesQty + ' ' : '') + (kid.makesUnit || '') +
+          (c.problem ? ' · cost not worked out — ' + c.problem
+                     : ' · ' + fmt(c.per) + ' per ' + (kid.makesUnit || 'unit')) +
+          (klines.length ? ' · the ' + klines.length + ' row' + (klines.length === 1 ? '' : 's') +
+                           ' below are what is in it' : ' · nothing is written on it yet');
+        band(row, B.cream, [7, 8, C_DISH, C_BATCH]);
+        row.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
       } else if (kid){
         row.getCell(18).value = 'This batch ends up using itself, so it is not opened up here.';
+        band(row, B.cream, [7, 8, C_DISH]);
       }
       return here;
     };
 
-    if (!lines.length){
-      var e0 = ws.getRow(R);
-      e0.getCell(1).value = r.name;
-      e0.getCell(7).value = 'nothing written on this recipe yet';
-      e0.getCell(7).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
-      R++;
-    }
     lines.forEach(function(l, i){ mine.push(emit(l, i, '', 0, [r.id], C_DISH)); });
 
-    /* the dish total adds the dish's OWN lines by name — never a range, or every row a
-       batch put underneath would be added again */
-    var t2 = ws.getRow(R);
-    t2.getCell(1).value = r.name;
-    t2.getCell(7).value = 'TOTAL FOR THE DISH';
-    t2.getCell(8).value = 'dish total';
-    t2.getCell(C_DISH).value = mine.length
+    /* now the headline, filled in over the block it belongs to */
+    var h = ws.getRow(headRow);
+    h.getCell(1).value = r.name;
+    h.getCell(2).value = r.section || '';
+    h.getCell(3).value = r.micros || '';
+    h.getCell(4).value = m.makesQty == null ? null : m.makesQty;
+    h.getCell(7).value = r.name.toUpperCase();
+    h.getCell(8).value = 'DISH TOTAL';
+    /* adds the dish's OWN lines by name — never a range, or every row a batch put
+       underneath would be added again */
+    h.getCell(C_DISH).value = mine.length
       ? { formula: mine.map(function(n){ return 'N' + n; }).join('+') } : null;
-    t2.getCell(18).value = (m.makesQty
+    h.getCell(18).value = (m.makesQty
       ? 'Makes ' + m.makesQty + ' portion' + (m.makesQty === 1 ? '' : 's') +
         ' — cost per portion ' + (r.cost == null ? 'not worked out yet' : fmt(r.cost))
       : 'it does not say how much it makes') +
-      '. The "cost to make the batch" column is a breakdown and is not in this total.';
-    body(t2);
-    for (var c3 = 1; c3 <= cols.length; c3++){
-      t2.getCell(c3).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
-      t2.getCell(c3).font = { name:'Calibri', size:11,
-        bold:c3 === 7 || c3 === C_DISH, color:{argb:B.vino} };
-    }
-    R += 2;
+      (lines.length ? '. The ' + lines.length + ' row' + (lines.length === 1 ? '' : 's') +
+                      ' below are the dish; anything indented under them is inside a batch, ' +
+                      'and is not in this total.'
+                    : '. Nothing is written on this recipe yet.');
+    band(h, B.sabbiaLight, [7, 8, C_DISH]);
+    h.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
+
+    R += 1;
   });
   return ws;
 }
@@ -3834,20 +3863,22 @@ function micRecipeSheet(wb, B, menuName, rows){
 /* ── sheet 3: every batch once, and WHO IT BELONGS TO on every single row ──
    The dish sheet answers "what is in this dish". This one answers the other question —
    "I have been given this batch, whose is it" — and it answers it on every row rather
-   than once on a total line nobody scrolls to. */
+   than once on a total line nobody scrolls to. Same rule as the dish sheet: the batch's
+   total is the first row of its block, not the last. */
 function micBatchSheet(wb, B, menuName, rows){
   var dishIds = rows.map(function(r){ return r.id; });
   var ids = micBatchesUsed(dishIds);
   var cols = [
     { t:'Batch', w:30 }, { t:'Used in these dishes', w:38 },
     { t:'Makes', w:9, n:true }, { t:'Unit', w:8 },
-    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:34 }, { t:'Type', w:11 },
+    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:36 }, { t:'Type', w:12 },
     { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
     { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
-    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:40 }
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:44 }
   ];
   var ws = micFlatSheet(wb, 'Batches', 'Batches inside them — ' + menuName,
     'Every batch the dishes on this request reach, including a batch inside a batch, each one once. ' +
+    'The total is the first row of each batch and the rows under it are what is in it. ' +
     '"Used in these dishes" is on every row, so any line filtered or copied on its own still says ' +
     'whose it is. The same batches are also written out under their dish on the Recipes sheet.',
     cols, B);
@@ -3859,9 +3890,12 @@ function micBatchSheet(wb, B, menuName, rows){
   var R = 5;
   ids.forEach(function(id){
     var b = BATCH[id]; if (!b) return;
-    var lines = b.lines || [], first = R;
+    var lines = b.lines || [];
     var c = batchCost(id);
     var used = micBatchUsedIn(id, dishIds).join(', ');
+
+    var headRow = R; R++;
+    var first = R;
     lines.forEach(function(l, i){
       var f = micLineFacts(l), row = ws.getRow(R);
       row.getCell(1).value  = b.name;
@@ -3888,32 +3922,33 @@ function micBatchSheet(wb, B, menuName, rows){
         { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
       R++;
     });
-    if (!lines.length){
-      ws.getRow(R).getCell(1).value = b.name;
-      ws.getRow(R).getCell(2).value = used;
-      ws.getRow(R).getCell(6).value = 'nothing written on this batch yet';
-      ws.getRow(R).getCell(6).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
-      R++;
-    }
-    var t = ws.getRow(R);
-    t.getCell(1).value = b.name;
-    t.getCell(2).value = used;
-    t.getCell(6).value = 'What it costs to make ' + (b.makesQty != null ? b.makesQty + ' ' : '') +
-      (b.makesUnit || '') + ' of it';
-    t.getCell(7).value = 'batch total';
-    t.getCell(13).value = lines.length ? { formula:'SUM(M' + first + ':M' + (R - 1) + ')' } : null;
-    t.getCell(13).numFmt = MICMONEY;
-    t.getCell(16).value = c.problem ? 'Cost not worked out — ' + c.problem
-                                    : 'Cost per ' + (b.makesUnit || 'unit') + ' ' + fmt(c.per);
+
+    var h = ws.getRow(headRow);
+    h.getCell(1).value = b.name;
+    h.getCell(2).value = used;
+    h.getCell(3).value = b.makesQty == null ? null : b.makesQty;
+    h.getCell(4).value = b.makesUnit || '';
+    h.getCell(6).value = b.name.toUpperCase();
+    h.getCell(7).value = 'BATCH TOTAL';
+    h.getCell(13).value = lines.length ? { formula:'SUM(M' + first + ':M' + (R - 1) + ')' } : null;
+    h.getCell(13).numFmt = MICMONEY;
+    h.getCell(16).value = 'What it costs to make ' + (b.makesQty != null ? b.makesQty + ' ' : '') +
+      (b.makesUnit || '') + ' of it' +
+      (c.problem ? ' — not worked out, ' + c.problem
+                 : ' · ' + fmt(c.per) + ' per ' + (b.makesUnit || 'unit')) +
+      (lines.length ? ' · the ' + lines.length + ' row' + (lines.length === 1 ? '' : 's') +
+                      ' below are what is in it' : ' · nothing is written on it yet');
     for (var k2 = 1; k2 <= cols.length; k2++){
-      t.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
-      t.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 6 || k2 === 13, color:{argb:B.vino} };
+      h.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      h.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 6 || k2 === 7 || k2 === 13,
+                             color:{argb:B.vino} };
     }
-    R += 2;
+    h.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
+
+    R += 1;
   });
   return ws;
 }
-
 function micWorkbook(ExcelJS, menuName){
   var rows = MICREQ.rows.filter(function(r){ return r.take; });
   var B = MICBRAND;
@@ -5802,7 +5837,10 @@ function render(){
           var len = (r.micros||'').length, gone = before[r.id];
           out += '<div class="microw'+(r.take?'':' out')+'">' +
             '<label class="mictick"><input type="checkbox" data-mic="'+x.i+'"'+(r.take?' checked':'')+'></label>' +
-            '<span class="micnm">'+esc(r.name)+
+            /* the name is the way into the recipe. Checking "is the price right" meant
+               leaving this screen, finding Saved recipes and searching for the dish. */
+            '<span class="micnm"><button class="micopen" type="button" data-micopen="'+r.id+'" ' +
+              'title="Open '+esc(r.name)+'">'+esc(r.name)+'</button>' +
               '<span class="micsec">'+esc(r.section)+
                 (gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
             '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+x.i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
@@ -8482,6 +8520,26 @@ document.addEventListener('click', function(e){
       });
     return;
   }
+  /* ── the dish name opens the recipe ──
+     From the request being built, and from one already sent. Where it goes back to is
+     remembered, or Back off the recipe drops into the ingredients screen and the request
+     he was halfway through is nowhere. */
+  var mop2 = e.target.closest('[data-micopen]');
+  if (mop2){
+    var mrid = mop2.getAttribute('data-micopen'), from = S.step;
+    guard(function(){
+      var wait = flash('Opening the recipe…');
+      openRecipe(mrid).then(function(){
+        wait.remove(); markClean();
+        S.micReturn = from; S.step = 'sheet';
+        render(); rows(); foot(); window.scrollTo(0,0);
+      }).catch(function(ex){
+        wait.remove();
+        flash('That recipe could not be opened — ' + plain(ex.message), true);
+      });
+    });
+    return;
+  }
   var mtk = e.target.closest('[data-mic]');
   if (mtk){ var mi = +mtk.dataset.mic; MICREQ.rows[mi].take = mtk.checked; render(); return; }
   if (e.target.id === 'mictall'){ MICREQ.rows.forEach(function(r){ r.take = true; });
@@ -8921,6 +8979,9 @@ function backStep(){
   /* Building one and reviewing one both go back to the list of requests — that is the
      screen behind them whichever door was used to get in. The list itself is the front
      door when it is opened as its own module, and then the module's own bar goes back. */
+  /* opened by tapping a dish name on a Micros screen, Back goes to the screen he was
+     actually on — not down the type → ingredients → recipe chain */
+  if (s === 'sheet' && S.micReturn) return { to:S.micReturn, clearMicReturn:true };
   if (s === 'micros')  return { to:'micreqs' };
   if (s === 'micpast') return { to:'micreqs' };
   if (s === 'micreqs') return S.back === 'micreqs' ? null : { to: notSelf(S.back || 'saved') };
@@ -8956,6 +9017,7 @@ function goBack(){
     if (t.clearSq)   S.sq = '';
     if (t.clearSec)  S.fsec = null;
     if (t.clearMenu){ S.fmenu = null; S.fsec = null; }
+    if (t.clearMicReturn) S.micReturn = null;
     /* coming back onto the requests, read them again — a draft kept a moment ago, or a
        request that has just gone, has to be on the list he lands on */
     if (t.to === 'micreqs'){
