@@ -24,9 +24,69 @@ trap 'rm -rf auto-deploy-*/ 2>/dev/null || true' EXIT
 
 # Front-end files the screens actually load. supabase/ is deliberately EXCLUDED
 # (LIVE holds COSEC fixes that DEV is behind on — never overwrite it from here).
-FILES="index.html common.js app.js floorplan.js market-list.js fish-display.js menu-plan.js stock-take.js recipes.js team.js closing-report.js sw.js manifest.json"
+#
+# ⚠ 7 Aug 2026 — THIS LIST BROKE THE LIVE APP. dev-guard.js was created that day
+# and is the FIRST script index.html loads. It was not in this list, so LIVE was
+# given an index.html requesting a file that was never pushed: 404, then a
+# ReferenceError in app.js on the globals that file defines, and the app stopped
+# working for the team. The parity check below compared only this same list, so
+# it cheerfully reported "LIVE matches DEV for every front-end file" while a
+# required file was missing. A hand-maintained list cannot see what it omits.
+#
+# So the list is no longer hand-maintained for scripts: every <script src> and
+# <link href> in index.html is now read straight out of index.html, and anything
+# new is picked up automatically. EXTRAS covers files index.html does not name
+# (loaded on demand, or by another page).
+FILES="index.html sw.js manifest.json"
+# Everything index.html actually loads, local files only, ?v= stripped.
+# ANY src=/href=, not just <script>/<link> — the first version of this only read
+# those two tags and promptly missed <img src="logo.jpg">, which the check below
+# then caught. Images count.
+FROM_HTML=$( { grep -aoE '(src|href)="[^"]+"' index.html | sed -E 's/.*="//; s/"$//' || true; } \
+  | sed 's/?.*//' \
+  | grep -vE '^(https?:)?//|^data:|^mailto:|^tel:|^#|^$|[+()]' | sort -u || true)
+# Lazy-loaded or referenced from another page — not named by a tag in index.html.
+EXTRAS="my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes.js recipe-create.html recipe-card.html food-bible.html menu-pdfs.html photo-options.html"
+
+# Images and other assets the PAGES reference. Caught the same day as the
+# dev-guard.js outage: food-bible.html names its room photos inside a JavaScript
+# object ("terrace":"img/room-terrace.jpg"), not in a src= attribute, so a scan
+# for tags misses them entirely. Syncing food-bible.html without these would put
+# a page on LIVE whose photographs 404. Anything under img/ ships.
+ASSETS=$(ls img/* 2>/dev/null || true)
+
 EXIST=""
-for f in $FILES; do [ -f "$f" ] && EXIST="$EXIST $f"; done
+for f in $FILES $FROM_HTML $EXTRAS $ASSETS; do
+  case " $EXIST " in *" $f "*) continue;; esac      # de-dupe
+  [ -f "$f" ] && EXIST="$EXIST $f"
+done
+
+# Refuse to deploy if any page we are shipping asks for a local file that is not
+# in the shipment. A hand-maintained list cannot see what it omits — so this
+# checks the real references instead, across every HTML file being sent, and
+# catches them in JS strings as well as in tags.
+MISSING=""
+for page in $(echo "$EXIST" | tr ' ' '\n' | grep -E '\.html$'); do
+  # `|| true` on every stage: the script runs under `set -euo pipefail`, and a
+  # grep that simply finds nothing exits 1, which would kill the whole deploy.
+  # "no matches" is a normal answer here, not a failure.
+  refs=$( { grep -aoE '(src|href)="[^"]+"' "$page" 2>/dev/null | sed -E 's/.*="//; s/"$//' || true;
+            grep -aoE '"(img|lib)/[A-Za-z0-9._/-]+"' "$page" 2>/dev/null | tr -d '"' || true; } \
+          | sed 's/?.*//' \
+          | grep -vE '^(https?:)?//|^data:|^mailto:|^tel:|^#|^$|[+()]' \
+          | sort -u || true )
+  for r in $refs; do
+    [ -f "$r" ] || continue                              # not a local file we own
+    case " $EXIST " in *" $r "*) ;; *) MISSING="$MISSING $page->$r";; esac
+  done
+done
+if [ -n "$MISSING" ]; then
+  echo "❌ These pages reference files that would NOT be deployed:"
+  for m in $MISSING; do echo "     $m"; done
+  echo "   Add them above before deploying. Shipping a page without its files is"
+  echo "   what took LIVE down on 7 Aug."
+  exit 1
+fi
 
 git fetch origin --quiet || true
 git fetch guarra --quiet || true
