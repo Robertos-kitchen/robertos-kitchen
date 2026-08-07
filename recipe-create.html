@@ -634,6 +634,17 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .mrsnap .till{font-family:ui-monospace,Consolas,monospace}
 .mrwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid rgba(64,2,7,.14);
   border-radius:4px}
+/* the admin fold — apart from the requests, under a line, and never the first thing read */
+.mradm{margin-top:26px;padding-top:16px;border-top:1px solid rgba(64,2,7,.16)}
+.mradmb{font-family:var(--sans);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+  font-weight:700;background:none;border:none;border-bottom:1px dotted rgba(65,2,7,.4);
+  color:var(--vino-light);padding:3px 0;cursor:pointer;opacity:.75;line-height:1.4;min-height:34px}
+.mradmb:hover{opacity:1;border-bottom-style:solid}
+.mradmx{background:rgba(232,217,199,.45);border:1px solid rgba(64,2,7,.18);border-radius:4px;
+  padding:14px 16px;margin-top:10px}
+/* what this send is doing differently — said where the send is, not in a tooltip */
+.mroneoff{font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--vino);
+  background:rgba(196,154,60,.18);border-radius:3px;padding:8px 10px;margin-top:9px}
 .sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
 .sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
@@ -3111,9 +3122,12 @@ var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
                /* the request being built: a draft already saved keeps its id, so
                   "keep it for later" twice does not leave two half-requests behind */
                reqId:null, search:'', onlyNew:true, saving:false, missing:[],
-               /* who it goes to. Seeded from the constant, then from the last one that
-                  actually went, then editable on the send screen. */
-               to:null, cc:null,
+               /* Who it goes to. `to`/`cc` null means "the default", and they go BACK to
+                  null after every send: editing the address on the send screen is a
+                  one-off for that send. The default itself only ever changes on the
+                  admin panel — a test sent to yourself must not silently become the
+                  address every request after it opens on. */
+               to:null, cc:null, def:null, defErr:null, admin:false, adminTo:'', adminCc:'',
                /* the requests already made — the screen the door now opens on */
                list:null, listErr:null, listReady:false, open:null, openErr:null };
 
@@ -3125,6 +3139,8 @@ var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
 var MICNOTAB = false;
 function micLoadList(){
   MICREQ.listErr = null; MICREQ.listReady = false;
+  /* the setting rides with the list — every screen that reads one needs the other */
+  micLoadSettings();
   return sb('micros_requests?select=*,items:micros_request_items(*)' +
             '&order=created_at.desc&limit=120')
     .then(function(r){
@@ -3133,10 +3149,6 @@ function micLoadList(){
         return q;
       });
       MICNOTAB = false; MICREQ.listReady = true;
-      /* the addresses the last one actually went to, so a change sticks without an
-         admin screen to go and find */
-      var last = MICREQ.list.filter(function(q){ return q.sent_at && q.send_to; })[0];
-      if (last && MICREQ.to == null){ MICREQ.to = last.send_to; MICREQ.cc = (last.send_cc||[]).slice(); }
     })
     .catch(function(e){
       /* PGRST205 = the table is not in the schema. Said plainly once, not as a failure. */
@@ -3155,8 +3167,33 @@ function micSentBefore(menuId){
   });
   return seen;
 }
-function micTo(){ return MICREQ.to != null ? MICREQ.to : MICMAIL.to; }
-function micCc(){ return MICREQ.cc != null ? MICREQ.cc : MICMAIL.cc.slice(); }
+/* ── the default, and the one-off ──
+   Three layers, and only the middle one is ever written to by a send screen:
+     MICMAIL      — what it has always been, if the setting has never been read
+     MICREQ.def   — the setting, changed on the admin panel and nowhere else
+     MICREQ.to    — typed on the send screen, for THIS send, cleared the moment it goes */
+function micDefTo(){ return (MICREQ.def && MICREQ.def.send_to) || MICMAIL.to; }
+function micDefCc(){ return (MICREQ.def && MICREQ.def.send_cc) ? MICREQ.def.send_cc.slice()
+                                                              : MICMAIL.cc.slice(); }
+function micTo(){ return MICREQ.to != null ? MICREQ.to : micDefTo(); }
+function micCc(){ return MICREQ.cc != null ? MICREQ.cc : micDefCc(); }
+/* is this send going somewhere other than the default? said on the screen, because a
+   one-off that looks permanent and a permanent change that looks one-off are the same bug */
+function micOneOff(){
+  return MICREQ.to != null &&
+    (MICREQ.to !== micDefTo() || micCc().join(',') !== micDefCc().join(','));
+}
+/* The setting. Not there yet is not an error — it falls back to the addresses it has
+   always used, and the admin panel says so. */
+function micLoadSettings(){
+  return sb('micros_settings?id=eq.1&select=*')
+    .then(function(r){ MICREQ.def = (r && r[0]) || null; MICREQ.defErr = null; })
+    .catch(function(e){
+      MICREQ.def = null;
+      MICREQ.defErr = /PGRST205|does not exist|schema cache/i.test(e.message||'')
+        ? 'notable' : e.message;
+    });
+}
 /* "Aung" only while it is still going to Aung. Changed to somebody else, the screen
    has to say the address rather than keep using his name for whoever it is now. */
 function micWho(){ return micTo() === MICMAIL.to ? MICMAIL.who : micTo(); }
@@ -3173,13 +3210,17 @@ function micCcList(s){
 
    The items are replaced rather than merged: a request is a list, and a dish unticked
    between one save and the next has to leave it. */
-function micSaveRequest(sent){
+function micSaveRequest(sent, addr){
   var take = MICREQ.rows.filter(function(r){ return r.take; });
   var w = (typeof WHO !== 'undefined' && WHO && WHO.name) ? WHO : null;
+  /* the addresses it ACTUALLY went to are handed in, not read back off the screen —
+     by the time this runs the screen has already gone back to the default */
   var body = {
     menu_id: MICREQ.menuId, menu_name: micMenuName(),
     prefix: MICREQ.prefix || null, dish_count: take.length,
-    send_to: micTo(), send_cc: micCc(), updated_at: new Date().toISOString()
+    send_to: addr ? addr.to : micTo(),
+    send_cc: addr ? addr.cc : micCc(),
+    updated_at: new Date().toISOString()
   };
   if (sent){
     body.sent_at = new Date().toISOString();
@@ -3241,6 +3282,8 @@ function micReset(){
   MICREQ.reqId = null; MICREQ.sent = 0; MICREQ.confirm = false;
   MICREQ.search = ''; MICREQ.onlyNew = true; MICREQ.rows = []; MICREQ.ready = false;
   MICREQ.missing = [];
+  /* back to the default address, always. A one-off is a one-off. */
+  MICREQ.to = null; MICREQ.cc = null;
 }
 function micOpenBuilder(menuId){
   var run = MENUS.filter(function(m){ return m.running; })[0];
@@ -3260,7 +3303,8 @@ function micLoadFrom(req, keepId){
   MICREQ.reqId  = keepId ? req.id : null;
   MICREQ.prefix = req.prefix || '';
   MICREQ.onlyNew = false;                 /* he has said which dishes; do not re-untick them */
-  if (req.send_to){ MICREQ.to = req.send_to; MICREQ.cc = (req.send_cc||[]).slice(); }
+  /* deliberately NOT the addresses that request used — a new request starts at the
+     default, whatever the last one happened to be sent to */
   MICREQ.menuId = req.menu_id;
   MICREQ.today  = new Date().toISOString().slice(0,10);
   S.step = 'micros'; render(); window.scrollTo(0,0);
@@ -3338,6 +3382,43 @@ function micReqsInner(){
       'Make a request and it is kept: which menu, which dishes, what price was on each line, ' +
       'who sent it and when. From then on this screen answers “did that go?” without anybody ' +
       'opening Outlook.</div>' : '') +
+
+    /* ── the admin panel: the ONLY place the default addresses change ──
+       Folded away, because it is not what anybody came here for — and open it and it
+       says, in words, that this is the permanent one. Editing the address on the send
+       screen changes that send and nothing after it. */
+    '<div class="mradm">' +
+      /* deliberately NOT class `howtob` — the click that opens a How-this-works panel is
+         handled first and returns, so a shared class swallowed this button entirely */
+      '<button class="mradmb" id="micadm">Who requests go to ' +
+        '<span class="hwc">' + (MICREQ.admin ? '⌃' : '⌄') + '</span></button>' +
+      (MICREQ.admin ?
+        '<div class="mradmx">' +
+          '<div class="tip" style="margin:0 0 10px">This is the <b>default</b> — where every new ' +
+          'request opens addressed to. Changing an address on the send screen changes ' +
+          '<b>that one send</b> and nothing after it; this is the only place the default moves.</div>' +
+          (MICREQ.defErr === 'notable' ?
+            '<div class="todo"><b>The setting is not in the database yet.</b> Requests go to the ' +
+            'addresses they have always gone to. Run <b>micros-settings-schema.sql</b> once and ' +
+            'this panel starts working — ' +
+            '<a href="https://supabase.com/dashboard/project/zrpglswalgjbtghudmhu/sql/new" ' +
+            'target="_blank" rel="noopener">open the SQL editor</a>.</div>'
+           : MICREQ.defErr ? '<div class="todo"><b>Could not read the setting.</b> ' +
+            esc(plain(MICREQ.defErr)) + '</div>' : '') +
+          '<div class="mrto">' +
+            '<label for="admto">Goes to</label>' +
+            '<input id="admto" value="'+esc(MICREQ.adminTo)+'"'+(MICREQ.defErr?' disabled':'')+'>' +
+            '<label for="admcc">Copy to</label>' +
+            '<input id="admcc" value="'+esc(MICREQ.adminCc)+'"'+(MICREQ.defErr?' disabled':'')+'>' +
+          '</div>' +
+          '<div class="micaskb"><button class="okb" id="admsave"'+(MICREQ.defErr?' disabled':'')+'>' +
+            (MICREQ.defErr ? 'The setting is not there yet' : 'Save who they go to') + '</button>' +
+            '<span class="brn" id="admst"></span></div>' +
+          (MICREQ.def && MICREQ.def.updated_at ?
+            '<div class="tip" style="margin-top:9px">Last changed '+esc(micWhen(MICREQ.def.updated_at))+
+            (MICREQ.def.updated_by_name ? ' by '+esc(MICREQ.def.updated_by_name) : '')+'.</div>' : '') +
+        '</div>' : '') +
+    '</div>' +
     '</div></div>';
 }
 
@@ -3601,86 +3682,174 @@ function micFlatSheet(wb, tabName, title, sub, cols, B){
 
 /* ── sheet 2: the dishes, line by line ── */
 var MICMONEY = '#,##0.00';
+
+/* ── sheet 2: the dishes, and every batch OPENED UP UNDERNEATH THE DISH IT BELONGS TO ──
+   A line that says "Hot Chocolate Sifon · batch · 0.2 kg" tells Aung nothing about what
+   is in it or whose dish it is — he was left holding two sheets side by side working it
+   out. So a batch is not just named here: its own ingredients are written straight under
+   it, indented, carrying the dish's name in column A and the batch's name in "Inside
+   batch". Every row on this sheet says which dish it belongs to.
+
+   TWO COST COLUMNS, and the difference is the whole point:
+     "Cost in the dish"      — what this dish pays for that line. Only the dish's own
+                               lines carry it; a batch line carries the cost of the
+                               amount the dish uses. The dish total sums these.
+     "Cost to make the batch"— what the things inside a batch cost to make it. These are
+                               a breakdown, NOT a second charge, so they are kept out of
+                               the dish total. One column instead of two and every dish
+                               with a batch in it would read double. */
 function micRecipeSheet(wb, B, menuName, rows){
   var cols = [
     { t:'Dish', w:30 }, { t:'Family', w:14 }, { t:'Name in Micros', w:18 },
-    { t:'Portions', w:9, n:true }, { t:'#', w:5, n:true },
-    { t:'Ingredient / batch', w:32 }, { t:'Type', w:11 }, { t:'Stock code', w:12 },
+    { t:'Portions', w:9, n:true },
+    { t:'Inside batch', w:26 },
+    { t:'#', w:5, n:true },
+    { t:'Ingredient / batch', w:36 }, { t:'Type', w:13 }, { t:'Stock code', w:12 },
     { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
     { t:'Unit price', w:11, n:true }, { t:'per', w:6 },
-    { t:'Line cost', w:11, n:true }, { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true },
-    { t:'Note', w:34 }
+    { t:'Cost in the dish', w:13, n:true },
+    { t:'Cost to make the batch', w:15, n:true },
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true },
+    { t:'Note', w:44 }
   ];
-  var ws = micFlatSheet(wb, 'Recipes', "Recipes behind the request — " + menuName,
-    'One row per ingredient. Qty, unit price and line cost are numbers, not text — ready to copy. ' +
-    'A batch on a line is priced per its own unit and written out in full on the Batches sheet.',
+  var ws = micFlatSheet(wb, 'Recipes', 'Recipes behind the request — ' + menuName,
+    'Every row says which dish it belongs to. A batch is opened up under the dish that uses it: ' +
+    '"Inside batch" is empty for the dish\'s own ingredients and carries the batch name for the ' +
+    'things inside one. "Cost in the dish" is what the dish pays and adds up to the dish total; ' +
+    '"Cost to make the batch" is the breakdown inside a batch and is deliberately left out of it, ' +
+    'so nothing is counted twice.',
     cols, B);
 
+  var C_DISH = 14, C_BATCH = 15;
   var R = 5;
+  var body = function(row){
+    for (var c = 1; c <= cols.length; c++)
+      row.getCell(c).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+    [12, C_DISH, C_BATCH].forEach(function(c){ row.getCell(c).numFmt = MICMONEY; });
+  };
+
   rows.forEach(function(r){
     var m = MAINS[r.id] || { lines:[] };
-    var lines = m.lines || [], first = R;
-    if (!lines.length){
-      ws.getRow(R).getCell(1).value = r.name;
-      ws.getRow(R).getCell(6).value = 'nothing written on this recipe yet';
-      ws.getRow(R).getCell(6).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
-      R++;
-    }
-    lines.forEach(function(l, i){
-      var f = micLineFacts(l), row = ws.getRow(R);
+    var lines = m.lines || [], mine = [];
+
+    /* one line, and — if it is a batch — everything inside it, as far down as it goes.
+       `costCol` says which of the two money columns this level writes into: the dish's
+       own lines pay the dish, everything below is a breakdown. */
+    var emit = function(l, i, inside, depth, stack, costCol){
+      var f = micLineFacts(l), row = ws.getRow(R), here = R;
+      var kid = l.child_recipe_id ? BATCH[l.child_recipe_id] : null;
       row.getCell(1).value  = r.name;
       row.getCell(2).value  = r.section || '';
       row.getCell(3).value  = r.micros || '';
       row.getCell(4).value  = m.makesQty == null ? null : m.makesQty;
-      row.getCell(5).value  = i + 1;
-      row.getCell(6).value  = f.name;
-      row.getCell(7).value  = f.what;
-      row.getCell(8).value  = f.code || '';
-      row.getCell(9).value  = f.qty;
-      row.getCell(10).value = f.unit || '';
-      row.getCell(11).value = f.unitPrice;
-      row.getCell(12).value = f.base || '';
-      row.getCell(13).value = f.cost;
-      row.getCell(14).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
-      row.getCell(15).value = l.trim_on ? (l.waste_pct || 0) : null;
-      row.getCell(16).value = f.note || '';
-      [11, 13].forEach(function(c){ row.getCell(c).numFmt = MICMONEY; });
-      for (var c = 1; c <= cols.length; c++)
-        row.getCell(c).font = { name:'Calibri', size:11, color:{argb:B.ink} };
-      if (f.note) row.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      row.getCell(5).value  = inside;
+      row.getCell(6).value  = i + 1;
+      /* indented by where it sits, so the shape is readable before a single column is
+         read — and the indent is spaces in the cell, never a merged or shifted column */
+      row.getCell(7).value  = (depth ? Array(depth + 1).join('    ') + '› ' : '') + f.name;
+      row.getCell(8).value  = kid ? 'BATCH' : depth ? 'in batch' : 'ingredient';
+      row.getCell(9).value  = f.code || '';
+      row.getCell(10).value = f.qty;
+      row.getCell(11).value = f.unit || '';
+      row.getCell(12).value = f.unitPrice;
+      row.getCell(13).value = f.base || '';
+      row.getCell(costCol).value = f.cost;
+      row.getCell(16).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(17).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(18).value = f.note || '';
+      body(row);
+      if (f.note) row.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      if (kid){
+        /* the batch line is the heading for what follows it, so it is marked as one */
+        for (var c = 1; c <= cols.length; c++)
+          row.getCell(c).font = { name:'Calibri', size:11, bold:c === 7 || c === 8, color:{argb:B.vino} };
+        row.getCell(12).numFmt = MICMONEY; row.getCell(costCol).numFmt = MICMONEY;
+      }
       R++;
-    });
-    /* the total is a formula over the lines above it, so correcting one line cost
-       moves the dish with it rather than leaving the two disagreeing */
-    var t = ws.getRow(R);
-    t.getCell(1).value = r.name;
-    t.getCell(6).value = 'Total for the dish';
-    t.getCell(13).value = lines.length ? { formula:'SUM(M' + first + ':M' + (R - 1) + ')' } : null;
-    t.getCell(16).value = (m.makesQty ? 'Makes ' + m.makesQty + ' portion' + (m.makesQty === 1 ? '' : 's') +
-      ' — cost per portion ' + (r.cost == null ? 'not worked out yet' : fmt(r.cost)) : 'it does not say how much it makes');
-    t.getCell(13).numFmt = MICMONEY;
-    for (var c = 1; c <= cols.length; c++){
-      t.getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
-      t.getCell(c).font = { name:'Calibri', size:11, bold:c === 6 || c === 13, color:{argb:B.vino} };
+
+      if (kid && stack.indexOf(l.child_recipe_id) < 0){
+        var path = inside ? inside + ' › ' + kid.name : kid.name;
+        var sub = [], klines = kid.lines || [];
+        klines.forEach(function(kl, ki){
+          sub.push(emit(kl, ki, path, depth + 1, stack.concat([l.child_recipe_id]), C_BATCH));
+        });
+        var t = ws.getRow(R);
+        t.getCell(1).value = r.name;
+        t.getCell(5).value = path;
+        t.getCell(7).value = Array(depth + 2).join('    ') + 'What it costs to make ' +
+          (kid.makesQty != null ? kid.makesQty + ' ' : '') + (kid.makesUnit || '') + ' of ' + kid.name;
+        t.getCell(8).value = 'batch total';
+        /* named cells, not a range: a batch inside a batch sits in the same column, and
+           a SUM over the block would count it and its own ingredients both */
+        t.getCell(C_BATCH).value = sub.length
+          ? { formula: sub.map(function(n){ return 'O' + n; }).join('+') } : null;
+        t.getCell(18).value = klines.length
+          ? 'The ' + klines.length + ' row' + (klines.length === 1 ? '' : 's') + ' above are what is in it.'
+          : 'Nothing is written on this batch yet.';
+        body(t);
+        for (var c2 = 1; c2 <= cols.length; c2++){
+          t.getCell(c2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.cream} };
+          t.getCell(c2).font = { name:'Calibri', size:10.5, italic:true, color:{argb:B.vinoMid} };
+        }
+        R++;
+      } else if (kid){
+        row.getCell(18).value = 'This batch ends up using itself, so it is not opened up here.';
+      }
+      return here;
+    };
+
+    if (!lines.length){
+      var e0 = ws.getRow(R);
+      e0.getCell(1).value = r.name;
+      e0.getCell(7).value = 'nothing written on this recipe yet';
+      e0.getCell(7).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+      R++;
+    }
+    lines.forEach(function(l, i){ mine.push(emit(l, i, '', 0, [r.id], C_DISH)); });
+
+    /* the dish total adds the dish's OWN lines by name — never a range, or every row a
+       batch put underneath would be added again */
+    var t2 = ws.getRow(R);
+    t2.getCell(1).value = r.name;
+    t2.getCell(7).value = 'TOTAL FOR THE DISH';
+    t2.getCell(8).value = 'dish total';
+    t2.getCell(C_DISH).value = mine.length
+      ? { formula: mine.map(function(n){ return 'N' + n; }).join('+') } : null;
+    t2.getCell(18).value = (m.makesQty
+      ? 'Makes ' + m.makesQty + ' portion' + (m.makesQty === 1 ? '' : 's') +
+        ' — cost per portion ' + (r.cost == null ? 'not worked out yet' : fmt(r.cost))
+      : 'it does not say how much it makes') +
+      '. The "cost to make the batch" column is a breakdown and is not in this total.';
+    body(t2);
+    for (var c3 = 1; c3 <= cols.length; c3++){
+      t2.getCell(c3).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      t2.getCell(c3).font = { name:'Calibri', size:11,
+        bold:c3 === 7 || c3 === C_DISH, color:{argb:B.vino} };
     }
     R += 2;
   });
   return ws;
 }
 
-/* ── sheet 3: every batch inside them, written out in full ── */
+/* ── sheet 3: every batch once, and WHO IT BELONGS TO on every single row ──
+   The dish sheet answers "what is in this dish". This one answers the other question —
+   "I have been given this batch, whose is it" — and it answers it on every row rather
+   than once on a total line nobody scrolls to. */
 function micBatchSheet(wb, B, menuName, rows){
   var dishIds = rows.map(function(r){ return r.id; });
   var ids = micBatchesUsed(dishIds);
   var cols = [
-    { t:'Batch', w:30 }, { t:'Makes', w:9, n:true }, { t:'Unit', w:8 },
-    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:32 }, { t:'Type', w:11 },
+    { t:'Batch', w:30 }, { t:'Used in these dishes', w:38 },
+    { t:'Makes', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:34 }, { t:'Type', w:11 },
     { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
     { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
     { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:40 }
   ];
   var ws = micFlatSheet(wb, 'Batches', 'Batches inside them — ' + menuName,
-    'Every batch the dishes on this request reach, including a batch inside a batch, each one once.',
+    'Every batch the dishes on this request reach, including a batch inside a batch, each one once. ' +
+    '"Used in these dishes" is on every row, so any line filtered or copied on its own still says ' +
+    'whose it is. The same batches are also written out under their dish on the Recipes sheet.',
     cols, B);
   if (!ids.length){
     ws.getCell('A5').value = 'No batch is used by the dishes on this request.';
@@ -3692,46 +3861,53 @@ function micBatchSheet(wb, B, menuName, rows){
     var b = BATCH[id]; if (!b) return;
     var lines = b.lines || [], first = R;
     var c = batchCost(id);
+    var used = micBatchUsedIn(id, dishIds).join(', ');
     lines.forEach(function(l, i){
       var f = micLineFacts(l), row = ws.getRow(R);
       row.getCell(1).value  = b.name;
-      row.getCell(2).value  = b.makesQty == null ? null : b.makesQty;
-      row.getCell(3).value  = b.makesUnit || '';
-      row.getCell(4).value  = i + 1;
-      row.getCell(5).value  = f.name;
-      row.getCell(6).value  = f.what;
-      row.getCell(7).value  = f.code || '';
-      row.getCell(8).value  = f.qty;
-      row.getCell(9).value  = f.unit || '';
-      row.getCell(10).value = f.unitPrice;
-      row.getCell(11).value = f.base || '';
-      row.getCell(12).value = f.cost;
-      row.getCell(13).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
-      row.getCell(14).value = l.trim_on ? (l.waste_pct || 0) : null;
-      row.getCell(15).value = f.note || '';
-      [10, 12].forEach(function(cc){ row.getCell(cc).numFmt = MICMONEY; });
+      row.getCell(2).value  = used;
+      row.getCell(3).value  = b.makesQty == null ? null : b.makesQty;
+      row.getCell(4).value  = b.makesUnit || '';
+      row.getCell(5).value  = i + 1;
+      row.getCell(6).value  = f.name;
+      row.getCell(7).value  = l.child_recipe_id ? 'BATCH' : 'ingredient';
+      row.getCell(8).value  = f.code || '';
+      row.getCell(9).value  = f.qty;
+      row.getCell(10).value = f.unit || '';
+      row.getCell(11).value = f.unitPrice;
+      row.getCell(12).value = f.base || '';
+      row.getCell(13).value = f.cost;
+      row.getCell(14).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(15).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(16).value = f.note || (l.child_recipe_id
+        ? 'a batch inside this one — it has its own block on this sheet' : '');
+      [11, 13].forEach(function(cc){ row.getCell(cc).numFmt = MICMONEY; });
       for (var k = 1; k <= cols.length; k++)
         row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
-      if (f.note) row.getCell(15).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      if (row.getCell(16).value) row.getCell(16).font =
+        { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
       R++;
     });
     if (!lines.length){
       ws.getRow(R).getCell(1).value = b.name;
-      ws.getRow(R).getCell(5).value = 'nothing written on this batch yet';
-      ws.getRow(R).getCell(5).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+      ws.getRow(R).getCell(2).value = used;
+      ws.getRow(R).getCell(6).value = 'nothing written on this batch yet';
+      ws.getRow(R).getCell(6).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
       R++;
     }
-    var t = ws.getRow(R), used = micBatchUsedIn(id, dishIds);
+    var t = ws.getRow(R);
     t.getCell(1).value = b.name;
-    t.getCell(5).value = 'Total for the batch';
-    t.getCell(12).value = lines.length ? { formula:'SUM(L' + first + ':L' + (R - 1) + ')' } : null;
-    t.getCell(12).numFmt = MICMONEY;
-    t.getCell(15).value = (c.problem ? 'Cost not worked out — ' + c.problem
-                          : 'Cost per ' + (b.makesUnit || 'unit') + ' ' + fmt(c.per)) +
-      (used.length ? ' · used in ' + used.join(', ') : '');
+    t.getCell(2).value = used;
+    t.getCell(6).value = 'What it costs to make ' + (b.makesQty != null ? b.makesQty + ' ' : '') +
+      (b.makesUnit || '') + ' of it';
+    t.getCell(7).value = 'batch total';
+    t.getCell(13).value = lines.length ? { formula:'SUM(M' + first + ':M' + (R - 1) + ')' } : null;
+    t.getCell(13).numFmt = MICMONEY;
+    t.getCell(16).value = c.problem ? 'Cost not worked out — ' + c.problem
+                                    : 'Cost per ' + (b.makesUnit || 'unit') + ' ' + fmt(c.per);
     for (var k2 = 1; k2 <= cols.length; k2++){
       t.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
-      t.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 5 || k2 === 12, color:{argb:B.vino} };
+      t.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 6 || k2 === 13, color:{argb:B.vino} };
     }
     R += 2;
   });
@@ -4029,8 +4205,11 @@ function micSend(btn){
   if (!take.length) return;
   btn.disabled = true; var was = btn.textContent; btn.textContent = 'Sending…';
   if (st){ st.className = 'brn'; st.textContent = 'Building the form…'; }
+  /* read once, up front. The screen goes back to the default the moment it lands, and
+     what gets written down has to be where it actually went. */
+  var addr = { to: micTo(), cc: micCc() }, who = micWho();
   micBuild().then(function(file){
-    if (st) st.textContent = 'Sending to ' + MICMAIL.who + '…';
+    if (st) st.textContent = 'Sending to ' + who + '…';
     var menu = file.menu;
     var html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10;max-width:640px">' +
       '<div style="background:#410207;color:#f5ede0;padding:14px 18px">' +
@@ -4052,7 +4231,7 @@ function micSend(btn){
       method:'POST',
       headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + SB_KEY },
       body: JSON.stringify({
-        to: micTo(), cc: micCc(),
+        to: addr.to, cc: addr.cc,
         subject: 'Micros request — ' + menu + ' (' + take.length + ' dish' + (take.length===1?'':'es') + ')',
         html: html,
         attachments: [{ filename: file.name, content: micB64(file.buf) }]
@@ -4060,13 +4239,17 @@ function micSend(btn){
     }).then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(d){
         if (!r.ok) throw new Error(d.error || ('the mail server said ' + r.status));
-        MICREQ.sent = take.length; MICREQ.confirm = false; render();
+        MICREQ.sent = take.length; MICREQ.confirm = false;
+        /* the one-off is spent. What it went to is on the request; the NEXT one opens
+           on the default again. */
+        MICREQ.to = null; MICREQ.cc = null;
+        render();
         /* It has gone. Writing it down comes AFTER, and never in front of the send:
            a database that is down must not stop a request reaching Aung. If the write
            fails he is told, on the screen, that the email went and the record did not —
            silence there would be a request nobody can find again. */
         if (st){ st.className = 'brn'; st.textContent = 'Sent ✓ — writing it down…'; }
-        return micSaveRequest(true)
+        return micSaveRequest(true, addr)
           .then(function(row){
             return micLoadList().then(function(){
               MICREQ.open = (MICREQ.list||[]).filter(function(q){ return q.id === row.id; })[0] || null;
@@ -4076,14 +4259,14 @@ function micSend(btn){
             });
           })
           .catch(function(ex){
-            flash('It went to ' + MICMAIL.who + ', but it could not be written down — ' +
+            flash('It went to ' + who + ', but it could not be written down — ' +
                   plain(ex.message) + '. It will not show in the list of requests.', true);
           });
       });
     });
   }).catch(function(e){
     if (st){ st.className = 'brn bad'; st.textContent = 'Not sent — ' + plain(e.message) +
-      '. Nothing has gone to ' + MICMAIL.who + '.'; }
+      '. Nothing has gone to ' + who + '.'; }
     btn.disabled = false; btn.textContent = was;
   });
 }
@@ -5493,6 +5676,12 @@ function render(){
   else if (S.step === 'micreqs'){
     b.classList.add('off');
     w.innerHTML = micReqsInner();
+    /* kept as they are typed, so a redraw from anything else does not put the saved
+       addresses back over half-typed ones */
+    var at = $('admto');
+    if (at) at.addEventListener('input', function(){ MICREQ.adminTo = this.value; });
+    var ac = $('admcc');
+    if (ac) ac.addEventListener('input', function(){ MICREQ.adminCc = this.value; });
   }
 
   /* One that has gone, exactly as it went: the cost and the price on this screen are
@@ -5660,14 +5849,20 @@ function render(){
             '<div class="micaskl">'+take.length+' dish'+(take.length===1?'':'es')+' from <b>'+
               esc(menu ? menu.name : 'this menu')+'</b>, as a branded Excel workbook attached to the email — ' +
               'the form, the recipes and the batches, all three on their own tab.</div>' +
-            /* the addresses used to live in the code, so changing one meant changing the
-               app. They are on the request now, and the next one starts from the last. */
+            /* Editable, and ONE-OFF. Testing a request on yourself used to make your own
+               address the one every request after it opened on. */
             '<div class="mrto">' +
-              '<label for="micto">Goes to</label>' +
+              '<label for="micto">Goes to — this send only</label>' +
               '<input id="micto" value="'+esc(micTo())+'">' +
-              '<label for="miccc">Copy to</label>' +
+              '<label for="miccc">Copy to — this send only</label>' +
               '<input id="miccc" value="'+esc(micCc().join(', '))+'">' +
             '</div>' +
+            (micOneOff() ? '<div class="mroneoff">This one goes to <b>'+esc(micTo())+'</b> ' +
+              'instead of the usual <b>'+esc(micDefTo())+'</b> — <b>just this one</b>. The next ' +
+              'request opens addressed to the usual again. To move it for good, use ' +
+              '<b>Who requests go to</b> on the requests screen.' +
+              '<button class="newr" id="micdefback" style="margin:9px 0 0">Put the usual back</button>' +
+              '</div>' : '') +
             (over.length ? '<div class="micaskw">'+over.length+' till name'+(over.length===1?' is':'s are')+
               ' still over 16 characters — Micros will cut '+(over.length===1?'it':'them')+' off.</div>' : '') +
             (noPrice.length ? '<div class="micaskw">'+noPrice.length+' '+(noPrice.length===1?'dish goes':'dishes go')+
@@ -5719,10 +5914,14 @@ function render(){
     });
     /* typed into and then left alone: kept on the object as it is typed, so a render
        caused by anything else does not put the old address back */
+    /* typed into and then left alone: kept as it is typed so no render puts the old
+       address back, and redrawn on blur so the one-off warning appears */
     var mt = $('micto');
-    if (mt) mt.addEventListener('input', function(){ MICREQ.to = this.value.trim(); });
+    if (mt){ mt.addEventListener('input', function(){ MICREQ.to = this.value.trim(); });
+             mt.addEventListener('change', function(){ render(); }); }
     var mc = $('miccc');
-    if (mc) mc.addEventListener('input', function(){ MICREQ.cc = micCcList(this.value); });
+    if (mc){ mc.addEventListener('input', function(){ MICREQ.cc = micCcList(this.value); });
+             mc.addEventListener('change', function(){ render(); }); }
   }
 
   else if (S.step === 'type'){
@@ -8183,6 +8382,51 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'micnew'){
     if (!MENUS.length) return;
     micReset(); micOpenBuilder(); return;
+  }
+  /* ── the admin fold ── */
+  if (e.target.closest('#micadm')){
+    MICREQ.admin = !MICREQ.admin;
+    if (MICREQ.admin){                     /* always opens on what is actually set now */
+      MICREQ.adminTo = micDefTo();
+      MICREQ.adminCc = micDefCc().join(', ');
+    }
+    render(); return;
+  }
+  if (e.target.id === 'micdefback'){ MICREQ.to = null; MICREQ.cc = null; render(); return; }
+  if (e.target.id === 'admsave'){
+    var ab = e.target, ast = $('admst');
+    var toV = ($('admto') ? $('admto').value : '').trim();
+    var ccV = micCcList($('admcc') ? $('admcc').value : '');
+    /* one address, and it has to look like one — a default nobody can send to is worse
+       than the old hardcoded list */
+    if (!/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(toV)){
+      if (ast){ ast.className = 'brn bad'; ast.textContent = '“Goes to” needs to be one email address.'; }
+      return;
+    }
+    var badCc = ccV.filter(function(x){ return !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(x); });
+    if (badCc.length){
+      if (ast){ ast.className = 'brn bad'; ast.textContent = 'That is not an email address: ' + badCc[0]; }
+      return;
+    }
+    var aw = (typeof WHO !== 'undefined' && WHO && WHO.name) ? WHO.name : null;
+    ab.disabled = true; var awas = ab.textContent; ab.textContent = 'Saving…';
+    if (ast){ ast.className = 'brn'; ast.textContent = ''; }
+    sb('micros_settings?id=eq.1', { method:'PATCH', body:{
+        send_to: toV, send_cc: ccV, updated_at: new Date().toISOString(), updated_by_name: aw } })
+      .then(function(){ return micLoadSettings(); })
+      .then(function(){
+        MICREQ.adminTo = micDefTo(); MICREQ.adminCc = micDefCc().join(', ');
+        render();
+        var a2 = $('admst');
+        if (a2){ a2.className = 'brn';
+                 a2.textContent = 'Saved ✓ — every new request now opens addressed to ' + toV + '.'; }
+      })
+      .catch(function(ex){
+        ab.disabled = false; ab.textContent = awas;
+        var a3 = $('admst');
+        if (a3){ a3.className = 'brn bad'; a3.textContent = 'Not saved — ' + plain(ex.message); }
+      });
+    return;
   }
   if (e.target.id === 'micback'){
     MICREQ.open = null; S.step = 'micreqs'; render(); window.scrollTo(0,0); return;
