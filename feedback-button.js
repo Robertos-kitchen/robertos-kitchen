@@ -31,8 +31,8 @@
 // ── It never lies about sending ────────────────────────────────────────────
 // supabase-js and fetch do not throw on a failed write, they RETURN the error
 // (the trap behind three of this platform's silent-data incidents). So the
-// sheet only says "sent" after a row comes back, and says exactly what went
-// wrong otherwise. On the DEV sites the write guard blocks it with a 403 —
+// sheet only says "sent" once PostgREST has answered 201, and says exactly what
+// went wrong otherwise. On the DEV sites the write guard blocks it with a 403 —
 // that is correct, and it is reported as blocked, never as sent.
 //
 // ── Wiring (each app, before this script loads) ────────────────────────────
@@ -278,13 +278,22 @@
       // Plain fetch on purpose: it goes through whatever window.fetch is at call
       // time, which on the DEV sites is the write guard. A send that the guard
       // blocked must read as blocked, not slip past it.
+      //
+      // Deliberately NO "Prefer: return=representation" — the same trap
+      // foh-feedback.html documents at its own send(). Asking PostgREST to hand
+      // the row back makes it READ what it just wrote, and only signed-in users
+      // may read this table; for anon (the prep screen, anyone's phone) the
+      // whole insert then comes back as "new row violates row-level security
+      // policy" — a write that actually succeeded, reported as a failure.
+      // Verified 7 Aug 2026 by pressing the button on the local preview.
+      // The 201 IS the receipt: PostgREST only answers it once the row is
+      // committed, so nothing here is taken on trust.
       res = await fetch(INBOX_URL, {
         method: 'POST',
         headers: {
           'apikey': INBOX_KEY,
           'Authorization': 'Bearer ' + INBOX_KEY,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(row)
       });
@@ -296,11 +305,13 @@
     }
 
     // fetch does NOT throw on 4xx/5xx. Everything below this line is the reason
-    // this module exists at all: a claim of "sent" has to be earned by a row.
-    if (!res.ok) {
+    // this module exists at all: a claim of "sent" has to be earned. Anything
+    // that is not a 201 is NOT sent, and it says so rather than showing them a
+    // tick they would believe.
+    if (res.status !== 201) {
       sending = false; paint();
       var msg = '';
-      try { msg = (JSON.parse(txt) || {}).message || ''; } catch (e) {}
+      try { var j = JSON.parse(txt) || {}; msg = j.message || j.hint || ''; } catch (e) {}
       if (res.status === 403) {
         say(msg || 'Not sent — this is the dev site and writes are off here.', true);
       } else if (/app_feedback_inbox/.test(msg) && /does not exist|schema cache/i.test(msg)) {
@@ -308,13 +319,6 @@
       } else {
         say('Not sent — ' + (msg || ('error ' + res.status)).slice(0, 90), true);
       }
-      return;
-    }
-    var got = null;
-    try { got = JSON.parse(txt); } catch (e) {}
-    if (!got || !got.length) {
-      sending = false; paint();
-      say('Not sent — the server accepted it but returned nothing back.', true);
       return;
     }
 
