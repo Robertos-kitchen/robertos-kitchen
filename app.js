@@ -1,66 +1,18 @@
 const SUPABASE_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
 // ── DEV-site write protection ──
-// The SAME files serve DEV (robertos-kitchen.github.io) and LIVE
-// (guarracinofamily.github.io) against ONE production database, so testing on
-// the dev site was silently writing to the real roster. On the dev host every
-// database write is blocked in the browser (403 before it leaves the device)
-// unless deliberately unlocked via the DEV badge (schedule PIN). This guards
-// ALL modules, including ones that never check DEV_READ_ONLY. localhost (the
-// local preview) stays writable. Must run BEFORE createClient — supabase-js
-// captures window.fetch when the client is created.
-const IS_DEV_HOST = location.hostname === 'robertos-kitchen.github.io';
-const DEV_READ_ONLY = IS_DEV_HOST && localStorage.getItem('kitchen-dev-writes') !== '1';
-if (DEV_READ_ONLY) {
-  const _realFetch = window.fetch.bind(window);
-  // These Edge Functions write to the DB (or send a real email) when called —
-  // /rest/v1/ blocking above never sees them since they're a different path.
-  // sevenrooms-sync also serves read-only reads via ?upcoming=/?floorplan=/
-  // ?coverflow= (used for the live dashboard) which must stay open on dev.
-  function isMutatingFunctionCall(urlStr) {
-    if (urlStr.indexOf('/functions/v1/cosec-sync') !== -1) return true;
-    if (urlStr.indexOf('/functions/v1/kitchen-guard') !== -1) return true;
-    if (urlStr.indexOf('/functions/v1/send-roster') !== -1) return true;
-    if (urlStr.indexOf('/functions/v1/sevenrooms-sync') !== -1 &&
-        urlStr.indexOf('?upcoming=') === -1 && urlStr.indexOf('?floorplan=') === -1 && urlStr.indexOf('?coverflow=') === -1) return true;
-    return false;
-  }
-  window.fetch = function(url, opts) {
-    const method = ((opts && opts.method) || 'GET').toUpperCase();
-    const urlStr = String(url);
-    const blocked = (method !== 'GET' && method !== 'HEAD' && urlStr.indexOf('/rest/v1/') !== -1) || isMutatingFunctionCall(urlStr);
-    if (blocked) {
-      console.warn('[DEV read-only] blocked ' + method + ' ' + urlStr);
-      return Promise.resolve(new Response(
-        JSON.stringify({ message: 'DEV site is read-only — tap the DEV badge (bottom-left) to enable test writes.' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }));
-    }
-    return _realFetch(url, opts);
-  };
-}
+// MOVED OUT, 7 Aug 2026. The guard and the DEV badge now live in dev-guard.js,
+// which index.html loads FIRST (before the supabase CDN, before this file).
+// It used to be pasted here AND in recipe-create.html; only this copy ever got
+// the Edge-Function blocklist, so the Recipes screen still let a real Stock
+// Take email out from the dev site. One copy now — add new Edge Functions to
+// MUTATING_FUNCTIONS in dev-guard.js and every screen is covered.
+//
+// `IS_DEV_HOST` and `DEV_READ_ONLY` are globals set there; the references
+// throughout this file still read exactly the same. They are deliberately NOT
+// re-declared here — a `const` would collide with the window property and
+// throw "Identifier has already been declared", killing the page.
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// DEV badge: shows on the dev site only. Tap it to unlock test writes
-// (schedule PIN) or to lock them again; the choice sticks per browser.
-if (IS_DEV_HOST) {
-  const devBadge = document.createElement('div');
-  devBadge.textContent = DEV_READ_ONLY ? 'DEV · read-only' : 'DEV · WRITES ON';
-  devBadge.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;padding:5px 12px;border-radius:14px;' +
-    'font:700 11px/1.3 Inter,system-ui,sans-serif;letter-spacing:.4px;cursor:pointer;color:#fff;' +
-    'box-shadow:0 2px 8px rgba(0,0,0,.25);background:' + (DEV_READ_ONLY ? '#6B1F2A' : '#B00020');
-  devBadge.onclick = function() {
-    if (DEV_READ_ONLY) {
-      const p = prompt('DEV site is read-only.\nEnter the schedule PIN to enable TEST WRITES to the production database:');
-      if (p === null) return;
-      if (p.trim() !== SCHED_PIN) { alert('Wrong PIN.'); return; }
-      localStorage.setItem('kitchen-dev-writes', '1');
-    } else {
-      localStorage.removeItem('kitchen-dev-writes');
-    }
-    location.reload();
-  };
-  document.body.appendChild(devBadge);
-}
 
 const PASS_KEY = 'pass';
 const REPORT_KEY = 'reports';
@@ -2411,6 +2363,24 @@ window.__schedEditing = function(){
 // ── COSEC attendance (face recognition) ──
 var schedAttendance = {};      // "emp_id|date" -> attendance row
 var schedLastSyncInfo = '';
+
+// ── Row-cap warning, on the SCREEN ──
+// The roster and attendance loads are capped (3000 / 2000 rows). If a load ever
+// fills its cap, rows were dropped and the hours totals undercount — quietly,
+// and the screen looks completely normal. It used to say so in console.warn,
+// which no chef will ever open. Now it says so where the numbers are.
+var schedCapWarn = {};                       // { shifts:true, 'clock-ins':true }
+function schedCapHit(what) { schedCapWarn[what] = true; }
+function schedCapBannerHtml() {
+  var kinds = Object.keys(schedCapWarn);
+  if (!kinds.length) return '';
+  var list = kinds.length === 2 ? (kinds[0] + ' and ' + kinds[1]) : kinds[0];
+  return '<div style="margin:0 0 12px;padding:10px 14px;border-radius:10px;background:#fdf1d6;' +
+    'border:1px solid #d9a441;color:#6b4a10;font:500 13px/1.45 Inter,system-ui,sans-serif">' +
+    '<strong>These hours may be short.</strong> Too many ' + list + ' came back at once, so some were left out. ' +
+    'Do not use these totals for payroll — show this to Francesco.' +
+    '</div>';
+}
 // Attendance tracking began on this date; before it we have no punch data,
 // so earlier days fall back to the planned shift (never flagged absent).
 var ATT_TRACKING_START = '2026-06-13';
@@ -2536,7 +2506,7 @@ async function loadSchedData() {
   var rosterRows = res[1].data || [];
   // Guard against the 1000-row API cap silently truncating the window as staff
   // grow (the same class of bug that hid clock-ins). Warn if we hit the limit.
-  if (rosterRows.length >= 3000) console.warn('roster load hit the row cap — some shifts may be missing; raise .limit().');
+  if (rosterRows.length >= 3000) { schedCapHit('shifts'); console.warn('roster load hit the row cap — some shifts may be missing; raise .limit().'); }
   rosterRows.forEach(function(r) {
     schedRoster[schedRosterKey(r.staff_id, r.work_date)] = r;
   });
@@ -2568,8 +2538,9 @@ async function loadAttendance() {
     .in('emp_id', ids).gte('att_date', from).lte('att_date', to).limit(2000);
   // Same row-cap guard as the roster load above: if this window ever fills the
   // limit, punches are being silently dropped and hours totals would undercount.
-  // Warn loudly so it's caught before a wrong number reaches anyone.
-  if ((res.data || []).length >= 2000) console.warn('attendance load hit the row cap (2000) — some punches may be missing; hours totals could undercount. Raise .limit() or page it.');
+  // A console.warn is invisible to a chef, so this also puts a strip on the
+  // screen — a wrong hours total that nobody was told about is the whole risk.
+  if ((res.data || []).length >= 2000) { schedCapHit('clock-ins'); console.warn('attendance load hit the row cap (2000) — some punches may be missing; hours totals could undercount. Raise .limit() or page it.'); }
   schedAttendance = {};
   (res.data || []).forEach(function(a) { schedAttendance[schedAttKey(a.emp_id, a.att_date)] = a; });
 }
@@ -4882,7 +4853,7 @@ function renderSchedWeek() {
   // While the Roster tool is open the real grid is hidden — don't render it (saves
   // work and avoids duplicate element ids for the Move/Add panels). Just sync the tool.
   if (toolOpen) { if (typeof krtRender === 'function') krtRender(); return; }
-  document.getElementById('sch-grid-wrap').innerHTML = schedWeekTableHtml(schedWeekStart);
+  document.getElementById('sch-grid-wrap').innerHTML = schedCapBannerHtml() + schedWeekTableHtml(schedWeekStart);
 }
 // One day cell for a person — shared by the single-week grid and the several-weeks
 // grid so both look and behave identically. Returns the <td> + its hours/days count.
@@ -5194,6 +5165,7 @@ function renderSchedDay() {
     if (a && a.first_in && !a.last_out && !a.manual_out) clockedIn++;
   });
   document.getElementById('sch-day-content').innerHTML =
+    schedCapBannerHtml() +
     '<div style="margin-bottom:12px;font-size:13px;color:var(--vino-light)">' + total + ' staff in today' +
     ' \u00B7 <span style="color:#4a7c59;font-weight:600">' + clockedIn + ' clocked in</span>' +
     (schedLastSyncInfo ? ' \u00B7 <span style="opacity:.55;font-size:12px">' + schedLastSyncInfo + '</span>' : '') +

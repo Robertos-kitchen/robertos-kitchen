@@ -15,9 +15,51 @@ var STOCK_KEY   = '__stocktake__';
 var STOCK_VENUE = 'robertos-difc';
 var STOCK_DEPT  = 'kitchen';
 
-// Review & send recipients (Kitchen). Beverage/FOH build uses its own list.
-var STOCK_EMAIL_TO = 'ahtwe@robertos.ae';
-var STOCK_EMAIL_CC = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@robertos.ae','fguarracino@robertos.ae'];
+// ── Review & send recipients (Kitchen) ──
+// These used to be four addresses typed into this file, so a leaver kept getting
+// the stock take until someone edited the code and redeployed. They now live in
+// `kitchen_email_recipients` and are editable in-app (Manage recipients, admin
+// codes only). The constants below are the FALLBACK, exactly as before: if the
+// table hasn't been created yet, or comes back empty or unreadable, the send
+// behaves the way it always has and nothing breaks before the SQL is run.
+// (Same shape as loadSchedSections() in app.js.)
+var STOCK_EMAIL_LIST = 'kitchen_stock_take';
+var STOCK_EMAIL_TO_FALLBACK = 'ahtwe@robertos.ae';
+var STOCK_EMAIL_CC_FALLBACK = ['dvalla@robertos.ae','astellacci@robertos.ae','amohamed@robertos.ae','fguarracino@robertos.ae'];
+var STOCK_EMAIL_TO = STOCK_EMAIL_TO_FALLBACK;
+var STOCK_EMAIL_CC = STOCK_EMAIL_CC_FALLBACK.slice();
+var stRecipients = null;        // [{email,name,role}] once loaded from the table
+var stRecipientsSource = 'built-in list';
+
+async function stLoadRecipients(){
+  try{
+    var res = await sb.from('kitchen_email_recipients').select('*')
+      .eq('list_key', STOCK_EMAIL_LIST).eq('active', true).order('sort_order');
+    if(res.error || !res.data || !res.data.length) return;      // table missing/empty → keep the fallback
+    var to = res.data.filter(function(r){ return r.role === 'to'; });
+    if(!to.length) return;                                      // a list with no addressee is not a list
+    stRecipients = res.data.map(function(r){
+      return { email:r.email, name:r.name || r.email.split('@')[0], role:r.role };
+    });
+    STOCK_EMAIL_TO = to[0].email;
+    STOCK_EMAIL_CC = res.data.filter(function(r){ return r.role === 'cc'; }).map(function(r){ return r.email; });
+    stRecipientsSource = 'Manage recipients';
+  }catch(e){ /* keep the fallback */ }
+}
+
+// "Aung, cc Danilo, Antonio, Asarudeen and you" — built from whoever is actually
+// on the list, never a sentence typed next to it that stops being true.
+// (Valentina rule: a send names what is going and who it is going to.)
+function stRecipientNames(role){
+  if(!stRecipients){
+    return role === 'to' ? 'Aung' : 'Danilo, Antonio, Asarudeen &amp; you';
+  }
+  var names = stRecipients.filter(function(r){ return r.role === role; })
+                          .map(function(r){ return stEsc(r.name); });
+  if(!names.length) return 'nobody';
+  if(names.length === 1) return names[0];
+  return names.slice(0,-1).join(', ') + ' &amp; ' + names[names.length-1];
+}
 
 // Super-user passcodes — grant stock-take access on their own, NOT linked to any
 // staff/roster record (so the holder never appears on the kitchen schedule). Used
@@ -940,12 +982,15 @@ function stReviewSend(){
   box.id='st-send-modal';
   box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999';
   box.innerHTML='<div style="background:#fff;border-radius:12px;padding:18px;width:90%;max-width:360px" onclick="event.stopPropagation()">'+
-    '<div style="font-weight:700;color:#410207;margin-bottom:4px">Send stock take to Aung</div>'+
-    '<div style="font-size:12px;color:#8a7a55;margin-bottom:14px">cc Danilo, Antonio, Asarudeen &amp; you. Choose a format:</div>'+
-    '<button class="report-btn" style="width:100%;margin-bottom:10px;text-align:left" onclick="stSendEmail(\'excel\')"><b>Excel file</b><br><span style="font-size:11px;color:#8a7a55">attached spreadsheet — for Aung\'s system</span></button>'+
+    '<div style="font-weight:700;color:#410207;margin-bottom:4px">Send stock take to '+stRecipientNames('to')+'</div>'+
+    '<div style="font-size:12px;color:#8a7a55;margin-bottom:14px">cc '+stRecipientNames('cc')+'. Choose a format:</div>'+
+    '<button class="report-btn" style="width:100%;margin-bottom:10px;text-align:left" onclick="stSendEmail(\'excel\')"><b>Excel file</b><br><span style="font-size:11px;color:#8a7a55">attached spreadsheet — for '+stRecipientNames('to')+'\'s system</span></button>'+
     '<button class="report-btn" style="width:100%;margin-bottom:14px;text-align:left" onclick="stSendEmail(\'digital\')"><b>Digital format</b><br><span style="font-size:11px;color:#8a7a55">the in-app layout, inside the email</span></button>'+
     '<div id="st-send-status" style="font-size:12px;min-height:16px;color:#7a1218;margin-bottom:8px"></div>'+
-    '<div style="display:flex;justify-content:flex-end"><button class="report-btn" onclick="document.getElementById(\'st-send-modal\').remove()">Cancel</button></div></div>';
+    '<div style="display:flex;justify-content:space-between;align-items:center">'+
+      (stIsSuper() ? '<button class="report-btn" style="font-size:12px" onclick="stManageRecipients()">Manage recipients</button>' : '<span></span>')+
+      '<button class="report-btn" onclick="document.getElementById(\'st-send-modal\').remove()">Cancel</button>'+
+    '</div></div>';
   box.addEventListener('click', function(){ box.remove(); });
   document.body.appendChild(box);
 }
@@ -964,9 +1009,111 @@ async function stSendEmail(mode){
     }
     var r=await fetch(SUPABASE_URL+'/functions/v1/send-stock-take', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY}, body:JSON.stringify(body) });
     var d=await r.json().catch(function(){return{};});
-    if(r.ok){ var m=document.getElementById('st-send-modal'); if(m) m.remove(); if(typeof kToast==='function') kToast('✓ Sent to Aung ('+(mode==='excel'?'Excel':'digital')+').'); else alert('Sent.'); }
+    if(r.ok){ var m=document.getElementById('st-send-modal'); if(m) m.remove(); if(typeof kToast==='function') kToast('✓ Sent to '+stRecipientNames('to').replace(/&amp;/g,'&')+' ('+(mode==='excel'?'Excel':'digital')+').'); else alert('Sent.'); }
     else if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+(d.error||r.status); }
   }catch(e){ if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+e.message; } }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MANAGE RECIPIENTS — who the stock take goes to. Admin codes only.
+//
+// Kitchen has no Admin screen of its own, so this sits where the decision is
+// actually made: on the send. One addressee (To) and any number on copy. It
+// writes to `kitchen_email_recipients`; the send reads the same table, so what
+// this screen shows IS what goes out — there is no second copy anywhere.
+//
+// If the table hasn't been created yet, the panel says so plainly instead of
+// failing silently, and the send carries on with the built-in list.
+// ══════════════════════════════════════════════════════════════════════════
+function stManageRecipients(){
+  var old=document.getElementById('st-recip-modal'); if(old) old.remove();
+  var box=document.createElement('div');
+  box.id='st-recip-modal';
+  box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:10000';
+  box.innerHTML='<div id="st-recip-card" style="background:#fff;border-radius:12px;padding:18px;width:92%;max-width:460px;max-height:86vh;overflow:auto" onclick="event.stopPropagation()"></div>';
+  box.addEventListener('click', function(){ box.remove(); });
+  document.body.appendChild(box);
+  stRenderRecipients();
+}
+
+function stRenderRecipients(){
+  var card=document.getElementById('st-recip-card'); if(!card) return;
+  var rows = stRecipients || [];
+  var usingFallback = !stRecipients;
+  var list = rows.map(function(r,i){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0e9dd">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-weight:600;color:#410207;font-size:13px">'+stEsc(r.name)+'</div>'+
+        '<div style="font-size:11px;color:#8a7a55;overflow:hidden;text-overflow:ellipsis">'+stEsc(r.email)+'</div>'+
+      '</div>'+
+      '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;'+
+        (r.role==='to' ? 'background:#410207;color:#fff' : 'background:#efe7d9;color:#6b5a3a')+'">'+
+        (r.role==='to' ? 'To' : 'Cc')+'</span>'+
+      '<button class="report-btn" style="font-size:11px;padding:3px 8px" onclick="stRemoveRecipient('+i+')">Remove</button>'+
+    '</div>';
+  }).join('');
+
+  card.innerHTML =
+    '<div style="font-weight:700;color:#410207;margin-bottom:2px">Who gets the stock take</div>'+
+    '<div style="font-size:12px;color:#8a7a55;margin-bottom:12px">Changes apply to the next send. Currently reading: <b>'+stEsc(stRecipientsSource)+'</b>.</div>'+
+    (usingFallback
+      ? '<div style="padding:10px 12px;border-radius:8px;background:#fdf1d6;border:1px solid #d9a441;color:#6b4a10;font-size:12px;margin-bottom:12px">'+
+        'The recipients table isn\'t set up yet, so the send still uses the built-in list '+
+        '('+stEsc(STOCK_EMAIL_TO_FALLBACK)+' + '+STOCK_EMAIL_CC_FALLBACK.length+' on copy). '+
+        'Run <b>kitchen-email-recipients.sql</b> once and this screen takes over.</div>'
+      : (list || '<div style="font-size:12px;color:#8a7a55;padding:8px 0">Nobody on the list.</div>'))+
+    (usingFallback ? '' :
+      '<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">'+
+        '<input id="st-recip-name" placeholder="Name" style="flex:1;min-width:90px;padding:8px;border:1px solid #ddd2c0;border-radius:8px;font-size:13px">'+
+        '<input id="st-recip-email" placeholder="name@robertos.ae" style="flex:2;min-width:150px;padding:8px;border:1px solid #ddd2c0;border-radius:8px;font-size:13px">'+
+        '<select id="st-recip-role" style="padding:8px;border:1px solid #ddd2c0;border-radius:8px;font-size:13px"><option value="cc">Cc</option><option value="to">To</option></select>'+
+        '<button class="report-btn" onclick="stAddRecipient()">Add</button>'+
+      '</div>')+
+    '<div id="st-recip-status" style="font-size:12px;min-height:16px;color:#7a1218;margin-top:10px"></div>'+
+    '<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="report-btn" onclick="document.getElementById(\'st-recip-modal\').remove()">Done</button></div>';
+}
+
+function stRecipStatus(msg, bad){
+  var el=document.getElementById('st-recip-status'); if(!el) return;
+  el.style.color = bad ? '#7a1218' : '#4a7c59';
+  el.textContent = msg;
+}
+
+async function stAddRecipient(){
+  var name=(document.getElementById('st-recip-name')||{}).value||'';
+  var email=((document.getElementById('st-recip-email')||{}).value||'').trim().toLowerCase();
+  var role=(document.getElementById('st-recip-role')||{}).value||'cc';
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ stRecipStatus('That doesn\'t look like an email address.', true); return; }
+  if(stRecipients.some(function(r){ return r.email === email; })){ stRecipStatus(email+' is already on the list.', true); return; }
+  stRecipStatus('Saving…');
+  // Exactly one addressee: promoting a new To puts the old one on copy rather
+  // than leaving two, which the send would silently ignore.
+  try{
+    if(role === 'to'){
+      var dem = await sb.from('kitchen_email_recipients').update({ role:'cc' })
+        .eq('list_key', STOCK_EMAIL_LIST).eq('role','to');
+      if(dem.error) throw dem.error;
+    }
+    var res = await sb.from('kitchen_email_recipients').insert({
+      list_key: STOCK_EMAIL_LIST, email: email, name: name.trim() || email.split('@')[0],
+      role: role, sort_order: (stRecipients.length + 1) * 10, active: true });
+    if(res.error) throw res.error;
+    await stLoadRecipients(); stRenderRecipients(); stRecipStatus('Added '+email+'.');
+  }catch(e){ stRecipStatus('Could not save: '+((e&&e.message)||'unknown error'), true); }
+}
+
+async function stRemoveRecipient(i){
+  var r = (stRecipients||[])[i]; if(!r) return;
+  if(r.role === 'to'){ stRecipStatus('This is the addressee. Add someone else as To first — the send needs one.', true); return; }
+  if(!confirm('Stop sending the stock take to '+r.name+' ('+r.email+')?')) return;
+  stRecipStatus('Saving…');
+  try{
+    // Deactivated, not deleted — so who used to receive it stays answerable later.
+    var res = await sb.from('kitchen_email_recipients').update({ active:false })
+      .eq('list_key', STOCK_EMAIL_LIST).eq('email', r.email);
+    if(res.error) throw res.error;
+    await stLoadRecipients(); stRenderRecipients(); stRecipStatus('Removed '+r.email+'.');
+  }catch(e){ stRecipStatus('Could not save: '+((e&&e.message)||'unknown error'), true); }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1371,6 +1518,7 @@ async function openStockTake(){
   await stLoadItems();
   await stLoadCounts();
   await stLoadPrevMonth();
+  await stLoadRecipients();     // who the send goes to — table first, built-in list if absent
   stSubscribe();
   stRender();
 }
