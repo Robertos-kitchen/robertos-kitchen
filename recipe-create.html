@@ -3733,6 +3733,32 @@ function micFlatSheet(wb, tabName, title, sub, cols, B){
 }
 
 var MICMONEY = '#,##0.00';
+
+/* ── the names in the workbook open the recipe ───────────────────────────────────
+   Clicking a dish on the form did nothing, which is exactly the moment Aung wants to
+   see what is in it. Every dish and every batch name in the file is a link now.
+
+   ALWAYS to LIVE, never to whatever this page happens to be served from. The workbook
+   is emailed and opened on somebody else's machine: a link to localhost or to the dev
+   preview is a dead link the moment it leaves the building. The recipe card takes
+   `?id=` and has no code on the door, so it opens for whoever is sent it. */
+var MICSITE = 'https://guarracinofamily.github.io/robertos-kitchen/';
+function micCardUrl(id){
+  return MICSITE + 'recipe-card.html?id=' + encodeURIComponent(id);
+}
+/* Written as a hyperlink VALUE, not a HYPERLINK() formula — a formula shows its own
+   text when the cell is copied out into another system, and copying out is the whole
+   reason these sheets are shaped the way they are. */
+function micLinkCell(cell, text, id, font){
+  if (!id){ cell.value = text; if (font) cell.font = font; return cell; }
+  cell.value = { text: text, hyperlink: micCardUrl(id), tooltip: 'Open ' + text + ' in the Recipes app' };
+  var f = {};
+  for (var k in (font||{})) f[k] = font[k];
+  f.underline = true;
+  if (!f.color) f.color = { argb:'FF400207' };
+  cell.font = f;
+  return cell;
+}
 /* ── sheet 2: the dishes, and every batch OPENED UP UNDERNEATH THE DISH IT BELONGS TO ──
    A line that says "Hot Chocolate Sifon · batch · 0.2 kg" tells Aung nothing about what
    is in it or whose dish it is — he was left holding two sheets side by side working it
@@ -3850,6 +3876,10 @@ function micRecipeSheet(wb, B, menuName, rows){
           (klines.length ? ' · the ' + klines.length + ' row' + (klines.length === 1 ? '' : 's') +
                            ' below are what is in it' : ' · nothing is written on it yet');
         band(row, B.cream, [7, 8, C_DISH, C_BATCH]);
+        /* after the band, or the band's own font would take the link's underline off
+           the batch name the moment it is painted over */
+        micLinkCell(row.getCell(7), (depth ? Array(depth + 1).join('    ') + '› ' : '') + f.name,
+                    l.child_recipe_id, { name:'Calibri', size:11, bold:true, color:{argb:B.vino} });
         row.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
       } else if (kid){
         row.getCell(18).value = 'This batch ends up using itself, so it is not opened up here.';
@@ -3881,6 +3911,10 @@ function micRecipeSheet(wb, B, menuName, rows){
                       'and is not in this total.'
                     : '. Nothing is written on this recipe yet.');
     band(h, B.sabbiaLight, [7, 8, C_DISH]);
+    /* both the plain name and the shouted one open the dish */
+    micLinkCell(h.getCell(1), r.name, r.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    micLinkCell(h.getCell(7), r.name.toUpperCase(), r.id,
+                { name:'Calibri', size:11, bold:true, color:{argb:B.vino} });
     h.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
 
     R += 1;
@@ -3948,6 +3982,11 @@ function micBatchSheet(wb, B, menuName, rows){
         row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
       if (row.getCell(16).value) row.getCell(16).font =
         { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      /* a batch used inside this one opens too, so its own block is one click away
+         instead of a scroll looking for the name */
+      if (l.child_recipe_id)
+        micLinkCell(row.getCell(6), f.name, l.child_recipe_id,
+                    { name:'Calibri', size:11, color:{argb:B.ink} });
       R++;
     });
 
@@ -3972,6 +4011,10 @@ function micBatchSheet(wb, B, menuName, rows){
                              color:{argb:B.vino} };
     }
     h.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
+    /* the batch's name opens the batch — same as a dish name does everywhere else */
+    micLinkCell(h.getCell(1), b.name, id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    micLinkCell(h.getCell(6), b.name.toUpperCase(), id,
+                { name:'Calibri', size:11, bold:true, color:{argb:B.vino} });
 
     R += 1;
   });
@@ -4099,7 +4142,9 @@ function micWorkbook(ExcelJS, menuName){
       R++;
     }
     stripe(R, 2, 21, { fill:'FFFFFFFF', font:BODYF, border:ROWB });
-    put('C'+R, r.name);
+    /* the name on his own form is the way into the recipe — one click from the line
+       he is pricing to what is actually in the dish */
+    micLinkCell(ws.getCell('C'+R), r.name, r.id, BODYF);
     put('D'+R, r.micros);
     put('E'+R, null, { f:'LEN(D'+R+')', align:{ horizontal:'center' } });
     put('F'+R, 'Food');
@@ -4120,7 +4165,8 @@ function micWorkbook(ExcelJS, menuName){
   ws.mergeCells('B'+F+':N'+F);
   put('B'+F, 'Family codes are the existing ones. Item codes are left blank for Aung — a new ' +
              'dish takes the next free number in its family. Cost %, name length and net price ' +
-             'are formulas, so the sheet recalculates when a figure is corrected.',
+             'are formulas, so the sheet recalculates when a figure is corrected. ' +
+             'Click any dish name to open its recipe — ingredients, batches, allergens and method.',
       { font:{ name:'Calibri', size:9, italic:true, color:{argb:B.vinoMid} } });
   ws.mergeCells('B'+(F+1)+':N'+(F+1));
   put('B'+(F+1), "Roberto's DIFC · Kitchen Recipes app",
