@@ -586,6 +586,54 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   padding:14px 16px;font-family:var(--sans);font-size:12.5px;line-height:1.6}
 .micdone b{font-size:13.5px;color:var(--oliva)}
 @media (max-width:640px){ .micnum{min-width:0;text-align:left;align-items:flex-start} .micin{width:150px} }
+/* ── the requests themselves ──
+   The door now opens on what has been sent, not on a form. One card per request,
+   and the card says the four things anybody actually asks: which menu, how many
+   dishes, who sent it, when. */
+.mreq{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#fff;
+  border:1px solid rgba(64,2,7,.16);border-radius:4px;padding:13px 15px;margin-bottom:9px}
+.mreq.draft{background:rgba(232,217,199,.4);border-style:dashed}
+.mreqnm{font-family:var(--serif);font-size:19px;color:var(--vino);flex:1 1 190px;line-height:1.2}
+.mreqnm span{display:block;font-family:var(--sans);font-size:11.5px;color:var(--ink);
+  opacity:.6;margin-top:3px}
+.mreqpill{font-family:var(--sans);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
+  border-radius:2px;padding:4px 7px;background:rgba(75,81,40,.14);color:var(--oliva);flex:0 0 auto}
+.mreqpill.draft{background:rgba(64,2,7,.1);color:var(--vino-light)}
+.mreqacts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.mreqacts button{margin:0;font-size:12px;padding:8px 12px}
+.mreqempty{background:rgba(232,217,199,.45);border-radius:4px;padding:16px 18px;
+  font-family:var(--sans);font-size:13px;line-height:1.7}
+/* the toolbar over the dish list — search, and what is ticked */
+.micbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
+.micbar input.msrch{flex:1 1 220px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
+  padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
+.micbar input.msrch:focus{border-color:var(--vino)}
+.micbar button{margin:0;font-size:12px;padding:9px 12px}
+/* the family heading inside the list — the same order the sheet goes out in, so what
+   is on screen and what Aung opens read the same way round */
+.micfam{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  font-family:var(--serif);font-size:15px;color:var(--vino);
+  border-bottom:1px solid rgba(64,2,7,.16);padding:12px 2px 5px;margin-bottom:7px}
+.micfam .fc{font-family:var(--sans);font-size:10.5px;opacity:.55;letter-spacing:.5px}
+.micfam button{margin:0 0 0 auto;font-size:11px;padding:5px 9px}
+/* who it goes to — editable, and remembered from the last one that went */
+.mrto{margin-top:11px}
+.mrto label{display:block;font-family:var(--sans);font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;opacity:.6;margin:9px 0 3px}
+.mrto input{width:100%;box-sizing:border-box;border:1px solid var(--sabbia-dark);border-radius:4px;
+  padding:10px 11px;font-family:var(--sans);font-size:14px;background:#fff;color:var(--ink);outline:none}
+.mrto input:focus{border-color:var(--vino)}
+/* reviewing one that has gone — a table, not a form: nothing here can be changed */
+.mrsnap{width:100%;border-collapse:collapse;font-family:var(--sans);font-size:12.5px;margin-top:6px;
+  background:#fff}
+.mrsnap th{background:var(--vino);color:var(--cream);font-size:9.5px;letter-spacing:.8px;
+  text-transform:uppercase;padding:7px 9px;text-align:left;font-weight:600}
+.mrsnap td{padding:7px 9px;border-bottom:1px solid rgba(64,2,7,.1);vertical-align:top}
+.mrsnap td.n{text-align:right;font-family:var(--serif);font-size:14px}
+.mrsnap tr.fam td{background:var(--sabbia);color:var(--vino);font-family:var(--serif);font-size:14px}
+.mrsnap .till{font-family:ui-monospace,Consolas,monospace}
+.mrwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid rgba(64,2,7,.14);
+  border-radius:4px}
 .sfind{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 2px}
 .sfind input{flex:1 1 240px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
@@ -2580,7 +2628,12 @@ function loadBatches(){
     /* removed batches are loaded too — a recipe that still links one must keep the link
        and say so, not quietly drop the line the next time it is saved */
     sb('recipes?kind=eq.batch&select=id,name,makes_qty,makes_unit,archived,allergens'),
-    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty,unit,trim_on,yield_pct,waste_pct')
+    /* typed_text and stock_name ride along for the Micros workbook's recipe sheets —
+       a line whose code has since dropped off the stock take still has to show the
+       chef's own words rather than an empty cell. `order` so the sheet reads in the
+       order the recipe was written, not whatever the database hands back. */
+    sb('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+       'trim_on,yield_pct,waste_pct,position&order=position')
   ]).then(function(both){
     BATCH = {};
     (both[0]||[]).forEach(function(r){
@@ -3054,7 +3107,285 @@ function menuPlain(msg){
    What is NOT filled in: the Micros item code. Aung assigns those. And the 16-character
    name is only suggested — "Valen RiccioMare" is a judgement, not an algorithm. */
 var MICREQ = { menuId:null, prefix:'', rows:[], err:null, ready:false,
-               confirm:false, sent:0, today:'' };
+               confirm:false, sent:0, today:'',
+               /* the request being built: a draft already saved keeps its id, so
+                  "keep it for later" twice does not leave two half-requests behind */
+               reqId:null, search:'', onlyNew:true, saving:false, missing:[],
+               /* who it goes to. Seeded from the constant, then from the last one that
+                  actually went, then editable on the send screen. */
+               to:null, cc:null,
+               /* the requests already made — the screen the door now opens on */
+               list:null, listErr:null, listReady:false, open:null, openErr:null };
+
+/* ── what has been sent before ──────────────────────────────────────────────────
+   Two tables, read once. Nothing here is derived from the recipes: a request is a
+   record of what went out, and it has to keep saying that after the recipe changes.
+   The tables not being there yet is not an error — the module worked without them
+   until now, and it still does; the list simply says there is nothing in it. */
+var MICNOTAB = false;
+function micLoadList(){
+  MICREQ.listErr = null; MICREQ.listReady = false;
+  return sb('micros_requests?select=*,items:micros_request_items(*)' +
+            '&order=created_at.desc&limit=120')
+    .then(function(r){
+      MICREQ.list = (r||[]).map(function(q){
+        (q.items||[]).sort(function(a,b){ return (a.position||0)-(b.position||0); });
+        return q;
+      });
+      MICNOTAB = false; MICREQ.listReady = true;
+      /* the addresses the last one actually went to, so a change sticks without an
+         admin screen to go and find */
+      var last = MICREQ.list.filter(function(q){ return q.sent_at && q.send_to; })[0];
+      if (last && MICREQ.to == null){ MICREQ.to = last.send_to; MICREQ.cc = (last.send_cc||[]).slice(); }
+    })
+    .catch(function(e){
+      /* PGRST205 = the table is not in the schema. Said plainly once, not as a failure. */
+      MICNOTAB = /PGRST205|does not exist|schema cache/i.test(e.message||'');
+      MICREQ.list = []; MICREQ.listReady = true;
+      MICREQ.listErr = MICNOTAB ? null : e.message;
+    });
+}
+/* Every recipe that has already gone out on a SENT request for this menu. A draft is
+   not a send: a dish sitting on an unfinished draft must still be offered. */
+function micSentBefore(menuId){
+  var seen = {};
+  (MICREQ.list||[]).forEach(function(q){
+    if (!q.sent_at || q.menu_id !== menuId) return;
+    (q.items||[]).forEach(function(it){ if (it.recipe_id) seen[it.recipe_id] = q; });
+  });
+  return seen;
+}
+function micTo(){ return MICREQ.to != null ? MICREQ.to : MICMAIL.to; }
+function micCc(){ return MICREQ.cc != null ? MICREQ.cc : MICMAIL.cc.slice(); }
+/* "Aung" only while it is still going to Aung. Changed to somebody else, the screen
+   has to say the address rather than keep using his name for whoever it is now. */
+function micWho(){ return micTo() === MICMAIL.to ? MICMAIL.who : micTo(); }
+function micCcList(s){
+  return String(s||'').split(/[,;\s]+/).map(function(x){ return x.trim(); })
+    .filter(function(x){ return x; });
+}
+
+/* ── writing the request down ───────────────────────────────────────────────────
+   Called twice: once for "keep it for later" (sent falsy) and once the moment a send
+   succeeds. The items are written from what is on the screen — the till name as edited,
+   the cost and the price as they are TODAY — and never read back through the recipe
+   again. That is the whole point of the table.
+
+   The items are replaced rather than merged: a request is a list, and a dish unticked
+   between one save and the next has to leave it. */
+function micSaveRequest(sent){
+  var take = MICREQ.rows.filter(function(r){ return r.take; });
+  var w = (typeof WHO !== 'undefined' && WHO && WHO.name) ? WHO : null;
+  var body = {
+    menu_id: MICREQ.menuId, menu_name: micMenuName(),
+    prefix: MICREQ.prefix || null, dish_count: take.length,
+    send_to: micTo(), send_cc: micCc(), updated_at: new Date().toISOString()
+  };
+  if (sent){
+    body.sent_at = new Date().toISOString();
+    body.sent_by = w ? (w.emp_id || null) : null;
+    body.sent_by_name = w ? w.name : null;
+  }
+  if (!MICREQ.reqId && w) body.created_by_name = w.name;
+
+  var head = MICREQ.reqId
+    ? sb('micros_requests?id=eq.' + MICREQ.reqId, { method:'PATCH', body:body })
+        .then(function(r){ return (r && r[0]) || { id: MICREQ.reqId }; })
+    : sb('micros_requests', { method:'POST', body:body })
+        .then(function(r){ return r && r[0]; });
+
+  return head.then(function(row){
+    if (!row || !row.id) throw new Error('the request was not written down');
+    MICREQ.reqId = row.id;
+    return sb('micros_request_items?request_id=eq.' + row.id,
+              { method:'DELETE', prefer:'return=minimal' })
+      .then(function(){
+        if (!take.length) return null;
+        return sb('micros_request_items', { method:'POST', prefer:'return=minimal',
+          body: take.map(function(r, i){
+            return { request_id: row.id, recipe_id: r.id, position: i,
+                     name: r.name, section: r.section,
+                     family_code: micFamCode(r.section),
+                     till_name: r.micros || null,
+                     cost: r.cost == null ? null : r.cost,
+                     price: r.price == null ? null : r.price,
+                     net_price: r.price == null ? null : micNet(r.price) };
+          }) });
+      })
+      .then(function(){ return row; });
+  });
+}
+
+/* Dubai, always — the database writes UTC and a request sent at 1am here would read as
+   the day before on every screen in the kitchen. */
+function micWhen(iso, short){
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var o = { timeZone:'Asia/Dubai', day:'numeric', month:'short' };
+  if (!short){ o.year = 'numeric'; o.hour = '2-digit'; o.minute = '2-digit'; o.hour12 = false; }
+  try { return d.toLocaleString('en-GB', o); } catch(e){ return String(iso).slice(0,10); }
+}
+
+/* A whole menu comes back off the database and a real request is four new dishes. What
+   has already gone to Aung on a SENT request starts unticked — a draft is not a send,
+   so a dish sitting on an unfinished draft is still offered. */
+function micApplyNew(){
+  if (!MICREQ.onlyNew) return;
+  var before = micSentBefore(MICREQ.menuId);
+  MICREQ.rows.forEach(function(r){ if (before[r.id]) r.take = false; });
+}
+/* Starting one from nothing. Everything about the LAST request has to go, or the new
+   one quietly inherits a draft id and overwrites it. */
+function micReset(){
+  MICREQ.reqId = null; MICREQ.sent = 0; MICREQ.confirm = false;
+  MICREQ.search = ''; MICREQ.onlyNew = true; MICREQ.rows = []; MICREQ.ready = false;
+  MICREQ.missing = [];
+}
+function micOpenBuilder(menuId){
+  var run = MENUS.filter(function(m){ return m.running; })[0];
+  MICREQ.menuId = menuId || MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
+  MICREQ.today  = new Date().toISOString().slice(0,10);
+  S.step = 'micros'; render(); window.scrollTo(0,0);
+  return loadMicros(MICREQ.menuId).then(function(){
+    micApplyNew();
+    if (S.step === 'micros') render();
+  });
+}
+/* Reopening a draft, or starting a new one off something already sent. Both put the
+   SAME dishes and the SAME till names back on the screen; only one of them keeps the
+   id, because writing over a request that has already gone would rewrite history. */
+function micLoadFrom(req, keepId){
+  micReset();
+  MICREQ.reqId  = keepId ? req.id : null;
+  MICREQ.prefix = req.prefix || '';
+  MICREQ.onlyNew = false;                 /* he has said which dishes; do not re-untick them */
+  if (req.send_to){ MICREQ.to = req.send_to; MICREQ.cc = (req.send_cc||[]).slice(); }
+  MICREQ.menuId = req.menu_id;
+  MICREQ.today  = new Date().toISOString().slice(0,10);
+  S.step = 'micros'; render(); window.scrollTo(0,0);
+  return loadMicros(MICREQ.menuId).then(function(){
+    var want = {}; (req.items||[]).forEach(function(it){ if (it.recipe_id) want[it.recipe_id] = it; });
+    var found = {};
+    MICREQ.rows.forEach(function(r){
+      var it = want[r.id];
+      r.take = !!it;
+      if (it) found[r.id] = 1;
+      /* his wording, not the machine's — and marked as his, so changing the prefix
+         afterwards does not quietly rewrite what he typed last time */
+      if (it && it.till_name){ r.micros = it.till_name; r.edited = true; }
+    });
+    /* A dish taken off the menu since, or a recipe deleted, cannot be ticked — and
+       nothing ticked with no word said reads as the button having done nothing. */
+    MICREQ.missing = (req.items||[])
+      .filter(function(it){ return !it.recipe_id || !found[it.recipe_id]; })
+      .map(function(it){ return it.name; });
+    if (S.step === 'micros') render();
+  });
+}
+
+/* ── the list of requests: the door this module opens on now ── */
+function micReqsInner(){
+  var list = MICREQ.list || [];
+  var drafts = list.filter(function(q){ return !q.sent_at; });
+  var sent   = list.filter(function(q){ return q.sent_at; });
+  var card = function(q){
+    var draft = !q.sent_at;
+    return '<div class="mreq'+(draft?' draft':'')+'">' +
+      '<span class="mreqpill'+(draft?' draft':'')+'">'+(draft?'Draft':'Sent')+'</span>' +
+      '<span class="mreqnm">'+esc(q.menu_name||'a menu')+
+        '<span>'+q.dish_count+' dish'+(q.dish_count===1?'':'es')+
+        (draft ? ' · started '+esc(micWhen(q.created_at))
+               : ' · '+esc(micWhen(q.sent_at))+
+                 (q.sent_by_name ? ' by '+esc(q.sent_by_name) : '')+
+                 (q.send_to ? ' · to '+esc(q.send_to) : ''))+
+        '</span></span>' +
+      '<span class="mreqacts">' +
+        (draft
+          ? '<button class="okb" data-mdraft="'+q.id+'">Open it</button>' +
+            '<button class="newr" data-mdel="'+q.id+'">Throw it away</button>'
+          : '<button class="okb" data-mreq="'+q.id+'">Review it</button>' +
+            '<button class="newr" data-mfrom="'+q.id+'">Start a new one from it</button>') +
+      '</span></div>';
+  };
+  return '<div class="pane">' +
+    '<div class="q">Micros requests</div>' +
+    howto('micreqs', 'Every request that has gone to ' + esc(MICMAIL.who) + ', and every one still ' +
+      'half made. Open a sent one and it shows exactly what went — the till name, the cost and the ' +
+      'price as they were on the day, not as the recipe reads now. Nothing on that screen can be ' +
+      'changed: it is the record.', 'What this screen is') +
+    '<div class="onpaper">' +
+    '<div class="micbar"><button class="okb" id="micnew" style="margin:0">Make a new request</button>' +
+      (MENUS.length ? '' : '<span class="brn bad">No menus yet — make one first on Saved recipes.</span>') +
+    '</div>' +
+
+    (MICNOTAB ?
+      '<div class="todo"><b>Requests are not being kept yet.</b> The two tables they live in are ' +
+      'not in the database. Run <b>micros-requests-schema.sql</b> once in the Kitchen project and ' +
+      'this screen starts filling by itself — ' +
+      '<a href="https://supabase.com/dashboard/project/zrpglswalgjbtghudmhu/sql/new" target="_blank" ' +
+      'rel="noopener">open the SQL editor</a>. Making and sending a request works either way; ' +
+      'without them there is simply no record afterwards.</div>' : '') +
+    (MICREQ.listErr ? '<div class="todo"><b>Could not read the requests.</b> '+
+      esc(plain(MICREQ.listErr))+'</div>' : '') +
+    (!MICREQ.listReady ? '<div class="tip">Reading what has been sent…</div>' : '') +
+
+    /* Drafts first, and no heading over either group: the pill on the card already
+       says which it is, and a "SENT" heading over a "SENT" pill says it twice. */
+    drafts.map(card).join('') + sent.map(card).join('') +
+    (MICREQ.listReady && !list.length && !MICNOTAB ?
+      '<div class="mreqempty"><b>Nothing has gone from here yet.</b><br>' +
+      'Make a request and it is kept: which menu, which dishes, what price was on each line, ' +
+      'who sent it and when. From then on this screen answers “did that go?” without anybody ' +
+      'opening Outlook.</div>' : '') +
+    '</div></div>';
+}
+
+/* ── one that has gone ── */
+function micPastInner(){
+  var q = MICREQ.open;
+  if (!q) return '<div class="pane"><div class="q">That request could not be opened</div>' +
+    '<div class="onpaper"><div class="tip">Go back and pick it again.</div></div></div>';
+  var items = (q.items||[]).slice(), fam = null, body = '';
+  items.forEach(function(it){
+    if (it.section !== fam){
+      fam = it.section;
+      body += '<tr class="fam"><td colspan="6">'+esc(fam||'No section')+
+        (it.family_code!=null ? ' · family '+it.family_code : '')+'</td></tr>';
+    }
+    var pct = (it.cost != null && it.net_price) ? (it.cost/it.net_price*100) : null;
+    body += '<tr><td>'+esc(it.name)+'</td>' +
+      '<td class="till">'+esc(it.till_name||'')+'</td>' +
+      '<td class="n">'+(it.cost==null?'—':fmt(+it.cost))+'</td>' +
+      '<td class="n">'+(it.price==null?'—':fmt(+it.price))+'</td>' +
+      '<td class="n">'+(it.net_price==null?'—':fmt(+it.net_price))+'</td>' +
+      '<td class="n">'+(pct==null?'—':pct.toFixed(1)+'%')+'</td></tr>';
+  });
+  return '<div class="pane">' +
+    '<div class="q">'+esc(q.menu_name||'a menu')+'</div>' +
+    '<div class="onpaper">' +
+    '<div class="micdone" style="margin-bottom:14px"><b>✓ Sent '+esc(micWhen(q.sent_at))+'</b>' +
+      (q.sent_by_name ? ' by '+esc(q.sent_by_name) : '') + ' — ' + q.dish_count + ' dish' +
+      (q.dish_count===1?'':'es') + '.<br>To <b>'+esc(q.send_to||'')+'</b>' +
+      ((q.send_cc||[]).length ? ', copy to '+esc((q.send_cc||[]).join(', ')) : '') + '.</div>' +
+    '<div class="tip" style="margin-bottom:10px">The cost and the price below are the ones that went ' +
+      'out on the day. They are not read back off the recipe — a recipe that has changed since must ' +
+      'not change what this says was sent.</div>' +
+    '<div class="mrwrap"><table class="mrsnap"><thead><tr>' +
+      '<th>Item name in menu</th><th>Name in Micros</th><th style="text-align:right">Cost</th>' +
+      '<th style="text-align:right">Sales price</th><th style="text-align:right">Net</th>' +
+      '<th style="text-align:right">Cost %</th></tr></thead><tbody>' + body +
+      (items.length ? '' : '<tr><td colspan="6">No lines were written down with this request.</td></tr>') +
+    '</tbody></table></div>' +
+    '<div class="micfoot">' +
+      '<button class="okb" data-mfrom="'+q.id+'">Start a new request from this one</button>' +
+      '<button class="newr" id="micback" style="margin:0">Back to the requests</button>' +
+    '</div>' +
+    '<div class="tip" style="margin-top:12px">Starting a new one from this puts the same dishes and ' +
+      'the same till names back on the screen, costed as they are <b>today</b> — which is what a ' +
+      'price change is sent as: the same dish, again, with the new figure.</div>' +
+    '</div></div>';
+}
 
 /* The net selling price — the price with every tax taken back out. Written as the form's
    own formula writes it, not as ÷1.225, so the screen and the sheet can never disagree:
@@ -3095,7 +3426,8 @@ function loadMicros(menuId){
   return Promise.all([
     sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price'),
     sb('recipe_menus?menu_id=eq.' + menuId + '&select=recipe_id'),
-    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty,unit,trim_on,yield_pct,waste_pct'),
+    sb('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+       'trim_on,yield_pct,waste_pct,position&order=position'),
     MYB.length ? Promise.resolve(null) : loadBatches()
   ]).then(function(res){
     var on = {}; (res[1]||[]).forEach(function(r){ on[r.recipe_id] = 1; });
@@ -3158,6 +3490,252 @@ function micFamCode(section){
   /* one spelling difference should not lose the code */
   var hit = Object.keys(MICFAM).filter(function(n){ return n.toLowerCase() === k.toLowerCase(); })[0];
   return hit ? MICFAM[hit] : null;
+}
+
+/* ── the recipe behind every line ────────────────────────────────────────────────
+   Aung is not being sent a picture of a recipe. He copies these rows into the
+   inventory system, so the recipe goes as SHEETS in the same workbook — one row per
+   ingredient, real numbers, one header row, nothing merged inside the table. A PDF
+   would look better and be useless to him.
+
+   One line, worked out exactly the way batchCost() works it out, so a figure on the
+   recipe sheet and the cost on the request can never disagree. */
+function micLineFacts(l){
+  var o = { name:'', what:'', code:'', qty:(l.qty==null?null:l.qty), unit:l.unit||'',
+            unitPrice:null, base:'', cost:null, note:'' };
+  if (l.child_recipe_id){
+    var b = BATCH[l.child_recipe_id];
+    o.what = 'batch';
+    o.name = b ? b.name : 'a batch that is no longer there';
+    var sub = batchCost(l.child_recipe_id);
+    if (sub.problem) o.note = sub.problem;
+    else { o.unitPrice = sub.per; o.base = sub.base; }
+  } else if (l.stock_code){
+    var it = ING.filter(function(x){ return x.code === l.stock_code; })[0];
+    o.what = 'ingredient'; o.code = l.stock_code;
+    o.name = it ? it.name : (l.stock_name || l.typed_text || l.stock_code);
+    if (!it) o.note = 'no longer on the stock take';
+    else {
+      var bp = basePrice(it);
+      if (bp){ o.unitPrice = bp.v; o.base = bp.base; }
+      else o.note = 'the unit on it cannot be read';
+    }
+  } else {
+    o.what = 'ingredient';
+    o.name = l.stock_name || l.typed_text || '—';
+    o.note = 'nothing picked on this line yet';
+  }
+  if (o.unitPrice != null && o.qty != null){
+    var u = o.unit || (o.base === 'kg' ? 'g' : o.base === 'L' ? 'ml' : 'pcs');
+    var c = qtyInBase(o.qty, u) * o.unitPrice;
+    o.cost = c / ((l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : 100) / 100)
+               * (1 + (l.trim_on ? (l.waste_pct || 0) : 0) / 100);
+  }
+  if (o.qty == null && !o.note) o.note = 'no quantity on this line yet';
+  return o;
+}
+/* Every batch the ticked dishes reach, including a batch inside a batch, each one
+   once and in the order it is first met. Guarded against a loop the same way the
+   cost walk is — a recipe that ends up using itself must not hang the download. */
+function micBatchesUsed(dishIds){
+  var out = [], seen = {};
+  function walk(lines, stack){
+    (lines || []).forEach(function(l){
+      var id = l.child_recipe_id; if (!id) return;
+      if (stack.indexOf(id) > -1) return;
+      if (!seen[id]){ seen[id] = 1; out.push(id); }
+      var b = BATCH[id]; if (b) walk(b.lines, stack.concat([id]));
+    });
+  }
+  dishIds.forEach(function(id){ walk((MAINS[id] || {}).lines, [id]); });
+  return out;
+}
+/* which dishes on this request a batch ends up inside — said on the batch's own line,
+   so he is not holding two sheets side by side to work it out */
+function micBatchUsedIn(batchId, dishIds){
+  return dishIds.filter(function(d){
+    var hit = false;
+    (function walk(lines, stack){
+      (lines || []).forEach(function(l){
+        var id = l.child_recipe_id; if (!id || stack.indexOf(id) > -1) return;
+        if (id === batchId) hit = true;
+        var b = BATCH[id]; if (b) walk(b.lines, stack.concat([id]));
+      });
+    })((MAINS[d] || {}).lines, [d]);
+    return hit;
+  }).map(function(d){ return (MAINS[d] || {}).name || ''; }).filter(function(n){ return n; });
+}
+
+/* A sheet of flat rows in the house colours: band, one header row, then the table.
+   Nothing is merged from the header down — a merged cell inside a table is what turns
+   a copy-paste into a mess at the other end. */
+function micFlatSheet(wb, tabName, title, sub, cols, B){
+  var ws = wb.addWorksheet(tabName, {
+    views: [{ state:'frozen', ySplit:4 }],
+    pageSetup: { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0,
+                 margins:{ left:.3, right:.3, top:.4, bottom:.5, header:.2, footer:.2 } }
+  });
+  ws.columns = cols.map(function(c){ return { width:c.w }; });
+  var last = cols.length;
+  for (var c = 1; c <= last; c++){
+    ws.getRow(1).getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.vino} };
+    ws.getRow(2).getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+  }
+  ws.getCell('A1').value = title;
+  ws.getCell('A1').font = { name:'Georgia', size:14, bold:true, color:{argb:B.cream} };
+  ws.getCell('A1').alignment = { vertical:'middle' };
+  ws.getRow(1).height = 26;
+  ws.getCell('A2').value = sub;
+  ws.getCell('A2').font = { name:'Calibri', size:10, color:{argb:B.vinoMid} };
+  cols.forEach(function(cl, i){
+    var cell = ws.getRow(4).getCell(i + 1);
+    cell.value = cl.t;
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.vino} };
+    cell.font = { name:'Calibri', size:9.5, bold:true, color:{argb:B.cream} };
+    cell.alignment = { vertical:'middle', horizontal:cl.n ? 'right' : 'left', wrapText:true };
+  });
+  ws.getRow(4).height = 26;
+  ws.autoFilter = { from:{ row:4, column:1 }, to:{ row:4, column:last } };
+  return ws;
+}
+
+/* ── sheet 2: the dishes, line by line ── */
+var MICMONEY = '#,##0.00';
+function micRecipeSheet(wb, B, menuName, rows){
+  var cols = [
+    { t:'Dish', w:30 }, { t:'Family', w:14 }, { t:'Name in Micros', w:18 },
+    { t:'Portions', w:9, n:true }, { t:'#', w:5, n:true },
+    { t:'Ingredient / batch', w:32 }, { t:'Type', w:11 }, { t:'Stock code', w:12 },
+    { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'Unit price', w:11, n:true }, { t:'per', w:6 },
+    { t:'Line cost', w:11, n:true }, { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true },
+    { t:'Note', w:34 }
+  ];
+  var ws = micFlatSheet(wb, 'Recipes', "Recipes behind the request — " + menuName,
+    'One row per ingredient. Qty, unit price and line cost are numbers, not text — ready to copy. ' +
+    'A batch on a line is priced per its own unit and written out in full on the Batches sheet.',
+    cols, B);
+
+  var R = 5;
+  rows.forEach(function(r){
+    var m = MAINS[r.id] || { lines:[] };
+    var lines = m.lines || [], first = R;
+    if (!lines.length){
+      ws.getRow(R).getCell(1).value = r.name;
+      ws.getRow(R).getCell(6).value = 'nothing written on this recipe yet';
+      ws.getRow(R).getCell(6).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+      R++;
+    }
+    lines.forEach(function(l, i){
+      var f = micLineFacts(l), row = ws.getRow(R);
+      row.getCell(1).value  = r.name;
+      row.getCell(2).value  = r.section || '';
+      row.getCell(3).value  = r.micros || '';
+      row.getCell(4).value  = m.makesQty == null ? null : m.makesQty;
+      row.getCell(5).value  = i + 1;
+      row.getCell(6).value  = f.name;
+      row.getCell(7).value  = f.what;
+      row.getCell(8).value  = f.code || '';
+      row.getCell(9).value  = f.qty;
+      row.getCell(10).value = f.unit || '';
+      row.getCell(11).value = f.unitPrice;
+      row.getCell(12).value = f.base || '';
+      row.getCell(13).value = f.cost;
+      row.getCell(14).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(15).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(16).value = f.note || '';
+      [11, 13].forEach(function(c){ row.getCell(c).numFmt = MICMONEY; });
+      for (var c = 1; c <= cols.length; c++)
+        row.getCell(c).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+      if (f.note) row.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      R++;
+    });
+    /* the total is a formula over the lines above it, so correcting one line cost
+       moves the dish with it rather than leaving the two disagreeing */
+    var t = ws.getRow(R);
+    t.getCell(1).value = r.name;
+    t.getCell(6).value = 'Total for the dish';
+    t.getCell(13).value = lines.length ? { formula:'SUM(M' + first + ':M' + (R - 1) + ')' } : null;
+    t.getCell(16).value = (m.makesQty ? 'Makes ' + m.makesQty + ' portion' + (m.makesQty === 1 ? '' : 's') +
+      ' — cost per portion ' + (r.cost == null ? 'not worked out yet' : fmt(r.cost)) : 'it does not say how much it makes');
+    t.getCell(13).numFmt = MICMONEY;
+    for (var c = 1; c <= cols.length; c++){
+      t.getCell(c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      t.getCell(c).font = { name:'Calibri', size:11, bold:c === 6 || c === 13, color:{argb:B.vino} };
+    }
+    R += 2;
+  });
+  return ws;
+}
+
+/* ── sheet 3: every batch inside them, written out in full ── */
+function micBatchSheet(wb, B, menuName, rows){
+  var dishIds = rows.map(function(r){ return r.id; });
+  var ids = micBatchesUsed(dishIds);
+  var cols = [
+    { t:'Batch', w:30 }, { t:'Makes', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:32 }, { t:'Type', w:11 },
+    { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:40 }
+  ];
+  var ws = micFlatSheet(wb, 'Batches', 'Batches inside them — ' + menuName,
+    'Every batch the dishes on this request reach, including a batch inside a batch, each one once.',
+    cols, B);
+  if (!ids.length){
+    ws.getCell('A5').value = 'No batch is used by the dishes on this request.';
+    ws.getCell('A5').font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+    return ws;
+  }
+  var R = 5;
+  ids.forEach(function(id){
+    var b = BATCH[id]; if (!b) return;
+    var lines = b.lines || [], first = R;
+    var c = batchCost(id);
+    lines.forEach(function(l, i){
+      var f = micLineFacts(l), row = ws.getRow(R);
+      row.getCell(1).value  = b.name;
+      row.getCell(2).value  = b.makesQty == null ? null : b.makesQty;
+      row.getCell(3).value  = b.makesUnit || '';
+      row.getCell(4).value  = i + 1;
+      row.getCell(5).value  = f.name;
+      row.getCell(6).value  = f.what;
+      row.getCell(7).value  = f.code || '';
+      row.getCell(8).value  = f.qty;
+      row.getCell(9).value  = f.unit || '';
+      row.getCell(10).value = f.unitPrice;
+      row.getCell(11).value = f.base || '';
+      row.getCell(12).value = f.cost;
+      row.getCell(13).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(14).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(15).value = f.note || '';
+      [10, 12].forEach(function(cc){ row.getCell(cc).numFmt = MICMONEY; });
+      for (var k = 1; k <= cols.length; k++)
+        row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+      if (f.note) row.getCell(15).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      R++;
+    });
+    if (!lines.length){
+      ws.getRow(R).getCell(1).value = b.name;
+      ws.getRow(R).getCell(5).value = 'nothing written on this batch yet';
+      ws.getRow(R).getCell(5).font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+      R++;
+    }
+    var t = ws.getRow(R), used = micBatchUsedIn(id, dishIds);
+    t.getCell(1).value = b.name;
+    t.getCell(5).value = 'Total for the batch';
+    t.getCell(12).value = lines.length ? { formula:'SUM(L' + first + ':L' + (R - 1) + ')' } : null;
+    t.getCell(12).numFmt = MICMONEY;
+    t.getCell(15).value = (c.problem ? 'Cost not worked out — ' + c.problem
+                          : 'Cost per ' + (b.makesUnit || 'unit') + ' ' + fmt(c.per)) +
+      (used.length ? ' · used in ' + used.join(', ') : '');
+    for (var k2 = 1; k2 <= cols.length; k2++){
+      t.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      t.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 5 || k2 === 12, color:{argb:B.vino} };
+    }
+    R += 2;
+  });
+  return ws;
 }
 
 function micWorkbook(ExcelJS, menuName){
@@ -3309,6 +3887,12 @@ function micWorkbook(ExcelJS, menuName){
   put('B'+(F+1), "Roberto's DIFC · Kitchen Recipes app",
       { font:{ name:'Georgia', size:9, color:{argb:B.vino} } });
 
+  /* The recipe and every batch inside it travel with the form, in the same file and
+     in the same colours. Aung and the cost controller price against what is actually
+     in the dish, and it goes as rows they can copy — not as a picture of a card. */
+  micRecipeSheet(wb, B, menuName, rows);
+  micBatchSheet(wb, B, menuName, rows);
+
   return wb;
 }
 
@@ -3458,13 +4042,17 @@ function micSend(btn){
       '<p style="font-size:14px;line-height:1.6">The <b>Micros item codes are left blank</b> for you to ' +
         'assign. Cost %, the 16-character check and the net price are formulas in the sheet, so it ' +
         'still recalculates if you correct a figure.</p>' +
+      '<p style="font-size:14px;line-height:1.6">Two more tabs in the same file: <b>Recipes</b> — every ' +
+        'dish written out ingredient by ingredient with quantity, unit price and line cost — and ' +
+        '<b>Batches</b>, every batch inside them written out the same way. One row per ingredient, ' +
+        'real numbers, ready to copy straight into the inventory system.</p>' +
       '<div style="font-size:11px;color:#8a7a55;border-top:1px solid #e1d3c2;padding-top:10px;margin-top:16px">' +
         'Sent from Roberto\'s Kitchen App · Recipes</div></div>';
     return fetch(SB_URL + '/functions/v1/send-stock-take', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + SB_KEY },
       body: JSON.stringify({
-        to: MICMAIL.to, cc: MICMAIL.cc,
+        to: micTo(), cc: micCc(),
         subject: 'Micros request — ' + menu + ' (' + take.length + ' dish' + (take.length===1?'':'es') + ')',
         html: html,
         attachments: [{ filename: file.name, content: micB64(file.buf) }]
@@ -3473,6 +4061,24 @@ function micSend(btn){
       return r.json().catch(function(){ return {}; }).then(function(d){
         if (!r.ok) throw new Error(d.error || ('the mail server said ' + r.status));
         MICREQ.sent = take.length; MICREQ.confirm = false; render();
+        /* It has gone. Writing it down comes AFTER, and never in front of the send:
+           a database that is down must not stop a request reaching Aung. If the write
+           fails he is told, on the screen, that the email went and the record did not —
+           silence there would be a request nobody can find again. */
+        if (st){ st.className = 'brn'; st.textContent = 'Sent ✓ — writing it down…'; }
+        return micSaveRequest(true)
+          .then(function(row){
+            return micLoadList().then(function(){
+              MICREQ.open = (MICREQ.list||[]).filter(function(q){ return q.id === row.id; })[0] || null;
+              MICREQ.reqId = null;
+              if (MICREQ.open){ S.step = 'micpast'; }
+              render(); window.scrollTo(0,0);
+            });
+          })
+          .catch(function(ex){
+            flash('It went to ' + MICMAIL.who + ', but it could not be written down — ' +
+                  plain(ex.message) + '. It will not show in the list of requests.', true);
+          });
       });
     });
   }).catch(function(e){
@@ -4344,7 +4950,10 @@ function runWorkbook(){
 var ROOMS = {
   type:   { img:'venue-cortina.jpg',  scrim:1 },      /* What are you making? */
   todo:   { img:'venue-longroom.jpg', scrim:1.05 },   /* Needs finishing */
-  micros: { img:'venue-corner.jpg',   scrim:1 }       /* Micros request */
+  /* The room is on the Micros FRONT DOOR — the list of requests — and not on the two
+     screens behind it. Building a request and reviewing one are work, and work goes
+     on paper: the same photograph on all three read as one screen that never moved. */
+  micreqs:{ img:'venue-corner.jpg',   scrim:1 }       /* Micros requests */
 };
 
 /* ───────── render ───────── */
@@ -4877,6 +5486,23 @@ function render(){
     w.innerHTML = menusInner();
   }
 
+  /* ══ the requests that have been made ═════════════════════════════════════════
+     The POS door opens here now. A request used to be built, sent and forgotten —
+     the only trace it ever existed was the email in Outlook — so the same request
+     got rebuilt and re-sent and nobody could review one. This is the list. */
+  else if (S.step === 'micreqs'){
+    b.classList.add('off');
+    w.innerHTML = micReqsInner();
+  }
+
+  /* One that has gone, exactly as it went: the cost and the price on this screen are
+     the ones written down on the day, never read back off the recipe. A recipe changes
+     the week after; reviewing what Aung was sent has to show what Aung was sent. */
+  else if (S.step === 'micpast'){
+    b.classList.add('off');
+    w.innerHTML = micPastInner();
+  }
+
   else if (S.step === 'micros'){
     b.classList.add('off');
     var menu = MENUS.filter(function(m){ return m.id === MICREQ.menuId; })[0];
@@ -4890,11 +5516,21 @@ function render(){
                       .filter(function(s, i, a){
                         return a.indexOf(s) === i && micFamCode(s) == null &&
                                MICFAM_NOCODE.indexOf(s) < 0; });
+    var before  = micSentBefore(MICREQ.menuId);
+    var goneCnt = MICREQ.rows.filter(function(r){ return before[r.id]; }).length;
+    /* the index is the one into MICREQ.rows and must survive the search — a tick
+       handler that counts rows on screen ticks the wrong dish the moment you filter */
+    var q = String(MICREQ.search||'').trim().toLowerCase();
+    var shown = MICREQ.rows.map(function(r, i){ return { r:r, i:i }; })
+      .filter(function(x){
+        return !q || (x.r.name + ' ' + x.r.section + ' ' + (x.r.micros||'')).toLowerCase().indexOf(q) > -1;
+      });
 
     w.innerHTML = '<div class="pane">' +
-      '<div class="q">Micros request for Aung</div>' +
+      '<div class="q">' + (MICREQ.reqId ? 'The draft request' : 'A new Micros request') + '</div>' +
       howto('micros', 'The form you have always sent, built from the menu instead of typed again — ' +
         'typed twice is how the till ends up saying one price and the recipe another. ' +
+        'The recipe and every batch inside it go in the same file, as rows to copy. ' +
         '<b>The item codes stay empty:</b> those are Aung\'s to assign.', 'Why it is built for you') +
 
       /* the heading is read off the room; the form is not — it goes on paper */
@@ -4910,6 +5546,14 @@ function render(){
 
       (MICREQ.err ? '<div class="todo"><b>Could not read the menu.</b> '+esc(plain(MICREQ.err))+'</div>' : '') +
       (!MICREQ.ready ? '<div class="tip">Costing every dish on the menu…</div>' : '') +
+      ((MICREQ.missing||[]).length ? '<div class="todo"><b>'+MICREQ.missing.length+
+        ' dish'+(MICREQ.missing.length===1?'':'es')+' on that request '+
+        (MICREQ.missing.length===1?'is':'are')+' not on this menu any more:</b> ' +
+        esc(MICREQ.missing.slice(0,6).join(', ')) +
+        (MICREQ.missing.length>6 ? ' and '+(MICREQ.missing.length-6)+' more' : '') +
+        '. '+(MICREQ.missing.length===1?'It':'They')+' cannot be put back on the form from here — ' +
+        'put '+(MICREQ.missing.length===1?'it':'them')+' back on the menu first, or leave ' +
+        (MICREQ.missing.length===1?'it':'them')+' off.</div>' : '') +
 
       (noPrice.length ? '<div class="todo"><b>'+noPrice.length+' with no menu price.</b> ' +
         esc(noPrice.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
@@ -4932,29 +5576,73 @@ function render(){
         (noFam.length===1?'it':'them')+' — open the recipe and pick a section from the list.</div>' : '') +
 
       '<div class="shd">On '+esc(menu ? menu.name : 'this menu')+'</div>' +
-      MICREQ.rows.map(function(r, i){
-        var len = (r.micros||'').length;
-        return '<div class="microw'+(r.take?'':' out')+'">' +
-          '<label class="mictick"><input type="checkbox" data-mic="'+i+'"'+(r.take?' checked':'')+'></label>' +
-          '<span class="micnm">'+esc(r.name)+'<span class="micsec">'+esc(r.section)+'</span></span>' +
-          '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
-            '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
-          '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+
-            '<span class="miclbl">cost</span></span>' +
-          '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
-            '<span class="miclbl">price</span></span>' +
-          /* the same figure the form's own formula gives — the price with VAT, municipality
-             and service taken back out. It is what the cost % is worked against, so it is
-             shown rather than left to be worked out from the other two. */
-          '<span class="micnum">'+(r.price==null?'<i class="none">—</i>':fmt(micNet(r.price)))+
-            '<span class="miclbl">net</span></span>' +
-        '</div>';
-      }).join('') +
+
+      /* ── what is ticked, and finding one dish in sixty ──
+         A whole menu comes back off the database, and a real request is four new
+         dishes. Unticking fifty-six of them by hand is how a request gets sent with
+         one still on it that went last month. */
+      '<div class="micbar">' +
+        '<input class="msrch" id="micq" value="'+esc(MICREQ.search||'')+'" placeholder="Find a dish">' +
+        (goneCnt ? '<button class="newr" id="micnew1">' +
+          (MICREQ.onlyNew ? 'Put the '+goneCnt+' already sent back on'
+                          : 'Leave out the '+goneCnt+' already sent') + '</button>' : '') +
+        '<button class="newr" id="mictall">Tick everything</button>' +
+        '<button class="newr" id="mictnone">Untick everything</button>' +
+      '</div>' +
+      (goneCnt && MICREQ.onlyNew ? '<div class="tip" style="margin:0 0 10px">' + goneCnt + ' dish' +
+        (goneCnt===1?' has':'es have') + ' already gone to ' + esc(micWho()) + ' on an earlier request, so ' +
+        (goneCnt===1?'it is':'they are') + ' left unticked. ' +
+        (goneCnt===1?'It is':'They are') + ' still on the list — tick ' + (goneCnt===1?'it':'them') +
+        ' if it is a change rather than a new dish.</div>' : '') +
+
+      (!shown.length ? '<div class="tip">Nothing on this menu matches “'+esc(MICREQ.search)+'”.</div>' : '') +
+      (function(){
+        var fam = null, out = '';
+        shown.forEach(function(x){
+          var r = x.r;
+          if (r.section !== fam){
+            fam = r.section;
+            var code = micFamCode(fam);
+            var inF = MICREQ.rows.filter(function(y){ return y.section === fam; });
+            var allF = inF.length && inF.every(function(y){ return y.take; });
+            out += '<div class="micfam"><span>'+esc(fam)+'</span>' +
+              '<span class="fc">'+(code==null?'no family code':'family '+code)+'</span>' +
+              '<button class="newr" data-micfam="'+esc(fam)+'">'+
+                (allF ? 'Untick these' : 'Tick these')+'</button></div>';
+          }
+          var len = (r.micros||'').length, gone = before[r.id];
+          out += '<div class="microw'+(r.take?'':' out')+'">' +
+            '<label class="mictick"><input type="checkbox" data-mic="'+x.i+'"'+(r.take?' checked':'')+'></label>' +
+            '<span class="micnm">'+esc(r.name)+
+              '<span class="micsec">'+esc(r.section)+
+                (gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
+            '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+x.i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
+              '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
+            '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+
+              '<span class="miclbl">cost</span></span>' +
+            '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
+              '<span class="miclbl">price</span></span>' +
+            /* the same figure the form's own formula gives — the price with VAT, municipality
+               and service taken back out. It is what the cost % is worked against, so it is
+               shown rather than left to be worked out from the other two. */
+            '<span class="micnum">'+(r.price==null?'<i class="none">—</i>':fmt(micNet(r.price)))+
+              '<span class="miclbl">net</span></span>' +
+          '</div>';
+        });
+        return out;
+      })() +
 
       '<div class="micfoot">' +
         '<button class="okb" id="micdl"'+(take.length?'':' disabled')+'>' +
           (take.length ? 'Make the form for '+take.length+' dish'+(take.length===1?'':'es') : 'Nothing ticked — tick a dish first') + '</button>' +
         '<button class="newr" id="micpr" style="margin:0"'+(take.length?'':' disabled')+'>Print it</button>' +
+        /* a request half built at the end of a shift used to be gone the moment the
+           screen closed — now it is kept, and it is kept as a DRAFT, which is not the
+           same word as sent anywhere on this module */
+        '<button class="newr" id="micdraft" style="margin:0"'+(take.length&&!MICNOTAB?'':' disabled')+'>' +
+          (MICNOTAB ? 'Keeping it needs the requests table'
+           : !take.length ? 'Nothing ticked — nothing to keep'
+           : MICREQ.reqId ? 'Save the draft' : 'Keep it for later') + '</button>' +
         '<span class="brn" id="micst"></span>' +
       '</div>' +
 
@@ -4963,27 +5651,38 @@ function render(){
          button up beside Download would fire off the untouched suggestion. */
       '<div class="micsend">' +
         (MICREQ.sent ?
-          '<div class="micdone"><b>✓ Sent to '+MICMAIL.who+'</b> — '+MICREQ.sent+' dish'+
-            (MICREQ.sent===1?'':'es')+' on '+esc(menu ? menu.name : 'this menu')+', cc '+MICMAIL.ccWho+'. '+
+          '<div class="micdone"><b>✓ Sent to '+esc(micWho())+'</b> — '+MICREQ.sent+' dish'+
+            (MICREQ.sent===1?'':'es')+' on '+esc(menu ? menu.name : 'this menu')+'. '+
             'The file went with it as an attachment.' +
             '<button class="newr" id="micagain" style="margin:10px 0 0">Send it again</button></div>'
         : MICREQ.confirm ?
-          '<div class="micask"><b>Send this to '+MICMAIL.who+'?</b>' +
+          '<div class="micask"><b>Send this to '+esc(micWho())+'?</b>' +
             '<div class="micaskl">'+take.length+' dish'+(take.length===1?'':'es')+' from <b>'+
-              esc(menu ? menu.name : 'this menu')+'</b>, as a branded Excel form attached to the email.<br>' +
-              'To: <b>'+esc(MICMAIL.to)+'</b><br>cc: '+esc(MICMAIL.cc.join(', '))+'</div>' +
+              esc(menu ? menu.name : 'this menu')+'</b>, as a branded Excel workbook attached to the email — ' +
+              'the form, the recipes and the batches, all three on their own tab.</div>' +
+            /* the addresses used to live in the code, so changing one meant changing the
+               app. They are on the request now, and the next one starts from the last. */
+            '<div class="mrto">' +
+              '<label for="micto">Goes to</label>' +
+              '<input id="micto" value="'+esc(micTo())+'">' +
+              '<label for="miccc">Copy to</label>' +
+              '<input id="miccc" value="'+esc(micCc().join(', '))+'">' +
+            '</div>' +
             (over.length ? '<div class="micaskw">'+over.length+' till name'+(over.length===1?' is':'s are')+
               ' still over 16 characters — Micros will cut '+(over.length===1?'it':'them')+' off.</div>' : '') +
             (noPrice.length ? '<div class="micaskw">'+noPrice.length+' '+(noPrice.length===1?'dish goes':'dishes go')+
               ' with no price on the line.</div>' : '') +
-            '<div class="micaskb"><button class="okb" id="micgo">Yes — send it to '+MICMAIL.who+'</button>' +
+            (MICNOTAB ? '<div class="micaskw">It will be sent, but it cannot be written down yet — ' +
+              'the requests table is not in the database. Run <b>micros-requests-schema.sql</b> and it ' +
+              'will start keeping them.</div>' : '') +
+            '<div class="micaskb"><button class="okb" id="micgo">Yes — send it to '+esc(micWho())+'</button>' +
               '<button class="newr" id="micno" style="margin:0">Not yet</button>' +
               '<span class="brn" id="micsendst"></span></div></div>'
         :
           '<button class="okb" id="micsend"'+(take.length?'':' disabled')+'>' +
-            (take.length ? 'Send it to '+MICMAIL.who+' →' : 'Nothing ticked — tick a dish first') + '</button>' +
+            (take.length ? 'Send it to '+esc(micWho())+' →' : 'Nothing ticked — tick a dish first') + '</button>' +
           '<div class="tip" style="margin-top:8px">Change the till names above first — this sends what is ' +
-            'on the screen right now, to '+esc(MICMAIL.to)+', cc '+MICMAIL.ccWho+'. It asks once more before it goes.</div>'
+            'on the screen right now. It asks once more before it goes, and shows you who it goes to.</div>'
         ) +
       '</div>' +
 
@@ -4999,8 +5698,9 @@ function render(){
     if (mm) mm.addEventListener('change', function(){
       /* a different menu is a different request — the tick that said "sent" was about
          the last one, and leaving it up would read as this one having gone */
-      MICREQ.menuId = this.value; MICREQ.sent = 0; MICREQ.confirm = false; render();
-      loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+      MICREQ.menuId = this.value; MICREQ.sent = 0; MICREQ.confirm = false;
+      MICREQ.reqId = null; MICREQ.missing = []; render();
+      loadMicros(MICREQ.menuId).then(function(){ micApplyNew(); if (S.step==='micros') render(); });
     });
     var mp = $('micpre');
     if (mp) mp.addEventListener('input', function(){
@@ -5011,6 +5711,18 @@ function render(){
       var at = this.selectionStart; render();
       var n = $('micpre'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(x){} }
     });
+    var mq = $('micq');
+    if (mq) mq.addEventListener('input', function(){
+      MICREQ.search = this.value;
+      var at = this.selectionStart; render();
+      var n = $('micq'); if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(x){} }
+    });
+    /* typed into and then left alone: kept on the object as it is typed, so a render
+       caused by anything else does not put the old address back */
+    var mt = $('micto');
+    if (mt) mt.addEventListener('input', function(){ MICREQ.to = this.value.trim(); });
+    var mc = $('miccc');
+    if (mc) mc.addEventListener('input', function(){ MICREQ.cc = micCcList(this.value); });
   }
 
   else if (S.step === 'type'){
@@ -7459,18 +8171,94 @@ document.addEventListener('click', function(e){
     return;
   }
 
+  /* Saved recipes now sends him to the REQUESTS, not straight into a blank form —
+     the same door the POS tile opens. Two ways in, one screen behind them. */
   if (e.target.id === 'tomicros'){
     guard(function(){
-      var run = MENUS.filter(function(m){ return m.running; })[0];
-      MICREQ.menuId = MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
-      MICREQ.today = new Date().toISOString().slice(0,10);
-      S.back = 'saved'; S.step = 'micros'; MICREQ.ready = false; render(); window.scrollTo(0,0);
-      loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+      S.back = 'saved'; S.step = 'micreqs'; render(); window.scrollTo(0,0);
+      micLoadList().then(function(){ if (S.step==='micreqs') render(); });
     });
+    return;
+  }
+  if (e.target.id === 'micnew'){
+    if (!MENUS.length) return;
+    micReset(); micOpenBuilder(); return;
+  }
+  if (e.target.id === 'micback'){
+    MICREQ.open = null; S.step = 'micreqs'; render(); window.scrollTo(0,0); return;
+  }
+  var mrv = e.target.closest('[data-mreq]');
+  if (mrv){
+    MICREQ.open = (MICREQ.list||[]).filter(function(x){ return x.id === mrv.dataset.mreq; })[0] || null;
+    S.step = 'micpast'; render(); window.scrollTo(0,0); return;
+  }
+  var mfr = e.target.closest('[data-mfrom]');
+  if (mfr){
+    var src = (MICREQ.list||[]).filter(function(x){ return x.id === mfr.dataset.mfrom; })[0];
+    if (src) micLoadFrom(src, false);
+    return;
+  }
+  var mdr = e.target.closest('[data-mdraft]');
+  if (mdr){
+    var dft = (MICREQ.list||[]).filter(function(x){ return x.id === mdr.dataset.mdraft; })[0];
+    if (dft) micLoadFrom(dft, true);
+    return;
+  }
+  var mdl = e.target.closest('[data-mdel]');
+  if (mdl){
+    /* a draft, and only ever a draft — a sent request has no control that removes it,
+       anywhere on this module */
+    var did = mdl.dataset.mdel;
+    var tgt = (MICREQ.list||[]).filter(function(x){ return x.id === did; })[0];
+    if (tgt && tgt.sent_at) return;
+    mdl.disabled = true; mdl.textContent = 'Throwing it away…';
+    sb('micros_requests?id=eq.' + did, { method:'DELETE', prefer:'return=minimal' })
+      .then(function(){ if (MICREQ.reqId === did) MICREQ.reqId = null;
+                        return micLoadList(); })
+      .then(function(){ render(); })
+      .catch(function(ex){ mdl.disabled = false; mdl.textContent = 'Throw it away';
+                           flash('It is still there — ' + plain(ex.message), true); });
+    return;
+  }
+  if (e.target.id === 'micdraft'){
+    var db = e.target, dwas = db.textContent, dst = $('micst');
+    db.disabled = true; db.textContent = 'Keeping it…';
+    if (dst){ dst.className = 'brn'; dst.textContent = ''; }
+    micSaveRequest(false)
+      .then(function(){ return micLoadList(); })
+      .then(function(){
+        db.disabled = false; db.textContent = 'Save the draft';
+        var d2 = $('micst');
+        if (d2){ d2.className = 'brn'; d2.textContent = 'Kept ✓ — it is on the requests screen as a draft. Nothing has gone to ' + micWho() + '.'; }
+      })
+      .catch(function(ex){
+        db.disabled = false; db.textContent = dwas;
+        var d3 = $('micst');
+        if (d3){ d3.className = 'brn bad'; d3.textContent = 'Not kept — ' + plain(ex.message); }
+      });
     return;
   }
   var mtk = e.target.closest('[data-mic]');
   if (mtk){ var mi = +mtk.dataset.mic; MICREQ.rows[mi].take = mtk.checked; render(); return; }
+  if (e.target.id === 'mictall'){ MICREQ.rows.forEach(function(r){ r.take = true; });
+                                  MICREQ.onlyNew = false; render(); return; }
+  if (e.target.id === 'mictnone'){ MICREQ.rows.forEach(function(r){ r.take = false; }); render(); return; }
+  if (e.target.id === 'micnew1'){
+    /* one control, both ways round: leave out what has already gone, or put it back */
+    MICREQ.onlyNew = !MICREQ.onlyNew;
+    var seen = micSentBefore(MICREQ.menuId);
+    MICREQ.rows.forEach(function(r){ if (seen[r.id]) r.take = !MICREQ.onlyNew; });
+    render(); return;
+  }
+  var mfm = e.target.closest('[data-micfam]');
+  if (mfm){
+    var famw = mfm.getAttribute('data-micfam');
+    /* tick them, unless they are all on already — then it is the way to clear a family */
+    var inFam = MICREQ.rows.filter(function(r){ return r.section === famw; });
+    var allOn = inFam.length && inFam.every(function(r){ return r.take; });
+    inFam.forEach(function(r){ r.take = !allOn; });
+    render(); return;
+  }
   if (e.target.id === 'micdl'){ micDownload(e.target); return; }
   if (e.target.id === 'micpr'){ micPrint(); return; }
   /* two presses, always — the first only opens the question */
@@ -7850,7 +8638,8 @@ $('tolist').addEventListener('click', function(){
 var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
                  list:"Aung's list", saved:'Saved recipes', foh:'the floor’s half',
-                 micros:'the Micros request', menus:'the menus', todo:'what needs finishing' };
+                 micros:'the Micros request', menus:'the menus', todo:'what needs finishing',
+                 micreqs:'the Micros requests', micpast:'the request' };
 /* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
    held in S.back. Opening the Micros request from Saved recipes overwrites S.back with
    'saved' — so coming back off Micros landed on Saved recipes pointing at ITSELF, and
@@ -7885,7 +8674,12 @@ function backStep(){
   if (s === 'bringall') return S.planRan ? { to:'saved', clearPlan:true, setBack:'type' }
                                          : { to:'found' };
   if (s === 'foh')     return { to:'sheet' };
-  if (s === 'micros')  return S.back === 'micros' ? null : { to: notSelf(S.back || 'saved') };
+  /* Building one and reviewing one both go back to the list of requests — that is the
+     screen behind them whichever door was used to get in. The list itself is the front
+     door when it is opened as its own module, and then the module's own bar goes back. */
+  if (s === 'micros')  return { to:'micreqs' };
+  if (s === 'micpast') return { to:'micreqs' };
+  if (s === 'micreqs') return S.back === 'micreqs' ? null : { to: notSelf(S.back || 'saved') };
   /* Only if the recipe on the screen actually CAME out of that file. Backing out of a
      workbook, tapping Main recipes to start something of his own and pressing Back put
      him straight back on the file list — a loop with no way out, because a blank recipe
@@ -7918,6 +8712,12 @@ function goBack(){
     if (t.clearSq)   S.sq = '';
     if (t.clearSec)  S.fsec = null;
     if (t.clearMenu){ S.fmenu = null; S.fsec = null; }
+    /* coming back onto the requests, read them again — a draft kept a moment ago, or a
+       request that has just gone, has to be on the list he lands on */
+    if (t.to === 'micreqs'){
+      MICREQ.open = null;
+      micLoadList().then(function(){ if (S.step === 'micreqs') render(); });
+    }
     S.step = t.to; render(); window.scrollTo(0,0);
   };
   if (t.guarded) guard(move); else move();
@@ -8058,12 +8858,14 @@ if (TODOSOLO){
 }
 loadMenus().then(function(){
   if (MICSOLO){
-    if (!MENUS.length){ flash('No menus yet — make one first on Saved recipes.', true); return; }
+    /* the door opens on the REQUESTS, not on a blank form. A chef coming here is as
+       likely to be checking whether something went as making a new one — and the menus
+       not being there yet is a reason to say so on the list, not to show nothing. */
     var run = MENUS.filter(function(m){ return m.running; })[0];
-    MICREQ.menuId = MICREQ.menuId || (run ? run.id : MENUS[0].id);
+    MICREQ.menuId = MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
     MICREQ.today  = new Date().toISOString().slice(0,10);
-    S.back = 'micros'; S.step = 'micros'; MICREQ.ready = false; render();
-    loadMicros(MICREQ.menuId).then(function(){ if (S.step==='micros') render(); });
+    S.back = 'micreqs'; S.step = 'micreqs'; render();
+    micLoadList().then(function(){ if (S.step==='micreqs') render(); });
     return;
   }
   if (TODOSOLO) return;
