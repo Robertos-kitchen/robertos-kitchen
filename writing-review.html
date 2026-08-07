@@ -274,12 +274,24 @@ function draw(){
 /* Write the change into every recipe that carries the word. One PATCH per
    recipe, and only the prose keys are touched — the ingredients, costs, photos
    and allergens on that record are never in the body we send. */
+/* ⚠ 7 Aug 2026 — THIS UNDER-FIXED THE BOOK, SILENTLY.
+   It used to build ONE regex with /g/ and reuse it for every recipe's .test().
+   A global regex keeps `lastIndex` between calls, so after a match the next
+   .test() starts partway through the following recipe and returns false. Those
+   recipes were then dropped from `touched` and never even attempted — no error,
+   no warning, just a smaller number in "fixed in N recipes" than there should
+   have been. "papin bag" was corrected in 4 of the 6 recipes that carried it.
+
+   So: a FRESH regex per test, and the /g/ one built per box for the replace.
+   Never share a /g/ regex across .test() calls. */
+function wordRe(word, global){
+  return new RegExp('(^|[^\\p{L}\\p{N}-])(' +
+    word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')(?![\\p{L}\\p{N}-])', (global ? 'g' : '') + 'iu');
+}
 function fixEverywhere(g){
-  var re = new RegExp('(^|[^\\p{L}\\p{N}-])(' +
-    g.wrong.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')(?![\\p{L}\\p{N}-])','giu');
   var touched = RECIPES.filter(function(rec){
     var b = boxesOf(rec);
-    return Object.keys(b).some(function(k){ return re.test(b[k]); });
+    return Object.keys(b).some(function(k){ return wordRe(g.wrong).test(b[k]); });
   });
   return touched.reduce(function(chain, rec){
     return chain.then(function(){
@@ -287,7 +299,9 @@ function fixEverywhere(g){
       KEYS.forEach(function(k){
         if (typeof m[k] !== 'string' || !m[k]) return;
         var was = m[k];
-        m[k] = was.replace(re, function(all, pre){ return pre + g.right; });
+        /* fresh /g/ per box — every occurrence in this box, no state carried
+           into the next one */
+        m[k] = was.replace(wordRe(g.wrong, true), function(all, pre){ return pre + g.right; });
         if (m[k] !== was) changed = true;
       });
       if (!changed) return;
