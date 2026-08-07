@@ -736,9 +736,14 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
    nothing wrong in it shows nothing at all — the app pushes, it does not nag.
    The correction IS the button, so accepting one costs a tap and not a hunt. */
 .whwrap:empty{display:none}
-.whwrap{margin-top:7px}
-.whn{font-size:11.5px;line-height:1.55;color:var(--vino-light);margin-bottom:5px}
-.whn b{color:var(--vino)}
+/* A finding is the state of HIS OWN WORK, so unlike the teaching text on this
+   sheet it stays on screen and is allowed to look like something. It was small
+   grey type at first and read as another hint — Francesco opened a recipe with
+   a known error in it and genuinely could not tell anything had happened. */
+.whwrap{margin-top:9px;background:var(--cream);border:1px solid var(--sabbia-dark);
+  border-left:3px solid var(--vino);border-radius:0 6px 6px 0;padding:11px 13px}
+.whn{font-size:13px;line-height:1.5;color:var(--vino);margin-bottom:8px}
+.whn b{font-family:var(--serif);font-size:15px}
 .whrow{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 5px}
 .whwas{font-size:12.5px;color:var(--vino-light);text-decoration:line-through;opacity:.75}
 .wharr{font-size:12px;color:var(--sabbia-dark)}
@@ -6867,8 +6872,8 @@ function platingInner(){
       '<label class="ml" for="m-plating">How it goes on the plate</label>' +
       '<textarea class="mbox" id="m-plating" data-m="plating" rows="1" ' +
         'placeholder="Two discs, mousse between&#10;Glaze to the edge&#10;Coin off centre">' + esc(v) + '</textarea>' +
-      '<div class="stepwrap" id="stepn-plating">' + stepsNote(v, 'plating') + '</div>' +
       '<div class="whwrap" id="wh-plating"></div>' +
+      '<div class="stepwrap" id="stepn-plating">' + stepsNote(v, 'plating') + '</div>' +
     '</div>' +
     '<div class="prow">' +
       '<div class="pcell">' +
@@ -7514,6 +7519,14 @@ function whScanBox(k){
   whDraw(k);
 }
 
+/* Every prose box on the sheet, read as soon as it is drawn. This is what makes
+   the help findable at all — see the note in wireMethod. */
+function whScanAll(){
+  if (!window.WritingHelp) return;
+  ['mise','method','order','plating','store','foh','say','story','ing','garnish','more']
+    .forEach(function(k){ if ($('m-' + k)) whScanBox(k); });
+}
+
 /* Put a correction in, in front of him. Every occurrence in this box, because
    a word he wrote twice is one decision, not two. */
 function whApply(k, f){
@@ -7620,8 +7633,12 @@ function methodInner(){
         '<label class="ml" for="m-'+s.k+'">'+s.t+'</label>' +
         '<textarea class="mbox" id="m-'+s.k+'" data-m="'+s.k+'" rows="1" ' +
           'placeholder="'+esc(s.p)+'">'+esc(v)+'</textarea>' +
-        '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v, s.k) + '</div>' +
+        /* the finding sits DIRECTLY under the box, above the step list. It was
+           below it at first, and on a ten-step method that pushed it clean off
+           the screen — the one thing needing a tap, hidden under the one thing
+           that is only for information. */
         '<div class="whwrap" id="wh-'+s.k+'"></div>' +
+        '<div class="stepwrap" id="stepn-'+s.k+'">' + stepsNote(v, s.k) + '</div>' +
       '</div>';
     }).join('') +
     storeInner() +
@@ -7706,6 +7723,15 @@ function wireMethod(){
     st.addEventListener('input', function(){ mth().store = this.value; grow(this); });
     st.addEventListener('blur', function(){ whScanBox('store'); });
   }
+  /* ⚠ 7 Aug 2026 — WITHOUT THIS, NOBODY EVER SAW IT.
+     The check used to run on blur only. That is right for a box he is EDITING,
+     but it meant opening a recipe showed nothing at all: a chef could open
+     Chocolate coin, read "papin bag" in the method, and never be told — unless
+     he happened to tap into that exact box and back out of it again. Francesco
+     opened the recipe, saw no difference, and was right.
+     So: every box is read the moment the sheet is drawn. Free, offline, and it
+     still shows nothing when there is nothing to say. */
+  whScanAll();
   ['pass','crockery'].forEach(function(k){
     var e = $('m-'+k); if (!e) return;
     e.addEventListener('input', function(){
