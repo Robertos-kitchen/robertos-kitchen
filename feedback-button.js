@@ -51,6 +51,12 @@
 
   // The FOH project — the ONE inbox. See decision 2 above.
   var INBOX_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co/rest/v1/app_feedback_inbox';
+  var SHOT_URL  = 'https://paoaivwtkzujmrgrfjuq.supabase.co/storage/v1/object/feedback-shots/';
+  // A phone photo is 3–5MB. On the venue wifi mid-service that is a send that
+  // appears to hang, and a button that appears to hang is a button nobody
+  // presses twice — so it is shrunk HERE, on the device, before anything is
+  // sent. 1600px is comfortably enough to read a screen in a photograph.
+  var SHOT_MAX_PX = 1600, SHOT_QUALITY = 0.8;
   var INBOX_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhb2Fpdnd0a3p1am1yZ3JmanVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNzAxMzAsImV4cCI6MjA5NjY0NjEzMH0.VynG9PBeIaqRG2lkMEuzskkcB11EhR-UfO9eGYsaUxk';
   var MAX = 1500;
   var NAME_KEY = 'rb-fb-who';          // remembered, so nobody types their name twice
@@ -95,7 +101,103 @@
     return callHook('screen') || (document.title || '').slice(0, 60);
   }
 
-  var open = false, sending = false, draft = { kind: 'problem', body: '', who: '' };
+  var open = false, sending = false, draft = { kind: 'problem', body: '', who: '', shot: null };
+
+  // ── The photo ────────────────────────────────────────────────────────────
+  // accept="image/*" is what makes this one tap on a phone: iOS and Android
+  // both offer the camera AND the photo library from it, so they can shoot the
+  // screen in front of them or attach the screenshot they already took. No
+  // capture="camera" — that would FORCE the camera and lock out the screenshot,
+  // which is the more common case by far.
+  // The input lives IN the sheet (hidden), rather than being built on the fly and
+  // clicked. Same one tap for them, but a real element in the page: assistive
+  // tech can reach it, and it can be driven by anything that automates a browser.
+  function pickPhoto() {
+    var inp = document.getElementById('fbi-file');
+    if (inp) inp.click();
+  }
+  function onFile(inp) {
+    var f = inp && inp.files && inp.files[0];
+    // Clear it, so picking the SAME file again still fires a change event —
+    // otherwise a second attempt after a failed shrink silently does nothing.
+    if (f) { shrink(f); inp.value = ''; }
+  }
+
+  // Down to SHOT_MAX_PX and JPEG — typically 3–5MB becomes ~300KB.
+  // imageOrientation:'from-image' applies the EXIF rotation, without which a
+  // photo taken holding the phone normally arrives on its side.
+  async function shrink(file) {
+    say('Getting the photo ready…');
+    try {
+      var bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      var w = bmp.width, h = bmp.height;
+      var scale = Math.min(1, SHOT_MAX_PX / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+      var cv = document.createElement('canvas');
+      cv.width = cw; cv.height = ch;
+      cv.getContext('2d').drawImage(bmp, 0, 0, cw, ch);
+      bmp.close && bmp.close();
+      var blob = await new Promise(function (res) { cv.toBlob(res, 'image/jpeg', SHOT_QUALITY); });
+      if (!blob) throw new Error('could not read that image');
+      draft.shot = { blob: blob, url: URL.createObjectURL(blob), kb: Math.round(blob.size / 1024) };
+      say('');
+      paintShot();
+    } catch (e) {
+      // A HEIC that this browser cannot decode is the likely one. Say so plainly
+      // rather than attaching nothing and letting them think it worked.
+      draft.shot = null;
+      paintShot();
+      say('Couldn’t read that picture — try a screenshot instead.', true);
+    }
+    paint();
+  }
+  function dropPhoto() {
+    if (draft.shot && draft.shot.url) URL.revokeObjectURL(draft.shot.url);
+    draft.shot = null;
+    paintShot(); paint();
+  }
+  function paintShot() {
+    var box = document.getElementById('fbi-shot');
+    if (!box) return;
+    if (!draft.shot) {
+      box.innerHTML = '<button type="button" class="fbi-photo" onclick="window.FBI.photo()">'
+        + '<span style="font-size:15px;line-height:1">&#128247;</span> Add a photo</button>';
+      return;
+    }
+    box.innerHTML = '<div style="display:flex;gap:11px;align-items:flex-start">'
+      + '<img src="' + draft.shot.url + '" alt="" style="width:74px;height:74px;object-fit:cover;border-radius:9px;border:1px solid #e3d5c2">'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-size:12.5px;color:#4a3b2a">Photo attached</div>'
+      +   '<div style="font-size:11px;color:#8b7355;margin-top:2px">' + draft.shot.kb + ' KB &mdash; shrunk so it sends fast</div>'
+      +   '<button type="button" class="fbi-x" style="font-size:12px;padding:4px 0;color:#8A2A1A" onclick="window.FBI.dropPhoto()">Remove</button>'
+      + '</div></div>';
+  }
+
+  // Upload, and hand back the object path the row will point at. Throws on any
+  // failure, because a message that CLAIMS a photo and has none is worse than
+  // one that says the photo did not go.
+  async function uploadShot() {
+    var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+           : String(Date.now()) + '-' + Math.round(Math.random() * 1e9);
+    var path = String(cfg().app || 'app') + '/' + id + '.jpg';
+    var res = await fetch(SHOT_URL + path, {
+      method: 'POST',
+      headers: {
+        'apikey': INBOX_KEY,
+        'Authorization': 'Bearer ' + INBOX_KEY,
+        'Content-Type': 'image/jpeg',
+        'x-upsert': 'false'
+      },
+      body: draft.shot.blob
+    });
+    if (!res.ok) {
+      var t = await res.text();
+      var msg = '';
+      try { msg = (JSON.parse(t) || {}).message || ''; } catch (e) {}
+      throw new Error(msg || ('upload failed, ' + res.status));
+    }
+    return path;
+  }
 
   function lift() {
     var b = document.getElementById('fbi-btn');
@@ -163,6 +265,9 @@
       '#fbi-card .fbi-go:disabled{opacity:.45;cursor:not-allowed}',
       '#fbi-card .fbi-x{background:transparent;border:0;color:#9c8a72;font-size:20px;cursor:pointer;padding:2px 6px}',
       '#fbi-card .fbi-lbl{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#9c8a72;margin:14px 0 5px}',
+      '#fbi-card .fbi-photo{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1.5px dashed #e3d5c2;',
+      'border-radius:9px;padding:11px 15px;font:600 13.5px/1 inherit;color:#8b7355;cursor:pointer}',
+      '#fbi-card .fbi-photo:active{background:#f7f2e8}',
       '#fbi-card .fbi-more{font-size:12px;color:#8b7355;line-height:1.5;margin-top:10px}',
       '#fbi-card summary{cursor:pointer;color:#9c8a72;font-size:12px;list-style:none}',
       '#fbi-card summary::-webkit-details-marker{display:none}'
@@ -175,6 +280,10 @@
     if (open) return;
     open = true; sending = false;
     draft.body = '';
+    // The photo clears with the words, not separately — a picture left over from
+    // a sheet they abandoned would silently ride along on the next message.
+    if (draft.shot && draft.shot.url) URL.revokeObjectURL(draft.shot.url);
+    draft.shot = null;
     draft.who = draft.who || (function () { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } })()
                           || callHook('who');
     var w = document.createElement('div');
@@ -187,6 +296,7 @@
     // Straight into the box on a laptop. NOT on a phone: focusing throws the
     // keyboard up over the sheet before they have read what it is asking.
     if (t && window.innerWidth >= 560) t.focus();
+    paintShot();
     paint();
   }
   function closeSheet() {
@@ -212,6 +322,13 @@
       + '</div>'
       + '<div class="fbi-lbl">In your own words</div>'
       + '<textarea id="fbi-body" rows="4" maxlength="' + MAX + '" placeholder="What happened, or what would help&hellip;" oninput="window.FBI.set(\'body\',this.value)"></textarea>'
+      + '<div class="fbi-lbl">A photo <span style="text-transform:none;letter-spacing:0">&mdash; optional</span></div>'
+      // accept="image/*" and no capture= : on a phone this offers the camera AND
+      // the photo library, so they can shoot the screen in front of them or
+      // attach the screenshot they already took. capture="camera" would force the
+      // camera and lock out the screenshot, which is the commoner case by far.
+      + '<input type="file" id="fbi-file" accept="image/*" style="display:none" onchange="window.FBI.file(this)">'
+      + '<div id="fbi-shot"></div>'
       + '<div class="fbi-lbl">Your name <span style="text-transform:none;letter-spacing:0">&mdash; optional</span></div>'
       + '<input id="fbi-who" value="' + esc(draft.who) + '" placeholder="So we can come back to you" oninput="window.FBI.set(\'who\',this.value)">'
       + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px">'
@@ -223,7 +340,8 @@
       + '<details class="fbi-more"><summary>What gets sent with this</summary>'
       +   '<div style="margin-top:7px;line-height:1.55">Your words, plus the screen you were on (<b>' + esc(sc || 'this screen') + '</b>), '
       +   'which app, the version and whether you are on a phone or a laptop &mdash; so nobody has to ask you where you were. '
-      +   'Nothing else about your device is sent. Leave the name blank and it arrives anonymous.</div>'
+      +   'Nothing else about your device is sent. Leave the name blank and it arrives anonymous. '
+      +   'A photo is optional, is made smaller on your phone before it is sent, and only Francesco can open it.</div>'
       + '</details>'
       + '</div>';
   }
@@ -272,6 +390,32 @@
       build: build() || null,
       device: device()
     };
+
+    // ── The photo goes FIRST, and only then the message ──────────────────────
+    // So a row can never point at an image that is not there. The other order
+    // reads better in code and is wrong in the place it matters: the venue wifi
+    // mid-service is exactly where an upload dies, and it would leave a message
+    // on his screen promising a photo that never arrives.
+    //
+    // The cost of this order is an orphaned image if the row insert then fails.
+    // That is a tidiness problem in a bucket, not a truth problem on a screen.
+    //
+    // On the DEV sites the write guard blocks /rest/v1/ but NOT /storage/v1/, so
+    // uploading first would quietly put real files in the bucket for a message
+    // that was then refused. Both apps expose their guard as a top-level const —
+    // not on window, so it is reached by name, not by property.
+    var devLocked = (typeof FOH_DEV_READ_ONLY !== 'undefined' && FOH_DEV_READ_ONLY)
+                 || (typeof DEV_READ_ONLY !== 'undefined' && DEV_READ_ONLY);
+    if (draft.shot && !devLocked) {
+      try {
+        row.shot = await uploadShot();
+      } catch (err) {
+        sending = false; paint();
+        say('The photo didn’t go through — ' + String(err && err.message || err).slice(0, 60)
+            + '. Try again, or remove it and send the words.', true);
+        return;
+      }
+    }
 
     var res, txt = '';
     try {
@@ -324,6 +468,8 @@
 
     if (who) { try { localStorage.setItem(NAME_KEY, who); } catch (e) {} }
     draft.who = who;
+    if (draft.shot && draft.shot.url) URL.revokeObjectURL(draft.shot.url);
+    draft.shot = null;
     sending = false;
     done();
   }
@@ -351,6 +497,9 @@
     kind: function (k) { draft.kind = k; paint(); },
     set: function (f, v) { draft[f] = v; paint(); },
     send: send,
+    photo: pickPhoto,
+    file: onFile,
+    dropPhoto: dropPhoto,
     again: function () { closeSheet(); openSheet(); }
   };
 
