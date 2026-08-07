@@ -84,7 +84,12 @@
     { wrong: 'chilly',            right: 'chilli' },
     { wrong: 'almon',             right: 'almond' },
     { wrong: 'rosematy',          right: 'rosemary' },
-    { wrong: 'sifon',             right: 'siphon' },
+    /* 'sifon' is NOT here, deliberately. The 7 Aug pass called it siphon, but a
+       recipe is named "Hot Chocolate Sifon" — it is what this kitchen calls the
+       thing, and correcting the body while the title keeps saying it would read
+       as the app not knowing its own book. It lives in HOUSE_SEED instead.
+       Nothing may appear in both lists: house wins in scan(), so a word in both
+       is silently un-fixable and the contradiction never shows itself. */
     { wrong: 'chilller',          right: 'chiller' },
     { wrong: 'liquide',           right: 'liquid' },
 
