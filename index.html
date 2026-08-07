@@ -1419,6 +1419,51 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 <script src="floorplan.js?v=1785997000"></script>
 <script src="app.js?v=1786636800"></script>
 
+<!-- "Tell us" — the button the team press when THEY have something to say.
+     The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
+     Supabase project, read in FOH → Admin → Feedback → Inbox. Two inboxes would
+     have meant two work lists and one of them going unread.
+     Keep feedback-button.js identical in both repos — see its header. -->
+<script>
+window.FB_INBOX = {
+  app: 'kitchen',
+  // The Kitchen has no build stamp on screen, so the version on its own script
+  // tag is the honest answer — it changes on every deploy and nothing else does.
+  build: function(){
+    try {
+      var s = document.querySelector('script[src^="app.js"]');
+      var m = s && /[?&]v=([^&]+)/.exec(s.getAttribute('src') || '');
+      return m ? m[1] : '';
+    } catch(e){ return ''; }
+  },
+  // Every module is a full-page view toggled by display, so the one that is
+  // actually showing is the screen they were on. Asking the DOM beats tracking
+  // a variable that four modules would each have to remember to update.
+  screen: function(){
+    var NAME = { 'home-view':'Home', 'pass-view':'The pass', 'dashboard-view':'Dashboard',
+      'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
+      'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take',
+      'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
+      'foodbible-view':'Food bible', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
+      'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
+      'menuplan-view':'Menu development plan', 'team-view':'Team survey',
+      'scheduling-view':'Schedule' };
+    try {
+      for (var id in NAME) {
+        var el = document.getElementById(id);
+        if (el && el.offsetParent !== null) return NAME[id];
+      }
+      // Nothing else showing means the prep list itself — the shared screen, and
+      // the one most likely to be the reason somebody is pressing this.
+      var c = document.getElementById('content');
+      if (c && c.offsetParent !== null) return 'Prep list';
+    } catch(e){}
+    return '';
+  }
+};
+</script>
+<script src="feedback-button.js?v=20260807a"></script>
+
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
 <div id="scheduling-view" style="display:none;flex:1;overflow:hidden;flex-direction:column">
