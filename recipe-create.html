@@ -9848,7 +9848,7 @@ if (parkedList().length) render();
 /* Into the strip under the costing, never onto the body — appended to the body it was
    floating, and floating is what put it inside the costing bar. `.remove()` is still the
    contract: callers hold the node and take it away themselves. */
-/* the one banner the ▲ ▼ arrows reuse — see the [data-mv] branch */
+/* the one banner reordering reuses — see sayMoved() */
 var MVFLASH = null;
 function flash(msg, bad){
   var m = document.createElement('div');
