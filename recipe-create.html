@@ -223,7 +223,14 @@ td.w .many{color:var(--attn)}
 td.w .adj{color:var(--vino-light)}
 td.w .fix{color:var(--vino);text-decoration:underline;cursor:pointer}
 
-select.prod{width:100%;min-width:150px;border:none;background:transparent;font-family:var(--sans);font-size:13.5px;color:var(--ink);padding:11px 6px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;
+/* Vertical padding stays ZERO. box-sizing is border-box and the shared control height is
+   22px (line 202), so 22 − 11 − 11 = a content box zero pixels high — the ingredient name
+   was being rendered into nothing and clipped by the row border. This is the same bug the
+   comment below already records for the unit box; the shorthand here was quietly putting
+   the 11px back. Invisible on the pass and on any tablet because (pointer:coarse) lifts
+   the height to 44px — so it only ever showed on a laptop with a mouse, which is exactly
+   where Danilo and the team hit it. */
+select.prod{width:100%;min-width:150px;border:none;background:transparent;font-family:var(--sans);font-size:13.5px;color:var(--ink);padding:0 6px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;
   background-image:linear-gradient(45deg,transparent 50%,var(--vino-light) 50%),linear-gradient(135deg,var(--vino-light) 50%,transparent 50%);
   background-position:calc(100% - 11px) calc(50% + 1px),calc(100% - 7px) calc(50% + 1px);background-size:4px 4px,4px 4px;background-repeat:no-repeat;padding-right:22px}
 select.prod:focus{background-color:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
@@ -231,7 +238,9 @@ select.prod.empty{color:var(--attn);font-weight:600}
 select.prod option{color:var(--ink);font-weight:400}
 select.prod optgroup{color:var(--vino-light);font-weight:700}
 
-input.cell{width:100%;border:none;background:transparent;font-family:var(--sans);font-size:15px;padding:11px 7px;outline:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+/* Zero vertical padding, for the same arithmetic as select.prod above — 22 − 11 − 11 = 0,
+   and the quantity a chef types was being drawn into a box with no height. */
+input.cell{width:100%;border:none;background:transparent;font-family:var(--sans);font-size:15px;padding:0 7px;outline:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
 input.cell:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 input.cell::placeholder{color:var(--sabbia-dark)}
 /* The unit was invisible, and the reason was arithmetic, not colour: box-sizing is
