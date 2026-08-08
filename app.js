@@ -2148,14 +2148,7 @@ var RECIPE_SCREENS=[
   {code:'POS', view:'micros-view', page:'recipe-create.html?embed=1&micros=1',
    name:'Micros request',
    meta:'The POS form for Aung, built from the menu — till names, cost and price. Print it or send it.'}
-,
-  // A whole-book tool, so it sits with the other whole-book ones rather than
-  // inside a recipe. It was on the create sheet's top bar first: five taps from
-  // the home screen, and the last two inside a screen called "Create new
-  // recipes" - the last place anyone would look for it.
-  {code:'BOOK', view:'book-view', page:'writing-review.html?embed=1',
-   name:'Check the book',
-   meta:'Every word the recipes have a question about, on one page - grouped by the word, so one tap corrects it everywhere it appears. Asks for the kitchen PIN.'}
+
 ];
 function openRecipes(){
   activeStation=RECIPES_KEY;

@@ -1288,6 +1288,11 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   <div style="display:flex;align-items:center;gap:14px">
     <span class="lnk" id="tosaved">Saved recipes</span>
     <span class="lnk" id="tolist">Aung's list</span>
+    <!-- A tab, not a module. It was briefly a tile in the Recipes menu, which
+         gave the app a whole door for one screen and put a second dark bar on
+         top of the module's own. It belongs here beside the other two ways out
+         of this sheet — the page it opens is gated by its own PIN. -->
+    <span class="lnk" id="tobook">Check the book</span>
     <button class="act off" id="act">Next</button>
   </div>
 </div>
@@ -9577,6 +9582,13 @@ $('tosaved').addEventListener('click', function(){
    Gated on the same PIN the app already uses (2468, the schedule one) because
    one tap in there rewrites a word across every recipe that carries it. It is
    his screen and the chefs do not need it — their help is on the sheet already. */
+/* Stays inside whatever is holding this sheet: in the module it replaces the
+   frame's page, standalone it replaces the tab. Either way the app's own chrome
+   is untouched and there is no second bar. The PIN is asked by the page itself,
+   which is the thing being protected. */
+$('tobook').addEventListener('click', function(){
+  location.href = 'writing-review.html' + (Q.get('embed') === '1' ? '?embed=1' : '');
+});
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   /* opening the list on its own is not about any one batch */

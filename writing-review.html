@@ -112,6 +112,7 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 </div>
 
 <div class="wrap">
+  <button class="backin" id="backin">‹ Back to the recipe</button>
   <h1>The words already in the book</h1>
   <div class="sub">
     Every recipe is read once, and the findings are grouped by <b>word</b> rather than by recipe —
@@ -146,7 +147,23 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 var EMBED = new URLSearchParams(location.search).get('embed') === '1';
 if (EMBED) document.documentElement.classList.add('embed');
 </script>
-<style>html.embed .bar a{display:none}</style>
+<style>
+/* Inside the Recipes module the app already draws the dark header, so this
+   page drawing its own put a second maroon band under it with nothing in it —
+   which is what "the visual is off" looked like. In embed the bar goes
+   entirely and the content starts where the module expects it to.
+   Standalone the bar stays: there is nothing else to say what this page is. */
+html.embed .bar{display:none}
+html.embed body{background:var(--sabbia)}
+html.embed .wrap{padding-top:18px}
+/* the way back belongs to the page only when the page is inside the module */
+.backin{display:none}
+html.embed .backin{display:inline-block;font-family:var(--sans);font-size:11px;
+  letter-spacing:1.4px;text-transform:uppercase;color:var(--vino);opacity:.8;
+  background:none;border:none;border-bottom:1px solid rgba(65,2,7,.35);
+  padding:0 0 2px;margin-bottom:16px;cursor:pointer}
+html.embed .backin:hover{opacity:1}
+</style>
 <script>
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
@@ -396,6 +413,9 @@ document.addEventListener('click', function(e){
   if (s){ GROUPS[+s.getAttribute('data-skip')].done = 'Left as it is.'; draw(); return; }
 });
 
+$('backin').addEventListener('click', function(){
+  location.href = 'recipe-create.html?embed=1';
+});
 $('run').addEventListener('click', run);
 WritingHelp.loadTerms();
 
@@ -429,10 +449,9 @@ WritingHelp.loadTerms();
   }
   /* "Not now" leaves the screen with nothing on it and no way forward, so it
      goes back to the Recipes menu rather than stranding him on a dead page. */
-  function shut(){
-    if (EMBED && window.parent !== window) window.parent.postMessage({kitchen:'back'}, '*');
-    else location.href = 'index.html';
-  }
+  /* Back is the sheet he came from, in the same frame — not the app home, and
+     not a message to a parent that has no listener for it. */
+  function shut(){ location.href = EMBED ? 'recipe-create.html?embed=1' : 'index.html'; }
   $('pinv').addEventListener('input', function(){ $('pine').textContent=''; state(); });
   $('pinv').addEventListener('keydown', function(e){ if (e.key === 'Enter') tryPin(); });
   $('pingo').addEventListener('click', tryPin);
