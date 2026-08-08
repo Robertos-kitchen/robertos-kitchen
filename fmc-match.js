@@ -111,13 +111,33 @@ function fmCandList(r){
 // ── the unit FMC orders in ────────────────────────────────────────────────
 // The market list counts in what the chef counts in ("Kilogram"). FMC sells a
 // 15 kg carton. Both numbers are right and the LPO goes out for 15 cartons
-// instead of 15 kilos, so wherever the two disagree the article says so in red
-// and spells the pack out in words — nobody should have to decode "Ctn/1x15 Kg"
-// standing at a stove.
+// instead of 15 kilos, so wherever the two disagree the line says so and spells
+// the pack out in words — nobody should have to decode "Ctn/1x15 Kg" at a stove.
+//
+// THE SOURCE IS THE LINE, NOT THE ARTICLE. `order_items.fmc_unit` is loaded
+// from FMC's own Assortment List report (340 of the 459 rows). The article
+// catalogue's unit comes from `stock_take_items`, which is wrong on roughly one
+// article in thirty — Bread Crumbs Panko (id 183, code 4017014) reads
+// 'Ctn/16x1 Kg' there against the assortment's 'Ctn/6x1 Kg'. So the comparison
+// is the line's own unit against the line's own fmc_unit, and the catalogue is
+// never asked. Where fmc_unit is null (119 rows, nothing matched yet) the
+// screen says NOTHING rather than guessing.
 function fmUnitNorm(u){ return String(u||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
-function fmUnitDiffers(appU, fmcU){
-  if(!appU || !fmcU) return false;
-  return fmUnitNorm(appU) !== fmUnitNorm(fmcU);
+
+// What, if anything, this line should say about its unit.
+//   null      — nothing to say: no unit, no assortment row, or the two agree
+//   'pack'    — FMC orders a PACK and the app does not. 128 rows. This is the
+//               one that turns 15 kilos into 15 cartons, so it is the red one.
+//   'other'   — a real difference that is not pack-vs-loose (180 real minus the
+//               128 above). Worth showing, not worth alarming.
+// Both sides are normalised first, which is what drops the 112 rows that differ
+// only by a capital letter ("kilogram" vs "Kilogram") — those must never be red.
+function fmUnitState(it){
+  if(!it) return null;
+  var app = it.unit, fmc = it.fmc_unit;
+  if(!app || !fmc) return null;
+  if(fmUnitNorm(app) === fmUnitNorm(fmc)) return null;
+  return (fmIsPack(fmc) && !fmIsPack(app)) ? 'pack' : 'other';
 }
 var FM_PACK_WORDS = { ctn:'carton', pkt:'packet', bag:'bag', can:'can', btl:'bottle',
                       dish:'dish', tub:'tub', box:'box', tin:'tin', jar:'jar',
@@ -187,7 +207,7 @@ async function fmLoad(){
     if(err) return err;
   }
   var res = await sb.from('order_items')
-    .select('id,name,category,unit,code,item_group,cc_price,cc_price_month,supplier,fmc_verified_at,active')
+    .select('id,name,category,unit,fmc_unit,code,item_group,cc_price,cc_price_month,supplier,fmc_verified_at,active')
     .eq('active', true).order('sort_order').range(0, 1999);
   if(res.error) return res.error;
   fmItems = res.data || [];
@@ -428,6 +448,7 @@ function fmDecideHtml(){
         '<div class="fm-lab">The market list says</div>' +
         '<div class="fm-nm">'+fmEsc(it.name)+'</div>' +
         '<div class="fm-meta">'+fmEsc(it.category)+(it.unit?' · '+fmEsc(it.unit):'')+' · the name does not change</div>' +
+        fmUnitLineHtml(it) +
       '</div>' +
       '<div class="fm-searchwrap">' +
         '<input class="fm-search" id="fm-q" type="search" autocomplete="off" spellcheck="false"' +
@@ -444,6 +465,23 @@ function fmDecideHtml(){
       '<span><kbd>Enter</kbd> confirm</span><span><kbd>Esc</kbd> clear search</span>' +
       '<span><kbd>N</kbd> no article</span><span><kbd>S</kbd> skip</span><span><kbd>&larr;</kbd> undo</span></div>' +
     fmSavedHtml();
+}
+
+// The unit warning, on the line it belongs to. It does not depend on which
+// article is highlighted — fmc_unit is the line's own, from the assortment — so
+// it is said once, above the choices, rather than repeated down every row.
+function fmUnitLineHtml(it){
+  var st = fmUnitState(it);
+  if(!st) return '';
+  var plain = fmUnitPlain(it.fmc_unit);
+  return '<div class="fm-lineunit '+st+'">' +
+    (st === 'pack' ? '<b>FMC orders this in a pack.</b> ' : '') +
+    'The list counts in <b>'+fmEsc(it.unit)+'</b> — FMC orders in <b>'+fmEsc(it.fmc_unit)+'</b>' +
+    (plain ? ' (' + fmEsc(plain) + ')' : '') + '. ' +
+    (st === 'pack'
+      ? 'Order the number of packs, not the number of ' + fmEsc(String(it.unit).toLowerCase()) + 's.'
+      : 'Check which one the order is counted in.') +
+  '</div>';
 }
 
 // The line under the search box. It says which list is on screen, because the
@@ -466,20 +504,18 @@ function fmCandsHtml(r){
       ? '<div class="fm-nothing">No article matches “'+fmEsc(fmSearch)+'”. Clear the search with <kbd>Esc</kbd> to see the suggestions again.</div>'
       : '<div class="fm-nothing">Nothing in the catalogue comes close. Search above by name or code — and if it truly is not there, either it is bought outside FMC or an article needs creating. Mark it below and it stays on the market list either way.</div>';
   }
+  // The article's own unit stays on the row as plain information, with no
+  // colour on it: it comes from the stock take, and the stock take is not
+  // trusted for ordering. The judgement lives on the line, once, above.
   return cands.map(function(c, n){
     var a = c.art;
-    var diff  = fmUnitDiffers(it.unit, a.unit);
-    var plain = fmUnitPlain(a.unit);
     return '<div class="fm-cand'+(n===fmSel?' sel':'')+'" onclick="fmPick('+n+')">' +
       '<div class="fm-key">'+(n+1)+'</div>' +
       '<div><div class="fm-cn">'+fmEsc(a.name)+'</div>' +
         '<div class="fm-cm"><span class="ac-code">'+fmEsc(a.code)+'</span><span>'+fmEsc(a.group)+'</span>' +
         (a.supplier?'<span>'+fmEsc(a.supplier)+'</span>':'') + '</div>' +
-        (diff ? '<div class="fm-udiff">The list counts in <b>'+fmEsc(it.unit)+'</b> — FMC orders in <b>'+fmEsc(a.unit)+'</b>' +
-                (plain?' ('+fmEsc(plain)+')':(fmIsPack(a.unit)?', a pack':'')) + '</div>'
-              : (plain ? '<div class="fm-uplain">'+fmEsc(plain)+'</div>' : '')) +
       '</div>' +
-      '<div class="fm-unit'+(diff?' diff':'')+'">'+fmEsc(a.unit)+'</div>' +
+      '<div class="fm-unit">'+fmEsc(a.unit)+'</div>' +
       '<div class="fm-price">'+fmMoney(a.price)+' <span class="fm-cur">AED</span>' +
         '<div class="fm-pnote">'+fmSheetShort(a.month)+' sheet</div></div>' +
     '</div>';
@@ -637,12 +673,13 @@ function fmInjectCss(){
     '.fm-search::placeholder{color:#a89680}',
     '.fm-searchhint{font-size:11px;color:#8B7355;margin-top:5px;line-height:1.4}',
     '.fm-searchhint kbd{background:#faf6f0;border:1px solid rgba(107,31,42,.15);border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600;color:#2C1810}',
-    // the unit disagreement — red, because it is the one thing on this row that
-    // turns a right answer into a wrong order
-    '.fm-udiff{font-size:11px;color:#8A2A1A;margin-top:3px;line-height:1.4}',
-    '.fm-udiff b{color:#6B1F2A}',
-    '.fm-uplain{font-size:11px;color:#9c8a72;margin-top:3px}',
-    '.fm-unit.diff{color:#8A2A1A;font-weight:700}',
+    // the unit disagreement, on the line — red only for pack-vs-loose, which is
+    // the kind that turns 15 kilos into 15 cartons
+    '.fm-lineunit{margin-top:8px;font-size:12px;line-height:1.45;border-radius:6px;padding:7px 10px}',
+    '.fm-lineunit.pack{background:#fbecea;border:1px solid #e8cdc8;border-left:3px solid #8A2A1A;color:#8A2A1A}',
+    '.fm-lineunit.pack b{color:#6B1F2A}',
+    '.fm-lineunit.other{background:#fbf7f1;border:1px solid #ece2d4;color:#8B7355}',
+    '.fm-lineunit.other b{color:#2C1810}',
     '.fm-cand{display:grid;grid-template-columns:26px 1fr 108px 96px;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid #f4ece1;cursor:pointer}',
     '.fm-cand:last-child{border-bottom:0}',
     '.fm-cand.sel{background:#fbf6ee;box-shadow:inset 3px 0 0 #C9A84C}',
