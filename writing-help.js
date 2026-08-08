@@ -387,6 +387,14 @@
            the wrong thing, so there is nothing to raise — and a question about
            a word that was right is exactly what makes a chef stop reading. */
         if (f.meant && norm(String(f.meant)).indexOf(norm(w)) > -1) return false;
+        /* A WORD names the wrong thing. A SENTENCE is a rewrite, and a rewrite of
+           a chef's recipe is not this tool's business. Measured on the real book,
+           every finding longer than three words was the model describing the dish
+           differently rather than correcting it — "the basil leaves removed" ->
+           "the basil STEMS removed", "the whipped egg yolks" -> a whole clause.
+           Three words keeps the real ones: papin bag, tree fingers, walk in
+           chiller, current water. */
+        if (norm(w).split(' ').length > 3) return false;
         return true;
       }).map(function (f) {
         return {

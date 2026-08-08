@@ -265,6 +265,22 @@ td.x{padding-top:12px}
 button.rm{background:none;border:none;color:var(--sabbia-dark);font-size:17px;cursor:pointer;padding:6px}
 button.rm:hover{color:var(--vino-light)}
 
+/* ───── moving a line up or down ─────
+   Antonio's: the order the sheet is written in is the order it is cooked in, and a
+   chef reads a recipe faster when the first thing on the list is the first thing in
+   the pan. Two arrows, stacked so the pair costs one column and not two — and next
+   to the ×, because they are the three things you do TO a line rather than on it.
+   Not drag-and-drop: the sheet re-lays itself into a flex row below 1024px, and a
+   drag on a row that is three lines tall on a phone has nothing honest to grab. */
+td.mv{padding-top:10px;text-align:center}
+.mvb{display:flex;flex-direction:column;gap:1px;align-items:center}
+button.mvu{background:none;border:none;color:var(--sabbia-dark);cursor:pointer;
+  font-size:10px;line-height:1;padding:3px 5px;border-radius:4px}
+button.mvu:hover:not(:disabled){color:var(--vino);background:rgba(43,1,4,.06)}
+/* Greyed and unclickable at the ends of the list, never hidden — a control that
+   disappears reads as a bug, and the title says which end it has reached. */
+button.mvu:disabled{opacity:.22;cursor:default}
+
 td.tk{text-align:center;padding-top:12px}
 label.tick{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1.5px solid var(--sabbia-dark);border-radius:4px;cursor:pointer;background:#fff}
 label.tick input{display:none}
@@ -1165,6 +1181,9 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
      shrinks afterwards — with basis auto a long row note measured 288px, the × got
      pushed onto a line of its own and the row looked broken. */
   table.sheet td.w{order:2;flex:1 1 0;min-width:0;padding:0}
+  /* the arrows and the × share order 3, so they stay side by side in DOM order at the
+     right-hand end of the first line — the same place they sit in the table */
+  table.sheet td.mv{order:3;flex:0 0 auto;padding:0}
   table.sheet td.x{order:3;flex:0 0 auto}
   table.sheet td:nth-child(3){order:4;flex:1 0 100%}        /* ingredient — its own full line */
   table.sheet td:nth-child(4){order:5;flex:0 0 84px}        /* qty */
@@ -1200,6 +1219,11 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   select.unit{font-size:15px;padding:0 8px;min-width:52px;text-align:center}
   .ibx{width:40px;height:40px;line-height:38px;font-size:15px}
   button.rm{font-size:22px;padding:0;width:44px;height:44px}
+  /* Stacked, not side by side: two 44px-wide arrows next to the × would have taken
+     88px off the ingredient name on a 360px phone and left it 140px. Stacked they
+     cost 40px of width, and each arrow is a 40×34 target with nothing else near it. */
+  button.mvu{font-size:13px;width:40px;height:34px;padding:0}
+  .mvb{gap:2px}
   label.tick{width:40px;height:40px;border-radius:6px}
   label.tick.on:after{font-size:19px}
   /* the two trim boxes have to take a thumb too, not just a mouse */
@@ -1244,6 +1268,10 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   <div style="display:flex;align-items:center;gap:14px">
     <span class="lnk" id="tosaved">Saved recipes</span>
     <span class="lnk" id="tolist">Aung's list</span>
+    <!-- Every word the whole book has a question about, on one page, so nothing
+         has to be found recipe by recipe. It edits all 34 recipes at once, so it
+         is not a chef's button — it asks for the schedule PIN first. -->
+    <span class="lnk" id="tobook">Check the book</span>
     <button class="act off" id="act">Next</button>
   </div>
 </div>
@@ -6225,7 +6253,11 @@ function render(){
          how to move down the columns is a thing you learn once */
       '<div class="hint"><b>Costed off Aung\'s ' + new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'}) + ' stock take.</b> ' +
         howto('sheet', 'Go down Ingredient, then down Qty. Nothing opens. Tick the last box only ' +
-          'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.',
+          'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.' +
+          /* Antonio asked for this, so it is said in the same breath as the rest of the sheet */
+          '<br><br>The <b>▲ ▼</b> beside the × move a line up or down. Put them in the order you ' +
+          'actually cook in — that order is what saves, and it is what the pass card, the ' +
+          'production sheet and the costing all print.',
           'Working the sheet') + '</div>' +
       parkedNote(true) +
       '<div class="savebar" id="savebar"></div>' +
@@ -6245,13 +6277,15 @@ function render(){
       '<colgroup><col style="width:30px"><col style="width:32%"><col><col class="cq"><col style="width:56px">' +
       /* Trim holds the tick AND, when it is on, the two small boxes — so nothing has
          to open under the row and the sheet never jumps. 46px fit the tick alone. */
-        '<col style="width:82px"><col style="width:132px"><col style="width:32px"></colgroup>' +
+      /* Trim, Cost… then the two order arrows in 26px of their own, then the ×.
+         Stacked arrows, so the pair is one narrow column and not two. */
+        '<col style="width:82px"><col style="width:132px"><col style="width:26px"><col style="width:32px"></colgroup>' +
       '<thead><tr>' +
         /* The unit column had no heading, so a lone "g" beside a number read as part of
            the number. "How do I know if that 1 is a kilo or a gram" is the question it
            caused, and it is a fair one. */
         '<th class="c"></th><th>You wrote</th><th>Ingredient — Aung\'s list</th><th class="n">Qty</th><th class="un">Unit</th>' +
-        '<th class="n">Cost</th><th class="c">Trim</th><th></th>' +
+        '<th class="n">Cost</th><th class="c">Trim</th><th></th><th></th>' +
       '</tr></thead><tbody id="tb"></tbody></table></div>' +
       '<div class="undobar" id="undobar"></div>' +
       /* This was here already, but it was a dashed box that only answered the Enter key
@@ -6652,10 +6686,22 @@ function rowHTML(r, i){
           '<button class="qmark" data-help="'+i+'">'+(r.help?'hide':'what these do')+'</button>'
         : (trimSet(r) ? '<span class="chip" title="Kept — tick Trim to use it again">'+trimChip(r)+'</span>' : '')) +
     '</td>' +
+    /* The order the lines are in IS the recipe's order — it is saved as `position` and
+       every printed thing reads it back that way. So this is not decoration: it is the
+       one thing on the sheet a chef could not change without deleting the line and
+       typing it again at the bottom, which lost whatever had been picked on it. */
+    '<td class="mv"><div class="mvb">' +
+      '<button class="mvu" data-mv="'+i+'" data-dir="-1"'+(i===0?' disabled':'')+
+        ' title="'+(i===0?'Already the first line':'Move '+esc(r.word)+' up')+'"' +
+        ' aria-label="'+(i===0?esc(r.word)+' is already the first line':'Move '+esc(r.word)+' up')+'">▲</button>' +
+      '<button class="mvu" data-mv="'+i+'" data-dir="1"'+(i===S.rows.length-1?' disabled':'')+
+        ' title="'+(i===S.rows.length-1?'Already the last line':'Move '+esc(r.word)+' down')+'"' +
+        ' aria-label="'+(i===S.rows.length-1?esc(r.word)+' is already the last line':'Move '+esc(r.word)+' down')+'">▼</button>' +
+    '</div></td>' +
     '<td class="x"><button class="rm" data-rm="'+i+'">×</button></td></tr>';
 
   var drop = r.adding ?
-    '<tr class="drop"><td colspan="8"><div class="dropin add">' +
+    '<tr class="drop"><td colspan="9"><div class="dropin add">' +
       '<div class="f"><label>Call it</label><div class="bx">' +
         '<input class="dcell wide" data-i="'+i+'" data-f="anm" value="'+esc(r.addName!=null?r.addName:r.word)+'"></div></div>' +
       '<div class="f"><label>Sold by</label><div class="bx">' +
@@ -6678,7 +6724,7 @@ function rowHTML(r, i){
     /* Only when he ASKS for it now. The two boxes moved onto the row above, so this
        row is the explanation and nothing else — and it stays shut until tapped. */
     : !r.help ? '' :
-    '<tr class="drop"><td colspan="8"><div class="dropin">' +
+    '<tr class="drop"><td colspan="9"><div class="dropin">' +
       '<div class="exp"><b>Yield</b> — what\'s left after you clean it. 4 kg octopus in, 2.4 kg out, that\'s 60.<br>' +
       '<b>Waste</b> — what you lose on top: trim, spillage, the plate that comes back.' +
       /* This is the part nobody could see, and it is the whole point of the two
@@ -8450,6 +8496,39 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'selclr'){ clearPicked(); rows(); foot(); return; }
+  /* ── moving a line up or down ──
+     Above [data-rm] and below [data-pick] for the same reason the × is: the arrows are
+     in their own cell, so a tap here must never also toggle the row into the question. */
+  var mvb = e.target.closest('[data-mv]');
+  if (mvb){
+    var mi0 = +mvb.dataset.mv, dir = +mvb.dataset.dir, mj = mi0 + dir;
+    if (mj < 0 || mj >= S.rows.length) return;
+    var moved = S.rows[mi0];
+    S.rows[mi0] = S.rows[mj]; S.rows[mj] = moved;
+    /* The question is held as a list of ROW NUMBERS, so two rows swapping places would
+       quietly re-aim it at the wrong ingredients. The × clears it because a removal
+       slides every row after it; a swap only touches two, so those two follow. */
+    if (S.sel && S.sel.length) S.sel = S.sel.map(function(x){
+      return x === mi0 ? mj : x === mj ? mi0 : x; });
+    /* the typed text is the same list said in words — it has to move too, or stepping
+       back to the ingredients box and forward again puts the old order straight back */
+    syncText(); rows(); foot();
+    /* Land the finger back on the same arrow of the row's NEW home, so tapping three
+       times walks a line three places instead of moving three different lines once. */
+    var again = $('tb').querySelector('[data-mv="'+mj+'"][data-dir="'+dir+'"]');
+    if (again){
+      var tr = again.closest('tr');
+      if (tr && tr.scrollIntoView) tr.scrollIntoView({ block:'nearest' });
+      if (!again.disabled) again.focus();
+    }
+    /* ONE banner, replaced, never a stack. Walking a line five places up is five taps,
+       and five 5-second banners would pile up in the sticky strip and shove the sheet
+       down under the thumb that is still tapping. */
+    if (MVFLASH && MVFLASH.parentNode) MVFLASH.remove();
+    MVFLASH = flash(moved.word + ' moved ' + (dir < 0 ? 'up' : 'down') + ' — line ' + (mj+1) +
+          ' of ' + S.rows.length + ' now. Save to keep the order.');
+    return;
+  }
   var rm = e.target.closest('[data-rm]');
   if (rm){
     /* the lines are held by position, so taking one off the sheet would slide the
@@ -9350,6 +9429,20 @@ $('tosaved').addEventListener('click', function(){
   S.back = S.step; S.step = 'saved'; render(); window.scrollTo(0,0);
   loadSaved().then(function(){ if (S.step==='saved') render(); });
 });
+/* ── the whole book, one page ──
+   Francesco asked for every question in one place rather than opening 34
+   recipes and hoping none slipped past. That screen existed but had no way in,
+   so it may as well not have.
+
+   Gated on the same PIN the app already uses (2468, the schedule one) because
+   one tap in there rewrites a word across every recipe that carries it. It is
+   his screen and the chefs do not need it — their help is on the sheet already. */
+$('tobook').addEventListener('click', function(){
+  var p = prompt('The book check changes wording across every recipe.\nEnter the PIN to open it.');
+  if (p === null) return;                          /* cancelled — say nothing */
+  if (p.trim() !== '2468'){ flash('Wrong PIN — nothing opened.', true); return; }
+  location.href = 'writing-review.html';
+});
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   /* opening the list on its own is not about any one batch */
@@ -9621,6 +9714,8 @@ if (parkedList().length) render();
 /* Into the strip under the costing, never onto the body — appended to the body it was
    floating, and floating is what put it inside the costing bar. `.remove()` is still the
    contract: callers hold the node and take it away themselves. */
+/* the one banner the ▲ ▼ arrows reuse — see the [data-mv] branch */
+var MVFLASH = null;
 function flash(msg, bad){
   var m = document.createElement('div');
   m.className = 'openerr' + (bad ? ' bad' : '');
