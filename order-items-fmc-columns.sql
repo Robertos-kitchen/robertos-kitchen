@@ -43,3 +43,30 @@ create index if not exists order_items_code_idx on order_items (code) where code
 -- so the app already knows — it just needs somewhere to put it.
 alter table order_items add column if not exists fmc_verified_by text;
 comment on column order_items.fmc_verified_by is 'emp_id of whoever last confirmed this row''s article (see fmc_verified_at). Matches staff.emp_id; 1212/0000/2468 are the admin codes.';
+
+-- ── 8 Aug 2026, third pass: the unit FMC actually orders in ────────────────
+-- THE PROBLEM THESE SOLVE. `order_items.unit` is the kitchen's unit — what the
+-- chef counts in when he writes the market list. For 180 of the 345 lines that
+-- match an FMC article name for name, it is NOT the unit FMC sells in. The line
+-- says "Kilogram"; FMC ships a 15 kg carton and the LPO goes out for 15 cartons
+-- instead of 15 kilos. Both numbers are right and the order is wrong.
+--
+-- SOURCE — FMC's own Assortment List report, pulled 8 Aug 2026. NOT the stock
+-- take. The stock take is wrong on roughly one line in thirty: it has Bread
+-- Crumbs Panko (4017014) as Ctn/16x1 Kg where the assortment says Ctn/6x1 Kg —
+-- a 2.7x error sitting in the article catalogue right now, because that
+-- catalogue is built from stock_take_items (see article-catalogue.js). These
+-- columns exist so the ordering unit has ONE home and it is the assortment.
+--
+-- The kitchen's own `unit` is not touched, now or ever. The chef keeps counting
+-- in what he counts in; the app learns to translate. Where the two differ the
+-- market list says so in red, and Match to FMC can filter to just those.
+alter table order_items add column if not exists fmc_unit  text;
+alter table order_items add column if not exists pack_size text;
+
+comment on column order_items.fmc_unit  is 'The unit FMC actually ORDERS AND SELLS IN, verbatim from FMC''s Assortment List report (e.g. ''Ctn/1x15 Kg'', ''Kilogram'', ''Pkt/1x500 Gm''). Source of truth for anything that becomes an LPO quantity. NOT from stock_take_items — that sheet is wrong on ~1 article in 30 (4017014 Panko reads Ctn/16x1 Kg there against Ctn/6x1 Kg in the assortment). Null = the assortment did not cover this line. Compare against order_items.unit, which is the kitchen''s counting unit and is deliberately left alone.';
+comment on column order_items.pack_size is 'fmc_unit written out for a human, generated from it, never typed: ''a pack (1 carton = 15kg)'' for ''Ctn/1x15 Kg''. Shown beside the red flag on the market list so nobody has to decode FMC''s shorthand at a stove. Null when fmc_unit is null or is already a plain unit needing no expansion (''Kilogram'', ''Each'').';
+
+-- The mismatch review is a whole-list question — "show me every line where the
+-- two units disagree" — so it is asked of every active row at once.
+create index if not exists order_items_fmc_unit_idx on order_items (fmc_unit) where fmc_unit is not null;
