@@ -355,6 +355,89 @@ function mlRenderRows(days){
   c.innerHTML = html;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// TAKING A LINE OFF THE LIST
+//
+// Nothing is ever deleted. `active = false` takes the line out of the market
+// list and leaves the row — and every quantity ever ordered against it, in
+// every past week — exactly where it is. A deleted row would take last April's
+// order history with it, and the market list is the record of what the kitchen
+// bought.
+//
+// Who: any employee ID on the roster, or an admin code. It is recorded on the
+// toast so the person doing it sees their own name, and the next person can ask
+// them rather than guess. Held in memory only — a shared kitchen screen must
+// not stay unlocked after someone walks away.
+// ══════════════════════════════════════════════════════════════════════════
+// Sits to the LEFT of Cancel and Save, quiet and outlined, because the thumb
+// that opens this popup fifty times a service is aiming at Save. It is only
+// ever reached deliberately.
+function mlInjectRemoveCss(){
+  if(document.getElementById('ml-remove-css')) return;
+  var s = document.createElement('style');
+  s.id = 'ml-remove-css';
+  s.textContent = [
+    // `.ml-ed-btn` is flex:1 — left alone this would make "Take off the list"
+    // exactly as wide and as inviting as Save, sitting under the same thumb.
+    // It keeps its own width and gives the rest of the row to Cancel and Save.
+    '.ml-ed-remove{flex:0 0 auto;margin-right:auto;background:#fff;border:1px solid rgba(107,31,42,.25);color:#8a3226;font-size:13px;padding:12px 12px}',
+    '.ml-ed-remove:hover{background:#fdf4f2;border-color:#c98d80}',
+    '@media(max-width:420px){.ml-ed-remove{font-size:12px;padding-left:10px;padding-right:10px}}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+
+var ML_ADMIN = { '1212':'Admin', '0000':'Cost Controller', '2468':'Supervisor' };
+var mlWho = null;                      // { emp_id, name } — null until identified
+
+async function mlIdentify(){
+  if(mlWho) return mlWho;
+  var id = prompt('Your employee ID (or admin code) — so the app can record who took the item off:');
+  if(id === null) return null;         // Cancel
+  id = String(id).trim();
+  if(!id) return null;
+  if(ML_ADMIN[id]){ mlWho = { emp_id:id, name:ML_ADMIN[id] }; return mlWho; }
+  var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
+  var staff = res.data && res.data[0];
+  if(!staff){
+    var msg = 'Employee ID ' + id + ' not recognised — check it and try again.';
+    if(typeof kToast === 'function') kToast(msg, true); else alert(msg);
+    return null;
+  }
+  mlWho = { emp_id:id, name:staff.name };
+  return mlWho;
+}
+
+async function mlRemoveItem(itemId){
+  var it = mlItems.find(function(x){ return x.id === itemId; });
+  if(!it) return;
+
+  var who = await mlIdentify();
+  if(!who) return;
+
+  // The count is the point of the warning: an item ordered this week is one
+  // somebody is actively using, and that is worth saying out loud before it
+  // disappears from under them.
+  var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
+  var warn = ordered
+    ? '\n\nIt has a quantity on ' + ordered + ' day' + (ordered===1?'':'s') + ' of this week. Those orders are kept, but the line will not be on the list any more.'
+    : '';
+  if(!confirm('Take "' + it.name + '" off the market list?' + warn +
+              '\n\nNothing is deleted — everything ever ordered against it is kept. Ask Francesco to put it back.')) return;
+
+  var res = await sb.from('order_items').update({ active:false }).eq('id', itemId);
+  if(res && res.error){
+    var m = 'Could not remove it — ' + res.error.message;
+    if(typeof kToast === 'function') kToast(m, true); else alert(m);
+    return;
+  }
+  mlItems = mlItems.filter(function(x){ return x.id !== itemId; });
+  mlCloseEditor();
+  mlRenderRows(mlVisibleDays());
+  mlRenderSummary();
+  if(typeof kToast === 'function') kToast('✓ "' + it.name + '" taken off the list by ' + who.name);
+}
+
 // ── EDIT POPUP: tap an item's name OR any of its cells to open ──
 // Shows all 6 days for that item with steppers + a number field per day.
 // Local edits buffer in mlEditBuf; "Save" writes every changed day via mlSetQty.
@@ -403,12 +486,14 @@ function mlOpenEditor(itemId){
       </div>
       <div class="ml-ed-body">${dayRows}</div>
       <div class="ml-ed-foot">
+        <button type="button" class="ml-ed-btn ml-ed-remove" onclick="mlRemoveItem(${it.id})" title="Take this item off the market list">Take off the list</button>
         <button type="button" class="ml-ed-btn ml-ed-cancel" onclick="mlCloseEditor()">Cancel</button>
         <button type="button" class="ml-ed-btn ml-ed-save" onclick="mlSaveEditor()">Save</button>
       </div>
     </div>`;
   box.addEventListener('click', mlCloseEditor); // click backdrop closes
   document.body.appendChild(box);
+  mlInjectRemoveCss();
   setTimeout(()=>{ const f=document.getElementById('ml-ed-q1'); if(f) f.focus(); }, 60);
 }
 
