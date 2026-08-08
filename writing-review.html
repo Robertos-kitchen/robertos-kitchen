@@ -75,6 +75,33 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 .warn{background:var(--sabbia-light);border-left:3px solid var(--oro);border-radius:0 6px 6px 0;
   padding:12px 14px;font-size:12.5px;line-height:1.6;color:var(--vino);margin-bottom:18px}
 .warn b{font-family:var(--serif);font-size:14px}
+/* The PIN card. Same furniture as the rest of the app - this screen can change
+   a word across every recipe, so the ask has to look like it belongs to the
+   kitchen and not like a browser warning. */
+/* ───── asking for the PIN ─────
+   This was a browser prompt() at first. It came up as a white Chrome dialog
+   headed "guarracinofamily.github.io says" with a blue OK button — the app's
+   own writing, in somebody else's furniture, on top of the room photograph.
+   Nothing user-visible ships looking like that, so it is built here out of the
+   same tokens as the rest of the sheet. */
+.pinsc{display:none;position:fixed;inset:0;z-index:80;background:rgba(43,35,32,.55);
+  align-items:center;justify-content:center;padding:20px}
+.pinsc.on{display:flex}
+.pincard{background:var(--cream);border-radius:10px;max-width:380px;width:100%;
+  padding:26px 24px 22px;box-shadow:0 18px 44px rgba(0,0,0,.32)}
+.pincard h3{font-family:var(--serif);font-size:23px;color:var(--vino);margin:0 0 8px;line-height:1.2}
+.pincard p{font-size:13px;line-height:1.6;color:var(--vino-light);margin:0 0 16px}
+.pincard input{width:100%;font-family:var(--sans);font-size:19px;letter-spacing:.32em;
+  text-align:center;padding:13px 12px;border:1.5px solid var(--sabbia-dark);border-radius:6px;
+  background:#fff;color:var(--ink);outline:none}
+.pincard input:focus{border-color:var(--vino)}
+.pincard .pe{font-size:12px;color:var(--vino);min-height:17px;margin:8px 0 0;font-weight:700}
+.pinacts{display:flex;gap:9px;margin-top:14px}
+.pinacts button{flex:1;font-family:var(--sans);font-size:13.5px;border-radius:6px;
+  padding:13px 14px;cursor:pointer;font-weight:700}
+.pinacts .go{background:var(--vino);border:none;color:var(--cream)}
+.pinacts .go:disabled{opacity:.45;cursor:default}
+.pinacts .no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);font-weight:400}
 @media (pointer:coarse){ .acts button{padding:13px 16px;font-size:13.5px} }
 </style>
 </head>
@@ -91,6 +118,20 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
     so a word written in six recipes is one decision here, not six. Nothing changes until you tap.
   </div>
 
+<div class="pinsc" id="pinsc">
+  <div class="pincard">
+    <h3>Check the book</h3>
+    <p>This reads every recipe and can change a word across all of them at once,
+       so it asks for the kitchen PIN &mdash; the same one as the schedule.</p>
+    <input id="pinv" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Kitchen PIN">
+    <div class="pe" id="pine"></div>
+    <div class="pinacts">
+      <button class="go" id="pingo" disabled>Type the PIN first</button>
+      <button class="no" id="pinno">Not now</button>
+    </div>
+  </div>
+</div>
+
   <div id="devwarn"></div>
   <button class="go" id="run">Read every recipe</button>
   <div class="prog" id="prog"></div>
@@ -98,6 +139,14 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 </div>
 
 <script src="dev-guard.js?v=1786800000"></script>
+<script>
+/* Inside the Recipes module this page is an iframe, so its own "Kitchen" link
+   would load the whole app INSIDE the frame — the shell nested in itself. The
+   module already has a way back, exactly as the recipe sheet does in embed. */
+var EMBED = new URLSearchParams(location.search).get('embed') === '1';
+if (EMBED) document.documentElement.classList.add('embed');
+</script>
+<style>html.embed .bar a{display:none}</style>
 <script>
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
@@ -350,39 +399,52 @@ document.addEventListener('click', function(e){
 $('run').addEventListener('click', run);
 WritingHelp.loadTerms();
 
-/* ── the gate lives HERE, not only on the link that opens it ──
-   The Recipes screen asks for the PIN before opening this page, but this page
-   has its own address and that address is meant to be copied and bookmarked —
-   so a check that only guarded the link would announce a protection that any
-   pasted URL walks straight past. One tap in here rewrites a word across every
-   recipe in the book, so the gate has to be on the thing being protected.
+/* ── the gate lives HERE, on the thing being protected ──
+   One tap in this screen rewrites a word across every recipe in the book, and
+   the page has its own address, so the check belongs to the page rather than to
+   whatever opened it. Asked once per browser session: a screen that demands
+   four digits on every visit gets left open in a tab instead.
 
-   Asked once per browser session: a bookmark that demands four digits on every
-   visit gets written on a sticky note instead. */
+   Built out of the app's own tokens. It was a browser prompt() once and came up
+   as a white Chrome dialog headed with the domain name — the app's words in
+   somebody else's furniture. */
 (function gate(){
-  if (sessionStorage.getItem('kitchen-book-ok') === '1') return;
-  var lock = document.createElement('div');
-  lock.className = 'warn';
-  lock.innerHTML = '<b>This screen changes wording across every recipe.</b><br>' +
-    'Enter the kitchen PIN to use it.<br><br>' +
-    '<input id="pin" inputmode="numeric" autocomplete="off" ' +
-      'style="font-size:16px;padding:11px 13px;border:1.5px solid var(--sabbia-dark);' +
-      'border-radius:6px;width:120px;font-family:var(--sans)"> ' +
-    '<button class="go" id="pinok" style="padding:11px 18px;font-size:13px">Open</button>' +
-    '<span id="pinerr" style="margin-left:10px;color:var(--vino)"></span>';
-  $('devwarn').appendChild(lock);
-  $('run').style.display = 'none';
-  function tryPin(){
-    if ($('pin').value.trim() !== '2468'){
-      $('pinerr').textContent = 'Not that one.';
-      $('pin').value = ''; $('pin').focus(); return;
-    }
-    sessionStorage.setItem('kitchen-book-ok','1');
-    lock.remove(); $('run').style.display = '';
+  function state(){
+    var n = $('pinv').value.trim().length;
+    $('pingo').disabled = !n;
+    $('pingo').textContent = n ? 'Open the book check' : 'Type the PIN first';
   }
-  $('pinok').addEventListener('click', tryPin);
-  $('pin').addEventListener('keydown', function(e){ if (e.key === 'Enter') tryPin(); });
-  $('pin').focus();
+  function pass(){
+    sessionStorage.setItem('kitchen-book-ok','1');
+    $('pinsc').classList.remove('on');
+    $('run').style.display = '';
+  }
+  function tryPin(){
+    if ($('pinv').value.trim() !== '2468'){
+      $('pine').textContent = 'Not that one.';
+      $('pinv').value = ''; state(); $('pinv').focus();
+      return;
+    }
+    pass();
+  }
+  /* "Not now" leaves the screen with nothing on it and no way forward, so it
+     goes back to the Recipes menu rather than stranding him on a dead page. */
+  function shut(){
+    if (EMBED && window.parent !== window) window.parent.postMessage({kitchen:'back'}, '*');
+    else location.href = 'index.html';
+  }
+  $('pinv').addEventListener('input', function(){ $('pine').textContent=''; state(); });
+  $('pinv').addEventListener('keydown', function(e){ if (e.key === 'Enter') tryPin(); });
+  $('pingo').addEventListener('click', tryPin);
+  $('pinno').addEventListener('click', shut);
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && $('pinsc').classList.contains('on')) shut();
+  });
+
+  if (sessionStorage.getItem('kitchen-book-ok') === '1') return;
+  $('run').style.display = 'none';
+  $('pinsc').classList.add('on');
+  setTimeout(function(){ $('pinv').focus(); }, 40);
 })();
 </script>
 </body>

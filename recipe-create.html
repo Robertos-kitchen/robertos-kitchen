@@ -265,24 +265,41 @@ td.x{padding-top:12px}
 button.rm{background:none;border:none;color:var(--sabbia-dark);font-size:17px;cursor:pointer;padding:6px}
 button.rm:hover{color:var(--vino-light)}
 
-/* ───── moving a line up or down ─────
-   Antonio's: the order the sheet is written in is the order it is cooked in, and a
-   chef reads a recipe faster when the first thing on the list is the first thing in
-   the pan. Two arrows, stacked so the pair costs one column and not two — and next
-   to the ×, because they are the three things you do TO a line rather than on it.
-   Not drag-and-drop: the sheet re-lays itself into a flex row below 1024px, and a
-   drag on a row that is three lines tall on a phone has nothing honest to grab. */
+/* ───── putting the lines in the order you cook in ─────
+   Antonio's, through the Tell us button: the order the sheet is written in is the
+   order it is cooked in, and a chef reads a recipe faster when the first thing on
+   the list is the first thing in the pan.
+
+   This shipped first as two arrows and that was wrong, for the reason Francesco gave
+   straight back: a recipe can run to thirty lines, so bringing the last ingredient to
+   the top was twenty-nine taps. The Fish Display had already been through exactly
+   this — see the note at the top of fdGripDown() in fish-display.js, "no more
+   one-step arrows" — so this is that gesture, not a new one. Same ⠿, same title,
+   same Pointer Events, because a chef who has reordered the fish list already knows
+   how to do this and should not have to learn it twice.
+
+   `touch-action:none` is what makes it work with a finger: without it the browser
+   claims the gesture and scrolls the page instead of dragging the row. */
 td.mv{padding-top:10px;text-align:center}
-.mvb{display:flex;flex-direction:column;gap:1px;align-items:center}
-/* 13px in the wine, not 10px in the sand: at 10px in --sabbia-dark the pair read as
-   two specks of dust on a screenshot and a chef would never find them. They are the
-   answer to a question somebody actually asked, so they have to be visible. */
-button.mvu{background:none;border:none;color:var(--vino-light);cursor:pointer;
-  font-size:13px;line-height:1;padding:2px 4px;border-radius:4px}
-button.mvu:hover:not(:disabled){color:var(--vino);background:rgba(43,1,4,.08)}
-/* Greyed and unclickable at the ends of the list, never hidden — a control that
-   disappears reads as a bug, and the title says which end it has reached. */
-button.mvu:disabled{opacity:.22;cursor:default}
+.grip{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:26px;border:none;padding:0;border-radius:6px;
+  background:var(--sabbia-dark);color:var(--vino);font-size:15px;opacity:.55;
+  cursor:grab;user-select:none;touch-action:none;transition:opacity .12s,background .12s}
+tr.main:hover .grip{opacity:1}
+.grip:hover,.grip:focus-visible{background:var(--vino);color:var(--cream);opacity:1;outline:none}
+.grip:focus-visible{box-shadow:0 0 0 2px var(--vino)}
+.grip:active{cursor:grabbing;background:var(--vino);color:var(--cream);opacity:1}
+/* the row under the finger: lifted off the sheet so it is obvious which one is moving */
+tr.main.dragging{background:var(--sabbia-light);box-shadow:0 6px 18px rgba(66,2,7,.22);
+  position:relative;z-index:50}
+/* Nothing else on the sheet may answer the pointer mid-drag. A drag that passes over
+   a quantity box must not put a caret in it, and one that ends on a dropdown must not
+   open it. The grip itself stays live so the pointer capture is never lost. */
+body.dragging-row{cursor:grabbing;user-select:none}
+body.dragging-row table.sheet input,
+body.dragging-row table.sheet select,
+body.dragging-row table.sheet button:not(.grip),
+body.dragging-row table.sheet label{pointer-events:none}
 
 td.tk{text-align:center;padding-top:12px}
 label.tick{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1.5px solid var(--sabbia-dark);border-radius:4px;cursor:pointer;background:#fff}
@@ -541,30 +558,6 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .bmnew .err{font-family:var(--sans);font-size:11.5px;color:#f3c7c7;flex:1 1 140px}
 .bmnew .newr{color:var(--cream);border-color:rgba(245,237,224,.45)}
 .bmnew .newr:hover{background:rgba(245,237,224,.12)}
-/* ───── asking for the PIN ─────
-   This was a browser prompt() at first. It came up as a white Chrome dialog
-   headed "guarracinofamily.github.io says" with a blue OK button — the app's
-   own writing, in somebody else's furniture, on top of the room photograph.
-   Nothing user-visible ships looking like that, so it is built here out of the
-   same tokens as the rest of the sheet. */
-.pinsc{display:none;position:fixed;inset:0;z-index:80;background:rgba(43,35,32,.55);
-  align-items:center;justify-content:center;padding:20px}
-.pinsc.on{display:flex}
-.pincard{background:var(--cream);border-radius:10px;max-width:380px;width:100%;
-  padding:26px 24px 22px;box-shadow:0 18px 44px rgba(0,0,0,.32)}
-.pincard h3{font-family:var(--serif);font-size:23px;color:var(--vino);margin:0 0 8px;line-height:1.2}
-.pincard p{font-size:13px;line-height:1.6;color:var(--vino-light);margin:0 0 16px}
-.pincard input{width:100%;font-family:var(--sans);font-size:19px;letter-spacing:.32em;
-  text-align:center;padding:13px 12px;border:1.5px solid var(--sabbia-dark);border-radius:6px;
-  background:#fff;color:var(--ink);outline:none}
-.pincard input:focus{border-color:var(--vino)}
-.pincard .pe{font-size:12px;color:var(--vino);min-height:17px;margin:8px 0 0;font-weight:700}
-.pinacts{display:flex;gap:9px;margin-top:14px}
-.pinacts button{flex:1;font-family:var(--sans);font-size:13.5px;border-radius:6px;
-  padding:13px 14px;cursor:pointer;font-weight:700}
-.pinacts .go{background:var(--vino);border:none;color:var(--cream)}
-.pinacts .go:disabled{opacity:.45;cursor:default}
-.pinacts .no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);font-weight:400}
 .bflag{font-family:var(--sans);font-size:11px;color:var(--cream);opacity:.85;white-space:nowrap}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
@@ -1208,8 +1201,10 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
      shrinks afterwards — with basis auto a long row note measured 288px, the × got
      pushed onto a line of its own and the row looked broken. */
   table.sheet td.w{order:2;flex:1 1 0;min-width:0;padding:0}
-  /* the arrows and the × share order 3, so they stay side by side in DOM order at the
-     right-hand end of the first line — the same place they sit in the table */
+  /* the grip and the × share order 3, so they stay side by side in DOM order at the
+     right-hand end of the first line — the same place they sit in the table.
+     The stacked row is a flex CONTAINER whose direct children are the cells, so a
+     dragged tr still moves as one block: the reorder below inserts whole <tr>s. */
   table.sheet td.mv{order:3;flex:0 0 auto;padding:0}
   table.sheet td.x{order:3;flex:0 0 auto}
   table.sheet td:nth-child(3){order:4;flex:1 0 100%}        /* ingredient — its own full line */
@@ -1246,11 +1241,9 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   select.unit{font-size:15px;padding:0 8px;min-width:52px;text-align:center}
   .ibx{width:40px;height:40px;line-height:38px;font-size:15px}
   button.rm{font-size:22px;padding:0;width:44px;height:44px}
-  /* Stacked, not side by side: two 44px-wide arrows next to the × would have taken
-     88px off the ingredient name on a 360px phone and left it 140px. Stacked they
-     cost 40px of width, and each arrow is a 40×34 target with nothing else near it. */
-  button.mvu{font-size:13px;width:40px;height:34px;padding:0}
-  .mvb{gap:2px}
+  /* A thumb's grip. Always at full opacity here — the hover reveal is a mouse idea
+     and there is no hover on a phone, so on a touch screen it must simply be there. */
+  .grip{width:40px;height:40px;font-size:19px;opacity:1}
   label.tick{width:40px;height:40px;border-radius:6px}
   label.tick.on:after{font-size:19px}
   /* the two trim boxes have to take a thumb too, not just a mouse */
@@ -1295,10 +1288,6 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   <div style="display:flex;align-items:center;gap:14px">
     <span class="lnk" id="tosaved">Saved recipes</span>
     <span class="lnk" id="tolist">Aung's list</span>
-    <!-- Every word the whole book has a question about, on one page, so nothing
-         has to be found recipe by recipe. It edits all 34 recipes at once, so it
-         is not a chef's button — it asks for the schedule PIN first. -->
-    <span class="lnk" id="tobook">Check the book</span>
     <button class="act off" id="act">Next</button>
   </div>
 </div>
@@ -1321,19 +1310,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
      the room photograph. Nothing user-visible ships looking like that. Same
      colours, same serif heading, same buttons as the rest of the sheet, and the
      Open button says what it wants until it can be pressed. -->
-<div class="pinsc" id="pinsc">
-  <div class="pincard">
-    <h3>Check the book</h3>
-    <p>This reads every recipe and can change a word across all of them at once,
-       so it asks for the kitchen PIN — the same one as the schedule.</p>
-    <input id="pinv" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Kitchen PIN">
-    <div class="pe" id="pine"></div>
-    <div class="pinacts">
-      <button class="go" id="pingo" disabled>Type the PIN first</button>
-      <button class="no" id="pinno">Not now</button>
-    </div>
-  </div>
-</div>
+
 <!-- Naming a new menu from the bar. It sits under the bar rather than in a pop-up so
      the recipe he is writing stays on screen behind it. -->
 <div class="bmnew" id="bmnew">
@@ -6302,9 +6279,10 @@ function render(){
         howto('sheet', 'Go down Ingredient, then down Qty. Nothing opens. Tick the last box only ' +
           'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.' +
           /* Antonio asked for this, so it is said in the same breath as the rest of the sheet */
-          '<br><br>The <b>▲ ▼</b> beside the × move a line up or down. Put them in the order you ' +
-          'actually cook in — that order is what saves, and it is what the pass card, the ' +
-          'production sheet and the costing all print.',
+          '<br><br>Drag a line by the <b>⠿</b> beside the × and drop it where you want it — ' +
+          'the same grip as the fish list. Put them in the order you actually cook in: ' +
+          'that order is what saves, and it is what the pass card, the production sheet ' +
+          'and the costing all print.',
           'Working the sheet') + '</div>' +
       parkedNote(true) +
       '<div class="savebar" id="savebar"></div>' +
@@ -6321,16 +6299,15 @@ function render(){
       /* Qty must hold a kilo quantity written out — 0.0035 is six characters and
          a clipped number is worse than no number. Widened from 66px, which fit "0.03"
          and silently cut everything smaller. checkFit() below now proves it. */
-      /* "You wrote" was 32%. The arrows took a 22px column, and on a 1280 screen every
+      /* "You wrote" was 32%. The grip took a 22px column, and on a 1280 screen every
          pixel of it would have come out of the ingredient column — the one the file has
          twice been fixed for cutting. 30% hands those 22px back, so select.prod measures
-         266px with the arrows, which is exactly what it measured without them. */
+         266px with the grip, which is exactly what it measured without it. */
       '<colgroup><col style="width:30px"><col style="width:30%"><col><col class="cq"><col style="width:56px">' +
       /* Trim holds the tick AND, when it is on, the two small boxes — so nothing has
          to open under the row and the sheet never jumps. 46px fit the tick alone. */
-      /* Trim, Cost… then the two order arrows in 22px of their own, then the ×.
-         Stacked arrows, so the pair is one narrow column and not two — and 22, not 26,
-         because 22 is what the 2% given back above is worth at 1280 and the ingredient
+      /* Trim, Cost… then the ⠿ in 22px of its own, then the ×. 22, not more, because
+         22 is what the 2% given back above is worth at 1280 and the ingredient
          dropdown has to come out of this exactly even. */
         '<col style="width:82px"><col style="width:132px"><col style="width:22px"><col style="width:32px"></colgroup>' +
       '<thead><tr>' +
@@ -6678,8 +6655,11 @@ function rowHTML(r, i){
             '" data-norow="'+i+'" title="Aung prices it — the recipe is not written yet">B</button>';
       })()
     : '<button class="ibx" data-golist="'+esc(it.code)+'" title="Ingredient — find it on Aung\'s list">I</button>';
+  /* data-row is how a drag says what it moved. The row's controls all carry the index
+     they were drawn with, so after rows are shuffled in the DOM the only honest way
+     back to S.rows is to read the ORIGINAL index off each <tr> in its new order. */
   var main = '<tr class="main'+(need?' pick':'')+(isB?' isbatch':'')+((stale||noPriceYet(it)||(it&&it.myBatch&&it.problem))?' stale':'')+
-      (picked(i)?' sel':'')+'">' +
+      (picked(i)?' sel':'')+'" data-row="'+i+'">' +
     '<td class="ib">'+tag+'</td>' +
     /* the name is the tap target for adding lines up. It carries no control of its own,
        which is exactly why it could be given one. */
@@ -6742,15 +6722,13 @@ function rowHTML(r, i){
     /* The order the lines are in IS the recipe's order — it is saved as `position` and
        every printed thing reads it back that way. So this is not decoration: it is the
        one thing on the sheet a chef could not change without deleting the line and
-       typing it again at the bottom, which lost whatever had been picked on it. */
-    '<td class="mv"><div class="mvb">' +
-      '<button class="mvu" data-mv="'+i+'" data-dir="-1"'+(i===0?' disabled':'')+
-        ' title="'+(i===0?'Already the first line':'Move '+esc(r.word)+' up')+'"' +
-        ' aria-label="'+(i===0?esc(r.word)+' is already the first line':'Move '+esc(r.word)+' up')+'">▲</button>' +
-      '<button class="mvu" data-mv="'+i+'" data-dir="1"'+(i===S.rows.length-1?' disabled':'')+
-        ' title="'+(i===S.rows.length-1?'Already the last line':'Move '+esc(r.word)+' down')+'"' +
-        ' aria-label="'+(i===S.rows.length-1?esc(r.word)+' is already the last line':'Move '+esc(r.word)+' down')+'">▼</button>' +
-    '</div></td>' +
+       typing it again at the bottom, which lost whatever had been picked on it.
+       Drag it anywhere in the list; the arrow keys nudge it one place, which is what a
+       keyboard has instead of a drag. */
+    '<td class="mv"><button class="grip" data-grip="'+i+'"' +
+      ' title="Drag to reorder — or the arrow keys to move it one line"' +
+      ' aria-label="Reorder '+esc(r.word)+' — line '+(i+1)+' of '+S.rows.length+
+      '. Drag, or press the up and down arrow keys.">⠿</button></td>' +
     '<td class="x"><button class="rm" data-rm="'+i+'">×</button></td></tr>';
 
   var drop = r.adding ?
@@ -6842,6 +6820,148 @@ function rows(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); if (typeof fi
    shape — a line added, a line taken off — the text follows it, so stepping back to the
    ingredients box shows what is actually on the sheet and coming forward changes nothing. */
 function syncText(){ S.text = S.rows.map(function(r){ return r.raw; }).join(',\n') + (S.rows.length ? ',' : ''); }
+
+/* ═════════ dragging a line into place ═════════
+   Grab the ⠿ and drop the line anywhere in the sheet. This replaced a pair of
+   up/down arrows the day they shipped: a recipe can run to thirty lines, and bringing
+   the last ingredient to the top was twenty-nine taps. The Fish Display had already
+   learned that lesson — fdGripDown() in fish-display.js, "no more one-step arrows" —
+   so the gesture here is deliberately the same one, down to the glyph.
+
+   Two things this needs that the Fish Display did not. Its list is one screen tall;
+   a recipe sheet is not, so the page scrolls itself when the finger reaches the top
+   or the bottom edge — without that, dragging line 25 to line 1 on a phone is simply
+   impossible. And its rows are one <div> each, where a line here is a <tr> plus,
+   sometimes, an open explanation <tr> underneath. The pair moves together or the
+   explanation is left behind attached to somebody else's ingredient. */
+var GRIP = null, GRIPRAF = null;
+
+/* Where the pair sits now: the row after the dragged line's own rows. */
+function gripAfter(g){ return (g.mate || g.tr).nextElementSibling; }
+
+/* Put the dragged pair wherever the pointer is. Nearest row whose middle is BELOW the
+   pointer wins, exactly as the fish list does it — measuring midpoints rather than
+   tracking a delta means a row of any height lands where it looks like it will. */
+function gripPlace(y){
+  var g = GRIP, tb = $('tb'); if (!g || !tb) return;
+  var before = null, closest = -Infinity;
+  var all = tb.querySelectorAll('tr.main');
+  for (var k = 0; k < all.length; k++){
+    if (all[k] === g.tr) continue;
+    var b = all[k].getBoundingClientRect();
+    var off = y - (b.top + b.height / 2);
+    if (off < 0 && off > closest){ closest = off; before = all[k]; }
+  }
+  var after = gripAfter(g);
+  if (before){
+    if (after === before) return;
+    tb.insertBefore(g.tr, before); if (g.mate) tb.insertBefore(g.mate, before);
+  } else {
+    if (after === null) return;                       /* already last */
+    tb.appendChild(g.tr); if (g.mate) tb.appendChild(g.mate);
+  }
+  g.moved = true;
+}
+
+/* The page scrolls under a finger held at the edge. 130 at the top clears the pinned
+   bar and the sticky column headings — stopping at the viewport edge would park the
+   dragged row underneath them, where it cannot be seen or dropped. */
+function gripScroll(){
+  if (GRIPRAF) return;
+  var step = function(){
+    if (!GRIP){ GRIPRAF = null; return; }
+    var y = GRIP.y, h = window.innerHeight, d = 0;
+    if (y < 130) d = -Math.min(22, Math.ceil((130 - y) / 3));
+    else if (y > h - 110) d = Math.min(22, Math.ceil((y - (h - 110)) / 3));
+    if (d){ window.scrollBy(0, d); gripPlace(y); }
+    GRIPRAF = requestAnimationFrame(step);
+  };
+  GRIPRAF = requestAnimationFrame(step);
+}
+
+function gripMove(e){
+  if (!GRIP) return;
+  e.preventDefault();                    /* or the browser scrolls the page instead */
+  GRIP.y = e.clientY;
+  gripPlace(e.clientY);
+  gripScroll();
+}
+
+function gripUp(){
+  var g = GRIP; if (!g) return;
+  document.removeEventListener('pointermove', gripMove, { passive:false });
+  document.removeEventListener('pointerup', gripUp, true);
+  document.removeEventListener('pointercancel', gripUp, true);
+  if (GRIPRAF){ cancelAnimationFrame(GRIPRAF); GRIPRAF = null; }
+  g.tr.classList.remove('dragging');
+  document.body.classList.remove('dragging-row');
+  GRIP = null;
+  if (!g.moved) return;                  /* picked up and put back down — nothing happened */
+  /* Every control on a row carries the index it was DRAWN with, so once the rows have
+     been shuffled in the DOM the only honest way back to S.rows is to read those
+     original numbers off the <tr>s in their new order. */
+  var tb = $('tb');
+  var order = Array.prototype.map.call(tb.querySelectorAll('tr.main'),
+                function(r){ return +r.dataset.row; });
+  if (order.length !== S.rows.length || order.some(isNaN)){ rows(); return; }
+  var was = S.rows;
+  S.rows = order.map(function(i){ return was[i]; });
+  /* the question follows its ingredients rather than its row numbers */
+  if (S.sel && S.sel.length) S.sel = S.sel
+    .map(function(x){ return order.indexOf(x); })
+    .filter(function(x){ return x > -1; });
+  syncText(); rows(); foot();
+  sayMoved(g.word, order.indexOf(g.from));
+}
+
+document.addEventListener('pointerdown', function(e){
+  var gb = e.target.closest && e.target.closest('.grip'); if (!gb) return;
+  if (e.button && e.button !== 0) return;              /* primary button, or a finger */
+  var tr = gb.closest('tr.main'); if (!tr) return;
+  var from = +tr.dataset.row; if (isNaN(from) || !S.rows[from]) return;
+  e.preventDefault();
+  gb.focus();                            /* preventDefault took the focus a click gives */
+  var mate = tr.nextElementSibling;
+  if (!mate || !mate.classList.contains('drop')) mate = null;
+  GRIP = { tr:tr, mate:mate, from:from, word:S.rows[from].word, y:e.clientY, moved:false };
+  tr.classList.add('dragging');
+  document.body.classList.add('dragging-row');
+  /* the pointer must keep reporting to this grip even when it runs off the row */
+  try { gb.setPointerCapture(e.pointerId); } catch(err){}
+  document.addEventListener('pointermove', gripMove, { passive:false });
+  document.addEventListener('pointerup', gripUp, true);
+  document.addEventListener('pointercancel', gripUp, true);
+});
+
+/* A keyboard has no drag. The arrow keys nudge the focused line one place, which is
+   also the quickest way to fix a drop that landed one row out. */
+document.addEventListener('keydown', function(e){
+  var gb = e.target.closest && e.target.closest('.grip'); if (!gb) return;
+  var dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0; if (!dir) return;
+  e.preventDefault();
+  var i = +gb.dataset.grip, j = i + dir;
+  if (isNaN(i) || j < 0 || j >= S.rows.length) return;
+  var mv = S.rows[i]; S.rows[i] = S.rows[j]; S.rows[j] = mv;
+  if (S.sel && S.sel.length) S.sel = S.sel.map(function(x){ return x===i ? j : x===j ? i : x; });
+  syncText(); rows(); foot();
+  var again = $('tb').querySelector('[data-grip="'+j+'"]');
+  if (again){
+    again.focus();
+    var tr = again.closest('tr'); if (tr && tr.scrollIntoView) tr.scrollIntoView({ block:'nearest' });
+  }
+  sayMoved(mv.word, j);
+});
+
+/* ONE banner, replaced, never a stack: nudging a line five places is five key presses,
+   and five banners would pile up in the sticky strip and shove the sheet down under
+   the thumb still working it. */
+function sayMoved(word, at){
+  if (at < 0) return;
+  if (MVFLASH && MVFLASH.parentNode) MVFLASH.remove();
+  MVFLASH = flash(word + ' is line ' + (at + 1) + ' of ' + S.rows.length +
+                  ' now. Save to keep the order.');
+}
+
 function drawUndo(){ var u = $('undobar'); if (u) u.innerHTML = undoInner(); }
 function undoInner(){
   if (!S.lastRm) return '';
@@ -8549,39 +8669,6 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'selclr'){ clearPicked(); rows(); foot(); return; }
-  /* ── moving a line up or down ──
-     Above [data-rm] and below [data-pick] for the same reason the × is: the arrows are
-     in their own cell, so a tap here must never also toggle the row into the question. */
-  var mvb = e.target.closest('[data-mv]');
-  if (mvb){
-    var mi0 = +mvb.dataset.mv, dir = +mvb.dataset.dir, mj = mi0 + dir;
-    if (mj < 0 || mj >= S.rows.length) return;
-    var moved = S.rows[mi0];
-    S.rows[mi0] = S.rows[mj]; S.rows[mj] = moved;
-    /* The question is held as a list of ROW NUMBERS, so two rows swapping places would
-       quietly re-aim it at the wrong ingredients. The × clears it because a removal
-       slides every row after it; a swap only touches two, so those two follow. */
-    if (S.sel && S.sel.length) S.sel = S.sel.map(function(x){
-      return x === mi0 ? mj : x === mj ? mi0 : x; });
-    /* the typed text is the same list said in words — it has to move too, or stepping
-       back to the ingredients box and forward again puts the old order straight back */
-    syncText(); rows(); foot();
-    /* Land the finger back on the same arrow of the row's NEW home, so tapping three
-       times walks a line three places instead of moving three different lines once. */
-    var again = $('tb').querySelector('[data-mv="'+mj+'"][data-dir="'+dir+'"]');
-    if (again){
-      var tr = again.closest('tr');
-      if (tr && tr.scrollIntoView) tr.scrollIntoView({ block:'nearest' });
-      if (!again.disabled) again.focus();
-    }
-    /* ONE banner, replaced, never a stack. Walking a line five places up is five taps,
-       and five 5-second banners would pile up in the sticky strip and shove the sheet
-       down under the thumb that is still tapping. */
-    if (MVFLASH && MVFLASH.parentNode) MVFLASH.remove();
-    MVFLASH = flash(moved.word + ' moved ' + (dir < 0 ? 'up' : 'down') + ' — line ' + (mj+1) +
-          ' of ' + S.rows.length + ' now. Save to keep the order.');
-    return;
-  }
   var rm = e.target.closest('[data-rm]');
   if (rm){
     /* the lines are held by position, so taking one off the sheet would slide the
@@ -9490,63 +9577,6 @@ $('tosaved').addEventListener('click', function(){
    Gated on the same PIN the app already uses (2468, the schedule one) because
    one tap in there rewrites a word across every recipe that carries it. It is
    his screen and the chefs do not need it — their help is on the sheet already. */
-/* The PIN card. Opening it, closing it, and the one thing it guards.
-   The Open button is disabled until something is typed and SAYS SO rather than
-   sitting there greyed out with no reason — same rule as every other disabled
-   button on this sheet. */
-function pinAsk(){
-  $('pine').textContent = '';
-  $('pinv').value = '';
-  pinState();
-  $('pinsc').classList.add('on');
-  setTimeout(function(){ $('pinv').focus(); }, 30);
-}
-function pinShut(){ $('pinsc').classList.remove('on'); }
-function pinState(){
-  var n = $('pinv').value.trim().length;
-  $('pingo').disabled = !n;
-  $('pingo').textContent = n ? 'Open the book check' : 'Type the PIN first';
-}
-function pinTry(){
-  if ($('pinv').value.trim() !== '2468'){
-    $('pine').textContent = 'Not that one.';
-    $('pinv').value = ''; pinState(); $('pinv').focus();
-    return;
-  }
-  pinShut();
-  openBookCheck();
-}
-$('pinv').addEventListener('input', function(){ $('pine').textContent = ''; pinState(); });
-$('pinv').addEventListener('keydown', function(e){ if (e.key === 'Enter') pinTry(); });
-$('pingo').addEventListener('click', pinTry);
-$('pinno').addEventListener('click', pinShut);
-/* tapping the dark surround is "not now" — nothing is lost by closing it */
-$('pinsc').addEventListener('click', function(e){ if (e.target === $('pinsc')) pinShut(); });
-document.addEventListener('keydown', function(e){
-  if (e.key === 'Escape' && $('pinsc').classList.contains('on')) pinShut();
-});
-
-$('tobook').addEventListener('click', pinAsk);
-
-function openBookCheck(){
-  /* A NEW TAB when this screen is running inside the Recipes module, which it
-     nearly always is. Two reasons, both practical:
-       · the module holds this page in an iframe, so the address bar shows the
-         app and never the page — opening in the frame would leave him on a
-         screen whose link he cannot see, copy or bookmark. He asked for that
-         link; this is the only way he ever gets to hold it.
-       · the book screen's own "← Kitchen" would otherwise load the whole app
-         INSIDE the frame — the shell nested in itself.
-     Standalone (no embed), replacing the page is right and Back still works. */
-  var url = 'writing-review.html';
-  if (Q.get('embed') === '1' || window.top !== window.self){
-    var w = window.open(url, '_blank');
-    /* a blocked pop-up must not look like a dead button */
-    if (!w) flash('Your browser blocked the new tab. Allow pop-ups for this site, or open writing-review.html directly.', true);
-  } else {
-    location.href = url;
-  }
-}
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   /* opening the list on its own is not about any one batch */
