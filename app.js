@@ -69,7 +69,7 @@ const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
 // report (written 2–4am). Version updates now come solely from the ETag guard in
 // index.html, which IS guarded by busy()/__closingActive/__schedEditing and runs
 // at any hour. Do NOT re-add a hardcoded-version reload here.
-const APP_VERSION = 1784460000;
+const APP_VERSION = 1790900000;
 
 // True while someone is mid-task, so the timer below never force-refreshes over
 // live work: a focused field, editing the schedule, or writing the closing report
@@ -1814,7 +1814,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','catalogue-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
