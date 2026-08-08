@@ -9450,7 +9450,24 @@ $('tobook').addEventListener('click', function(){
   var p = prompt('The book check changes wording across every recipe.\nEnter the PIN to open it.');
   if (p === null) return;                          /* cancelled — say nothing */
   if (p.trim() !== '2468'){ flash('Wrong PIN — nothing opened.', true); return; }
-  location.href = 'writing-review.html';
+
+  /* A NEW TAB when this screen is running inside the Recipes module, which it
+     nearly always is. Two reasons, both practical:
+       · the module holds this page in an iframe, so the address bar shows the
+         app and never the page — opening in the frame would leave him on a
+         screen whose link he cannot see, copy or bookmark. He asked for that
+         link; this is the only way he ever gets to hold it.
+       · the book screen's own "← Kitchen" would otherwise load the whole app
+         INSIDE the frame — the shell nested in itself.
+     Standalone (no embed), replacing the page is right and Back still works. */
+  var url = 'writing-review.html';
+  if (Q.get('embed') === '1' || window.top !== window.self){
+    var w = window.open(url, '_blank');
+    /* a blocked pop-up must not look like a dead button */
+    if (!w) flash('Your browser blocked the new tab. Allow pop-ups for this site, or open writing-review.html directly.', true);
+  } else {
+    location.href = url;
+  }
 });
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }

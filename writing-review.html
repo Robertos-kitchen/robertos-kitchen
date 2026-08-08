@@ -341,6 +341,41 @@ document.addEventListener('click', function(e){
 
 $('run').addEventListener('click', run);
 WritingHelp.loadTerms();
+
+/* ── the gate lives HERE, not only on the link that opens it ──
+   The Recipes screen asks for the PIN before opening this page, but this page
+   has its own address and that address is meant to be copied and bookmarked —
+   so a check that only guarded the link would announce a protection that any
+   pasted URL walks straight past. One tap in here rewrites a word across every
+   recipe in the book, so the gate has to be on the thing being protected.
+
+   Asked once per browser session: a bookmark that demands four digits on every
+   visit gets written on a sticky note instead. */
+(function gate(){
+  if (sessionStorage.getItem('kitchen-book-ok') === '1') return;
+  var lock = document.createElement('div');
+  lock.className = 'warn';
+  lock.innerHTML = '<b>This screen changes wording across every recipe.</b><br>' +
+    'Enter the kitchen PIN to use it.<br><br>' +
+    '<input id="pin" inputmode="numeric" autocomplete="off" ' +
+      'style="font-size:16px;padding:11px 13px;border:1.5px solid var(--sabbia-dark);' +
+      'border-radius:6px;width:120px;font-family:var(--sans)"> ' +
+    '<button class="go" id="pinok" style="padding:11px 18px;font-size:13px">Open</button>' +
+    '<span id="pinerr" style="margin-left:10px;color:var(--vino)"></span>';
+  $('devwarn').appendChild(lock);
+  $('run').style.display = 'none';
+  function tryPin(){
+    if ($('pin').value.trim() !== '2468'){
+      $('pinerr').textContent = 'Not that one.';
+      $('pin').value = ''; $('pin').focus(); return;
+    }
+    sessionStorage.setItem('kitchen-book-ok','1');
+    lock.remove(); $('run').style.display = '';
+  }
+  $('pinok').addEventListener('click', tryPin);
+  $('pin').addEventListener('keydown', function(e){ if (e.key === 'Enter') tryPin(); });
+  $('pin').focus();
+})();
 </script>
 </body>
 </html>
