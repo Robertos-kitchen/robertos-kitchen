@@ -14,7 +14,7 @@
      captures window.fetch when the client is created, so the guard has to be in
      place before the CDN below loads. THE ONLY COPY — recipe-create.html loads
      this same file. See dev-guard.js. -->
-<script src="dev-guard.js?v=1791000000"></script>
+<script src="dev-guard.js?v=1791000600"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 
@@ -1412,9 +1412,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1791000000"></script>
-<script src="fish-display.js?v=1791000000"></script>
-<script src="my-tasks.js?v=1791000000"></script>
+<script src="market-list.js?v=1791000600"></script>
+<script src="fish-display.js?v=1791000600"></script>
+<script src="my-tasks.js?v=1791000600"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
      keep cold-boot light on the always-on screens. -->
 <script>
@@ -1430,12 +1430,12 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   };
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1791000000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1791000000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1791000000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
-  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1791000000').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
-  function openFmcMatch(){ lazyLoad('fmc-match.js?v=1791000000').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
-  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1791000000').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1791000600').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1791000600').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1791000600').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1791000600').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
+  function openFmcMatch(){ lazyLoad('fmc-match.js?v=1791000600').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
+  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1791000600').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1450,9 +1450,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
     if (sect) sect.classList.toggle('open', !isOpen);
   }
 </script>
-<script src="common.js?v=1791000000"></script>
-<script src="floorplan.js?v=1791000000"></script>
-<script src="app.js?v=1791000000"></script>
+<script src="common.js?v=1791000600"></script>
+<script src="floorplan.js?v=1791000600"></script>
+<script src="app.js?v=1791000600"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1497,7 +1497,7 @@ window.FB_INBOX = {
   }
 };
 </script>
-<script src="feedback-button.js?v=1791000000"></script>
+<script src="feedback-button.js?v=1791000600"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

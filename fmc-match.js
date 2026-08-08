@@ -26,6 +26,12 @@
 var FM_KEY = 'fmc_match';
 var FM_SUPER = { '1212':'Admin', '0000':'Cost Controller', '2468':'Supervisor' };
 
+// How many articles the ranked suggestions offer. Five was too few for the
+// families where FMC carries the same thing several ways — Tomahawk is five
+// articles on its own, basmati is three pack sizes — so the right one was being
+// pushed off the end by near-misses. Eight still fits one number key each.
+var FM_CANDS = 8;
+
 var fmUser     = null;    // { emp_id, name } — who is deciding
 var fmItems    = [];      // active order_items
 var fmQueue    = [];      // the ones needing a person, hardest last
@@ -38,6 +44,7 @@ var fmUndo     = [];      // [{at,decided}] — steps back to the ITEM, not the 
 var fmTab      = 'decide';
 var fmSaving   = false;
 var fmLoaded   = false;
+var fmSearch   = '';      // what is typed in the search box; '' = show the suggestions
 
 function fmEsc(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -72,6 +79,63 @@ function fmScore(qToks, artToks){
   return covered*0.8 + back*0.2;
 }
 
+// ── searching the whole catalogue ─────────────────────────────────────────
+// The ranked suggestions are a guess, and on a badly typed name the guess has
+// nowhere to start: `Octofus`, `Tomohowk`, `beeroot big australia` share almost
+// no whole word with the article they mean, so the right one never reaches the
+// list however long the list is. The search box is the way out — it ignores the
+// score entirely and reads the whole catalogue, by name or by code.
+//
+// Whenever the box has text it REPLACES the suggestions, exactly as the
+// standalone matcher does. The number keys, Enter and the undo all keep working
+// against whatever is on screen, because everything asks fmCandList().
+function fmCandList(r){
+  if(!r) return [];
+  var q = fmNorm(fmSearch);
+  if(!q) return r.cands || [];
+  var raw = String(fmSearch).trim().toLowerCase();
+  var all = (typeof acAll !== 'undefined' ? acAll : []);
+  var out = [];
+  for(var i=0;i<all.length && out.length<FM_CANDS;i++){
+    var a = all[i];
+    // name matched on the same normalised form the rest of the module uses, so
+    // "st louis" finds "St. Louis"; code matched raw, because a code is typed
+    // as it is printed.
+    if(fmNorm(a.name).indexOf(q) > -1 || String(a.code||'').toLowerCase().indexOf(raw) > -1){
+      out.push({ art:a, s:null });
+    }
+  }
+  return out;
+}
+
+// ── the unit FMC orders in ────────────────────────────────────────────────
+// The market list counts in what the chef counts in ("Kilogram"). FMC sells a
+// 15 kg carton. Both numbers are right and the LPO goes out for 15 cartons
+// instead of 15 kilos, so wherever the two disagree the article says so in red
+// and spells the pack out in words — nobody should have to decode "Ctn/1x15 Kg"
+// standing at a stove.
+function fmUnitNorm(u){ return String(u||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function fmUnitDiffers(appU, fmcU){
+  if(!appU || !fmcU) return false;
+  return fmUnitNorm(appU) !== fmUnitNorm(fmcU);
+}
+var FM_PACK_WORDS = { ctn:'carton', pkt:'packet', bag:'bag', can:'can', btl:'bottle',
+                      dish:'dish', tub:'tub', box:'box', tin:'tin', jar:'jar',
+                      bkt:'bucket', tray:'tray' };
+function fmIsPack(u){
+  return /^(ctn|pkt|bag|can|btl|dish|tub|box|tin|jar|bkt|tray)\b/i.test(String(u||'').trim());
+}
+// 'Ctn/1x15 Kg' → '1 carton = 15kg'. Returns '' for a plain unit that needs no
+// expansion ('Kilogram', 'Each') — there is nothing to explain.
+function fmUnitPlain(u){
+  var m = /^([a-z]+)\s*\/\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*([a-z]+)/i.exec(String(u||'').trim());
+  if(!m) return '';
+  var w = FM_PACK_WORDS[m[1].toLowerCase()] || m[1].toLowerCase();
+  var outer = Number(m[2]), inner = Number(m[3]), uom = m[4].toLowerCase();
+  return outer > 1 ? ('1 ' + w + ' = ' + outer + ' × ' + inner + uom)
+                   : ('1 ' + w + ' = ' + inner + uom);
+}
+
 function fmBuildQueue(){
   var arts = (typeof acAll !== 'undefined' ? acAll : []).map(function(a){
     return { a:a, n:fmNorm(a.name), t:fmToks(a.name) };
@@ -89,7 +153,7 @@ function fmBuildQueue(){
 
     var ranked = arts.map(function(e){ return { art:e.a, s:fmScore(qt, e.t) }; })
                      .sort(function(x,y){ return y.s - x.s; })
-                     .slice(0, 5)
+                     .slice(0, FM_CANDS)
                      .filter(function(r){ return r.s >= 0.3; });
     var band = 'none';
     if(ranked.length && ranked[0].s >= 0.85 && (!ranked[1] || ranked[0].s - ranked[1].s >= 0.15)) band = 'near';
@@ -169,7 +233,7 @@ async function fmSave(){
     return;
   }
   var n = fmDecided.length;
-  fmDecided = []; fmUndo = []; fmIdx = 0; fmSel = 0;
+  fmDecided = []; fmUndo = []; fmIdx = 0; fmSel = 0; fmSearch = '';
   await fmLoad();
   fmRender();
   if(typeof kToast === 'function') kToast('Saved ' + n + ' to the market list.');
@@ -216,28 +280,31 @@ async function fmRetire(id, name){
 function fmPick(n){ fmSel = n; fmRender(); }
 function fmConfirm(){
   var r = fmQueue[fmIdx]; if(!r) return;
-  var c = (r.cands||[])[fmSel]; if(!c) return;
+  var c = fmCandList(r)[fmSel]; if(!c) return;
   var a = c.art;
   fmDecided.push({ id:r.item.id, name:r.item.name, to:a.name, code:a.code,
                    group:a.group, price:a.price, month:a.month, supplier:a.supplier });
   fmUndo.push({ at:fmIdx, decided:true });
-  fmIdx++; fmSel = 0; fmRender();
+  fmNext();
 }
 function fmNoArticle(){
   var r = fmQueue[fmIdx]; if(!r) return;
   fmDecided.push({ id:r.item.id, name:r.item.name, to:'no FMC article', code:null });
   fmUndo.push({ at:fmIdx, decided:true });
-  fmIdx++; fmSel = 0; fmRender();
+  fmNext();
 }
 function fmSkip(){
   if(fmIdx >= fmQueue.length) return;
   fmUndo.push({ at:fmIdx, decided:false });
-  fmIdx++; fmSel = 0; fmRender();
+  fmNext();
 }
+// Every move to another line starts clean. A search is asked about ONE item —
+// carrying "tomahawk" onto the next line would silently hide its suggestions.
+function fmNext(){ fmIdx++; fmSel = 0; fmSearch = ''; fmRender(); }
 function fmUndoLast(){
   var last = fmUndo.pop(); if(!last) return;
   if(last.decided) fmDecided.pop();
-  fmIdx = last.at; fmSel = 0; fmRender();
+  fmIdx = last.at; fmSel = 0; fmSearch = ''; fmRender();
 }
 
 // ── render ────────────────────────────────────────────────────────────────
@@ -253,7 +320,11 @@ function fmRender(){
     '<div class="ops-title">Match to FMC</div>' +
     '<div class="ops-subtitle">Deciding as <b>'+fmEsc(fmUser.name)+'</b> · the market list keeps its own names — this only adds the article behind each one</div>' +
     '<div class="fm-tabs">' + tabs.map(function(t){
-      return '<button class="fm-tab'+(fmTab===t[0]?' on':'')+'" onclick="fmGo(\''+t[0]+'\')">'+t[1]+
+      // the name-for-name tab is the biggest single win on this screen and it
+      // had been sitting unpressed, so while it holds anything it is coloured
+      // like the action it is rather than like its two neighbours
+      var urgent = (t[0] === 'exact' && fmExact.length && fmTab !== 'exact');
+      return '<button class="fm-tab'+(fmTab===t[0]?' on':'')+(urgent?' urgent':'')+'" onclick="fmGo(\''+t[0]+'\')">'+t[1]+
              '<span class="fm-badge">'+t[2]+'</span></button>';
     }).join('') + '</div>' +
     '<div id="fm-body" tabindex="-1" style="outline:none"></div>';
@@ -312,34 +383,41 @@ function fmSavedHtml(){
     '</div></div>';
 }
 
+// The lines whose name IS an article name, waiting behind a tab nobody has
+// pressed. It is by far the largest thing on this screen — hundreds of lines
+// against the tens a session decides by hand — so the decide screen says so
+// out loud until the tab has been used.
+function fmExactCallout(){
+  if(!fmExact.length) return '';
+  return '<div class="fm-callout">' +
+    '<div class="fm-callout-n">'+fmExact.length+'</div>' +
+    '<div class="fm-callout-t">' +
+      '<b>'+fmExact.length+' lines already match an FMC article name for name.</b> ' +
+      'They are one press away — you do not have to decide them one at a time. ' +
+      'Read the list first; nothing is written until you press the button on it.' +
+    '</div>' +
+    '<button class="fm-btn primary" onclick="fmGo(\'exact\')">Open the list</button>' +
+  '</div>';
+}
+
 function fmDecideHtml(){
   if(!fmQueue.length){
-    return '<div class="fm-card"><div class="fm-done"><div class="fm-done-big">Nothing left to decide.</div>' +
+    return fmExactCallout() +
+      '<div class="fm-card"><div class="fm-done"><div class="fm-done-big">Nothing left to decide.</div>' +
       '<div class="fm-done-sub">Every line either carries an FMC code or has been looked at and marked as having none.</div></div></div>' + fmSavedHtml();
   }
   if(fmIdx >= fmQueue.length){
-    return '<div class="fm-card"><div class="fm-done"><div class="fm-done-big">That is the whole queue.</div>' +
+    return fmExactCallout() +
+      '<div class="fm-card"><div class="fm-done"><div class="fm-done-big">That is the whole queue.</div>' +
       '<div class="fm-done-sub">'+fmDecided.length+' decided. Nothing is written until you press Save.</div></div></div>' + fmSavedHtml();
   }
 
   var r = fmQueue[fmIdx], it = r.item;
   var BAND = { near:'near certain', choose:'needs you', none:'nothing close' };
-  var cands = r.cands || [];
-  var rows = cands.length ? cands.map(function(c, n){
-    var a = c.art;
-    return '<div class="fm-cand'+(n===fmSel?' sel':'')+'" onclick="fmPick('+n+')">' +
-      '<div class="fm-key">'+(n+1)+'</div>' +
-      '<div><div class="fm-cn">'+fmEsc(a.name)+'</div>' +
-        '<div class="fm-cm"><span class="ac-code">'+fmEsc(a.code)+'</span><span>'+fmEsc(a.group)+'</span>' +
-        (a.supplier?'<span>'+fmEsc(a.supplier)+'</span>':'') + '</div></div>' +
-      '<div class="fm-unit">'+fmEsc(a.unit)+'</div>' +
-      '<div class="fm-price">'+fmMoney(a.price)+' <span class="fm-cur">AED</span>' +
-        '<div class="fm-pnote">'+fmSheetShort(a.month)+' sheet</div></div>' +
-    '</div>';
-  }).join('')
-  : '<div class="fm-nothing">Nothing in the catalogue comes close. Either it is bought outside FMC, or an article needs creating — mark it below and it stays on the market list either way.</div>';
+  var nArts = (typeof acAll !== 'undefined' ? acAll.length : 0);
 
-  return '<div class="fm-bar">' +
+  return fmExactCallout() +
+    '<div class="fm-bar">' +
       '<span class="fm-pos">'+(fmIdx+1)+' of '+fmQueue.length+'</span>' +
       '<span class="fm-band '+r.band+'">'+BAND[r.band]+'</span>' +
       '<div class="fm-track"><div class="fm-fill" style="width:'+Math.round(fmIdx/fmQueue.length*100)+'%"></div></div>' +
@@ -351,17 +429,99 @@ function fmDecideHtml(){
         '<div class="fm-nm">'+fmEsc(it.name)+'</div>' +
         '<div class="fm-meta">'+fmEsc(it.category)+(it.unit?' · '+fmEsc(it.unit):'')+' · the name does not change</div>' +
       '</div>' +
-      '<div>'+rows+'</div>' +
-      '<div class="fm-acts">' +
-        (cands.length?'<button class="fm-btn primary" onclick="fmConfirm()">Confirm '+(fmSel+1)+'<small>Enter</small></button>':'') +
-        '<button class="fm-btn" onclick="fmNoArticle()">Not an FMC article<small>N</small></button>' +
-        '<button class="fm-btn" onclick="fmSkip()">Skip for now<small>S</small></button>' +
-        (fmUndo.length?'<button class="fm-btn" onclick="fmUndoLast()" style="margin-left:auto">Undo last<small>&larr;</small></button>':'') +
+      '<div class="fm-searchwrap">' +
+        '<input class="fm-search" id="fm-q" type="search" autocomplete="off" spellcheck="false"' +
+          ' placeholder="Search all '+nArts+' articles by name or code…"' +
+          ' value="'+fmEsc(fmSearch)+'"' +
+          ' oninput="fmSearchInput(this.value)" onkeydown="fmSearchKey(event)">' +
+        '<div class="fm-searchhint" id="fm-qhint">'+fmSearchHint()+'</div>' +
       '</div>' +
+      '<div id="fm-cands">'+fmCandsHtml(r)+'</div>' +
+      '<div class="fm-acts" id="fm-acts">'+fmActsHtml(r)+'</div>' +
     '</div>' +
-    '<div class="fm-keys"><span><kbd>1</kbd>–<kbd>5</kbd> pick</span><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> move</span>' +
-      '<span><kbd>Enter</kbd> confirm</span><span><kbd>N</kbd> no article</span><span><kbd>S</kbd> skip</span><span><kbd>&larr;</kbd> undo</span></div>' +
+    '<div class="fm-keys"><span><kbd>/</kbd> search</span><span><kbd>1</kbd>–<kbd>'+FM_CANDS+'</kbd> pick</span>' +
+      '<span><kbd>&uarr;</kbd><kbd>&darr;</kbd> move</span>' +
+      '<span><kbd>Enter</kbd> confirm</span><span><kbd>Esc</kbd> clear search</span>' +
+      '<span><kbd>N</kbd> no article</span><span><kbd>S</kbd> skip</span><span><kbd>&larr;</kbd> undo</span></div>' +
     fmSavedHtml();
+}
+
+// The line under the search box. It says which list is on screen, because the
+// two look the same and mean very different things — a ranked guess, or the
+// whole catalogue.
+function fmSearchHint(){
+  if(!fmSearch.trim()) return 'Suggestions, best first. Type to search every article instead — or press <kbd>/</kbd>.';
+  var r = fmQueue[fmIdx];
+  var n = fmCandList(r).length;
+  if(!n) return 'Nothing in the catalogue matches that. Try fewer letters, or the code.';
+  return 'Searching the whole catalogue' + (n >= FM_CANDS ? ' — first '+FM_CANDS+', keep typing to narrow' : ' — '+n+(n===1?' match':' matches')) +
+         '. <kbd>Esc</kbd> goes back to the suggestions.';
+}
+
+function fmCandsHtml(r){
+  var it = r.item;
+  var cands = fmCandList(r);
+  if(!cands.length){
+    return fmSearch.trim()
+      ? '<div class="fm-nothing">No article matches “'+fmEsc(fmSearch)+'”. Clear the search with <kbd>Esc</kbd> to see the suggestions again.</div>'
+      : '<div class="fm-nothing">Nothing in the catalogue comes close. Search above by name or code — and if it truly is not there, either it is bought outside FMC or an article needs creating. Mark it below and it stays on the market list either way.</div>';
+  }
+  return cands.map(function(c, n){
+    var a = c.art;
+    var diff  = fmUnitDiffers(it.unit, a.unit);
+    var plain = fmUnitPlain(a.unit);
+    return '<div class="fm-cand'+(n===fmSel?' sel':'')+'" onclick="fmPick('+n+')">' +
+      '<div class="fm-key">'+(n+1)+'</div>' +
+      '<div><div class="fm-cn">'+fmEsc(a.name)+'</div>' +
+        '<div class="fm-cm"><span class="ac-code">'+fmEsc(a.code)+'</span><span>'+fmEsc(a.group)+'</span>' +
+        (a.supplier?'<span>'+fmEsc(a.supplier)+'</span>':'') + '</div>' +
+        (diff ? '<div class="fm-udiff">The list counts in <b>'+fmEsc(it.unit)+'</b> — FMC orders in <b>'+fmEsc(a.unit)+'</b>' +
+                (plain?' ('+fmEsc(plain)+')':(fmIsPack(a.unit)?', a pack':'')) + '</div>'
+              : (plain ? '<div class="fm-uplain">'+fmEsc(plain)+'</div>' : '')) +
+      '</div>' +
+      '<div class="fm-unit'+(diff?' diff':'')+'">'+fmEsc(a.unit)+'</div>' +
+      '<div class="fm-price">'+fmMoney(a.price)+' <span class="fm-cur">AED</span>' +
+        '<div class="fm-pnote">'+fmSheetShort(a.month)+' sheet</div></div>' +
+    '</div>';
+  }).join('');
+}
+
+function fmActsHtml(r){
+  var cands = fmCandList(r);
+  return (cands.length?'<button class="fm-btn primary" onclick="fmConfirm()">Confirm '+(fmSel+1)+'<small>Enter</small></button>':'') +
+    '<button class="fm-btn" onclick="fmNoArticle()">Not an FMC article<small>N</small></button>' +
+    '<button class="fm-btn" onclick="fmSkip()">Skip for now<small>S</small></button>' +
+    (fmUndo.length?'<button class="fm-btn" onclick="fmUndoLast()" style="margin-left:auto">Undo last<small>&larr;</small></button>':'');
+}
+
+// Typing repaints ONLY the results and the buttons. Redrawing the whole screen
+// would replace the input the person is typing into and throw away the caret.
+function fmPaint(){
+  var r = fmQueue[fmIdx]; if(!r) return;
+  var c = document.getElementById('fm-cands'); if(c) c.innerHTML = fmCandsHtml(r);
+  var a = document.getElementById('fm-acts');  if(a) a.innerHTML = fmActsHtml(r);
+  var h = document.getElementById('fm-qhint'); if(h) h.innerHTML = fmSearchHint();
+}
+function fmSearchInput(v){ fmSearch = v; fmSel = 0; fmPaint(); }
+function fmSearchClear(){
+  fmSearch = ''; fmSel = 0;
+  var q = document.getElementById('fm-q'); if(q) q.value = '';
+  fmPaint();
+}
+// Inside the box the digits belong to the person — a code IS digits, and
+// "4017014" has to be typeable. Picking by number happens with the box unfocused,
+// against whatever list is showing. Enter and the arrows work in both places.
+function fmSearchKey(e){
+  if(e.key === 'Escape'){
+    e.preventDefault(); e.stopPropagation();
+    if(fmSearch){ fmSearchClear(); } else { var q=document.getElementById('fm-q'); if(q) q.blur(); }
+    return;
+  }
+  var r = fmQueue[fmIdx]; if(!r) return;
+  var n = fmCandList(r).length;
+  if(e.key === 'Enter'){ e.preventDefault(); if(n) fmConfirm(); return; }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); fmSel = Math.min(fmSel+1, n-1); fmPaint(); return; }
+  if(e.key === 'ArrowUp'){   e.preventDefault(); fmSel = Math.max(fmSel-1, 0);   fmPaint(); return; }
 }
 
 function fmExactHtml(){
@@ -407,14 +567,28 @@ function fmDupesHtml(){
 document.addEventListener('keydown', function(e){
   if(typeof activeStation === 'undefined' || activeStation !== FM_KEY) return;
   if(fmTab !== 'decide' || !fmUser) return;
+  // the search box runs its own keys (fmSearchKey) — digits typed in there are
+  // part of a code, not a choice
   var t = e.target;
   if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
   var r = fmQueue[fmIdx]; if(!r) return;
+
+  // "/" is the way into the search box without reaching for the mouse. They
+  // work on laptops, so it has to be one key from anywhere on the screen.
+  if(e.key === '/'){
+    e.preventDefault();
+    var q = document.getElementById('fm-q');
+    if(q){ q.focus(); q.select(); }
+    return;
+  }
+  if(e.key === 'Escape'){ if(fmSearch){ e.preventDefault(); fmSearchClear(); } return; }
+
+  var cands = fmCandList(r);
   var n = Number(e.key);
-  if(n >= 1 && n <= 5 && (r.cands||[]).length >= n){ e.preventDefault(); fmSel = n-1; fmRender(); return; }
+  if(n >= 1 && n <= FM_CANDS && cands.length >= n){ e.preventDefault(); fmSel = n-1; fmPaint(); return; }
   if(e.key === 'Enter'){ e.preventDefault(); fmConfirm(); return; }
-  if(e.key === 'ArrowDown'){ e.preventDefault(); fmSel = Math.min(fmSel+1, (r.cands||[]).length-1); fmRender(); return; }
-  if(e.key === 'ArrowUp'){ e.preventDefault(); fmSel = Math.max(fmSel-1, 0); fmRender(); return; }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); fmSel = Math.min(fmSel+1, cands.length-1); fmPaint(); return; }
+  if(e.key === 'ArrowUp'){ e.preventDefault(); fmSel = Math.max(fmSel-1, 0); fmPaint(); return; }
   if(e.key === 'ArrowLeft'){ e.preventDefault(); fmUndoLast(); return; }
   var k = String(e.key||'').toLowerCase();
   if(k === 'n'){ e.preventDefault(); fmNoArticle(); return; }
@@ -436,6 +610,12 @@ function fmInjectCss(){
     '.fm-tab.on{background:#6B1F2A;border-color:#6B1F2A;color:#fff}',
     '.fm-badge{background:rgba(0,0,0,.08);border-radius:9px;padding:0 6px;font-size:11px}',
     '.fm-tab.on .fm-badge{background:rgba(255,255,255,.22)}',
+    '.fm-tab.urgent{background:#C9A84C;border-color:#b8973d;color:#2C1810}',
+    '.fm-tab.urgent .fm-badge{background:rgba(44,24,16,.16)}',
+    '.fm-callout{display:flex;gap:12px;align-items:center;background:#fdf6e3;border:1px solid #e6d7a8;border-left:4px solid #C9A84C;border-radius:8px;padding:12px 14px;margin-bottom:10px;flex-wrap:wrap}',
+    '.fm-callout-n{font-family:Georgia,serif;font-size:30px;line-height:1;color:#6B1F2A;font-weight:700}',
+    '.fm-callout-t{flex:1;min-width:220px;font-size:12.5px;color:#8B7355;line-height:1.5}',
+    '.fm-callout-t b{color:#2C1810}',
     '.fm-note{background:#fff;border:1px solid rgba(107,31,42,.15);border-left:3px solid #C9A84C;border-radius:6px;padding:10px 12px;font-size:13px;color:#8B7355;margin-bottom:10px}',
     '.fm-note b{color:#2C1810}',
     '.fm-bar{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}',
@@ -451,6 +631,18 @@ function fmInjectCss(){
     '.fm-lab{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#8B7355}',
     '.fm-nm{font-family:Georgia,serif;font-size:22px;margin-top:3px;color:#2C1810}',
     '.fm-meta{font-size:12px;color:#8B7355;margin-top:3px}',
+    '.fm-searchwrap{padding:11px 16px 9px;border-bottom:1px solid #f0e9df;background:#fff}',
+    '.fm-search{width:100%;box-sizing:border-box;border:1px solid rgba(107,31,42,.22);border-radius:8px;padding:10px 12px;font-size:14px;color:#2C1810;background:#fff;font-family:inherit}',
+    '.fm-search:focus{outline:none;border-color:#6B1F2A;box-shadow:0 0 0 3px rgba(107,31,42,.10)}',
+    '.fm-search::placeholder{color:#a89680}',
+    '.fm-searchhint{font-size:11px;color:#8B7355;margin-top:5px;line-height:1.4}',
+    '.fm-searchhint kbd{background:#faf6f0;border:1px solid rgba(107,31,42,.15);border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600;color:#2C1810}',
+    // the unit disagreement — red, because it is the one thing on this row that
+    // turns a right answer into a wrong order
+    '.fm-udiff{font-size:11px;color:#8A2A1A;margin-top:3px;line-height:1.4}',
+    '.fm-udiff b{color:#6B1F2A}',
+    '.fm-uplain{font-size:11px;color:#9c8a72;margin-top:3px}',
+    '.fm-unit.diff{color:#8A2A1A;font-weight:700}',
     '.fm-cand{display:grid;grid-template-columns:26px 1fr 108px 96px;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid #f4ece1;cursor:pointer}',
     '.fm-cand:last-child{border-bottom:0}',
     '.fm-cand.sel{background:#fbf6ee;box-shadow:inset 3px 0 0 #C9A84C}',
@@ -494,7 +686,7 @@ function fmInjectCss(){
 }
 
 // ── entry point ───────────────────────────────────────────────────────────
-var FM_BUILD = '1791000000';   // kept in step with index.html's ?v= on this file
+var FM_BUILD = '1791000600';   // kept in step with index.html's ?v= on this file
 
 async function openFmcMatch(){
   activeStation = FM_KEY;
@@ -513,6 +705,6 @@ async function openFmcMatch(){
     console.warn('fmc match load failed', err);
     return;
   }
-  fmIdx = 0; fmSel = 0; fmDecided = []; fmUndo = []; fmTab = 'decide';
+  fmIdx = 0; fmSel = 0; fmDecided = []; fmUndo = []; fmTab = 'decide'; fmSearch = '';
   fmRender();
 }
