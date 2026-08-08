@@ -68,6 +68,8 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 .yes{background:var(--vino);border:none;color:var(--cream);font-weight:700}
 .no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light)}
 .res{font-size:12.5px;color:var(--vino);font-weight:700;padding:9px 0 2px}
+.gerr{font-size:12.5px;line-height:1.55;color:var(--vino);background:rgba(176,141,87,.16);
+  border-left:3px solid var(--oro);border-radius:0 4px 4px 0;padding:9px 11px;margin:0 0 10px}
 .empty{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;
   padding:22px;text-align:center;color:var(--vino-light);font-size:13.5px;line-height:1.6}
 .warn{background:var(--sabbia-light);border-left:3px solid var(--oro);border-radius:0 6px 6px 0;
@@ -260,6 +262,7 @@ function draw(){
       '<div class="gu">' + g.uses.length + ' time' + (g.uses.length===1?'':'s') +
         ' · ' + n + ' recipe' + (n===1?'':'s') + (g.sure ? '' : ' · nobody recognises it') + '</div>' +
       (g.why ? '<div class="gy">' + esc(g.why) + '</div>' : '') +
+      (g.err ? '<div class="gerr">' + esc(g.err) + '</div>' : '') +
       '<ul class="ctx">' + g.uses.slice(0,4).map(function(u){
         return '<li><b>' + esc(u.recipe) + '</b> · ' + esc(u.line.slice(0,120)) + '</li>';
       }).join('') + (g.uses.length > 4 ? '<li>… and ' + (g.uses.length-4) + ' more</li>' : '') + '</ul>' +
@@ -323,7 +326,12 @@ document.addEventListener('click', function(e){
     }).catch(function(err){
       f.disabled = false;
       f.textContent = 'Fix everywhere (' + g.uses.length + ')';
-      alert('Nothing was changed — ' + err.message);
+      /* was an alert() — a white browser box headed with the domain name, on top
+         of the app. It says the same thing here, in the app's own furniture, and
+         it stays on screen next to the button that failed instead of being
+         dismissed and forgotten. */
+      g.err = 'Nothing was changed — ' + err.message + ' Your recipes are untouched; try again.';
+      draw();
     });
     return;
   }

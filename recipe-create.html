@@ -541,6 +541,30 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .bmnew .err{font-family:var(--sans);font-size:11.5px;color:#f3c7c7;flex:1 1 140px}
 .bmnew .newr{color:var(--cream);border-color:rgba(245,237,224,.45)}
 .bmnew .newr:hover{background:rgba(245,237,224,.12)}
+/* ───── asking for the PIN ─────
+   This was a browser prompt() at first. It came up as a white Chrome dialog
+   headed "guarracinofamily.github.io says" with a blue OK button — the app's
+   own writing, in somebody else's furniture, on top of the room photograph.
+   Nothing user-visible ships looking like that, so it is built here out of the
+   same tokens as the rest of the sheet. */
+.pinsc{display:none;position:fixed;inset:0;z-index:80;background:rgba(43,35,32,.55);
+  align-items:center;justify-content:center;padding:20px}
+.pinsc.on{display:flex}
+.pincard{background:var(--cream);border-radius:10px;max-width:380px;width:100%;
+  padding:26px 24px 22px;box-shadow:0 18px 44px rgba(0,0,0,.32)}
+.pincard h3{font-family:var(--serif);font-size:23px;color:var(--vino);margin:0 0 8px;line-height:1.2}
+.pincard p{font-size:13px;line-height:1.6;color:var(--vino-light);margin:0 0 16px}
+.pincard input{width:100%;font-family:var(--sans);font-size:19px;letter-spacing:.32em;
+  text-align:center;padding:13px 12px;border:1.5px solid var(--sabbia-dark);border-radius:6px;
+  background:#fff;color:var(--ink);outline:none}
+.pincard input:focus{border-color:var(--vino)}
+.pincard .pe{font-size:12px;color:var(--vino);min-height:17px;margin:8px 0 0;font-weight:700}
+.pinacts{display:flex;gap:9px;margin-top:14px}
+.pinacts button{flex:1;font-family:var(--sans);font-size:13.5px;border-radius:6px;
+  padding:13px 14px;cursor:pointer;font-weight:700}
+.pinacts .go{background:var(--vino);border:none;color:var(--cream)}
+.pinacts .go:disabled{opacity:.45;cursor:default}
+.pinacts .no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);font-weight:400}
 .bflag{font-family:var(--sans);font-size:11px;color:var(--cream);opacity:.85;white-space:nowrap}
 .bflag.bad{color:#f3c7c7;opacity:1}
 .srow .sm.warn{flex:1 0 100%;opacity:1;color:var(--vino);background:rgba(232,217,199,.5);border-radius:3px;padding:5px 8px;margin-top:2px}
@@ -1290,6 +1314,26 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 <!-- and anything the app has to say goes directly under the costing, in the flow, so
      there is no scroll position on any screen where one is sitting on the other -->
 <div id="flashes"></div>
+
+<!-- ── the PIN ask, in the app's own furniture ──
+     This was a browser prompt() and came up as a white Chrome dialog headed
+     "guarracinofamily.github.io says" with a blue OK button, sitting on top of
+     the room photograph. Nothing user-visible ships looking like that. Same
+     colours, same serif heading, same buttons as the rest of the sheet, and the
+     Open button says what it wants until it can be pressed. -->
+<div class="pinsc" id="pinsc">
+  <div class="pincard">
+    <h3>Check the book</h3>
+    <p>This reads every recipe and can change a word across all of them at once,
+       so it asks for the kitchen PIN — the same one as the schedule.</p>
+    <input id="pinv" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Kitchen PIN">
+    <div class="pe" id="pine"></div>
+    <div class="pinacts">
+      <button class="go" id="pingo" disabled>Type the PIN first</button>
+      <button class="no" id="pinno">Not now</button>
+    </div>
+  </div>
+</div>
 <!-- Naming a new menu from the bar. It sits under the bar rather than in a pop-up so
      the recipe he is writing stays on screen behind it. -->
 <div class="bmnew" id="bmnew">
@@ -9446,11 +9490,45 @@ $('tosaved').addEventListener('click', function(){
    Gated on the same PIN the app already uses (2468, the schedule one) because
    one tap in there rewrites a word across every recipe that carries it. It is
    his screen and the chefs do not need it — their help is on the sheet already. */
-$('tobook').addEventListener('click', function(){
-  var p = prompt('The book check changes wording across every recipe.\nEnter the PIN to open it.');
-  if (p === null) return;                          /* cancelled — say nothing */
-  if (p.trim() !== '2468'){ flash('Wrong PIN — nothing opened.', true); return; }
+/* The PIN card. Opening it, closing it, and the one thing it guards.
+   The Open button is disabled until something is typed and SAYS SO rather than
+   sitting there greyed out with no reason — same rule as every other disabled
+   button on this sheet. */
+function pinAsk(){
+  $('pine').textContent = '';
+  $('pinv').value = '';
+  pinState();
+  $('pinsc').classList.add('on');
+  setTimeout(function(){ $('pinv').focus(); }, 30);
+}
+function pinShut(){ $('pinsc').classList.remove('on'); }
+function pinState(){
+  var n = $('pinv').value.trim().length;
+  $('pingo').disabled = !n;
+  $('pingo').textContent = n ? 'Open the book check' : 'Type the PIN first';
+}
+function pinTry(){
+  if ($('pinv').value.trim() !== '2468'){
+    $('pine').textContent = 'Not that one.';
+    $('pinv').value = ''; pinState(); $('pinv').focus();
+    return;
+  }
+  pinShut();
+  openBookCheck();
+}
+$('pinv').addEventListener('input', function(){ $('pine').textContent = ''; pinState(); });
+$('pinv').addEventListener('keydown', function(e){ if (e.key === 'Enter') pinTry(); });
+$('pingo').addEventListener('click', pinTry);
+$('pinno').addEventListener('click', pinShut);
+/* tapping the dark surround is "not now" — nothing is lost by closing it */
+$('pinsc').addEventListener('click', function(e){ if (e.target === $('pinsc')) pinShut(); });
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && $('pinsc').classList.contains('on')) pinShut();
+});
 
+$('tobook').addEventListener('click', pinAsk);
+
+function openBookCheck(){
   /* A NEW TAB when this screen is running inside the Recipes module, which it
      nearly always is. Two reasons, both practical:
        · the module holds this page in an iframe, so the address bar shows the
@@ -9468,7 +9546,7 @@ $('tobook').addEventListener('click', function(){
   } else {
     location.href = url;
   }
-});
+}
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   /* opening the list on its own is not about any one batch */
