@@ -14,7 +14,7 @@
      captures window.fetch when the client is created, so the guard has to be in
      place before the CDN below loads. THE ONLY COPY — recipe-create.html loads
      this same file. See dev-guard.js. -->
-<script src="dev-guard.js?v=1790900000"></script>
+<script src="dev-guard.js?v=1790950000"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 
@@ -1369,6 +1369,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 <div id="mytasks-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
 <div id="catalogue-view" class="ops-view" style="display:none"></div>
+<div id="fmcmatch-view" class="ops-view" style="display:none"></div>
 <!-- Recipes: one way in, three screens on one live record. `recipes-view` is the way
      in; the other three hold a screen each, filled the first time it is opened and
      then left alone, so a half-written recipe survives a trip to another screen and
@@ -1411,9 +1412,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1790900000"></script>
-<script src="fish-display.js?v=1790900000"></script>
-<script src="my-tasks.js?v=1790900000"></script>
+<script src="market-list.js?v=1790950000"></script>
+<script src="fish-display.js?v=1790950000"></script>
+<script src="my-tasks.js?v=1790950000"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
      keep cold-boot light on the always-on screens. -->
 <script>
@@ -1429,11 +1430,12 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   };
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1790900000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1790900000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1790900000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
-  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1790900000').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
-  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1790900000').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1790950000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1790950000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1790950000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1790950000').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
+  function openFmcMatch(){ lazyLoad('fmc-match.js?v=1790950000').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
+  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1790950000').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1448,9 +1450,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
     if (sect) sect.classList.toggle('open', !isOpen);
   }
 </script>
-<script src="common.js?v=1790900000"></script>
-<script src="floorplan.js?v=1790900000"></script>
-<script src="app.js?v=1790900000"></script>
+<script src="common.js?v=1790950000"></script>
+<script src="floorplan.js?v=1790950000"></script>
+<script src="app.js?v=1790950000"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1475,7 +1477,7 @@ window.FB_INBOX = {
   screen: function(){
     var NAME = { 'home-view':'Home', 'pass-view':'The pass', 'dashboard-view':'Dashboard',
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
-      'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'catalogue-view':'Article catalogue',
+      'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
       'foodbible-view':'Food bible', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
@@ -1495,7 +1497,7 @@ window.FB_INBOX = {
   }
 };
 </script>
-<script src="feedback-button.js?v=1790900000"></script>
+<script src="feedback-button.js?v=1790950000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

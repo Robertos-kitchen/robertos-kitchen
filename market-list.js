@@ -248,6 +248,7 @@ function renderMarketList(){
       <div class="ml-actions">
         <button class="report-btn" onclick="mlPrint()">Print</button>
         <button class="report-btn" onclick="mlEmailPrompt()">Email chefs</button>
+        <button class="report-btn" id="ml-fmc" onclick="openFmcMatch()">Match to FMC</button>
       </div>
     </div>
 
@@ -274,6 +275,21 @@ function renderMarketList(){
 
   mlRenderRows(days);
   mlRenderSummary();
+  mlFmcCount();
+}
+
+// How many lines still have no FMC article behind them. Fetched after the grid
+// is drawn, never before — the market list must open at full speed whether or
+// not this answer ever arrives, and the button works the same either way.
+// When it reaches zero the button stops carrying a number, so a finished job
+// stops asking for attention.
+async function mlFmcCount(){
+  var btn = document.getElementById('ml-fmc'); if(!btn) return;
+  var res = await sb.from('order_items').select('id', { count:'exact', head:true })
+    .eq('active', true).is('code', null).is('fmc_verified_at', null);
+  if(res.error) return;                       // no number is better than a wrong one
+  var b = document.getElementById('ml-fmc'); if(!b) return;
+  b.textContent = res.count ? ('Match to FMC · ' + res.count) : 'Match to FMC';
 }
 
 function mlRenderSummary(){

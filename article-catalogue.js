@@ -169,7 +169,8 @@ function acRender(){
 
   v.innerHTML =
     '<div class="ops-title">Article Catalogue</div>' +
-    '<div class="ops-subtitle">Every article FMC can order · read-only · look here for the real name and code</div>' +
+    '<div class="ops-subtitle">Every article FMC can order · read-only · look here for the real name and code' +
+      ' <button class="report-btn" style="margin-left:8px" onclick="openFmcMatch()">Match the market list</button></div>' +
 
     '<div class="ac-searchbar">' +
       '<div class="ac-sfield">' +

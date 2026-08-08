@@ -35,3 +35,11 @@ comment on column order_items.fmc_verified_at is 'When a human last confirmed th
 -- Finding a line by its article is the one lookup every later step makes
 -- (add-from-catalogue, the review screen, the helper).
 create index if not exists order_items_code_idx on order_items (code) where code is not null;
+
+-- ── 8 Aug 2026, second pass ───────────────────────────────────────────────
+-- Who decided. `fmc_verified_at` records WHEN a person confirmed the article
+-- behind a line; without a name beside it, a wrong code can only be argued
+-- about. Danilo and Antonio sign in with their employee ID to do the matching,
+-- so the app already knows — it just needs somewhere to put it.
+alter table order_items add column if not exists fmc_verified_by text;
+comment on column order_items.fmc_verified_by is 'emp_id of whoever last confirmed this row''s article (see fmc_verified_at). Matches staff.emp_id; 1212/0000/2468 are the admin codes.';
