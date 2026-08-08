@@ -42,8 +42,14 @@ FILES="index.html sw.js manifest.json"
 # ANY src=/href=, not just <script>/<link> — the first version of this only read
 # those two tags and promptly missed <img src="logo.jpg">, which the check below
 # then caught. Images count.
-FROM_HTML=$( { grep -aoE '(src|href)="[^"]+"' index.html | sed -E 's/.*="//; s/"$//' || true; } \
-  | sed 's/?.*//' \
+# ⚠ 8 Aug 2026 — a tag scan alone would have shipped a broken LIVE again. A lazy
+# loaded module is named ONLY inside a single-quoted JS string —
+#   lazyLoad('article-catalogue.js?v=…')
+# — which no src=/href= grep can see. So single-quoted local .js/.html/.css
+# references are read too, and any new lazy module ships automatically.
+FROM_HTML=$( { grep -aoE '(src|href)="[^"]+"' index.html | sed -E 's/.*="//; s/"$//' || true;
+          grep -aoE "'[A-Za-z0-9._/-]+[.](js|html|css)([?][^']*)?'" index.html | tr -d "'" || true; } \
+  | sed -E 's/[?].*//; s|^[.]/||' \
   | grep -vE '^(https?:)?//|^data:|^mailto:|^tel:|^#|^$|[+()]' | sort -u || true)
 # Lazy-loaded or referenced from another page — not named by a tag in index.html.
 # writing-help.js is the same shape of trap as the dev-guard.js outage above:
@@ -58,7 +64,11 @@ EXTRAS="my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes
 # object ("terrace":"img/room-terrace.jpg"), not in a src= attribute, so a scan
 # for tags misses them entirely. Syncing food-bible.html without these would put
 # a page on LIVE whose photographs 404. Anything under img/ ships.
-ASSETS=$(ls img/* 2>/dev/null || true)
+# lib/ ships for the same reason img/ does: recipe-create.html names exceljs,
+# pdf.js and xlsx from single-quoted JS strings, and a page whose libraries 404
+# opens and then does nothing. Both repos already hold identical copies, so
+# including them costs nothing and puts them under the parity check.
+ASSETS=$(ls img/* lib/* 2>/dev/null || true)
 
 EXIST=""
 for f in $FILES $FROM_HTML $EXTRAS $ASSETS; do
@@ -76,8 +86,9 @@ for page in $(echo "$EXIST" | tr ' ' '\n' | grep -E '\.html$'); do
   # grep that simply finds nothing exits 1, which would kill the whole deploy.
   # "no matches" is a normal answer here, not a failure.
   refs=$( { grep -aoE '(src|href)="[^"]+"' "$page" 2>/dev/null | sed -E 's/.*="//; s/"$//' || true;
-            grep -aoE '"(img|lib)/[A-Za-z0-9._/-]+"' "$page" 2>/dev/null | tr -d '"' || true; } \
-          | sed 's/?.*//' \
+            grep -aoE '"(img|lib)/[A-Za-z0-9._/-]+"' "$page" 2>/dev/null | tr -d '"' || true;
+            grep -aoE "'[A-Za-z0-9._/-]+[.](js|html|css)([?][^']*)?'" "$page" 2>/dev/null | tr -d "'" || true; } \
+          | sed -E 's/[?].*//; s|^[.]/||' \
           | grep -vE '^(https?:)?//|^data:|^mailto:|^tel:|^#|^$|[+()]' \
           | sort -u || true )
   for r in $refs; do
