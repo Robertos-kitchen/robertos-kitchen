@@ -1194,7 +1194,10 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .cd-sum-discard{color:#a8321a;border-color:rgba(168,50,26,.3)}
 .cd-sum-final{background:#fff;border-radius:10px;padding:16px 18px;border-left:4px solid var(--vino);position:relative}
 .cd-sum-redo{margin-top:10px}
-#scroll-top-btn{position:fixed;bottom:20px;right:18px;width:46px;height:46px;border-radius:50%;background:var(--vino);color:var(--cream);border:none;font-size:22px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(65,2,7,.45);z-index:9998;transition:opacity .2s,transform .15s;-webkit-tap-highlight-color:transparent}
+/* right:14px matches #fbi-btn ("Tell us") so the two stack as one right-hand
+   column with their edges flush. The bottom below is only the fallback for a
+   page with no Tell us button — place() measures the real one. */
+#scroll-top-btn{position:fixed;bottom:20px;right:14px;width:46px;height:46px;border-radius:50%;background:var(--vino);color:var(--cream);border:none;font-size:22px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(65,2,7,.45);z-index:9998;transition:opacity .2s,transform .15s;-webkit-tap-highlight-color:transparent}
 #scroll-top-btn:active{transform:scale(.92)}
 @media print{#scroll-top-btn{display:none !important}}
 </style>
@@ -1452,7 +1455,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </script>
 <script src="common.js?v=1791000600"></script>
 <script src="floorplan.js?v=1791000600"></script>
-<script src="app.js?v=1791000600"></script>
+<script src="app.js?v=1791010000"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1859,10 +1862,32 @@ function showUpdateBanner(newSW) {
     return s.scrollTop;
   }
 
+  // Both this button and "Tell us" (#fbi-btn, feedback-button.js) are fixed to
+  // the bottom-right, and until Antonio said so they sat ON TOP of each other on
+  // a phone: Tell us is z-index 99998 against this one's 9998, so the higher one
+  // won and the arrow was simply unreachable. Don't hard-code a gap — Tell us is
+  // a pill on a laptop, a circle under 420px, and it lifts itself above any fixed
+  // bottom bar (its own lift()). Measure where it actually is, every time.
+  function place(){
+    var fb = document.getElementById('fbi-btn');
+    var bottom = 20;                                   // no Tell us button on the page
+    if(fb){
+      // Height, NOT offsetParent: offsetParent is null for a position:fixed
+      // element, and both of these are fixed — that test reports Tell us as
+      // absent every single time and this whole function does nothing.
+      var r = fb.getBoundingClientRect();
+      if(r.height) bottom = Math.round(window.innerHeight - r.top) + 10;
+    }
+    btn.style.bottom = bottom + 'px';
+  }
+
   function update(){
     var s = activeScroller();
+    place();                                           // before showing, never a jump
     btn.style.display = currentScrollTop(s) > 240 ? 'flex' : 'none';
   }
+
+  window.addEventListener('resize', place);
 
   window.addEventListener('scroll', update, {passive:true});
   INNER_IDS.forEach(function(id){
