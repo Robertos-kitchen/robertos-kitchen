@@ -96,6 +96,25 @@ function acSelectCols(){
     ? 'code,name,item_group,unit,price,month,supplier'
     : 'code,name,item_group,unit,price,month';
 }
+// ══════════════════════════════════════════════════════════════════════════
+// TWO TABLES, TWO DIFFERENT JOBS — and only one of them says what is orderable
+//
+// `fmc_articles` (harvested from the Kitchen Market List assortment) decides
+// IDENTITY and AVAILABILITY: the article's real name, the unit FMC counts it
+// in, its supplier, and whether it can be ordered at all.
+//
+// `stock_take_items` supplies the PRICE and nothing else. It is an inventory
+// export and it keeps discontinued articles indefinitely, so it can never be
+// asked whether something is orderable. The note this file used to carry —
+// that a short July sheet does not mean an article is gone — was right, and
+// this is the fix it was waiting for: the assortment answers that question
+// properly, so absence from a stock sheet no longer has to mean anything.
+//
+// What that changes on screen: an article FMC has dropped is now SAID to be
+// dropped instead of being listed as if it could be bought. Four were proved
+// dead on 8 Aug 2026 (4029044, 4017171, 4017201, 4017263) and this screen
+// showed all four as ordinary articles.
+// ══════════════════════════════════════════════════════════════════════════
 async function acLoad(){
   // Ask for one row with supplier in it. A column that doesn't exist is a 400
   // from PostgREST, so this settles the question for a single tiny request
@@ -112,6 +131,19 @@ async function acLoad(){
     return res.error;
   }
 
+  // The assortment. If this fails the screen still works off the stock sheets
+  // alone, exactly as it did before — but then nothing claims to know what is
+  // orderable, because it doesn't.
+  var arts = {}, haveArts = false;
+  var ares = await acFetchAllPaged(function(){
+    return sb.from('fmc_articles').select('code,name,unit,supplier,on_assortment,retiring')
+      .eq('venue_id','robertos-difc').order('code');
+  });
+  if(!ares.error && ares.data && ares.data.length){
+    haveArts = true;
+    ares.data.forEach(function(a){ arts[String(a.code).trim()] = a; });
+  }
+
   // one row per code, from the NEWEST sheet that carries it
   var by = {};
   (res.data||[]).forEach(function(r){
@@ -126,9 +158,33 @@ async function acLoad(){
 
   acAll = Object.keys(by).map(function(c){
     var r = by[c];
-    return { code:c, name:r.name||'', group:r.item_group||'Other', unit:r.unit||'',
-             price:r.price, month:r.month, supplier:(r.supplier||'') };
+    var art = arts[c];
+    return {
+      code:c,
+      // FMC's own name wins where we have it — that is the name on an order,
+      // an invoice and a delivery note, and it is the one a chef should learn.
+      name:(art && art.name) || r.name || '',
+      group:r.item_group||'Other',
+      unit:(art && art.unit) || r.unit || '',
+      price:r.price, month:r.month,
+      supplier:(art && art.supplier) || r.supplier || '',
+      orderable: haveArts ? !!(art && art.on_assortment) : null,   // null = unknown
+      retiring: !!(art && art.retiring)
+    };
   });
+
+  // Articles on the assortment that no stock sheet carries are still orderable
+  // and still belong here — they simply have no valuation yet.
+  if(haveArts){
+    Object.keys(arts).forEach(function(c){
+      if(by[c]) return;
+      var a = arts[c];
+      if(!a.on_assortment) return;
+      acAll.push({ code:c, name:a.name||'', group:'Other', unit:a.unit||'',
+                   price:null, month:null, supplier:a.supplier||'',
+                   orderable:true, retiring:!!a.retiring });
+    });
+  }
   // group then name — so the headings read top to bottom instead of jumping
   acAll.sort(function(a,b){
     return a.group===b.group ? a.name.localeCompare(b.name) : a.group.localeCompare(b.group);
@@ -221,7 +277,14 @@ function acRenderRows(){
     html +=
       '<div class="ac-row'+(i===acSel?' sel':'')+'" id="ac-row-'+i+'" onclick="acOpen('+i+')">' +
         '<div>' +
-          '<div class="ac-name">'+acEsc(r.name)+'</div>' +
+          '<div class="ac-name">'+acEsc(r.name)+
+            // `orderable === false` is a fact off the assortment. `null` means
+            // the assortment did not load, and then nothing is claimed either
+            // way — a wrong "dropped" would stop a chef ordering something
+            // perfectly good.
+            (r.orderable === false ? '<span class="ac-flag dead">not orderable</span>' : '') +
+            (r.retiring ? '<span class="ac-flag retiring">retiring</span>' : '') +
+          '</div>' +
           '<div class="ac-meta">' +
             '<span class="ac-code">'+acEsc(r.code)+'</span>' +
             '<span>'+acEsc(r.group)+'</span>' +
@@ -230,7 +293,7 @@ function acRenderRows(){
         '</div>' +
         '<div class="ac-unit">'+acEsc(r.unit)+'</div>' +
         '<div class="ac-price">'+acMoney(r.price)+' <span class="ac-cur">AED</span>' +
-          '<div class="ac-pricenote">'+acSheetShort(r.month)+' sheet</div></div>' +
+          '<div class="ac-pricenote">'+(r.month ? acSheetShort(r.month)+' sheet' : 'no sheet price')+'</div></div>' +
       '</div>';
   });
   if(acShown.length > AC_LIMIT){
@@ -338,6 +401,9 @@ function acInjectCss(){
     '.ac-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:11px;color:#8B7355;margin-top:2px}',
     '.ac-code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#6B1F2A;background:#f6efe6;border-radius:4px;padding:1px 5px}',
     '.ac-code.big{font-size:13px;padding:2px 7px}',
+    '.ac-flag{display:inline-block;margin-left:6px;font-size:9.5px;font-weight:700;border-radius:20px;padding:1px 7px;vertical-align:middle}',
+    '.ac-flag.dead{background:#FDECEA;color:#b3261e;border:1px solid #F2B8B2}',
+    '.ac-flag.retiring{background:#EEF2FA;color:#2a4a7a;border:1px solid #C3D2EA}',
     '.ac-unit{font-size:12px;color:#8B7355;text-align:right}',
     '.ac-price{text-align:right;font-weight:700;font-size:14px;color:#2C1810}',
     '.ac-cur{font-size:10px;color:#8B7355;font-weight:600}',

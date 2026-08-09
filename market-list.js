@@ -163,28 +163,309 @@ async function mlSetQty(itemId, weekday, value){
   return res || {};
 }
 
-// ── add a custom item (not on master list) ──
+// ══════════════════════════════════════════════════════════════════════════
+// THE FMC ARTICLE CATALOGUE
+//
+// ⛔ NEVER MATCH AN ORDER LINE AGAINST `stock_take_items`. ⛔
+//
+// `stock_take_items` is an INVENTORY EXPORT. It records what was counted on a
+// shelf, which is a different question from "will FMC let me order this", and
+// it carries discontinued articles indefinitely. Four were confirmed dead in
+// one afternoon on 8 Aug 2026 — 4029044 Fennel -Europe, 4017171 Tomato Peeled
+// Casar, 4017201 Porcini Dried Cepes, 4017263 Dates Sugar — each one looking
+// perfectly healthy in the export and each one refused by FMC on an order.
+// Matching against it is what put them on the list in the first place.
+//
+// The Kitchen Market List ASSORTMENT is the only list that knows what is
+// orderable. `fmc_articles` is harvested from it (see fmc-helper/) and is the
+// single source of truth for creating an item here, for recipes, and for the
+// order helper. `stock_take_items` keeps its stock-take role and nothing else.
+//
+// If you are about to add a lookup against stock_take_items to "fill a gap":
+// the gap is the point. An article missing from the assortment cannot be
+// ordered, and finding a name for it elsewhere only hides that.
+// ══════════════════════════════════════════════════════════════════════════
+
+var mlArticles   = [];        // [{code,name,unit,supplier,on_assortment,retiring}]
+var mlArtByCode  = {};        // code -> article, for flagging existing lines
+var mlArtLoaded  = false;     // false until the fetch lands (or fails)
+
+// Loaded once per open, after the grid is drawn. The market list must work at
+// full speed whether or not this ever arrives: with no catalogue the add box
+// falls back to plain free text, which is exactly what it did before, and no
+// row gets a flag it cannot justify.
+async function mlLoadArticles(){
+  var rows = await mlFetchAllPaged(function(){
+    return sb.from('fmc_articles')
+      .select('code,name,unit,supplier,on_assortment,retiring')
+      .eq('venue_id','robertos-difc')
+      .eq('on_assortment', true)
+      .order('name');
+  });
+  if(!rows || !rows.length) return;          // no catalogue -> no claims
+  mlArticles = rows;
+  mlArtByCode = {};
+  rows.forEach(function(a){ mlArtByCode[String(a.code).trim()] = a; });
+  mlArtLoaded = true;
+  if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); }
+}
+
+// What is wrong with this line's article, if anything. Returns null when the
+// line is fine, when it has no code at all, when it was deliberately created
+// with no FMC article, or when the catalogue never loaded — a flag we cannot
+// stand behind is worse than no flag.
+function mlArticleFlag(it){
+  if(!mlArtLoaded) return null;
+  if(it.fmc_none) return { kind:'none', label:'not in FMC',
+    why:'No FMC article — ordered the way it always has been.' };
+  var code = (it.code||'').trim();
+  if(!code) return null;
+  var art = mlArtByCode[code];
+  if(!art) return { kind:'dead', label:'dead code ' + code,
+    why:'FMC will not accept ' + code + ' — it is not on the assortment. Repoint this line to the right article.' };
+  if(art.retiring) return { kind:'retiring', label:'retiring',
+    why:'FMC is withdrawing this article. It can still be ordered today.' };
+  return null;
+}
+
+// ── search ────────────────────────────────────────────────────────────────
+// Name-starts-with first, then anything containing it, then code and supplier.
+// A chef typing "tom" wants Tomato before Beef Tenderloin Side Strap.
+function mlSearchArticles(q){
+  q = (q||'').trim().toLowerCase();
+  if(q.length < 2) return [];
+  var starts = [], contains = [];
+  for(var i=0;i<mlArticles.length;i++){
+    var a = mlArticles[i], n = (a.name||'').toLowerCase();
+    if(n.indexOf(q)===0 || String(a.code).indexOf(q)===0) starts.push(a);
+    else if(n.indexOf(q)>=0 || String(a.code).indexOf(q)>=0 ||
+            (a.supplier||'').toLowerCase().indexOf(q)>=0) contains.push(a);
+    if(starts.length + contains.length > 300) break;
+  }
+  return starts.concat(contains).slice(0, 30);
+}
+
+var mlPickState = {};   // safe(category) -> { hits:[], sel:0, picked:article|null }
+
+function mlEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function mlAddInput(category, safe, value){
+  var st = mlPickState[safe] || (mlPickState[safe] = { hits:[], sel:0, picked:null });
+  st.picked = null;                       // typing again abandons the last pick
+  st.hits = mlSearchArticles(value);
+  st.sel = 0;
+  mlRenderPickMenu(category, safe);
+}
+
+function mlRenderPickMenu(category, safe){
+  var st = mlPickState[safe]; if(!st) return;
+  var box = document.getElementById('mlpick-' + safe); if(!box) return;
+  var inp = document.getElementById('mladd-' + safe);
+  var q = inp ? (inp.value||'').trim() : '';
+  if(q.length < 2 || !mlArtLoaded){ box.style.display='none'; box.innerHTML=''; return; }
+
+  var html = st.hits.map(function(a,i){
+    return '<div class="ml-pick-opt' + (i===st.sel?' sel':'') + '" data-i="' + i + '">' +
+      '<div class="ml-pick-nm">' + mlEsc(a.name) +
+        (a.retiring ? '<span class="ml-flag retiring">retiring</span>' : '') +
+        '<div class="ml-pick-meta">' + mlEsc(a.unit||'—') +
+        (a.supplier ? ' · ' + mlEsc(a.supplier) : '') + '</div></div>' +
+      '<span class="ml-pick-code">' + mlEsc(a.code) + '</span></div>';
+  }).join('');
+
+  // Free text is ALWAYS offered when CREATING a line, whether or not anything
+  // matched: eleven lines genuinely have no FMC article and blocking them
+  // would be wrong. Repointing is the opposite case — it exists to put a real
+  // article behind a line, so "none of these" is not an answer there.
+  if(safe === 'repoint'){
+    if(!st.hits.length) html = '<div class="ml-pick-free">Nothing on the FMC assortment matches.</div>';
+    box.innerHTML = html;
+    box.style.display = 'block';
+    Array.prototype.forEach.call(box.querySelectorAll('[data-i]'), function(el){
+      el.onclick = function(e){ e.stopPropagation(); mlPickChoose('', 'repoint', +el.dataset.i); };
+    });
+    return;
+  }
+  html += '<div class="ml-pick-free' + (st.sel===st.hits.length?' sel':'') +
+    '" data-i="' + st.hits.length + '"><b>Add “' + mlEsc(q) + '” anyway</b>' +
+    '<span>' + (st.hits.length ? 'None of these is right' : 'No FMC article matches') +
+    ' — the item is created and marked <b>not in FMC</b>.</span></div>';
+
+  box.innerHTML = html;
+  box.style.display = 'block';
+  Array.prototype.forEach.call(box.querySelectorAll('[data-i]'), function(el){
+    el.onclick = function(e){ e.stopPropagation(); mlPickChoose(category, safe, +el.dataset.i); };
+  });
+  var sel = box.querySelector('.sel'); if(sel && sel.scrollIntoView) sel.scrollIntoView({block:'nearest'});
+}
+
+function mlAddKey(e, category, safe){
+  var st = mlPickState[safe]; if(!st) return;
+  var box = document.getElementById('mlpick-' + safe);
+  var open = box && box.style.display === 'block';
+  if(e.key === 'ArrowDown' && open){ e.preventDefault(); st.sel = Math.min(st.hits.length, st.sel+1); mlRenderPickMenu(category, safe); }
+  else if(e.key === 'ArrowUp' && open){ e.preventDefault(); st.sel = Math.max(0, st.sel-1); mlRenderPickMenu(category, safe); }
+  else if(e.key === 'Escape' && open){ e.preventDefault(); box.style.display='none'; }
+  else if(e.key === 'Enter'){
+    e.preventDefault();
+    if(open) mlPickChoose(category, safe, st.sel);
+    else mlAddCustom(category, safe);        // catalogue never loaded — plain add
+  }
+}
+
+function mlPickChoose(category, safe, i){
+  var st = mlPickState[safe]; if(!st) return;
+  var box = document.getElementById('mlpick-' + safe);
+  var inp = document.getElementById('mladd-' + safe);
+  if(i < st.hits.length){
+    st.picked = st.hits[i];
+    if(inp) inp.value = st.picked.name;
+  } else {
+    st.picked = null;                        // free text: keep what was typed
+  }
+  if(box) box.style.display = 'none';
+  // The repoint picker shares this menu but not its destination: it changes
+  // the article behind an existing line instead of creating one, and it has no
+  // free-text option to fall through to.
+  if(safe === 'repoint'){
+    if(st.picked) mlRepoint(mlRepointFor, st.picked);
+    return;
+  }
+  mlAddCustom(category, safe);
+}
+
+// ── add an item ───────────────────────────────────────────────────────────
+// Two ways in, and both are legitimate:
+//   picked from the catalogue -> code, fmc_unit and supplier are filled here,
+//     with no second step for anybody. The pick IS the confirmation, so
+//     fmc_verified_at is stamped: a line resolved against the assortment is at
+//     least as trustworthy as one matched by hand on the Match-to-FMC screen,
+//     and leaving it blank would send it back into that queue to be answered
+//     a second time.
+//   free text -> fmc_none, which says a PERSON decided there is no article.
+//     That is a different fact from silence, and it keeps the line out of the
+//     Match-to-FMC count for ever instead of asking the same question weekly.
 async function mlAddCustom(category, safe){
   const inp = document.getElementById('mladd-' + safe);
   if(!inp) return;
-  const name = (inp.value||'').trim();
-  if(!name) return;
+  const typed = (inp.value||'').trim();
+  if(!typed) return;
+  const st = mlPickState[safe] || {};
+  const art = st.picked || null;
+
   // sort it just after the last existing item in this category
   const inCat = mlItems.filter(i=>i.category===category);
   const maxSort = inCat.length ? Math.max(...inCat.map(i=>i.sort_order||0)) : 0;
-  const { data, error } = await sb.from('order_items')
-    .insert({ name, category, unit:'', sort_order: maxSort + 1, active:true })
-    .select().single();
+
+  const row = { name: art ? art.name : typed, category,
+                unit: art ? (art.unit||'') : '',
+                sort_order: maxSort + 1, active:true };
+  if(art){
+    row.code = art.code;
+    row.fmc_unit = art.unit || null;
+    row.supplier = art.supplier || null;
+    row.fmc_verified_at = new Date().toISOString();
+    row.fmc_verified_by = 'catalogue';
+  } else if(mlArtLoaded){
+    row.fmc_none = true;         // only claim this when we actually looked
+  }
+
+  const { data, error } = await sb.from('order_items').insert(row).select().single();
   if(error){ alert('Could not add item: ' + error.message); return; }
   data.custom = true;
   mlItems.push(data);
   mlItems.sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
   inp.value='';
+  if(st) { st.picked = null; st.hits = []; st.sel = 0; }
+  const menu = document.getElementById('mlpick-' + safe); if(menu) menu.style.display='none';
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
+  if(typeof kToast === 'function'){
+    kToast(art ? ('✓ ' + art.name + ' added · ' + art.code + ' · ' + (art.unit||''))
+               : ('✓ ' + typed + ' added — marked not in FMC'));
+  }
   // keep focus flowing: re-focus the same category's add box
   const again = document.getElementById('mladd-' + safe);
   if(again) again.focus();
+}
+
+// ── repointing a dead code ────────────────────────────────────────────────
+// NEVER deactivate a line to clean up a dead code. Deactivating orphans the
+// quantities: the app loads with .eq('active', true), so the row vanishes from
+// every screen while order_quantities still holds the numbers. That is how 3kg
+// of heirloom tomatoes were lost on 7 Aug 2026.
+//
+// Repointing keeps `item_id` exactly where it is, so every quantity ever
+// ordered against this line — past weeks included — stays attached to it.
+// Only the article behind it changes.
+// The article is CHOSEN FROM A LIST, never typed and matched behind the
+// person's back. A repoint writes a new article code onto a line that already
+// carries quantities, so a wrong pick here orders the wrong thing and invoices
+// for it — the exact failure this whole catalogue exists to stop. Chained
+// prompt() boxes, where somebody types a name and the code silently takes the
+// first match, are how that happens. The same picker as the add box, showing
+// code, unit and supplier on every option, means the choice is visible.
+var mlRepointFor = null;      // item id the picker is open for
+
+function mlRepointOpen(itemId){
+  var it = mlItems.find(function(x){ return x.id === itemId; });
+  if(!it) return;
+  if(!mlArtLoaded){ alert('The article catalogue has not loaded yet — give it a moment and try again.'); return; }
+  mlRepointFor = itemId;
+  mlPickState.repoint = { hits:[], sel:0, picked:null };
+  var host = document.getElementById('ml-repoint-host'); if(!host) return;
+  host.innerHTML =
+    '<div class="ml-catadd-combo" style="margin-top:8px">' +
+      '<input class="check-input ml-catadd-input" id="mladd-repoint" autocomplete="off" ' +
+        'placeholder="Find the right FMC article…" ' +
+        'oninput="mlAddInput(\'\',\'repoint\',this.value)" ' +
+        'onkeydown="mlRepointKey(event)">' +
+      '<div class="ml-pick-menu" id="mlpick-repoint"></div>' +
+    '</div>';
+  var inp = document.getElementById('mladd-repoint'); if(inp) inp.focus();
+}
+
+// The picker's own Enter/arrows, minus the free-text escape hatch: repointing
+// at "no article" is not a thing. Clearing a dead code is what fmc_none is for.
+function mlRepointKey(e){
+  var st = mlPickState.repoint; if(!st) return;
+  var box = document.getElementById('mlpick-repoint');
+  var open = box && box.style.display === 'block';
+  if(e.key === 'ArrowDown' && open){ e.preventDefault(); st.sel = Math.min(st.hits.length-1, st.sel+1); mlRenderPickMenu('', 'repoint'); }
+  else if(e.key === 'ArrowUp' && open){ e.preventDefault(); st.sel = Math.max(0, st.sel-1); mlRenderPickMenu('', 'repoint'); }
+  else if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); var h=document.getElementById('ml-repoint-host'); if(h) h.innerHTML=''; mlRepointFor=null; }
+  // stopPropagation matters: the module's document-level keydown treats Enter
+  // inside an open editor as "Save", so without it choosing an article here
+  // would also save and close the popup underneath.
+  else if(e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); if(open && st.hits[st.sel]) mlRepoint(mlRepointFor, st.hits[st.sel]); }
+}
+
+async function mlRepoint(itemId, art){
+  var it = mlItems.find(function(x){ return x.id === itemId; });
+  if(!it || !art) return;
+
+  var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
+  if(!confirm('Point "' + it.name + '" at:\n\n' + art.name + '\n' + art.code + ' · ' + (art.unit||'') +
+      (art.supplier ? '\n' + art.supplier : '') +
+      '\n\nThe line keeps its place and every quantity on it' +
+      (ordered ? ' — including ' + ordered + ' day' + (ordered===1?'':'s') + ' this week' : '') + '.')) return;
+
+  var res = await sb.from('order_items').update({
+    code: art.code, fmc_unit: art.unit || null, supplier: art.supplier || null,
+    fmc_none: false,
+    fmc_verified_at: new Date().toISOString(), fmc_verified_by: 'catalogue'
+  }).eq('id', itemId);
+  if(res && res.error){
+    var m = 'Could not repoint it — ' + res.error.message;
+    if(typeof kToast === 'function') kToast(m, true); else alert(m);
+    return;
+  }
+  it.code = art.code; it.fmc_unit = art.unit || null; it.supplier = art.supplier || null; it.fmc_none = false;
+  mlRepointFor = null;
+  mlCloseEditor();
+  mlRenderRows(mlVisibleDays());
+  if(typeof kToast === 'function') kToast('✓ "' + it.name + '" now points at ' + art.code + ' · ' + art.name);
 }
 
 // ── filtered rows ──
@@ -285,8 +566,21 @@ function renderMarketList(){
 // stops asking for attention.
 async function mlFmcCount(){
   var btn = document.getElementById('ml-fmc'); if(!btn) return;
+  // `fmc_none` lines are excluded on purpose: a person has already decided
+  // there is no FMC article for them. Counting them would ask the same
+  // answered question every week and the number would never reach zero.
+  //
+  // Falls back to the old count if the column isn't there yet. PostgREST
+  // answers an unknown column with a 400, so without this the button would
+  // quietly stop showing its number on any deploy that landed before the
+  // migration — the front-end and the schema ship separately and neither can
+  // wait for the other.
   var res = await sb.from('order_items').select('id', { count:'exact', head:true })
-    .eq('active', true).is('code', null).is('fmc_verified_at', null);
+    .eq('active', true).is('code', null).is('fmc_verified_at', null).eq('fmc_none', false);
+  if(res.error){
+    res = await sb.from('order_items').select('id', { count:'exact', head:true })
+      .eq('active', true).is('code', null).is('fmc_verified_at', null);
+  }
   if(res.error) return;                       // no number is better than a wrong one
   var b = document.getElementById('ml-fmc'); if(!b) return;
   b.textContent = res.count ? ('Match to FMC · ' + res.count) : 'Match to FMC';
@@ -330,8 +624,13 @@ function mlRenderRows(days){
     const safe = cat.replace(/[^a-z0-9]/gi,'_');
     html += `<div class="ml-cat" id="ml-cat-${safe}">${cat}</div>`;
     rows.forEach(it=>{
+      // The flag is the whole point of the catalogue on this screen: a line
+      // carrying a code FMC will refuse looks exactly like a healthy one until
+      // somebody tries to order it.
+      const fl = mlArticleFlag(it);
+      const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
       html += `<div class="ml-row ml-row-tap" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name"><div class="ml-name">${it.name}${it.category==='CUSTOM'||it.custom?'':''}</div><div class="ml-unit">${it.unit||''}</div></div>
+        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${it.unit||''}</div></div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -343,9 +642,16 @@ function mlRenderRows(days){
     });
     // per-category add box (hidden while ordered-only, to keep the chef view clean)
     if(!mlOrderedOnly){
+      const c1 = cat.replace(/'/g,"\\'");
       html += `<div class="ml-catadd">
-        <input class="check-input ml-catadd-input" id="mladd-${safe}" placeholder="Add item to ${cat}…" onkeydown="if(event.key==='Enter')mlAddCustom('${cat.replace(/'/g,"\\'")}','${safe}')">
-        <button class="ml-catadd-btn" onclick="mlAddCustom('${cat.replace(/'/g,"\\'")}','${safe}')">Add</button>
+        <div class="ml-catadd-combo">
+          <input class="check-input ml-catadd-input" id="mladd-${safe}" autocomplete="off"
+                 placeholder="${mlArtLoaded?`Add item to ${cat} — type to find an FMC article…`:`Add item to ${cat}…`}"
+                 oninput="mlAddInput('${c1}','${safe}',this.value)"
+                 onkeydown="mlAddKey(event,'${c1}','${safe}')">
+          <div class="ml-pick-menu" id="mlpick-${safe}"></div>
+        </div>
+        <button class="ml-catadd-btn" onclick="mlAddCustom('${c1}','${safe}')">Add</button>
       </div>`;
     }
   });
@@ -372,17 +678,56 @@ function mlRenderRows(days){
 // Sits to the LEFT of Cancel and Save, quiet and outlined, because the thumb
 // that opens this popup fifty times a service is aiming at Save. It is only
 // ever reached deliberately.
-function mlInjectRemoveCss(){
-  if(document.getElementById('ml-remove-css')) return;
+function mlInjectCss(){
+  if(document.getElementById('ml-module-css')) return;
   var s = document.createElement('style');
-  s.id = 'ml-remove-css';
+  s.id = 'ml-module-css';
   s.textContent = [
     // `.ml-ed-btn` is flex:1 — left alone this would make "Take off the list"
     // exactly as wide and as inviting as Save, sitting under the same thumb.
     // It keeps its own width and gives the rest of the row to Cancel and Save.
     '.ml-ed-remove{flex:0 0 auto;margin-right:auto;background:#fff;border:1px solid rgba(107,31,42,.25);color:#8a3226;font-size:13px;padding:12px 12px}',
     '.ml-ed-remove:hover{background:#fdf4f2;border-color:#c98d80}',
-    '@media(max-width:420px){.ml-ed-remove{font-size:12px;padding-left:10px;padding-right:10px}}'
+    '@media(max-width:420px){.ml-ed-remove{font-size:12px;padding-left:10px;padding-right:10px}}',
+
+    // ── the article picker ──
+    // The combo must establish the positioning context, not .ml-catadd: the
+    // add row is a flex container and anchoring the menu to it would drop the
+    // list under the Add button instead of under the field being typed in.
+    '.ml-catadd-combo{position:relative;flex:1;min-width:0}',
+    '.ml-catadd-combo .ml-catadd-input{width:100%}',
+    '.ml-pick-menu{display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;',
+      'background:#fff;border:1px solid rgba(64,2,7,.18);border-radius:8px;',
+      'box-shadow:0 10px 26px rgba(64,2,7,.16);max-height:300px;overflow:auto;text-align:left}',
+    '.ml-pick-opt{display:flex;gap:9px;align-items:flex-start;padding:8px 11px;cursor:pointer;',
+      'border-bottom:1px solid rgba(64,2,7,.06)}',
+    '.ml-pick-opt:last-child{border-bottom:0}',
+    '.ml-pick-opt.sel,.ml-pick-opt:hover{background:#FBF6EC}',
+    '.ml-pick-nm{flex:1;min-width:0;font-size:13px;font-weight:600;color:#2C1810}',
+    '.ml-pick-meta{font-size:11px;font-weight:400;color:#8B7355;margin-top:1px}',
+    '.ml-pick-code{font:600 11px ui-monospace,Menlo,monospace;color:#400207;background:#F3EADD;',
+      'border-radius:4px;padding:2px 6px;white-space:nowrap}',
+    '.ml-pick-free{padding:10px 11px;background:#FDF4E0;border-top:1px solid rgba(64,2,7,.1);',
+      'cursor:pointer;font-size:12.5px;color:#2C1810}',
+    '.ml-pick-free.sel,.ml-pick-free:hover{background:#FAE9C6}',
+    '.ml-pick-free b{color:#8a5a00}',
+    '.ml-pick-free span{display:block;font-size:11px;color:#8B7355;margin-top:2px}',
+
+    // ── row flags ──
+    // Inline-block, never inline-flex: .ml-name is nowrap + ellipsis, and a
+    // flex child inside it refuses to be clipped, so a long article name would
+    // push the flag off the row instead of truncating.
+    '.ml-flag{display:inline-block;margin-left:6px;font:600 9.5px var(--font-sans,sans-serif);',
+      'border-radius:20px;padding:1px 7px;vertical-align:middle;letter-spacing:.3px}',
+    '.ml-flag.dead{background:#FDECEA;color:#b3261e;border:1px solid #F2B8B2}',
+    '.ml-flag.none{background:#FDF4E0;color:#8a5a00;border:1px solid #E4C98A}',
+    '.ml-flag.retiring{background:#EEF2FA;color:#2a4a7a;border:1px solid #C3D2EA}',
+    '.ml-ed-flagline{margin:8px 0 0;padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.4}',
+    '.ml-ed-flagline.dead{background:#FDECEA;color:#8a1c16}',
+    '.ml-ed-flagline.none{background:#FDF4E0;color:#6d4700}',
+    '.ml-ed-flagline.retiring{background:#EEF2FA;color:#23405f}',
+    '.ml-ed-repoint{margin-top:7px;background:#fff;border:1px solid #c98d80;color:#8a3226;',
+      'border-radius:6px;padding:8px 12px;font:600 12px var(--font-sans,sans-serif);cursor:pointer}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -415,15 +760,36 @@ async function mlRemoveItem(itemId){
   var who = await mlIdentify();
   if(!who) return;
 
-  // The count is the point of the warning: an item ordered this week is one
-  // somebody is actively using, and that is worth saying out loud before it
-  // disappears from under them.
+  // ── THE ORPHAN GUARD ──────────────────────────────────────────────────
+  // `active = false` does NOT keep the quantities reachable. The app loads
+  // with .eq('active', true), so the line disappears from every screen while
+  // order_quantities still holds its numbers: nobody can see them, nobody can
+  // correct them, and they drop silently out of the order. That is exactly
+  // what happened to 3kg of heirloom tomatoes on 7 Aug 2026 — item 431 was
+  // switched off as a duplicate with the quantity still on it, and the twin
+  // (434) carried nothing.
+  //
+  // The old warning said "those orders are kept", which is true of the rows
+  // and false of the order. So a line with a quantity on it is now REFUSED,
+  // and the person is pointed at the two things that actually work: clear the
+  // quantities first, or repoint the line and keep its history.
   var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
-  var warn = ordered
-    ? '\n\nIt has a quantity on ' + ordered + ' day' + (ordered===1?'':'s') + ' of this week. Those orders are kept, but the line will not be on the list any more.'
-    : '';
-  if(!confirm('Take "' + it.name + '" off the market list?' + warn +
-              '\n\nNothing is deleted — everything ever ordered against it is kept. Ask Francesco to put it back.')) return;
+  if(ordered){
+    var days = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; })
+                            .map(function(wd){ return ML_DAYS[wd-1] + ' ' + mlQty[itemId+'|'+wd]; });
+    alert('"' + it.name + '" cannot be taken off the list yet.\n\n' +
+      'It still has a quantity on ' + ordered + ' day' + (ordered===1?'':'s') + ' of this week:\n  ' +
+      days.join('\n  ') +
+      '\n\nSwitching it off now would hide the line while those quantities stayed in the ' +
+      'database — they would never be ordered and nobody would see them. Three kilos of ' +
+      'heirloom tomatoes were lost that way on 7 August.\n\n' +
+      'Either clear those quantities first, or — if this is a duplicate — repoint the line ' +
+      'at the right article instead, which keeps everything ever ordered against it.');
+    return;
+  }
+  if(!confirm('Take "' + it.name + '" off the market list?' +
+              '\n\nIt has no quantities this week. Nothing is deleted — everything ever ordered ' +
+              'against it in past weeks is kept. Ask Francesco to put it back.')) return;
 
   var res = await sb.from('order_items').update({ active:false }).eq('id', itemId);
   if(res && res.error){
@@ -483,6 +849,12 @@ function mlOpenEditor(itemId){
         <div class="ml-ed-cat">${it.category}</div>
         <div class="ml-ed-name">${it.name}</div>
         ${it.unit?`<div class="ml-ed-unit">${it.unit}</div>`:''}
+        ${(()=>{ const fl = mlArticleFlag(it); if(!fl) return '';
+          // Spelled out here, not just as a chip: the grid has room for a
+          // label, this is where somebody can actually act on it.
+          return `<div class="ml-ed-flagline ${fl.kind}">${mlEsc(fl.why)}` +
+            (fl.kind==='dead' ? `<br><button type="button" class="ml-ed-repoint" onclick="mlRepointOpen(${it.id})">Repoint to the right article…</button><div id="ml-repoint-host"></div>` : '') +
+            `</div>`; })()}
       </div>
       <div class="ml-ed-body">${dayRows}</div>
       <div class="ml-ed-foot">
@@ -493,7 +865,7 @@ function mlOpenEditor(itemId){
     </div>`;
   box.addEventListener('click', mlCloseEditor); // click backdrop closes
   document.body.appendChild(box);
-  mlInjectRemoveCss();
+  mlInjectCss();
   setTimeout(()=>{ const f=document.getElementById('ml-ed-q1'); if(f) f.focus(); }, 60);
 }
 
@@ -680,9 +1052,17 @@ async function openMarketList(){
   if(window.innerWidth < 760 && !mlActiveDay) mlActiveDay = mlWeekdayToday() || 1;
   if(window.innerWidth >= 760) mlActiveDay = null;
   mlLoadHidden();
+  // Injected before the first render, not on opening the editor: the picker
+  // and the row flags are drawn with the grid, so styling them later would
+  // show one unstyled frame of raw list on every open.
+  mlInjectCss();
   await loadMarketList();
   subscribeMarketList();
   renderMarketList();
+  // After the grid is drawn, never before. The list must open at full speed
+  // whether or not the catalogue arrives; when it does, the rows re-render
+  // with their flags and the add box starts resolving articles.
+  mlLoadArticles().catch(function(e){ console.warn('fmc_articles load failed', e); });
 }
 
 // ── keyboard handling for the edit popup (Esc closes, Enter saves) ──
