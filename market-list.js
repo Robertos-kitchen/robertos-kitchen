@@ -103,7 +103,71 @@ async function mlFetchAllPaged(build){
 async function loadMarketList(){
   mlWeekStart = mlComputeWeekStart();
   mlItems = await mlFetchAllPaged(function(){ return sb.from('order_items').select('*').eq('active', true).order('sort_order'); });
-  await loadMarketQuantities();
+  await Promise.all([loadMarketQuantities(), loadFmcPrices(), loadRequisitions()]);
+}
+
+// ── what the order is worth, and what it became in Materials Control ───────
+// Both read their table. Neither keeps a copy of a number that lives in the
+// database, so a price change or a new requisition shows up here by itself.
+const ML_VENUE = 'robertos-difc';
+let mlPrices = {};   // FMC article code -> contract price
+let mlReqs   = [];   // fmc_requisitions rows for this week, newest first
+
+// The value is worked out from fmc_articles.price - FMC's own contract price,
+// harvested off the assortment. It is INDICATIVE and says so on screen: the
+// prices are a snapshot, and any line whose article has no price yet is
+// counted separately rather than quietly left out. On Monday 10 Aug 2026 seven
+// of sixty-eight lines had no price, worth 1,919.96 at FMC's own figures - a
+// total that dropped them without a word would have read 8,206 for an order
+// really worth 10,126, and nothing on screen would have said so.
+async function loadFmcPrices(){
+  mlPrices = {};
+  const rows = await mlFetchAllPaged(function(){
+    return sb.from('fmc_articles').select('code,price').eq('venue_id', ML_VENUE);
+  });
+  (rows||[]).forEach(r=>{
+    if(r.code && r.price != null) mlPrices[String(r.code).trim()] = Number(r.price);
+  });
+}
+
+// Append-only ledger: a requisition that was created and later deleted in FMC
+// has two rows, so the newest row for a number is its current state. Written
+// only by the FMC helper - this app never writes here.
+async function loadRequisitions(){
+  mlReqs = [];
+  const r = await sb.from('fmc_requisitions').select('*')
+    .eq('venue_id', ML_VENUE).eq('week_start', mlWeekStart)
+    .order('id', { ascending:false });
+  if(r.error){ console.warn('fmc_requisitions load failed', r.error); return; }
+  mlReqs = r.data || [];
+}
+
+function mlMoney(n){
+  return Number(n||0).toLocaleString('en-GB', { maximumFractionDigits:0 });
+}
+
+function mlOrderValue(days){
+  let total=0, priced=0, unpriced=0;
+  mlItems.forEach(it=>{
+    const code = (it.code||'').trim();
+    const price = code ? mlPrices[code] : undefined;
+    days.forEach(wd=>{
+      const qty = Number(mlQty[it.id+'|'+wd]);
+      if(!qty) return;
+      if(price == null){ unpriced++; return; }
+      total += qty * price; priced++;
+    });
+  });
+  return { total, priced, unpriced };
+}
+
+// The newest row per requisition number, for the days on screen.
+function mlReqsForDays(days){
+  const latest = {};
+  mlReqs.forEach(r=>{ if(!latest[r.requisition_no]) latest[r.requisition_no] = r; });
+  return Object.keys(latest).map(k=>latest[k])
+    .filter(r=>days.indexOf(r.weekday) !== -1)
+    .sort((a,b)=>a.weekday-b.weekday);
 }
 async function loadMarketQuantities(){
   mlQty = {}; mlQtyMeta = {};
@@ -595,12 +659,56 @@ async function mlFmcCount(){
 function mlRenderSummary(){
   const el = document.getElementById('ml-summary'); if(!el) return;
   const days = mlVisibleDays();
+  const scope = mlActiveDay ? ML_DAYS[mlActiveDay-1] : 'shown days';
+  const val = mlOrderValue(days);
+
+  // Never a lone figure. If some lines have no price the tile says how many,
+  // because a total that cannot see part of the order must not look complete.
+  const valueNote = val.unpriced
+    ? `${val.priced} of ${val.priced+val.unpriced} lines priced`
+    : `${scope} · at FMC prices`;
+
   el.innerHTML = `
+    ${mlReqHtml(days)}
     <div class="ops-grid ml-grid">
-      <div class="ops-card dark"><div class="ops-num">${mlOrderedCount()}</div><div class="ops-label">Lines ordered (${mlActiveDay?ML_DAYS[mlActiveDay-1]:'shown days'})</div></div>
+      <div class="ops-card dark"><div class="ops-num">${mlOrderedCount()}</div><div class="ops-label">Lines ordered (${scope})</div></div>
+      <div class="ops-card"><div class="ops-num">${mlMoney(val.total)}</div><div class="ops-label">AED · about, ${valueNote}</div></div>
       <div class="ops-card"><div class="ops-num">${mlItems.length}</div><div class="ops-label">Market list items</div></div>
       <div class="ops-card"><div class="ops-num">${days.length}</div><div class="ops-label">Days shown</div></div>
     </div>`;
+}
+
+// What each day on screen became in Materials Control. Silent for a day that
+// has nothing ordered - the screen shows the state of the work, not a nag.
+function mlReqHtml(days){
+  const found = mlReqsForDays(days);
+  const bits = [];
+
+  found.forEach(r=>{
+    const gone = r.status === 'deleted';
+    const when = ML_DAYS[r.weekday-1] + ' ' + mlDateForWeekday(r.weekday).split(' ').slice(1).join(' ');
+    const parts = [r.line_count ? r.line_count + ' lines' : '',
+                   r.total != null ? 'AED ' + mlMoney(r.total) : ''].filter(Boolean).join(' · ');
+    bits.push(`<span class="ml-req-item${gone?' gone':''}">
+        <b>${when}</b> ·
+        <span class="ml-req-no"${gone?' style="text-decoration:line-through;"':''}>${r.requisition_no}</span>
+        ${parts?' · '+parts:''}${gone?' · deleted in FMC':''}
+        ${r.reconciled === false ? ' · <b style="color:#a11">did not match the order</b>' : ''}
+      </span>`);
+  });
+
+  // Only for a single day the chef is actually looking at, and only when there
+  // is something to request. Six "not yet requested" lines would be noise.
+  if(mlActiveDay && !found.length){
+    const has = mlItems.some(it=>Number(mlQty[it.id+'|'+mlActiveDay]));
+    if(has){
+      const when = ML_DAYS[mlActiveDay-1] + ' ' + mlDateForWeekday(mlActiveDay).split(' ').slice(1).join(' ');
+      bits.push(`<span class="ml-req-item none"><b>${when}</b> · not yet requested in Materials Control</span>`);
+    }
+  }
+
+  if(!bits.length) return '';
+  return `<div class="ml-req">${bits.join('')}</div>`;
 }
 
 function mlRenderRows(days){
