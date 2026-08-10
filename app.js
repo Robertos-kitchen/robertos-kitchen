@@ -69,7 +69,7 @@ const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
 // report (written 2–4am). Version updates now come solely from the ETag guard in
 // index.html, which IS guarded by busy()/__closingActive/__schedEditing and runs
 // at any hour. Do NOT re-add a hardcoded-version reload here.
-const APP_VERSION = 1786278964;
+const APP_VERSION = 1786343605;
 
 // True while someone is mid-task, so the timer below never force-refreshes over
 // live work: a focused field, editing the schedule, or writing the closing report
