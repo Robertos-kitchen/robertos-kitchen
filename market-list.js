@@ -636,7 +636,7 @@ function mlRenderRows(days){
       const fl = mlArticleFlag(it);
       const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
       html += `<div class="ml-row ml-row-tap" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${it.unit||''}</div></div>
+        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -915,7 +915,7 @@ function mlOpenEditor(itemId){
       <div class="ml-ed-head">
         <div class="ml-ed-cat">${it.category}</div>
         <div class="ml-ed-name">${it.name}</div>
-        ${it.unit?`<div class="ml-ed-unit">${it.unit}</div>`:''}
+        ${mlUnitFor(it)?`<div class="ml-ed-unit">${mlUnitFor(it)}</div>`:''}
         ${(()=>{ const fl = mlArticleFlag(it); if(!fl) return '';
           // Spelled out here, not just as a chip: the grid has room for a
           // label, this is where somebody can actually act on it.
@@ -1002,6 +1002,23 @@ function mlOnOnly(v){ mlOrderedOnly=v; mlRenderRows(mlVisibleDays()); mlRenderSu
 function mlPickDay(wd){ mlActiveDay=Number(wd); renderMarketList(); }
 
 // ── consolidated order for a given weekday: [{category, items:[{name,unit,qty}]}] ──
+// The unit to SHOW on a line. FMC's own order unit wherever we have one.
+//
+// `unit` is free text a chef typed when the line was created — 'kilogram',
+// '2kg', '12x 1l'. `fmc_unit` is the packing unit on FMC's Purchase grid, read
+// off the grid and confirmed against FMC's printed Assortment List. On 10 Aug
+// 2026, 222 of the 424 active lines disagreed: 'Basil in Pot -GCC' showed
+// kilogram against a Dish/1x25 Grm order line, and 'Egg Whole Fresh Medium'
+// showed kilogram against Ctn/12Trayx30 Pcs — so a "1" on that line is one
+// carton of 360 eggs, and the label said kilo.
+//
+// The number the chef types IS the number typed into FMC, so the label beside
+// it has to be FMC's. Where there is no fmc_unit — 13 lines — nothing is
+// invented and the line shows what it always showed.
+function mlUnitFor(it){
+  return (it && (it.fmc_unit || it.unit)) || '';
+}
+
 function mlConsolidate(weekday){
   const groups = [];
   let cur = null;
@@ -1009,7 +1026,7 @@ function mlConsolidate(weekday){
     const v = mlQty[it.id+'|'+weekday];
     if(v==null) return;
     if(!cur || cur.category !== it.category){ cur = {category:it.category, items:[]}; groups.push(cur); }
-    cur.items.push({ name:it.name, unit:it.unit||'', qty:v });
+    cur.items.push({ name:it.name, unit:mlUnitFor(it), qty:v });
   });
   return groups;
 }
