@@ -110,7 +110,13 @@ Deno.serve(async (req) => {
   const sb = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   const byCode = new Map<string, any>();
-  for (const m of master) byCode.set(String(m.code), m);
+  // FIRST row wins, and it must: `set` on every row would keep the LAST,
+  // and FMC has 4029136 on both Baby Capsicum Mix and Potato Large Peeled.
+  // Keeping the last flipped that row to Potato at 3.20 against Capsicum's
+  // 62.50 - a 95% 'price move' that is really the two paths disagreeing
+  // about which article the number belongs to. The Python harvest keeps
+  // the first, so this does too.
+  for (const m of master) if (!byCode.has(String(m.code))) byCode.set(String(m.code), m);
 
   const fixed = resolveClipped(assortment, byCode);
   if (fixed.ties.length) {
@@ -159,7 +165,13 @@ Deno.serve(async (req) => {
   }
 
   const stamp = new Date().toISOString();
-  const rows = master.map((m) => ({
+  // Built from the DEDUPED map, never from the raw array. FMC's own file has
+  // at least one number on two articles - 4029136 is on both Baby Capsicum
+  // Mix and Potato Large Peeled - and Postgres rejects the whole batch with
+  // "ON CONFLICT DO UPDATE command cannot affect row a second time" when the
+  // same code appears twice in one upsert. First row wins, exactly as it does
+  // in the Python harvest, so the two paths agree.
+  const rows = [...byCode.values()].map((m) => ({
     code: String(m.code),
     name: m.name,
     unit: m.store_unit || "",

@@ -226,7 +226,8 @@ function acRender(){
   v.innerHTML =
     '<div class="ops-title">Article Catalogue</div>' +
     '<div class="ops-subtitle">Every article FMC can order · read-only · look here for the real name and code' +
-      ' <button class="report-btn" style="margin-left:8px" onclick="openFmcMatch()">Match the market list</button></div>' +
+      ' <button class="report-btn" style="margin-left:8px" onclick="openFmcMatch()">Match the market list</button>' +
+      ' <button class="report-btn" style="margin-left:6px" onclick="acOpenUpload()">Update from FMC</button></div>' +
 
     '<div class="ac-searchbar">' +
       '<div class="ac-sfield">' +
@@ -455,4 +456,275 @@ async function openArticleCatalogue(){
     }
   }
   acRender();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   UPDATE FROM FMC — the two exports, read here, written by an edge function
+   ══════════════════════════════════════════════════════════════════════════
+   Assortment List PDF  -> what the kitchen may ORDER
+   Manage Articles xls  -> what an article IS and what a RECIPE costs on
+
+   The write cannot happen in the browser: a PATCH to `fmc_articles` with the
+   app's key matches the row, changes nothing and returns 204 — success to
+   look at, nothing done. So this parses and `fmc-upload` writes.
+
+   Nothing saves on the first press. The chef reads what moves, then decides;
+   a per-kilo price landing here recosts every dish using it.
+
+   The two parser libraries are ~1.2MB and are fetched only when this panel is
+   opened — the catalogue itself is a search screen and must stay quick. */
+
+var ACU_LIBS = [
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js'
+];
+var acuParsed = { assortment:null, master:null };
+var acuLibsIn = null;
+
+function acuLoadLibs(){
+  if (acuLibsIn) return acuLibsIn;
+  acuLibsIn = Promise.all(ACU_LIBS.map(function(src){
+    return new Promise(function(res, rej){
+      var t = document.createElement('script');
+      t.src = src; t.onload = res;
+      t.onerror = function(){ rej(new Error('could not load the file readers — is the tablet online?')); };
+      document.head.appendChild(t);
+    });
+  })).then(function(){
+    if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  });
+  return acuLibsIn;
+}
+
+/* The Article column is read by POSITION. Flattened to a string a row reads
+   "Beef Topside MB2 Riverina -Australia Kilogram" with nothing marking the
+   join, so splitting it would mean owning a list of every packing unit FMC
+   uses and hoping none of them ever ends an article name. */
+var ACU_X_MAX = 340;
+var ACU_FURNITURE = /^(Assortment List|Assortment:|Article|Qty|Packing Unit|Order Date:|Deliv\. Loc\.:|KITCHEN|Robertos|Page \d|\d{2}-\d{2}-\d{4})/i;
+
+function acuReadAssortment(file){
+  return file.arrayBuffer().then(function(buf){
+    return pdfjsLib.getDocument({ data:buf }).promise;
+  }).then(function(pdf){
+    var pages = []; for (var p=1; p<=pdf.numPages; p++) pages.push(p);
+    return pages.reduce(function(chain, p){
+      return chain.then(function(acc){
+        return pdf.getPage(p).then(function(pg){ return pg.getTextContent(); }).then(function(tc){
+          var rows = {};
+          tc.items.forEach(function(it){
+            var t = (it.str||'').trim(); if(!t) return;
+            var y = Math.round(it.transform[5]);
+            (rows[y] = rows[y] || []).push({ x:it.transform[4], t:t });
+          });
+          Object.keys(rows).sort(function(a,b){ return b-a; }).forEach(function(y){
+            var left = rows[y].sort(function(a,b){ return a.x-b.x; })
+              .filter(function(c){ return c.x < ACU_X_MAX; })
+              .map(function(c){ return c.t; }).join(' ').trim();
+            if (left && !ACU_FURNITURE.test(left)) acc.push(left);
+          });
+          return acc;
+        });
+      });
+    }, Promise.resolve([]));
+  }).then(function(names){
+    if(!names.length) throw new Error('no article lines could be read from that PDF');
+    return names;
+  });
+}
+
+function acuReadMaster(file){
+  return file.arrayBuffer().then(function(buf){
+    var wb = XLSX.read(buf, { type:'array' });
+    if (wb.SheetNames.indexOf('Data') < 0)
+      throw new Error('that file has no "Data" sheet — it is not a Manage Articles export');
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets['Data'], { defval:'' });
+    var need = ['Article No.','Article','Item Group','Base Unit','Store Unit','Last Purchase Price'];
+    var miss = need.filter(function(h){ return !(h in (rows[0]||{})); });
+    if (miss.length) throw new Error('the export is missing ' + miss.join(', '));
+    var out = [];
+    rows.forEach(function(r){
+      var code = String(r['Article No.']).trim().replace(/\.0$/,'');
+      var name = String(r['Article']).trim();
+      if(!code || !name) return;
+      var pr = parseFloat(r['Last Purchase Price']);
+      out.push({ code:code, name:name,
+                 item_group:String(r['Item Group']).trim(),
+                 base_unit:String(r['Base Unit']).trim(),
+                 store_unit:String(r['Store Unit']).trim(),
+                 price_per_base_unit: isFinite(pr) ? pr : null,
+                 retired: /^z{2,}/i.test(name) });
+    });
+    if(!out.length) throw new Error('no articles could be read from that file');
+    return out;
+  });
+}
+
+function acOpenUpload(){
+  var old = document.getElementById('ac-sheet'); if(old) old.remove();
+  acuParsed = { assortment:null, master:null };
+
+  var box = document.createElement('div');
+  box.className = 'ml-daypick-overlay';
+  box.id = 'ac-sheet';
+  box.innerHTML =
+    '<div class="ac-modal" onclick="event.stopPropagation()" style="max-width:640px">' +
+      '<div class="ac-modal-head">' +
+        '<div class="ac-modal-group">From FMC</div>' +
+        '<div class="ac-modal-name">Update the article list</div>' +
+      '</div>' +
+      '<div class="ac-modal-body" id="acu-body">' +
+        '<div class="ac-caution" style="margin-bottom:12px">' +
+          '<b>Assortment List</b> — File, Print, save as PDF. Sets what can be ordered.<br>' +
+          '<b>Manage Articles</b> — the green Excel button. Sets names, units and recipe costs. ' +
+          'Clear any group filter first or drinks are left out.' +
+        '</div>' +
+        '<label class="ac-kv" style="cursor:pointer"><span>Assortment List (PDF)</span>' +
+          '<span id="acu-s1" style="text-align:right">choose&hellip;' +
+          '<input type="file" accept=".pdf,application/pdf" id="acu-f1" style="display:none"></span></label>' +
+        '<label class="ac-kv" style="cursor:pointer"><span>Manage Articles (XLS)</span>' +
+          '<span id="acu-s2" style="text-align:right">choose&hellip;' +
+          '<input type="file" accept=".xls,.xlsx" id="acu-f2" style="display:none"></span></label>' +
+        '<div class="ac-kv"><span>Your code</span>' +
+          '<span><input type="password" id="acu-pin" inputmode="numeric" placeholder="&bull;&bull;&bull;&bull;" ' +
+          'style="width:90px;text-align:center;letter-spacing:3px;padding:7px" oninput="acuReady()"></span></div>' +
+        '<div id="acu-why" class="ac-dash" style="margin-top:8px;font-size:12.5px"></div>' +
+        '<div id="acu-out"></div>' +
+      '</div>' +
+      '<div class="ac-modal-foot">' +
+        '<button type="button" class="ml-ed-btn ml-ed-cancel" onclick="acCloseSheet()">Close</button>' +
+        '<button type="button" class="ml-ed-btn" id="acu-go" disabled onclick="acuCheck()">See what changes</button>' +
+      '</div>' +
+    '</div>';
+  box.addEventListener('click', acCloseSheet);
+  document.body.appendChild(box);
+
+  acuLoadLibs().then(acuReady).catch(function(e){
+    var w = document.getElementById('acu-why'); if(w) w.textContent = e.message;
+  });
+  acuWire('acu-f1','acu-s1', acuReadAssortment, 'assortment', 'lines');
+  acuWire('acu-f2','acu-s2', acuReadMaster,     'master',     'articles');
+  acuReady();
+}
+
+function acuSay(labelId, text){
+  var el = document.getElementById(labelId); if(!el) return;
+  el.childNodes[0].nodeValue = text;
+}
+
+function acuWire(inputId, labelId, reader, key, unit){
+  var inp = document.getElementById(inputId);
+  inp.addEventListener('change', function(){
+    var f = inp.files[0]; if(!f) return;
+    acuSay(labelId, 'reading…');
+    acuLoadLibs().then(function(){ return reader(f); }).then(function(v){
+      acuParsed[key] = v;
+      acuSay(labelId, v.length + ' ' + unit + ' ✓');
+      acuReady();
+    }).catch(function(e){
+      acuParsed[key] = null;
+      acuSay(labelId, e.message);
+      acuReady();
+    });
+  });
+}
+
+/* A disabled button always says what it is waiting for. */
+function acuReady(){
+  var why = [];
+  if(!acuParsed.assortment) why.push('the Assortment List');
+  if(!acuParsed.master) why.push('the Manage Articles file');
+  var pin = document.getElementById('acu-pin');
+  if(!pin || !pin.value.trim()) why.push('your code');
+  var b = document.getElementById('acu-go'); if(!b) return;
+  b.disabled = why.length > 0;
+  var w = document.getElementById('acu-why');
+  if(w) w.textContent = why.length ? 'Still needs ' + why.join(' and ') : '';
+}
+
+function acuCall(dryRun){
+  // SUPABASE_URL / SUPABASE_KEY are the app's own globals from app.js. The
+  // standalone page used SB_URL / SB_KEY, which do not exist in here — that
+  // mismatch threw on the first real click and is exactly what testing the
+  // whole path in the app, rather than the panel on its own, is for.
+  return fetch(SUPABASE_URL + '/functions/v1/fmc-upload', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json',
+              'Authorization':'Bearer ' + SUPABASE_KEY, apikey: SUPABASE_KEY },
+    body: JSON.stringify({ passcode:document.getElementById('acu-pin').value.trim(),
+                           dryRun:dryRun, assortment:acuParsed.assortment, master:acuParsed.master })
+  }).then(function(r){ return r.json(); });
+}
+
+function acuFail(j){
+  document.getElementById('acu-out').innerHTML =
+    '<div class="ac-caution" style="border-color:#F2B8B2;background:#FDECEA;color:#8a1c14">' +
+    '<b>Nothing was saved.</b><br>' +
+    (j.problems || [j.error || 'that did not work']).map(acEsc).join('<br>') + '</div>';
+}
+
+function acuCheck(){
+  var go = document.getElementById('acu-go');
+  go.disabled = true; go.textContent = 'Working it out…';
+  acuCall(true).then(function(j){
+    go.textContent = 'See what changes'; go.disabled = false;
+    if(j.error) return acuFail(j);
+    acuShow(j.report);
+  }).catch(function(e){
+    go.textContent = 'See what changes'; go.disabled = false;
+    acuFail({ problems:[e.message] });
+  });
+}
+
+function acuShow(r){
+  var h = '<div style="margin-top:12px">';
+  h += acKv('Articles', r.articles);
+  h += acKv('You can order', r.orderable);
+  h += acKv('New to the list', r.addedCount);
+  h += acKv('Costs that moved', r.priceMoved.length);
+
+  if(!r.addedCount && !r.priceMoved.length && !r.noLongerOrderable.length && !r.nowOrderable.length)
+    h += '<div class="ac-caution">Nothing has changed since the last update.</div>';
+
+  if(r.unmatchedAssortmentLines.length)
+    h += '<div class="ac-caution"><b>' + r.unmatchedAssortmentLines.length + ' lines on the assortment ' +
+      'match no article</b> — usually a group filter left on the Manage Articles export. They stay ' +
+      'exactly as they are; nothing is switched off.</div>';
+
+  if(r.noLongerOrderable.length)
+    h += '<div class="ac-caution"><b>No longer orderable (' + r.noLongerOrderable.length + ')</b><br>' +
+      r.noLongerOrderable.map(acEsc).join('<br>') +
+      '<br><span class="ac-dash">Nothing is deleted — recipes keep costing them.</span></div>';
+
+  if(r.nowOrderable.length)
+    h += '<div class="ac-caution"><b>Newly orderable (' + r.nowOrderable.length + ')</b><br>' +
+      r.nowOrderable.slice(0,15).map(acEsc).join('<br>') + '</div>';
+
+  if(r.priceMoved.length){
+    h += '<div class="ac-caution" style="max-height:210px;overflow:auto"><b>Costs moved more than 2%</b>' +
+      '<br><span class="ac-dash">Per kilo or litre — every dish using one recosts when you save.</span><br>' +
+      r.priceMoved.slice(0,40).map(function(p){
+        var up = p.now > p.before;
+        return '<div>' + acEsc(p.name) + ' &middot; ' + p.before.toFixed(2) + ' &rarr; <b style="color:' +
+          (up ? '#b3261e' : '#2e7d32') + '">' + p.now.toFixed(2) + '</b></div>';
+      }).join('') + '</div>';
+  }
+  h += '<button type="button" class="ml-ed-btn" style="margin-top:12px" onclick="acuSave(this)">Save it</button>' +
+       ' <span class="ac-dash">Nothing has been saved yet.</span></div>';
+  document.getElementById('acu-out').innerHTML = h;
+}
+
+function acuSave(btn){
+  btn.disabled = true; btn.textContent = 'Saving…';
+  acuCall(false).then(function(j){
+    if(j.error) return acuFail(j);
+    document.getElementById('acu-out').innerHTML =
+      '<div class="ac-caution" style="border-color:#BFE0BF;background:#F4FAF4;color:#245c26">' +
+      '<b>Saved.</b> ' + j.rowsInTable + ' articles, ' + j.report.orderable + ' of them orderable.' +
+      '<br><span class="ac-dash">Recipes and the market list read this table, so they are already ' +
+      'showing it.</span></div>';
+    acLoaded = false;                 // the screen behind is now out of date
+    acLoad().then(acRender);
+  }).catch(function(e){ acuFail({ problems:[e.message] }); });
 }
