@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Update the FMC list — Roberto's Kitchen</title>
+<link rel="icon" href="data:,">
+<style>
+:root{ --sand:#F5F0E8; --wine:#400207; --ink:#2C1810; --taupe:#8B7355; --gold:#C9A84C;
+       --line:rgba(64,2,7,0.14); --amber:#8a5a00; --amberbg:#FDF4E0; --good:#2e7d32; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);
+     font:15px/1.5 Inter,-apple-system,"Segoe UI",system-ui,sans-serif}
+header{background:var(--wine);color:#F5EDE0;padding:14px 18px;display:flex;
+       align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-family:"Bodoni Moda",Georgia,serif;font-size:21px;margin:0;font-weight:600}
+header a{color:#e7d8c8;font-size:13px;text-decoration:none;margin-left:auto}
+.wrap{max-width:860px;margin:0 auto;padding:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.lab{font:600 11px Inter,sans-serif;letter-spacing:1.3px;text-transform:uppercase;
+     color:var(--taupe);margin-bottom:8px}
+.drop{border:1.5px dashed var(--line);border-radius:9px;padding:18px;text-align:center;
+      background:#FBF9F5;cursor:pointer}
+.drop.on{border-color:var(--gold);background:#FBF6EC}
+.drop.got{border-style:solid;border-color:var(--good);background:#F4FAF4}
+.drop .n{font-weight:600;font-size:14px}
+.drop .s{font-size:12px;color:var(--taupe);margin-top:3px}
+input[type=file]{display:none}
+input[type=password]{padding:12px 14px;font-size:16px;border:1.5px solid var(--line);
+      border-radius:9px;width:160px;letter-spacing:3px;text-align:center}
+.btn{border:0;border-radius:8px;padding:12px 20px;font:600 15px Inter,sans-serif;cursor:pointer}
+.btn.primary{background:var(--wine);color:#fff}
+.btn.go{background:var(--good);color:#fff}
+.btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.why{font-size:12.5px;color:var(--taupe);margin-top:8px}
+.note{border-radius:8px;padding:11px 13px;font-size:13.5px;margin-bottom:12px}
+.note.bad{background:#FDECEA;border:1px solid #F2B8B2;color:#8a1c14}
+.note.ok{background:#F4FAF4;border:1px solid #BFE0BF;color:#245c26}
+.note.warn{background:var(--amberbg);border:1px solid #E4C98A;color:var(--amber)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+th{text-align:left;padding:6px 9px;background:#F3EAdd;font:600 10.5px Inter,sans-serif;
+   letter-spacing:1px;text-transform:uppercase;color:var(--taupe)}
+td{padding:6px 9px;border-top:1px solid rgba(64,2,7,.07);vertical-align:top}
+td.code{font:600 12px ui-monospace,Menlo,monospace;color:var(--wine);white-space:nowrap}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.up{color:#b3261e;font-weight:600} .down{color:var(--good);font-weight:600}
+.stat{display:flex;gap:9px;flex-wrap:wrap;margin:10px 0}
+.s1{flex:1;min-width:110px;background:#FBF9F5;border:1px solid var(--line);
+    border-radius:9px;padding:9px 11px}
+.s1 .v{font-size:20px;font-weight:700} .s1 .k{font-size:11px;color:var(--taupe)}
+.scroll{max-height:260px;overflow:auto;border-radius:8px}
+details summary{cursor:pointer;font:600 13px Inter,sans-serif;color:var(--taupe);padding:6px 0}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
+  border-top-color:var(--wine);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Update the FMC list</h1>
+  <a href="index.html">← Kitchen</a>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <p style="margin:0 0 4px">Two files off FMC. Nothing is saved until you have read what
+      changes and pressed the green button.</p>
+    <div class="why">
+      <b>Assortment List</b> — File ▸ Print ▸ save as PDF. Decides what the kitchen can order.<br>
+      <b>Manage Articles</b> — the green Excel button. Decides names, units and what a recipe
+      costs. <b>Clear any group filter first</b>, or beverages are left out.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="lab">1 · The two files</div>
+    <div class="row" style="align-items:stretch">
+      <label class="drop" id="dPdf" style="flex:1;min-width:220px">
+        <input type="file" id="fPdf" accept="application/pdf,.pdf">
+        <div class="n" id="nPdf">Assortment List</div>
+        <div class="s" id="sPdf">PDF — tap to choose, or drop it here</div>
+      </label>
+      <label class="drop" id="dXls" style="flex:1;min-width:220px">
+        <input type="file" id="fXls" accept=".xls,.xlsx,application/vnd.ms-excel">
+        <div class="n" id="nXls">Manage Articles</div>
+        <div class="s" id="sXls">XLS — tap to choose, or drop it here</div>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="lab">2 · Your code</div>
+    <div class="row">
+      <input type="password" id="pin" inputmode="numeric" placeholder="••••">
+      <button class="btn primary" id="check" disabled>See what changes</button>
+      <span id="checkWhy" class="why"></span>
+    </div>
+  </div>
+
+  <div id="out"></div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="common.js?v=1784460000"></script>
+<script>
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+var $ = function(i){ return document.getElementById(i); };
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,
+  function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+var PARSED = { assortment:null, master:null };
+
+/* ── the assortment PDF ──────────────────────────────────────────────────
+   Read by COLUMN, not by guessing where the name stops. Flattened to a
+   string a row reads "Beef Topside MB2 Riverina -Australia Kilogram" with
+   nothing marking the join, so splitting it would mean owning a list of
+   every packing unit FMC uses. pdf.js gives every run its x, and the
+   Article column starts far left of Packing Unit — so the split is exact. */
+var ARTICLE_X_MAX = 340;
+var FURNITURE = /^(Assortment List|Assortment:|Article|Qty|Packing Unit|Order Date:|Deliv\. Loc\.:|KITCHEN|Robertos|Page \d|\d{2}-\d{2}-\d{4})/i;
+
+function readAssortment(file){
+  return file.arrayBuffer().then(function(buf){
+    return pdfjsLib.getDocument({ data: buf }).promise;
+  }).then(function(pdf){
+    var pages = [];
+    for (var p = 1; p <= pdf.numPages; p++) pages.push(p);
+    return pages.reduce(function(chain, p){
+      return chain.then(function(acc){
+        return pdf.getPage(p).then(function(page){ return page.getTextContent(); })
+          .then(function(tc){
+            var rows = {};
+            tc.items.forEach(function(it){
+              var t = (it.str||'').trim(); if (!t) return;
+              var x = it.transform[4], y = Math.round(it.transform[5]);
+              (rows[y] = rows[y] || []).push({ x:x, t:t });
+            });
+            Object.keys(rows).sort(function(a,b){ return b-a; }).forEach(function(y){
+              var line = rows[y].sort(function(a,b){ return a.x-b.x; });
+              var left = line.filter(function(c){ return c.x <  ARTICLE_X_MAX; })
+                             .map(function(c){ return c.t; }).join(' ').trim();
+              if (!left || FURNITURE.test(left)) return;
+              acc.push(left);
+            });
+            return acc;
+          });
+      });
+    }, Promise.resolve([]));
+  }).then(function(names){
+    if (!names.length) throw new Error('no article lines could be read from that PDF');
+    return names;
+  });
+}
+
+/* ── the Manage Articles export ────────────────────────────────────────── */
+function readMaster(file){
+  return file.arrayBuffer().then(function(buf){
+    var wb = XLSX.read(buf, { type:'array' });
+    if (wb.SheetNames.indexOf('Data') < 0)
+      throw new Error('that file has no "Data" sheet — it is not a Manage Articles export');
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets['Data'], { defval:'' });
+    var need = ['Article No.','Article','Item Group','Base Unit','Store Unit','Last Purchase Price'];
+    var miss = need.filter(function(h){ return !(h in (rows[0]||{})); });
+    if (miss.length) throw new Error('the export is missing ' + miss.join(', '));
+    var out = [];
+    rows.forEach(function(r){
+      var code = String(r['Article No.']).trim().replace(/\.0$/,'');
+      var name = String(r['Article']).trim();
+      if (!code || !name) return;
+      var p = parseFloat(r['Last Purchase Price']);
+      out.push({ code:code, name:name,
+                 item_group:String(r['Item Group']).trim(),
+                 base_unit:String(r['Base Unit']).trim(),
+                 store_unit:String(r['Store Unit']).trim(),
+                 price_per_base_unit: isFinite(p) ? p : null,
+                 retired: /^z{2,}/i.test(name) });
+    });
+    if (!out.length) throw new Error('no articles could be read from that file');
+    return out;
+  });
+}
+
+/* ── file pickers ────────────────────────────────────────────────────── */
+function wire(inputId, dropId, nameId, subId, reader, key, unit){
+  var inp = $(inputId), drop = $(dropId);
+  function take(file){
+    if (!file) return;
+    $(subId).innerHTML = '<span class="spin"></span> reading ' + esc(file.name);
+    drop.className = 'drop';
+    reader(file).then(function(v){
+      PARSED[key] = v;
+      drop.className = 'drop got';
+      $(subId).textContent = v.length + ' ' + unit + ' · ' + file.name;
+      ready();
+    }).catch(function(e){
+      PARSED[key] = null; drop.className = 'drop';
+      $(subId).innerHTML = '<span style="color:#b3261e">' + esc(e.message) + '</span>';
+      ready();
+    });
+  }
+  inp.addEventListener('change', function(){ take(inp.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('on'); }); });
+  ['dragleave','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('on'); }); });
+  drop.addEventListener('drop', function(e){ take(e.dataTransfer.files[0]); });
+}
+wire('fPdf','dPdf','nPdf','sPdf', readAssortment, 'assortment', 'lines read');
+wire('fXls','dXls','nXls','sXls', readMaster,     'master',     'articles read');
+
+/* A disabled button says why — never a dead grey rectangle. */
+function ready(){
+  var why = [];
+  if (!PARSED.assortment) why.push('the Assortment List');
+  if (!PARSED.master) why.push('the Manage Articles file');
+  if (!$('pin').value.trim()) why.push('your code');
+  $('check').disabled = why.length > 0;
+  $('checkWhy').textContent = why.length ? 'Still needs ' + why.join(' and ') : '';
+}
+$('pin').addEventListener('input', ready);
+ready();
+
+/* ── ask the function what would change ──────────────────────────────── */
+function call(dryRun){
+  return fetch(SB_URL + '/functions/v1/fmc-upload', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + SB_KEY, apikey:SB_KEY },
+    body: JSON.stringify({ passcode:$('pin').value.trim(), dryRun:dryRun,
+                           assortment:PARSED.assortment, master:PARSED.master })
+  }).then(function(r){ return r.json().then(function(j){ j._status = r.status; return j; }); });
+}
+
+$('check').addEventListener('click', function(){
+  $('check').disabled = true;
+  $('out').innerHTML = '<div class="card"><span class="spin"></span> Working out what changes…</div>';
+  call(true).then(function(j){
+    $('check').disabled = false;
+    if (j.error) return problem(j);
+    showReport(j.report);
+  }).catch(function(e){
+    $('check').disabled = false;
+    problem({ error:e.message, problems:[e.message] });
+  });
+});
+
+function problem(j){
+  $('out').innerHTML = '<div class="card"><div class="note bad"><b>Nothing was saved.</b><br>' +
+    (j.problems || [j.error]).map(esc).join('<br>') + '</div></div>';
+}
+
+function moneyRow(p){
+  var dir = p.now > p.before ? 'up' : 'down';
+  var pct = Math.round(Math.abs(p.now - p.before) / p.before * 100);
+  return '<tr><td class="code">' + esc(p.code) + '</td><td>' + esc(p.name) + '</td>' +
+    '<td class="num">' + p.before.toFixed(2) + '</td>' +
+    '<td class="num ' + dir + '">' + p.now.toFixed(2) + '</td>' +
+    '<td class="num ' + dir + '">' + (p.now > p.before ? '+' : '−') + pct + '%</td></tr>';
+}
+
+function showReport(r){
+  var h = '<div class="card">';
+  h += '<div class="lab">What this changes</div>';
+  h += '<div class="stat">' +
+    '<div class="s1"><div class="v">' + r.articles + '</div><div class="k">articles</div></div>' +
+    '<div class="s1"><div class="v">' + r.orderable + '</div><div class="k">you can order</div></div>' +
+    '<div class="s1"><div class="v">' + r.addedCount + '</div><div class="k">new to the list</div></div>' +
+    '<div class="s1"><div class="v">' + r.priceMoved.length + '</div><div class="k">costs moved</div></div>' +
+    '</div>';
+
+  if (!r.addedCount && !r.priceMoved.length && !r.noLongerOrderable.length && !r.nowOrderable.length)
+    h += '<div class="note ok">Nothing has changed since the last update. Saving is harmless, ' +
+         'but there is nothing to save.</div>';
+
+  if (r.unmatchedAssortmentLines.length)
+    h += '<div class="note warn"><b>' + r.unmatchedAssortmentLines.length + ' lines on the ' +
+      'assortment match no article</b> — they will not be orderable until the Manage Articles ' +
+      'export carries them. Usually a group filter was left on.<br>' +
+      r.unmatchedAssortmentLines.slice(0,8).map(esc).join('<br>') + '</div>';
+
+  if (r.noLongerOrderable.length)
+    h += '<div class="note warn"><b>No longer orderable (' + r.noLongerOrderable.length + ')</b><br>' +
+      r.noLongerOrderable.map(esc).join('<br>') +
+      '<div class="why">Nothing is deleted. Recipes keep costing them; the order screen stops ' +
+      'offering them.</div></div>';
+
+  if (r.nowOrderable.length)
+    h += '<div class="note ok"><b>Newly orderable (' + r.nowOrderable.length + ')</b><br>' +
+      r.nowOrderable.slice(0,20).map(esc).join('<br>') + '</div>';
+
+  if (r.priceMoved.length){
+    h += '<details open><summary>Costs that moved more than 2% (' + r.priceMoved.length + ')</summary>' +
+      '<div class="scroll"><table><thead><tr><th>Code</th><th>Article</th>' +
+      '<th class="num">Was</th><th class="num">Now</th><th class="num">Move</th></tr></thead><tbody>' +
+      r.priceMoved.map(moneyRow).join('') + '</tbody></table></div>' +
+      '<div class="why">Per kilo or litre — the number a recipe costs on. Every dish using one ' +
+      'of these recosts the moment you save.</div></details>';
+  }
+
+  h += '<div class="row" style="margin-top:14px">' +
+    '<button class="btn go" id="save">Save it</button>' +
+    '<button class="btn ghost" id="cancel">Not now</button>' +
+    '<span class="why">Nothing has been saved yet.</span></div>';
+  h += '</div>';
+  $('out').innerHTML = h;
+
+  $('cancel').addEventListener('click', function(){ $('out').innerHTML = ''; });
+  $('save').addEventListener('click', function(){
+    $('save').disabled = true;
+    $('save').innerHTML = '<span class="spin"></span> Saving…';
+    call(false).then(function(j){
+      if (j.error) return problem(j);
+      $('out').innerHTML = '<div class="card"><div class="note ok">' +
+        '<b>Saved.</b> ' + j.rowsInTable + ' articles on the list, ' +
+        j.report.orderable + ' of them orderable.' +
+        '<div class="why">The Recipes screen and the market list read this table, so they are ' +
+        'already showing it — no need to update anything else.</div></div>' +
+        '<div class="row"><a class="btn ghost" href="recipe-create.html">Open Recipes</a>' +
+        '<a class="btn ghost" href="index.html">Back to Kitchen</a></div></div>';
+    }).catch(function(e){ problem({ problems:[e.message] }); });
+  });
+}
+</script>
+</body>
+</html>
