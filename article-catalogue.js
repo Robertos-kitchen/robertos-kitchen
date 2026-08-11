@@ -3,8 +3,20 @@
 // The FMC article master, read-only. The "second list": what an ingredient is
 // really called, what its code is, and what the last sheet valued it at.
 //
-// SOURCE — stock_take_items. Aung uploads an FMC export every month; four
-// sheets are held. One row per CODE, taking the newest sheet that carries it.
+// SOURCE — `fmc_articles`, the FMC *Manage Articles* master. Every article
+// FMC holds, whether or not it has ever been counted or ordered here.
+// `stock_take_items` is joined on for the PRICE and nothing else.
+//
+// ⚠ It read the other way round until 11 Aug 2026 and that was the bug. The
+// row source was stock_take_items with the master as an overlay, and the one
+// path that let a master-only article through was gated on `on_assortment` —
+// written correctly on 9 Aug, when `fmc_articles` WAS the 417-row printed
+// assortment. The 1,435-row master load on 10 Aug set on_assortment = false
+// on 980 of those rows, so the gate rejected all of them. Every assortment
+// article was already on a stock sheet, so that path added exactly ZERO
+// articles and the count stayed at 845 — the same number as the day before
+// the master arrived. 604 articles were hidden and nothing on screen moved.
+// A table changed meaning and the screen was left phrased for the old one.
 //
 // EVERY article is kept, with no warning of any kind on the older ones.
 // July's sheet is short (677 rows against June's 949) and 360 codes are absent
@@ -32,6 +44,13 @@ var acAll      = [];      // [{code,name,group,unit,price,month,supplier}] one p
 var acShown    = [];      // what the current search/filter leaves
 var acSearch   = '';
 var acGroup    = '';      // '' = all groups
+// The master holds three times what the assortment sells, so a search for
+// "tomato" answers with articles FMC will refuse as well as ones it will take.
+// Both answers are wanted — the module's job is the real name and code, and a
+// dropped article still has to be identifiable when it turns up on an old
+// recipe. This narrows the list to what can be bought today, and starts OFF so
+// the screen opens on the whole truth.
+var acOnlyOrder = false;
 var acGroupList = [];     // groups in chip order — chips address theirs by index
 var acSel      = 0;       // keyboard cursor into acShown (within the drawn slice)
 var acHasSupplier = false;
@@ -64,6 +83,11 @@ function acEsc(s){
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function acMoney(n){
+  // null/undefined/'' must NOT fall through to Number(), which turns all three
+  // into 0 and prints a confident "0.00 AED". Found on the live screen 11 Aug
+  // 2026 the moment the master brought in articles no stock sheet has ever
+  // carried: 190 rows quoting a price of zero. A missing price is a dash.
+  if(n === null || n === undefined || n === '') return '—';
   var v = Number(n);
   if(!isFinite(v)) return '—';
   return v.toFixed(2);
@@ -97,23 +121,26 @@ function acSelectCols(){
     : 'code,name,item_group,unit,price,month';
 }
 // ══════════════════════════════════════════════════════════════════════════
-// TWO TABLES, TWO DIFFERENT JOBS — and only one of them says what is orderable
+// TWO TABLES, TWO DIFFERENT JOBS — and the master is the list
 //
-// `fmc_articles` (harvested from the Kitchen Market List assortment) decides
-// IDENTITY and AVAILABILITY: the article's real name, the unit FMC counts it
-// in, its supplier, and whether it can be ordered at all.
+// `fmc_articles` IS the catalogue: every article FMC holds, its real name, the
+// unit FMC counts it in, its supplier, its group, and whether it is on the
+// assortment today. It is the source of truth and it decides which rows exist.
 //
 // `stock_take_items` supplies the PRICE and nothing else. It is an inventory
 // export and it keeps discontinued articles indefinitely, so it can never be
-// asked whether something is orderable. The note this file used to carry —
-// that a short July sheet does not mean an article is gone — was right, and
-// this is the fix it was waiting for: the assortment answers that question
-// properly, so absence from a stock sheet no longer has to mean anything.
+// asked whether something is orderable — nor which articles exist, which is
+// the mistake this file made until 11 Aug 2026. A code that is only ever on a
+// stock sheet is still listed (14 of them), because the kitchen has counted it
+// and a chef may search for it — but nothing is claimed about ordering it.
 //
-// What that changes on screen: an article FMC has dropped is now SAID to be
-// dropped instead of being listed as if it could be bought. Four were proved
-// dead on 8 Aug 2026 (4029044, 4017171, 4017201, 4017263) and this screen
-// showed all four as ordinary articles.
+// ORDERABLE is three-state and never guessed:
+//   true  — on the assortment. FMC will accept it today.
+//   false — in the master, off the assortment. FMC has dropped it. Four were
+//           proved dead on 8 Aug 2026 (4029044, 4017171, 4017201, 4017263).
+//   null  — we have no master row, or the master failed to load. Nothing said.
+// The old code collapsed the last two into a red "not orderable", which is a
+// guess printed as a fact.
 // ══════════════════════════════════════════════════════════════════════════
 async function acLoad(){
   // Ask for one row with supplier in it. A column that doesn't exist is a 400
@@ -122,21 +149,11 @@ async function acLoad(){
   var probe = await sb.from('stock_take_items').select('code,supplier').limit(1);
   acHasSupplier = !probe.error;
 
-  var res = await acFetchAllPaged(function(){
-    return sb.from('stock_take_items').select(acSelectCols())
-      .eq('venue_id', STOCK_VENUE_AC).eq('dept', STOCK_DEPT_AC).eq('active', true).order('id');
-  });
-  if(res.error){
-    acAll = [];
-    return res.error;
-  }
-
-  // The assortment. If this fails the screen still works off the stock sheets
-  // alone, exactly as it did before — but then nothing claims to know what is
-  // orderable, because it doesn't.
+  // THE LIST. Read first, because it is the one that decides what exists.
   var arts = {}, haveArts = false;
   var ares = await acFetchAllPaged(function(){
-    return sb.from('fmc_articles').select('code,name,unit,supplier,on_assortment,retiring')
+    return sb.from('fmc_articles')
+      .select('code,name,unit,supplier,on_assortment,retiring,item_group')
       .eq('venue_id','robertos-difc').order('code');
   });
   if(!ares.error && ares.data && ares.data.length){
@@ -144,53 +161,88 @@ async function acLoad(){
     ares.data.forEach(function(a){ arts[String(a.code).trim()] = a; });
   }
 
+  // THE PRICES. A stock-take failure must not empty the catalogue — the master
+  // stands on its own and every price simply reads "no sheet price".
+  var res = await acFetchAllPaged(function(){
+    return sb.from('stock_take_items').select(acSelectCols())
+      .eq('venue_id', STOCK_VENUE_AC).eq('dept', STOCK_DEPT_AC).eq('active', true).order('id');
+  });
+  // Only a total failure of BOTH reads leaves nothing to show.
+  if(res.error && !haveArts){
+    acAll = [];
+    return res.error;
+  }
+
   // one row per code, from the NEWEST sheet that carries it
   var by = {};
-  (res.data||[]).forEach(function(r){
+  ((res.error ? [] : res.data)||[]).forEach(function(r){
     var code = String(r.code||'').trim();
     if(!code) return;                       // hand-added count lines carry no article
-    if(acIsBatch(r.item_group)) return;     // made in-house, never ordered
     var prev = by[code];
     if(!prev){ by[code] = r; return; }
     var a = acKeyDate(r.month), b = acKeyDate(prev.month);
     if(a && b && a > b) by[code] = r;
   });
 
-  acAll = Object.keys(by).map(function(c){
-    var r = by[c];
-    var art = arts[c];
-    return {
+  // Every master article, priced from the newest sheet that carries it. The
+  // batch filter runs on the master's OWN group — reading it off the stock
+  // sheet would let a Batch Recipe article the kitchen has never counted
+  // through, and those are made in-house and can never be ordered.
+  acAll = [];
+  Object.keys(arts).forEach(function(c){
+    var a = arts[c], r = by[c];
+    var group = a.item_group || (r && r.item_group) || 'Other';
+    if(acIsBatch(group)) return;
+    acAll.push({
       code:c,
-      // FMC's own name wins where we have it — that is the name on an order,
-      // an invoice and a delivery note, and it is the one a chef should learn.
-      name:(art && art.name) || r.name || '',
-      group:r.item_group||'Other',
-      unit:(art && art.unit) || r.unit || '',
-      price:r.price, month:r.month,
-      supplier:(art && art.supplier) || r.supplier || '',
-      orderable: haveArts ? !!(art && art.on_assortment) : null,   // null = unknown
-      retiring: !!(art && art.retiring)
-    };
+      // FMC's own name wins — that is the name on an order, an invoice and a
+      // delivery note, and it is the one a chef should learn.
+      name:a.name || (r && r.name) || '',
+      group:group,
+      unit:a.unit || (r && r.unit) || '',
+      price:(r ? r.price : null), month:(r ? r.month : null),
+      supplier:a.supplier || (r && r.supplier) || '',
+      orderable: !!a.on_assortment,
+      retiring: !!a.retiring
+    });
   });
 
-  // Articles on the assortment that no stock sheet carries are still orderable
-  // and still belong here — they simply have no valuation yet.
-  if(haveArts){
-    Object.keys(arts).forEach(function(c){
-      if(by[c]) return;
-      var a = arts[c];
-      if(!a.on_assortment) return;
-      acAll.push({ code:c, name:a.name||'', group:'Other', unit:a.unit||'',
-                   price:null, month:null, supplier:a.supplier||'',
-                   orderable:true, retiring:!!a.retiring });
-    });
-  }
+  // Counted here but not in the master. Kept — the kitchen has it on a sheet
+  // and a chef may well search for it — with orderable left UNKNOWN, because
+  // an absent master row is not evidence that FMC has dropped anything.
+  Object.keys(by).forEach(function(c){
+    if(arts[c]) return;
+    var r = by[c];
+    var group = r.item_group || 'Other';
+    if(acIsBatch(group)) return;
+    acAll.push({ code:c, name:r.name||'', group:group, unit:r.unit||'',
+                 price:r.price, month:r.month, supplier:r.supplier||'',
+                 orderable:null, retiring:false });
+  });
+
+  // The master failing to load is the one case where nothing may be claimed
+  // about ordering at all — the screen falls back to the stock sheets exactly
+  // as it did before, and says nothing either way.
+  if(!haveArts) acAll.forEach(function(r){ r.orderable = null; });
   // group then name — so the headings read top to bottom instead of jumping
   acAll.sort(function(a,b){
     return a.group===b.group ? a.name.localeCompare(b.name) : a.group.localeCompare(b.group);
   });
   acLoaded = true;
   return null;
+}
+
+// ── who may be OFFERED ────────────────────────────────────────────────────
+// The catalogue LISTS everything FMC holds, because its job is the real name
+// and code and a dropped article still has to be identifiable on an old recipe.
+// Anything that puts an article on an ORDER must not see the dropped ones —
+// `fmc-match.js` builds the market-list matcher's candidates from this.
+//
+// It excludes `orderable === false` only. `null` (counted here, not in the FMC
+// list) stays offerable: it is 14 articles nobody has ruled on, and hiding them
+// would silently shrink what a chef can match against.
+function acOfferable(){
+  return acAll.filter(function(r){ return r.orderable !== false; });
 }
 
 // ── filtering ─────────────────────────────────────────────────────────────
@@ -202,6 +254,9 @@ function acGroups(){
 function acFiltered(){
   var q = acSearch.trim().toLowerCase();
   return acAll.filter(function(r){
+    // `orderable !== true` and not `=== false`: an article whose status is
+    // unknown is not something to offer as buyable.
+    if(acOnlyOrder && r.orderable !== true) return false;
     if(acGroup && r.group !== acGroup) return false;
     if(!q) return true;
     return r.name.toLowerCase().indexOf(q) > -1
@@ -225,7 +280,10 @@ function acRender(){
 
   v.innerHTML =
     '<div class="ops-title">Article Catalogue</div>' +
-    '<div class="ops-subtitle">Every article FMC can order · read-only · look here for the real name and code' +
+    // NOT "every article FMC can order" — it was that until 11 Aug 2026 and it
+    // was wrong twice over: the list held 401 fewer articles than FMC sells, and
+    // 390 of the ones it did hold are articles FMC will refuse.
+    '<div class="ops-subtitle">Every article FMC holds · read-only · look here for the real name and code' +
       ' <button class="report-btn" style="margin-left:8px" onclick="openFmcMatch()">Match the market list</button>' +
       ' <button class="report-btn" style="margin-left:6px" onclick="acOpenUpload()">Update from FMC</button></div>' +
 
@@ -262,7 +320,15 @@ function acRenderRows(){
 
   var cEl = document.getElementById('ac-count');
   if(cEl){
+    // How many of the whole catalogue FMC will actually sell today. Said out
+    // loud because the list is now three times the assortment, and a chef who
+    // does not know that would read every row as buyable.
+    var sellable = 0, unknown = 0;
+    acAll.forEach(function(r){ if(r.orderable === true) sellable++; else if(r.orderable === null) unknown++; });
     cEl.innerHTML = '<span>'+acShown.length+' of '+acAll.length+' articles'+(acGroup?' · '+acEsc(acGroup):'')+'</span>' +
+      '<button class="ac-chip'+(acOnlyOrder?' on':'')+'" style="margin-left:10px" onclick="acToggleOrderable()">' +
+        (acOnlyOrder?'&#10003; ':'') + 'Only the '+sellable+' FMC sells today</button>' +
+      (unknown ? '<span class="ac-note">'+unknown+' counted here but not in the FMC list — status unknown</span>' : '') +
       (acHasSupplier ? '' : '<span class="ac-note">supplier is not in the stock-take export yet</span>');
   }
 
@@ -280,9 +346,9 @@ function acRenderRows(){
         '<div>' +
           '<div class="ac-name">'+acEsc(r.name)+
             // `orderable === false` is a fact off the assortment. `null` means
-            // the assortment did not load, and then nothing is claimed either
-            // way — a wrong "dropped" would stop a chef ordering something
-            // perfectly good.
+            // no master row, or the master did not load — nothing is claimed
+            // either way, because a wrong "dropped" would stop a chef ordering
+            // something perfectly good.
             (r.orderable === false ? '<span class="ac-flag dead">not orderable</span>' : '') +
             (r.retiring ? '<span class="ac-flag retiring">retiring</span>' : '') +
           '</div>' +
@@ -294,7 +360,7 @@ function acRenderRows(){
         '</div>' +
         '<div class="ac-unit">'+acEsc(r.unit)+'</div>' +
         '<div class="ac-price">'+acMoney(r.price)+' <span class="ac-cur">AED</span>' +
-          '<div class="ac-pricenote">'+(r.month ? acSheetShort(r.month)+' sheet' : 'no sheet price')+'</div></div>' +
+          '<div class="ac-pricenote">'+(r.month ? acSheetShort(r.month)+' sheet' : 'never counted')+'</div></div>' +
       '</div>';
   });
   if(acShown.length > AC_LIMIT){
@@ -313,6 +379,21 @@ function acOpen(i){
     ? (r.supplier ? acEsc(r.supplier) : '<span class="ac-dash">not named on the sheet</span>')
     : '<span class="ac-dash">not in the stock-take export yet</span>';
 
+  // Three states, worded as what to DO about it. The unknown one must not read
+  // like a refusal: the article may be perfectly orderable and nobody has asked.
+  var orderLine = r.orderable === true
+    ? 'Yes — on the FMC assortment'
+    : (r.orderable === false
+        ? '<b>No — FMC has dropped it.</b> The code still identifies it on an old recipe, but an order will be refused.'
+        : '<span class="ac-dash">Not known — it is not in the FMC list we hold. Ask before ordering.</span>');
+
+  // An article the kitchen has never counted has no valuation, and saying "—"
+  // beside a price label reads like a missing number rather than a missing count.
+  var priceLine = (r.price == null || r.price === '')
+    ? '<span class="ac-dash">never counted here — no valuation</span>'
+    : acMoney(r.price)+' AED';
+  var sheetLine = r.month ? acSheetLabel(r.month) : '<span class="ac-dash">no sheet carries it</span>';
+
   var box = document.createElement('div');
   box.className = 'ml-daypick-overlay';
   box.id = 'ac-sheet';
@@ -325,11 +406,13 @@ function acOpen(i){
       '<div class="ac-modal-body">' +
         acKv('FMC code', '<span class="ac-code big">'+acEsc(r.code)+'</span>') +
         acKv('Unit', acEsc(r.unit)||'—') +
-        acKv('Cost controller\'s price', acMoney(r.price)+' AED') +
-        acKv('From the sheet of', acSheetLabel(r.month)) +
+        acKv('Can you order it', orderLine) +
+        acKv('Cost controller\'s price', priceLine) +
+        acKv('From the sheet of', sheetLine) +
         acKv('Supplier', supplierLine) +
-        '<div class="ac-caution">This is Aung\'s monthly valuation, not the price FMC puts on the order — ' +
-        'the two drift by up to about 10%. Use it to judge, not to quote.</div>' +
+        (r.price == null ? '' :
+          '<div class="ac-caution">This is Aung\'s monthly valuation, not the price FMC puts on the order — ' +
+          'the two drift by up to about 10%. Use it to judge, not to quote.</div>') +
       '</div>' +
       '<div class="ac-modal-foot">' +
         '<button type="button" class="ml-ed-btn ml-ed-cancel" onclick="acCloseSheet()">Close</button>' +
@@ -351,6 +434,13 @@ function acPickGroup(i){
   acGroup = (i < 0) ? '' : (acGroupList[i] || '');
   acSel = 0;
   acRender();
+}
+// acRenderRows, not acRender: the button lives on the count line and a full
+// re-render would rebuild the search box under the chef's cursor and lose focus.
+function acToggleOrderable(){
+  acOnlyOrder = !acOnlyOrder;
+  acSel = 0;
+  acRenderRows();
 }
 function acMove(n){
   var max = Math.min(acShown.length, AC_LIMIT) - 1;

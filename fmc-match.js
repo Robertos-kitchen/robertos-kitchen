@@ -94,7 +94,9 @@ function fmCandList(r){
   var q = fmNorm(fmSearch);
   if(!q) return r.cands || [];
   var raw = String(fmSearch).trim().toLowerCase();
-  var all = (typeof acAll !== 'undefined' ? acAll : []);
+  // acOfferable(), not acAll: the catalogue lists articles FMC has DROPPED so
+  // they stay identifiable, and this list ends up as a code on an order.
+  var all = (typeof acOfferable === 'function' ? acOfferable() : []);
   var out = [];
   for(var i=0;i<all.length && out.length<FM_CANDS;i++){
     var a = all[i];
@@ -157,7 +159,7 @@ function fmUnitPlain(u){
 }
 
 function fmBuildQueue(){
-  var arts = (typeof acAll !== 'undefined' ? acAll : []).map(function(a){
+  var arts = (typeof acOfferable === 'function' ? acOfferable() : []).map(function(a){
     return { a:a, n:fmNorm(a.name), t:fmToks(a.name) };
   });
 
@@ -434,7 +436,7 @@ function fmDecideHtml(){
 
   var r = fmQueue[fmIdx], it = r.item;
   var BAND = { near:'near certain', choose:'needs you', none:'nothing close' };
-  var nArts = (typeof acAll !== 'undefined' ? acAll.length : 0);
+  var nArts = (typeof acOfferable === 'function' ? acOfferable().length : 0);
 
   return fmExactCallout() +
     '<div class="fm-bar">' +
