@@ -6091,16 +6091,89 @@ async function schedDownloadXlsx(){
   }
 }
 
+// ── Where a Send-to-HR test goes ────────────────────────────────────────────
+// On the local preview only, the roster email is addressed to one mailbox and
+// nobody else — not HR, not the Cc list. The Edge Function has had a `testTo`
+// for this since the recipients moved into Admin → Emails; nothing was wired to
+// it, so the only way to see what the email looked like was to send a real one
+// to HR. Live and dev hosts are untouched: dev-guard.js already blocks the send
+// there outright, and on the two real sites this returns null.
+function schedRosterTestTo(){
+  var h = location.hostname;
+  return (h === 'localhost' || h === '127.0.0.1') ? 'fguarracino@robertos.ae' : null;
+}
+
+// ── "What changed in this roster?" ──────────────────────────────────────────
+// Replaces a yes/no confirm box. Antonio (10 Aug 2026): he had already sent the
+// week to HR when Gaejindra asked to swap his day off with Joker, so the sheet
+// changed by two cells and the email had no way to say which. Re-sending it
+// meant HR checking every person; telling Leverina on WhatsApp instead is what
+// actually happened, which puts the change outside the record entirely.
+//
+// The note is OPTIONAL — an unchanged first send should not have to invent a
+// sentence. Resolves {note, update} or null if cancelled.
+function schedHRNoteAsk(wkStr, wasSent){
+  return new Promise(function(resolve){
+    var done=false, testTo=schedRosterTestTo();
+    function onKey(e){ if(e.key==='Escape') finish(null); }
+    function finish(v){ if(done) return; done=true; var o=document.getElementById('hrn-ovl'); if(o) o.remove(); document.removeEventListener('keydown',onKey); resolve(v); }
+    var ov=document.createElement('div'); ov.id='hrn-ovl';
+    ov.setAttribute('style','position:fixed;inset:0;z-index:100050;background:rgba(65,2,7,.55);display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow:auto;');
+    ov.onclick=function(e){ if(e.target===ov) finish(null); };
+    ov.innerHTML='<div style="background:var(--cream,#f5ede0);border-radius:14px;max-width:540px;width:100%;padding:18px 18px 16px;box-shadow:0 14px 50px rgba(65,2,7,.35);">'
+      +'<div style="font-family:var(--font-serif,Georgia,serif);color:var(--vino,#410207);font-size:22px;">Send the roster to HR</div>'
+      +'<div style="font-size:12.5px;color:#8a7a62;margin:2px 0 14px;">Week of '+escHtml(wkStr)+'.</div>'
+      // Ticked for them when we already have a record of sending this week, but
+      // still theirs to change: the record is only as good as what got logged,
+      // and they know whether HR has seen this week better than the log does.
+      +'<label style="display:flex;gap:9px;align-items:flex-start;background:#fff;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;padding:11px 12px;cursor:pointer;">'
+        +'<input type="checkbox" id="hrn-upd" '+(wasSent?'checked':'')+' style="margin-top:2px;width:18px;height:18px;flex:none;">'
+        +'<span style="font-size:13.5px;color:var(--ink,#2a1a10);line-height:1.4;">This replaces a roster I already sent for this week'
+          +'<span style="display:block;font-size:11.5px;color:#8a7a62;margin-top:2px;">Adds a line telling HR to discard the earlier one.</span></span></label>'
+      +'<div style="font-size:13.5px;color:var(--ink,#2a1a10);font-weight:600;margin:15px 0 3px;">What changed? <span style="font-weight:400;color:#8a7a62;">(optional)</span></div>'
+      +'<div style="font-size:11.5px;color:#8a7a62;margin-bottom:7px;">HR read this at the top of the email, so they don&rsquo;t have to check every person to find it.</div>'
+      +'<textarea id="hrn-note" rows="4" placeholder="e.g. Gaejindra&rsquo;s day off moved to next week, swapped with Joker. Everyone else is unchanged." '
+        +'style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;font-size:15px;font-family:inherit;line-height:1.45;resize:vertical;"></textarea>'
+      +'<div id="hrn-count" style="font-size:11px;color:#a89880;text-align:right;margin-top:3px;">&nbsp;</div>'
+      +(testTo?'<div style="margin-top:10px;background:#fdeaea;border:1px solid #e0a9a9;border-radius:9px;padding:9px 11px;font-size:12.5px;color:#7f1d1d;">Local preview &mdash; this goes only to '+escHtml(testTo)+'. HR will not receive it.</div>':'')
+      +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;border-top:1px solid var(--sabbia-dark,#cfc0ad);padding-top:13px;">'
+        +'<button id="hrn-cancel" style="font-size:13px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);background:#fff;border-radius:9px;padding:10px 15px;cursor:pointer;">Cancel</button>'
+        +'<button id="hrn-send" style="font-size:13px;font-weight:600;color:#fff;background:var(--vino,#410207);border:1px solid var(--vino,#410207);border-radius:9px;padding:10px 17px;cursor:pointer;">'+(testTo?'Send test':'Send to HR')+'</button></div></div>';
+    document.body.appendChild(ov);
+    document.addEventListener('keydown',onKey);
+    var ta=document.getElementById('hrn-note'), cnt=document.getElementById('hrn-count');
+    // 2000 is the Edge Function's own limit. Saying so here means nothing is ever
+    // silently cut off after they have pressed Send.
+    ta.oninput=function(){ var n=ta.value.length; cnt.textContent = n>1700 ? (2000-n)+' characters left' : ' '; if(n>2000) ta.value=ta.value.slice(0,2000); };
+    setTimeout(function(){ try{ ta.focus(); }catch(e){} }, 30);
+    document.getElementById('hrn-cancel').onclick=function(){ finish(null); };
+    document.getElementById('hrn-send').onclick=function(){
+      finish({ note: ta.value.trim(), update: document.getElementById('hrn-upd').checked });
+    };
+  });
+}
+
 // ── Send to HR (email-ready roster, no manual attachment) ──
 // Pass _downloadOnly=true to build the workbook and return {xlsxBuffer,fileName,...}
 // without emailing — used by the Download Excel button above.
 async function schedSendToHR(_downloadOnly) {
   var _wkEnd = addDays(schedWeekStart, 6);
   var _wkStr = schedWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' + _wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  var _note = '', _isUpdate = false;
   if(!_downloadOnly){
     var who = await resetIdentity('email the roster to HR');
     if (!who) return;
-    if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
+    // Have we sent this week before? Only pre-ticks the box in the dialog — the
+    // person sending decides, so a missing or unreadable log costs nothing.
+    var _wasSent = false;
+    try {
+      var _prior = await sb.from('reset_log').select('id')
+        .eq('app','kitchen').eq('action','roster_send').eq('scope',_wkStr).limit(1);
+      _wasSent = !!(_prior && _prior.data && _prior.data.length);
+    } catch(e){ console.warn('[roster] re-send check failed', e); }
+    var _ask = await schedHRNoteAsk(_wkStr, _wasSent);
+    if (!_ask) return;                       // Cancel means nothing is sent.
+    _note = _ask.note; _isUpdate = _ask.update;
   }
   var btn = _downloadOnly ? null : document.getElementById('svt-hr');
   if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
@@ -6274,17 +6347,24 @@ async function schedSendToHR(_downloadOnly) {
       body: JSON.stringify({
         weekStr: weekStr,
         fileName: fileName,
-        xlsxBase64: xlsxBase64
+        xlsxBase64: xlsxBase64,
+        note: _note,
+        update: _isUpdate,
+        sentBy: who && who.name,
+        testTo: schedRosterTestTo() || undefined
       })
     });
 
     var emailData = await emailRes.json();
     if (!emailRes.ok) throw new Error(emailData.message || 'Email failed: ' + emailRes.status);
+    // The function reports back how much of the note it actually printed. If we
+    // typed one and it arrived empty, the tick must not say it went.
+    if (_note && !emailData.noted) throw new Error('The roster was sent, but your note did not reach the email. Please tell HR the change directly.');
 
     if (typeof logReset === 'function') logReset(who, 'roster_send', _wkStr, null);
 
     if (btn) {
-      btn.textContent = '✓ Sent to HR';
+      btn.textContent = _note ? '✓ Sent with your note' : '✓ Sent to HR';
       btn.style.background = 'var(--oliva)'; btn.style.borderColor = 'var(--oliva)';
       setTimeout(function(){ btn.textContent = '📧 Send to HR'; btn.style.background=''; btn.style.borderColor=''; btn.disabled=false; }, 3000);
     }
