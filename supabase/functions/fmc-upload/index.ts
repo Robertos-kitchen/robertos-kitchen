@@ -75,8 +75,17 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "bad JSON" }, 400); }
 
-  const pin = Deno.env.get("FMC_UPLOAD_PIN");
-  if (!pin || String(body.passcode || "") !== pin) {
+  // More than one person updates the list, so FMC_UPLOAD_PIN is a COMMA-
+  // SEPARATED list of codes rather than a single one - Francesco's and Aung's.
+  // Kept in the secret rather than in this file so a person can be added or
+  // taken off without deploying the function, which matters because the next
+  // change to it is likely to be removing someone.
+  //
+  // Still one env var, still an exact match, and a blank secret still refuses
+  // everything: an empty list cannot accidentally let anyone in.
+  const pins = String(Deno.env.get("FMC_UPLOAD_PIN") || "")
+    .split(",").map((p) => p.trim()).filter(Boolean);
+  if (!pins.length || !pins.includes(String(body.passcode || "").trim())) {
     return json({ error: "That code is not right." }, 401);
   }
 
