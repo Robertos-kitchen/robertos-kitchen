@@ -600,6 +600,7 @@ function renderMarketList(){
         <button class="report-btn" onclick="mlPrint()">Print</button>
         <button class="report-btn" onclick="mlEmailPrompt()">Email chefs</button>
         <button class="report-btn" id="ml-fmc" onclick="openFmcMatch()">Match to FMC</button>
+        <button class="report-btn" onclick="mlOrderHelper()">Order helper</button>
       </div>
     </div>
 
@@ -1206,6 +1207,55 @@ function mlPrint(){
 }
 
 // ── email chefs via Resend edge function ──
+
+// ══════════════════════════════════════════════════════════════════════════
+// ORDER HELPER — the download, and what to do with it
+//
+// The helper is a Windows program that types the day's order into Materials
+// Control: about a second a line, against reading all 460 rows of the grid by
+// hand. It lives here because this is the screen the order is built on, and a
+// tool nobody can find is a tool nobody uses.
+//
+// It is NOT next to "Match to FMC" by accident and it does not replace it.
+// Match to FMC is what gives every market-list line its FMC code, and the
+// helper finds each line in Materials Control BY that code. No code, no
+// placement — the line comes back on the type-by-hand list instead.
+//
+// What the helper never does: save, choose a basket, or press Request. It
+// types and stops. A person commits the order under their own FMC login.
+// ══════════════════════════════════════════════════════════════════════════
+var ML_HELPER_EXE = 'downloads/FMC-order-helper.exe';
+
+function mlOrderHelper(){
+  var w = document.getElementById('order-view');
+  if(!w) return;
+  var old = document.getElementById('ml-helper-panel');
+  if(old){ old.remove(); return; }
+
+  var d = document.createElement('div');
+  d.id = 'ml-helper-panel';
+  d.className = 'ac-caution';
+  d.style.margin = '12px 0';
+  d.innerHTML =
+    '<b>Order helper — types this order into Materials Control</b><br>' +
+    'For the laptop that has Materials Control on it. Windows only.' +
+    '<div style="margin:10px 0"><a class="report-btn" style="text-decoration:none" ' +
+      'href="' + ML_HELPER_EXE + '" download>Download the order helper</a></div>' +
+    '<b>What to do</b><ol style="margin:6px 0 0 18px;padding:0">' +
+      '<li>Open Materials Control on the Kitchen Market List.</li>' +
+      '<li>Open the helper, pick the day, read the plan.</li>' +
+      '<li>Press <i>Type this order in</i> and leave the mouse alone while it works.</li>' +
+      '<li>Check it, then save it yourself and press Request. The helper never does.</li>' +
+    '</ol>' +
+    '<div style="margin-top:8px">Nobody else should be working in that order ' +
+    'at the same time — it aims at the screen, so a second person moves the ' +
+    'target. If a line cannot be placed it does not stop; it types the rest ' +
+    'and lists what to add by hand.</div>';
+  var anchor = document.querySelector('#order-view .ml-actions');
+  if(anchor && anchor.parentNode) anchor.parentNode.insertBefore(d, anchor.nextSibling);
+  else w.appendChild(d);
+}
+
 function mlEmailPrompt(){
   mlAskDay('Email chefs', async wd=>{
     const out = mlOrderHtml(wd);
