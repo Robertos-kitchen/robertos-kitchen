@@ -163,6 +163,11 @@ img{display:block;max-width:100%}
 .title{display:flex;flex-direction:column;gap:1.5mm}
 .title h1{font-family:var(--serif);font-weight:400;margin:0;font-size:27pt;line-height:.96;color:var(--vino)}
 .title .desc{font-family:var(--serif);font-style:italic;font-size:11.5pt;line-height:1.3;color:var(--ink);max-width:150mm}
+/* the diet claim on the name — olive, because it is a different kind of word from an
+   allergen: what the dish IS, not what it carries */
+.dietb{display:inline-block;vertical-align:middle;font-family:var(--sans);font-size:8pt;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;line-height:1;color:var(--cream);background:var(--oliva);
+  border-radius:1mm;padding:1.8mm 2.5mm;margin-left:3mm}
 
 /* the middle: what he says, and what it is.
    It no longer takes the slack — `.breathe` below does. Left to grow, the middle pushed
@@ -277,6 +282,7 @@ img{display:block;max-width:100%}
   .side{border-left:none;border-top:1px solid var(--sabbia-dark);padding-left:0;padding-top:20px;gap:20px}
   .lst li{font-size:15.5px;padding:9px 0}
   .chip,.cut .c{font-size:13.5px;padding:9px 12px;border-radius:3px}
+  .dietb{font-size:12px;padding:6px 8px;border-radius:3px;margin-left:10px}
   .lab{font-size:10px}
   .todo{font-size:15px}
   .foot{font-size:9.5px}
@@ -305,6 +311,9 @@ img{display:block;max-width:100%}
     break-after:page;page-break-after:always}
   .sheet:last-child{break-after:auto;page-break-after:auto}
 
+  /* same trap as the chips: a dropped olive fill would print cream-on-nothing, and a
+     vanished VEGAN badge is a guest fed the wrong thing — rebuilt out of ink only */
+  .dietb{background:none!important;color:#000!important;border:.6mm solid #000!important;font-weight:700}
   .chip{color:#6b6b6b!important;border-color:#9a9a9a!important;background:none!important}
   .chip.hit{background:none!important;color:#000!important;border:.6mm solid #000!important;font-weight:700}
   .cut .c{color:#6b6b6b!important;border-color:#9a9a9a!important;background:none!important}
@@ -640,6 +649,10 @@ function fromRecipe(rec, allergens){
     ing:lines(m.ing),
     garnish:lines(m.garnish),
     more:(m.more || '').trim(),
+    /* the chef's tick on the create sheet, same jsonb as the rest of the floor's half.
+       Only the two words the sheet can actually say — anything else is a bad write,
+       and a made-up word must not print on this page. */
+    diet:(m.diet === 'vegan' || m.diet === 'vegetarian') ? m.diet : '',
     allergens:allergens,
     cutlery:Array.isArray(m.cutlery) ? m.cutlery : [],
     at:rec.updated_at || null,
@@ -761,7 +774,19 @@ function findDishes(qRaw){
     var x = DISHES[ix];
     var f = posIn(qw, x.name), rank;
     if (f != null) rank = f;
-    else { var g = posIn(qw, x.section); if (g == null) return; rank = 1000 + g; }
+    else {
+      var g = posIn(qw, x.section);
+      if (g != null) rank = 1000 + g;
+      else {
+        /* "vegan" typed before service is a real question this book can answer. A
+           vegan dish answers "vegetarian" too — the stronger claim contains the
+           weaker one — and behind every named dish, so the list reads as dishes
+           first, then the ones that qualify. */
+        var h = posIn(qw, x.diet === 'vegan' ? 'vegan vegetarian'
+                        : x.diet === 'vegetarian' ? 'vegetarian' : '');
+        if (h == null) return; rank = 2000 + h;
+      }
+    }
     hits.push({ ix:ix, rank:rank });
   });
   hits.sort(function(a,b){ return (a.rank-b.rank) || (a.ix-b.ix); });
@@ -897,7 +922,11 @@ function sheet(d){
         (d.isSample ? '' : photoLayer(d)) +
       '</div>' +
 
-      '<div class="title"><h1>'+esc(d.name)+'</h1>' +
+      /* the diet claim sits on the name, not in the allergen strip — a waiter asked
+         "is anything vegan" reads names, and the strip below is for what a dish
+         CARRIES, not what it is free of */
+      '<div class="title"><h1>'+esc(d.name) +
+        (d.diet ? '<span class="dietb">'+(d.diet==='vegan'?'Vegan':'Vegetarian')+'</span>' : '') + '</h1>' +
         (d.desc ? '<div class="desc">'+esc(d.desc)+'</div>'
                 : '<div class="desc" style="color:#93826c">The menu line is not written yet.</div>') +
       '</div>' +

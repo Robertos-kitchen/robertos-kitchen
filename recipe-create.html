@@ -1153,6 +1153,10 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .fcard{background:#fff;border:1px solid var(--sabbia-dark);border-radius:8px;padding:22px 20px;max-width:620px}
 .fnm{font-family:var(--serif);font-size:32px;line-height:1.1;color:var(--vino);word-break:break-word}
 .fsec{font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin-top:6px}
+/* the diet claim, worn next to the name the way the printed page wears it */
+.fdiet{display:inline-block;vertical-align:middle;font-family:var(--sans);font-size:10.5px;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--cream);background:var(--vino);
+  border-radius:3px;padding:4px 8px;margin-left:8px}
 .fphotos{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
 .fphotos img{width:100%;max-width:280px;height:170px;object-fit:cover;border-radius:6px;border:1px solid var(--sabbia-dark)}
 .fdesc{font-size:16px;line-height:1.7;color:var(--ink);margin-top:16px;white-space:pre-wrap}
@@ -1844,7 +1848,10 @@ function drawKindBar(){
    It is in MKEYS, not just on the batch sheet, so a batch turned into a main and back
    again still says how to store it. */
 var MKEYS = ['mise','method','order','plating','pass','crockery','store'];
-var FKEYS = ['foh','say','story','ing','garnish','more','code'];
+/* `diet` rides in the same jsonb as the rest of the floor's half: '' (says nothing),
+   'vegetarian' or 'vegan'. The chef's own claim, never worked out from the
+   ingredients — same rule as the allergens, and for the same reason. */
+var FKEYS = ['foh','say','story','ing','garnish','more','code','diet'];
 
 /* One box. It was four — mise en place, method, to order, plating — split by when
    the work happens in the day. Francesco's call on 2 August: he writes the method and
@@ -1892,7 +1899,7 @@ var FSEC = [
 ];
 function emptyMethod(){
   return { mise:'', method:'', order:'', plating:'', pass:'', crockery:'', store:'',
-           foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', cutlery:[] };
+           foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', diet:'', cutlery:[] };
 }
 
 /* ───────── allergens ─────────
@@ -1971,6 +1978,9 @@ function normMethod(m){
     if (Array.isArray(m.cutlery)) out.cutlery = m.cutlery.filter(function(c){
       return CUTLERY.indexOf(c) > -1; });
   }
+  /* same rule as the cutlery: only the two words the chips can actually say. Anything
+     else came from a bad write, and a made-up word here would print on a waiter's page */
+  if (out.diet !== 'vegetarian' && out.diet !== 'vegan') out.diet = '';
   return out;
 }
 /* what the Food Bible page needs before it can be printed for a guest-facing binder */
@@ -7597,7 +7607,9 @@ function fohViewHTML(){
   return '<div class="pane">' +
     '<div class="fhint">The floor’s screen — only what a guest can be told.</div>' +
     '<div class="fcard">' +
-      '<div class="fnm">' + esc(S.name || 'Untitled') + '</div>' +
+      '<div class="fnm">' + esc(S.name || 'Untitled') +
+        (S.method && dietLabel(S.method.diet)
+          ? ' <span class="fdiet">' + dietLabel(S.method.diet) + '</span>' : '') + '</div>' +
       (S.section ? '<div class="fsec">' + esc(S.section) + '</div>' : '') +
       (S.photos && S.photos.length
         ? '<div class="fphotos">' + S.photos.map(function(p){
@@ -7673,7 +7685,40 @@ function algInner(){
             (inh[k] ? ' <span class="asrc">from '+esc(inh[k].join('; '))+'</span>' : '') + '</span>';
         }).join('<span class="adot">·</span>') + '</div>'
       : '<div class="acon none">Nothing ticked yet — this recipe will show <b>no allergens</b> to the floor. ' +
-        'If that is right, leave it; if it is not, tap them above.</div>');
+        'If that is right, leave it; if it is not, tap them above.</div>') +
+    (S.kind === 'main' ? dietInner(all) : '');
+}
+/* ── vegetarian / vegan ──
+   The same shape as the allergens and on the same box, because it is the same kind of
+   claim: the chef's tick, never guessed, and the Food Bible prints it for a waiter to
+   repeat. Two chips, one at most — vegan already means vegetarian, so saying both is
+   saying one of them twice. Tap the one that is on to take it back off.
+
+   The one check worth making is the sheet arguing with itself: vegan with Milk ticked,
+   vegetarian with Fish coming in from a batch. That is said out loud rather than
+   blocked — the allergens may be the wrong half, and this screen cannot know which. */
+function dietLabel(v){ return v === 'vegan' ? 'Vegan' : v === 'vegetarian' ? 'Vegetarian' : ''; }
+function dietClash(diet, all){
+  if (!diet) return [];
+  var no = diet === 'vegan' ? ['fish','crustacean','mollusc','egg','milk']
+                            : ['fish','crustacean','mollusc'];
+  return all.filter(function(k){ return no.indexOf(k) > -1; });
+}
+function dietInner(all){
+  var diet = (S.method && S.method.diet) || '';
+  var clash = dietClash(diet, all);
+  return '<div class="mhd" style="margin-top:16px">Vegetarian or vegan</div>' +
+    '<div class="msub">Your tick, never guessed — the Food Bible prints it and a waiter repeats it to a guest. ' +
+      'Vegan already covers vegetarian; tick the strongest true claim, or neither.</div>' +
+    '<div class="achips">' +
+      ['vegetarian','vegan'].map(function(v){
+        return '<button class="ach'+(diet===v?' on':'')+'" data-diet="'+v+'">'+dietLabel(v)+'</button>';
+      }).join('') + '</div>' +
+    (clash.length
+      ? '<div class="acon none"><b>' + dietLabel(diet) + '</b> is ticked, but this sheet carries ' +
+        clash.map(function(k){ return '<b>'+esc(allergenName(k))+'</b>'; }).join(', ') +
+        ' — one of the two is wrong. Fix whichever it is before this goes to the floor.</div>'
+      : '');
 }
 /* ───── the method reads as steps ─────
    A dessert method is five or six things done in order, and written as one paragraph the
@@ -8895,6 +8940,14 @@ document.addEventListener('click', function(e){
   if (alg){
     var k = alg.dataset.alg, at = S.allergens.indexOf(k);
     if (at > -1) S.allergens.splice(at,1); else S.allergens.push(k);
+    drawAlg(); return;
+  }
+
+  /* ── vegetarian / vegan — one at most, tap again to take it off ── */
+  var dt = e.target.closest('[data-diet]');
+  if (dt){
+    if (!S.method) S.method = emptyMethod();
+    S.method.diet = S.method.diet === dt.dataset.diet ? '' : dt.dataset.diet;
     drawAlg(); return;
   }
 
