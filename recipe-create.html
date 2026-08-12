@@ -687,6 +687,12 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .mrsnap td.n{text-align:right;font-family:var(--serif);font-size:14px}
 .mrsnap tr.fam td{background:var(--sabbia);color:var(--vino);font-family:var(--serif);font-size:14px}
 .mrsnap .till{font-family:ui-monospace,Consolas,monospace}
+/* Aung's item code, typed off his reply. 44px tall so a finger can hit it — this table
+   is read on the pass screens as much as on a laptop. */
+.poskey{width:96px;min-height:34px;border:1px solid var(--sabbia-dark);border-radius:5px;
+  padding:6px 8px;font:inherit;background:#fff;outline:none}
+.poskey:focus{border-color:var(--vino)}
+.poskey:disabled{opacity:.5}
 .mrwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid rgba(64,2,7,.14);
   border-radius:4px}
 /* the admin fold — apart from the requests, under a line, and never the first thing read */
@@ -853,6 +859,14 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .trow.ns{border-left-style:dotted;border-left-color:rgba(64,2,7,.35);background:transparent}
 .trow.ns:hover{background:#fdfaf5}
 .trow.ns .tn{color:var(--vino-light)}
+/* ── "already written — link it" picker ──
+   The same paper the rest of the screen stands on; the search box borrows .lfilt's
+   input look. Nothing new to learn — it is the recipe list, filtered. */
+.linkp{background:var(--cream);border:1px solid rgba(64,2,7,.14);border-radius:6px;margin-top:18px}
+.linkp .lq{width:100%;border:1px solid var(--sabbia-dark);border-radius:5px;padding:9px 11px;
+  font-size:14px;font-family:var(--sans);background:#fff;outline:none;margin:0 0 12px}
+.linkp .lq:focus{border-color:var(--vino)}
+.linkl{max-height:420px;overflow-y:auto;margin-bottom:12px}
 /* ── how far the menu is ──
    Above the heading because it is the answer to the question the screen gets opened
    with. One bar, three states, and the numbers written out underneath — a bar nobody
@@ -2745,8 +2759,8 @@ function batchCost(id, stack){
       per = sub.per; base = sub.base;
     } else {
       var it = ING.filter(function(x){ return x.code === l.stock_code; })[0];
-      if (!it){ why = why || 'an ingredient in it is no longer on the stock take'; continue; }
-      if (it.price === 0 && !it.mine){ why = why || 'an ingredient in it has no price on the stock take'; continue; }
+      if (!it){ why = why || 'an ingredient in it is no longer in the catalogue'; continue; }
+      if (it.price === 0 && !it.mine){ why = why || 'an ingredient in it has no price in the catalogue'; continue; }
       var bp = basePrice(it);
       if (!bp){ why = why || 'an ingredient in it has a unit the app cannot read'; continue; }
       per = bp.v; base = bp.base;
@@ -2812,7 +2826,7 @@ function loadSaved(){
     /* `method` comes back with the list so Needs finishing can say when a dish has no
        method written and when the floor's half is empty — both invisible from outside */
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
-       ',created_by_name,allergens&order=updated_at.desc&limit=2000'),
+       ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
       .catch(function(){ return null; }),
@@ -2928,6 +2942,19 @@ function issuesOf(r){
     if (r.makes_qty == null)  out.push({ sec:'makes',   s:'doesn’t say how many portions' });
     if (!r.section)           out.push({ sec:'section', s:'no section — Aung’s form needs one' });
     if (r.menu_price == null) out.push({ sec:'price',   s:'no menu price' });
+    else {
+      /* The printed card and the recipe each carry a price, and until now nothing ever
+         held them against each other — menu_items was BUILT promising this check ("when
+         the recipe says 130 and the card says 145, the screen can say so") and the
+         screen never said so. It matters twice over: the guest pays the card, and the
+         Micros request costs its percentage off THIS number — a stale one sends Aung a
+         margin nobody is actually getting. Which of the two is right is his call, so
+         this names both and decides nothing. */
+      var mip = MENUITEMS && MENUITEMS.filter(function(x){
+        return x.recipe_id === r.id && x.price != null; })[0];
+      if (mip && Number(mip.price) !== Number(r.menu_price))
+        out.push({ sec:'price', s:'the card prints ' + mip.price + ', this recipe says ' + r.menu_price });
+    }
     if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ sec:'menu', s:'not on a menu' });
     /* Everything else on this list is money or a blank box. This one is the only thing
        here that can hurt somebody, and it was never checked: a dish with nothing ticked
@@ -3474,7 +3501,11 @@ function micWhen(iso, short){
 function micApplyNew(){
   if (!MICREQ.onlyNew) return;
   var before = micSentBefore(MICREQ.menuId);
-  MICREQ.rows.forEach(function(r){ if (before[r.id]) r.take = false; });
+  /* a recorded till code is the stronger fact than "sent before": sent says Aung was
+     asked, the code says he ANSWERED — that dish exists in Micros, whichever request
+     it went out on. Both start unticked; a tap puts either back (a price change is
+     sent as the same dish, again). */
+  MICREQ.rows.forEach(function(r){ if (before[r.id] || r.pos_key) r.take = false; });
 }
 /* Starting one from nothing. Everything about the LAST request has to go, or the new
    one quietly inherits a draft id and overwrites it. */
@@ -3649,10 +3680,16 @@ function micPastInner(){
   items.forEach(function(it){
     if (it.section !== fam){
       fam = it.section;
-      body += '<tr class="fam"><td colspan="6">'+esc(fam||'No section')+
+      body += '<tr class="fam"><td colspan="7">'+esc(fam||'No section')+
         (it.family_code!=null ? ' · family '+it.family_code : '')+'</td></tr>';
     }
     var pct = (it.cost != null && it.net_price) ? (it.cost/it.net_price*100) : null;
+    /* Aung answers a request with the item codes he assigned, and until now his answer
+       had nowhere to go — so nothing in the module could ever say "this dish is already
+       in the till", and the same dish could be requested twice. The column the schema
+       always had for it is recipes.pos_key; this box is the way it gets filled, here,
+       on the request his email is answering. Saved as it is typed away from. */
+    var rec2 = it.recipe_id ? S.saved.filter(function(r){ return r.id === it.recipe_id; })[0] : null;
     /* the recipe may have gone since; then it is a name and nothing more, rather than
        a link that answers "that recipe could not be opened" */
     body += '<tr><td>'+(it.recipe_id
@@ -3660,6 +3697,10 @@ function micPastInner(){
           esc(it.name)+'</button>'
         : esc(it.name))+'</td>' +
       '<td class="till">'+esc(it.till_name||'')+'</td>' +
+      '<td class="till">'+(rec2
+        ? '<input class="poskey" data-poskey="'+esc(rec2.id)+'" value="'+esc(rec2.pos_key||'')+'" ' +
+          'placeholder="from Aung" inputmode="numeric" aria-label="Micros item code for '+esc(it.name)+'">'
+        : '—')+'</td>' +
       '<td class="n">'+(it.cost==null?'—':fmt(+it.cost))+'</td>' +
       '<td class="n">'+(it.price==null?'—':fmt(+it.price))+'</td>' +
       '<td class="n">'+(it.net_price==null?'—':fmt(+it.net_price))+'</td>' +
@@ -3676,11 +3717,14 @@ function micPastInner(){
       'out on the day. They are not read back off the recipe — a recipe that has changed since must ' +
       'not change what this says was sent.</div>' +
     '<div class="mrwrap"><table class="mrsnap"><thead><tr>' +
-      '<th>Item name in menu</th><th>Name in Micros</th><th style="text-align:right">Cost</th>' +
+      '<th>Item name in menu</th><th>Name in Micros</th><th>Item code — from Aung\'s reply</th>' +
+      '<th style="text-align:right">Cost</th>' +
       '<th style="text-align:right">Sales price</th><th style="text-align:right">Net</th>' +
       '<th style="text-align:right">Cost %</th></tr></thead><tbody>' + body +
-      (items.length ? '' : '<tr><td colspan="6">No lines were written down with this request.</td></tr>') +
+      (items.length ? '' : '<tr><td colspan="7">No lines were written down with this request.</td></tr>') +
     '</tbody></table></div>' +
+    '<div class="tip" style="margin-top:10px">When Aung replies with the item codes, type each one on its ' +
+      'line — it is kept on the recipe, and the next request marks that dish <b>already in the till</b>.</div>' +
     '<div class="micfoot">' +
       '<button class="okb" data-mfrom="'+q.id+'">Start a new request from this one</button>' +
       '<button class="newr" id="micback" style="margin:0">Back to the requests</button>' +
@@ -3731,7 +3775,7 @@ function micShort(name, prefix, limit){
 function loadMicros(menuId){
   MICREQ.err = null; MICREQ.ready = false;
   return Promise.all([
-    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price'),
+    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price,pos_key'),
     sb('recipe_menus?menu_id=eq.' + menuId + '&select=recipe_id'),
     sb('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
        'trim_on,yield_pct,waste_pct,position&order=position'),
@@ -3756,6 +3800,7 @@ function loadMicros(menuId){
         var c = batchCost(r.id);
         return { id:r.id, name:r.name, section:r.section || 'No section',
                  price:r.menu_price, cost: c.problem ? null : c.per, why: c.problem || null,
+                 pos_key: r.pos_key || null,
                  micros: micShort(r.name, MICREQ.prefix), take:true };
       });
     MICREQ.ready = true;
@@ -3821,7 +3866,7 @@ function micLineFacts(l){
     var it = ING.filter(function(x){ return x.code === l.stock_code; })[0];
     o.what = 'ingredient'; o.code = l.stock_code;
     o.name = it ? it.name : (l.stock_name || l.typed_text || l.stock_code);
-    if (!it) o.note = 'no longer on the stock take';
+    if (!it) o.note = 'no longer in the catalogue';
     else {
       var bp = basePrice(it);
       if (bp){ o.unitPrice = bp.v; o.base = bp.base; }
@@ -5473,16 +5518,20 @@ function render(){
 
   if (S.step === 'list'){
     b.classList.add('off');
-    var label = new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
     var groups = []; ING.forEach(function(i){ if(groups.indexOf(i.group)<0) groups.push(i.group); }); groups.sort();
     var batches = ING.filter(function(i){ return i.group==='Batch Recipe (Food)'; }).length;
     var packs = ING.filter(function(i){ return /\//.test(i.unit); }).length;
     var unread = ING.filter(function(i){ return !parseUnit(i.unit).qty; }).length;
     w.innerHTML =
-      '<div class="listhd"><div class="m">Aung\'s list</div>' +
-        '<div class="s">Straight out of the Kitchen app\'s Stock Take — <b>'+label+'</b>, the sheet Aung has open now. ' +
-        'Same table, same row, live. Every recipe you build starts here, and the moment he uploads the next stock take ' +
-        '<b>every cost follows on its own</b> — nothing to re-type, nobody to remind.</div>' +
+      /* Named for where the prices actually come from. This screen said "Aung's July
+         stock take… same table, same row, live" for weeks after the source became the
+         FMC article catalogue — a chef was being told the wrong provenance for a
+         correct number, and the month was a constant nobody bumped. The stock take
+         keeps its stock-take job; it no longer prices recipes. */
+      '<div class="listhd"><div class="m">The article catalogue</div>' +
+        '<div class="s">Straight out of <b>FMC (Materials Control)</b> — the same catalogue the Market List orders from, ' +
+        'read live from the database. Every recipe you build starts here, and the moment the catalogue is updated ' +
+        '(Article Catalogue → Update from FMC) <b>every cost follows on its own</b> — nothing to re-type, nobody to remind.</div>' +
         '<div class="lstats">' +
           '<div class="lstat"><div class="k">Ingredients</div><div class="v">'+(ING.length-batches)+'</div></div>' +
           '<div class="lstat"><div class="k">Batches</div><div class="v">'+batches+'</div></div>' +
@@ -5505,7 +5554,7 @@ function render(){
         if (cand.length){
           return '<div class="offer"><b>You have ' + (cand.length === 1 ? 'a batch recipe that looks like this' :
               cand.length + ' batch recipes that look like this') + '.</b> ' +
-            'This line is pointing at Aung\'s price' + per + ' instead, so its cost comes off his stock take ' +
+            'This line is pointing at Aung\'s catalogue price' + per + ' instead, so its cost comes off FMC ' +
             'rather than off what actually goes in it. Point it at the recipe and the ingredients come with it.' +
             '<div class="maacts">' + cand.map(function(c){
               var b = BATCH[idOf(c.code)] || {};
@@ -5518,7 +5567,7 @@ function render(){
               esc(nm) + '</button></div></div>';
         }
         return '<div class="offer"><b>The recipe for ' + esc(nm) + ' is not written yet.</b> ' +
-          'Aung prices it' + per + ', and that is everything his stock take holds — there are no ingredients behind it, ' +
+          'Aung prices it' + per + ', and that is everything the FMC catalogue holds — there are no ingredients behind it, ' +
           'which is why there is nothing to open. Write it once and every dish that uses it opens straight into it.' +
           '<div class="maacts"><button class="okb" id="writebatch">Write this batch recipe</button></div></div>';
       })() +
@@ -5527,7 +5576,7 @@ function render(){
           '<option value="ing">Ingredients only</option><option value="bat">Batches only</option></select>' +
         '<select id="lg"><option value="">All groups</option>'+groups.map(function(g){ return '<option>'+esc(g)+'</option>'; }).join('')+'</select></div>' +
       '<div class="addbox">' +
-        '<div class="hd">Add something Aung hasn\u2019t got on the list</div>' +
+        '<div class="hd">Add something FMC hasn\u2019t got in the catalogue</div>' +
         '<div class="fields">' +
           '<div class="fl w-name"><label>Name</label><input id="an" placeholder="Tap water"></div>' +
           '<div class="fl"><label>Code — if you have it</label><input id="ac" class="w-sm" placeholder="optional"></div>' +
@@ -5537,8 +5586,8 @@ function render(){
           '<button id="ab">Add</button>' +
         '</div>' +
         '<div class="why"><b>0 is a real price.</b> Tap water, ice, herbs from the garden \u2014 they cost nothing and the app treats zero as an answer, not a gap. ' +
-        'And if you bought something mid-month that Aung hasn\u2019t put on the sheet yet, put the code in and use it now \u2014 ' +
-        'when his next stock take carries that code, <b>his price takes over automatically</b>.</div>' +
+        'And if you bought something FMC doesn\u2019t carry yet, put the code in and use it now \u2014 ' +
+        'when the catalogue picks that code up, <b>its price takes over automatically</b>.</div>' +
         '<div class="err" id="ae"></div></div>' +
       '<table class="sheet"><thead><tr><th>Code</th><th>Ingredient</th><th>Group</th>' +
         '<th class="n">Price</th><th>Per</th><th class="n">Works out at</th><th class="n">Used in</th><th></th></tr>' +
@@ -5575,8 +5624,8 @@ function render(){
         '. <b>Works out at</b> is the price per kilo or litre once the pack is opened up — ' +
         packs + ' of these are sold by the pack, not by weight. ' +
         (unread ? '<b>'+unread+'</b> have a unit the app can\'t read; those are listed for Aung rather than guessed. ' : '') +
-        '<br><br><b>This list is Aung\'s newest stock take, and nothing else.</b> Earlier months are not used at all. ' +
-        'When a stock take drops an item, any recipe using it carries no cost for that line and asks you to point ' +
+        '<br><br><b>This list is the FMC article catalogue, and nothing else.</b> No copy, no other month. ' +
+        'When the catalogue drops an item, any recipe using it carries no cost for that line and asks you to point ' +
         'at what replaces it — an old price is a wrong price.' +
         /* Say plainly whether the things he adds are being kept. This screen used to
            promise it and not do it. */
@@ -5584,8 +5633,8 @@ function render(){
           ? '<br><br><b class="bad">Your own ingredients cannot be read right now</b> — ' + esc(minePlain(MINE_ERR)) +
             ' Anything you add will work for this sitting and will not come back. Say so before you rely on it.'
           : '<br><br><b>Anything you add here is kept</b> and is on your list every time you open this screen, ' +
-            'marked <span class="mine">yours</span>. If Aung\'s next stock take carries the same code, ' +
-            '<b>his price takes over</b> and yours is ignored.');
+            'marked <span class="mine">yours</span>. If the FMC catalogue picks up the same code, ' +
+            '<b>its price takes over</b> and yours is ignored.');
     };
     if (S.find){                                     /* came from a row — land on that item */
       var hit = pool().filter(function(i){ return i.code === S.find; })[0];
@@ -5771,8 +5820,8 @@ function render(){
             '<button class="newr" id="newr">＋ Start a new recipe</button>'
           : '<div class="q">Saved recipes</div>' +
             howto('saved', 'Open one to change it — the sheet comes back exactly as you left it, ' +
-              'and Save puts the changes on the same recipe. Costs are worked out fresh off Aung\'s ' +
-              'newest stock take every time, so nothing here is a frozen price.', 'Opening and costs') +
+              'and Save puts the changes on the same recipe. Costs are worked out fresh off the ' +
+              'FMC article catalogue every time, so nothing here is a frozen price.', 'Opening and costs') +
             '<div class="sfind"><input id="sq" value="'+esc(S.sq||'')+'" ' +
                 'placeholder="search all '+nlive+' recipes — burrata, vitello, pasta…">' +
               (S.sq ? '<button class="sclr" id="sclr">Clear</button>' : '') +
@@ -5868,8 +5917,58 @@ function render(){
         '<span class="tk">'+(mi.price == null ? 'market price' : mi.price)+
           (lt.length ? ' · card prints ' + lt.map(function(k){ return MENULETTER[k] || k; }).join(', ') : '')+
         '</span>' +
-        '<span class="ti"><em class="go">start it — the name, the section and the price come with it</em></span>' +
+        /* Two ways in, because there were two situations and only one of them had a door.
+           A dish is "not started" whenever nothing is ATTACHED to it — which includes a
+           dish whose recipe was written long before the printed list existed, or written
+           from scratch instead of from here. Those were unreachable: attaching only ever
+           happened as a side effect of "start it", so a recipe written any other way
+           could never be joined to its printed dish, and this screen went on calling it
+           not started for ever. The row still opens the new sheet when tapped anywhere. */
+        '<span class="ti">' +
+          '<em class="go">start it — the name, the section and the price come with it</em>' +
+          '<em class="go" data-link="'+esc(mi.id)+'" title="Attach a recipe that is already ' +
+            'written to ‘'+esc(mi.name)+'’">already written — link it</em>' +
+        '</span>' +
       '</button>';
+    };
+    /* ── the picker for "already written — link it" ──
+       Only mains, only live ones, and the ones already attached to a printed dish are
+       shown as such rather than hidden: seeing "Burrata — already on the a la carte" is
+       the answer to "why can I not find it", where a silently short list is not. */
+    var linkBlock = function(){
+      if (!S.linkFor) return '';
+      var mi = (MENUITEMS || []).filter(function(x){ return x.id === S.linkFor; })[0];
+      if (!mi) return '';
+      var taken = {};
+      (MENUITEMS || []).forEach(function(x){ if (x.recipe_id && x.id !== mi.id) taken[x.recipe_id] = x.name; });
+      var q = String(S.linkQ || '').trim().toLowerCase();
+      var opts = live2.filter(function(r){ return r.kind === 'main'; })
+        .filter(function(r){ return !q || String(r.name).toLowerCase().indexOf(q) > -1; })
+        .sort(function(a, b2){ return (taken[a.id]?1:0) - (taken[b2.id]?1:0) ||
+                                      String(a.name).localeCompare(String(b2.name)); });
+      return '<div class="pane linkp">' +
+        '<div class="q">Which recipe is ‘' + esc(mi.name) + '’?</div>' +
+        '<div class="msub">The printed dish keeps its own name and price. Linking only says ' +
+          'they are the same dish, so it stops being counted as not started.</div>' +
+        '<input class="lq" id="linkq" placeholder="Search the recipes you have written" ' +
+          'value="'+esc(S.linkQ || '')+'" autocomplete="off">' +
+        (opts.length
+          ? '<div class="linkl">' + opts.slice(0, 40).map(function(r){
+              var t = taken[r.id];
+              return '<button class="trow" data-linkpick="'+r.id+'"'+(t?' data-taken="1"':'')+'>' +
+                '<span class="tn">'+esc(r.name)+'</span>' +
+                '<span class="tk">'+(r.section?esc(r.section):'no section')+
+                  (r.menu_price != null ? ' · '+r.menu_price : '')+'</span>' +
+                '<span class="ti"><em'+(t?' class="h"':' class="go"')+'>'+
+                  (t ? 'already linked to ‘'+esc(t)+'’ — linking it here moves it'
+                     : 'link it')+'</em></span>' +
+              '</button>'; }).join('') +
+              (opts.length > 40 ? '<div class="msub">'+opts.length+' match — keep typing.</div>' : '') +
+            '</div>'
+          : '<div class="msub bad">Nothing written matches that. If the recipe does not exist ' +
+            'yet, close this and tap the dish itself to start it.</div>') +
+        '<button class="newr" id="linkcancel">Close</button>' +
+      '</div>';
     };
     var nsBlock = MENUITEMS == null
       /* a list that did not load must never be shown as an empty one: "nothing left to
@@ -5954,7 +6053,15 @@ function render(){
             (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '') +
             nsBlock +
             '</div>'
-      ) + '</div>';
+      ) + linkBlock() + '</div>';
+    /* same caret dance as the saved-recipes search: render() rebuilds on every key */
+    var lqEl = $('linkq');
+    if (lqEl){
+      lqEl.addEventListener('input', function(){
+        S.linkQ = lqEl.value; var at2 = lqEl.selectionStart; render();
+        var n2 = $('linkq'); if (n2){ n2.focus(); try{ n2.setSelectionRange(at2,at2); }catch(_){} }
+      });
+    }
   }
 
   else if (S.step === 'menus'){
@@ -5983,6 +6090,32 @@ function render(){
   else if (S.step === 'micpast'){
     b.classList.add('off');
     w.innerHTML = micPastInner();
+    /* Saved when he clicks away from the box, not per keystroke — a code is typed whole
+       off Aung's email. pos_name goes with it: the till name this request sent is the
+       name that code was created under, and the two only mean anything together. */
+    w.querySelectorAll('.poskey').forEach(function(inp){
+      inp.addEventListener('change', function(){
+        var rid = inp.dataset.poskey, val = inp.value.trim() || null;
+        var rec3 = S.saved.filter(function(r){ return r.id === rid; })[0];
+        var itm = ((MICREQ.open||{}).items||[]).filter(function(x){ return x.recipe_id === rid; })[0];
+        inp.disabled = true;
+        sb('recipes?id=eq.'+rid, { method:'PATCH', prefer:'return=minimal',
+             body:{ pos_key: val,
+                    pos_name: val ? ((itm && itm.till_name) || (rec3 && rec3.pos_name) || null) : null,
+                    updated_at: new Date().toISOString() } })
+          .then(function(){
+            inp.disabled = false;
+            if (rec3){ rec3.pos_key = val; if (val && itm && itm.till_name) rec3.pos_name = itm.till_name; }
+            flash(val ? 'Code ' + val + ' is kept on ' + (rec3 ? rec3.name : 'the recipe') + '.'
+                      : 'The code was taken off ' + (rec3 ? rec3.name : 'the recipe') + '.');
+          })
+          .catch(function(err){
+            inp.disabled = false;
+            inp.value = (rec3 && rec3.pos_key) || '';
+            flash('That code was not saved — ' + plain(err.message), true);
+          });
+      });
+    });
   }
 
   else if (S.step === 'micros'){
@@ -6100,7 +6233,8 @@ function render(){
             '<span class="micnm"><button class="micopen" type="button" data-micopen="'+r.id+'" ' +
               'title="Open '+esc(r.name)+'">'+esc(r.name)+'</button>' +
               '<span class="micsec">'+esc(r.section)+
-                (gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
+                (r.pos_key ? ' · <b>in the till — code '+esc(r.pos_key)+'</b>'
+                 : gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
             '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+x.i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
               '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
             '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+
@@ -6366,9 +6500,9 @@ function render(){
   else if (S.step === 'sheet'){
     b.textContent = S.id ? 'Save changes' : 'Save'; b.classList.remove('off');
     w.innerHTML =
-      /* which stock take the money comes off is a fact about THIS sheet and stays;
+      /* where the money comes from is a fact about THIS sheet and stays;
          how to move down the columns is a thing you learn once */
-      '<div class="hint"><b>Costed off Aung\'s ' + new Date(MONTH+'-01T12:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'}) + ' stock take.</b> ' +
+      '<div class="hint"><b>Costed off the FMC article catalogue, live.</b> ' +
         howto('sheet', 'Go down Ingredient, then down Qty. Nothing opens. Tick the last box only ' +
           'on the things you trim — octopus, whole fish — and yield &amp; waste drop down for that one.' +
           /* Antonio asked for this, so it is said in the same breath as the rest of the sheet */
@@ -7066,7 +7200,7 @@ function swapbar(){
   var n = S.rows.filter(isStale).length;
   bar.innerHTML =
     (n ? '<b style="color:var(--attn)">'+n+' ingredient'+(n===1?'':'s')+' '+(n===1?'is':'are')+
-         ' not on Aung’s current stock take, so '+(n===1?'it carries':'they carry')+' no cost.</b> ' +
+         ' not in the FMC catalogue any more, so '+(n===1?'it carries':'they carry')+' no cost.</b> ' +
          'Pick what replaces it on that row — it is remembered for every other recipe using it.'
        : '') +
     SWAPS.map(function(w){
@@ -8308,7 +8442,7 @@ function foot(){
         'This total is lower than the real one until '+(t.badBatch.length===1?'that batch is':'those batches are')+' finished.</div>'
       : '') +
     (t.noPrice
-      ? '<div class="todo"><b>'+t.noPrice+' ingredient'+(t.noPrice===1?' has':'s have')+' no price on the stock take.</b> ' +
+      ? '<div class="todo"><b>'+t.noPrice+' ingredient'+(t.noPrice===1?' has':'s have')+' no price in the catalogue.</b> ' +
         'This cost is lower than the real one until Aung prices them.</div>'
       : '') +
     (t.noProd || t.noQty
@@ -8832,6 +8966,55 @@ document.addEventListener('click', function(e){
     });
     return;
   }
+  /* ── "already written — link it" ──
+     Read BEFORE data-start, because it sits INSIDE that row: the row is the button and
+     this is an <em> in it, so whichever is checked first wins. Checking start first
+     would have opened a blank sheet for a dish whose recipe already exists — the exact
+     duplicate this door was added to prevent. */
+  if (e.target.closest('#linkcancel')){ S.linkFor = null; S.linkQ = ''; render(); return; }
+  var lk = e.target.closest('[data-link]');
+  if (lk){
+    S.linkFor = lk.dataset.link; S.linkQ = '';
+    render();
+    var lq = $('linkq'); if (lq) lq.focus();
+    return;
+  }
+  var lp = e.target.closest('[data-linkpick]');
+  if (lp){
+    var pickId = lp.dataset.linkpick, forId = S.linkFor;
+    var mit = (MENUITEMS || []).filter(function(x){ return x.id === forId; })[0];
+    var rec = S.saved.filter(function(r){ return r.id === pickId; })[0];
+    if (!mit || !rec){ flash('That is no longer there — open Needs finishing again.', true); return; }
+    lp.disabled = true;
+    /* Two writes, and the order matters. The attach is the one that answers "is this
+       dish started"; putting it on the menu is what makes the pass card and the Food
+       Bible able to find it. A recipe attached but on no menu shows as done here and
+       appears on no card at all, which is the worse of the two half-states — so the
+       attach goes second, and only after the menu write has been given its chance. */
+    var jobs = [];
+    if (mit.menu_id && (S.rmenus[pickId] || []).indexOf(mit.menu_id) < 0)
+      jobs.push(sb('recipe_menus', { method:'POST', prefer:'return=minimal',
+                     body:[{ recipe_id:pickId, menu_id:mit.menu_id }] })
+                  .catch(function(){ return null; }));   /* already there is not a failure */
+    Promise.all(jobs)
+      .then(function(){
+        return sb('menu_items?id=eq.'+forId, { method:'PATCH', prefer:'return=minimal',
+                 body:{ recipe_id:pickId, updated_at:new Date().toISOString() } });
+      })
+      .then(function(){
+        S.linkFor = null; S.linkQ = '';
+        return Promise.all([loadSaved(), loadBatches()]);
+      })
+      .then(function(){
+        render(); window.scrollTo(0,0);
+        flash('‘' + rec.name + '’ is now the recipe for ‘' + mit.name + '’.');
+      })
+      .catch(function(err){
+        lp.disabled = false;
+        flash('That could not be linked — ' + plain(err.message), true);
+      });
+    return;
+  }
   /* ── a dish on the menu that has never been written ──
      Everything the card already says — the name, the course, the price — is typed in for
      him, because it is printed on a menu we wrote and asking him to copy it out is asking
@@ -8850,6 +9033,12 @@ document.addEventListener('click', function(e){
        that Micros has never heard of. */
     S.kind = 'main'; S.name = mi.name; S.section = mi.recipe_section || '';
     S.price = mi.price == null ? null : Number(mi.price);
+    /* THE MENU IT IS PRINTED ON, not the one that happens to be running. newRecipe()
+       ticks the running menu, which is right for a dish typed from nothing and wrong
+       here: start a Christmas dish while the a la carte is running and it went onto
+       the a la carte — so the card and the Food Bible then showed it to a waiter
+       training on a menu it is not on, and the Christmas menu looked short by one. */
+    if (mi.menu_id) S.menus = [mi.menu_id];
     /* what it was started from, so saving can attach the recipe to the menu dish and it
        stops being counted as not started */
     S.fromItem = mi.id;
@@ -9238,7 +9427,13 @@ document.addEventListener('click', function(e){
   var mrv = e.target.closest('[data-mreq]');
   if (mrv){
     MICREQ.open = (MICREQ.list||[]).filter(function(x){ return x.id === mrv.dataset.mreq; })[0] || null;
-    S.step = 'micpast'; render(); window.scrollTo(0,0); return;
+    S.step = 'micpast'; render(); window.scrollTo(0,0);
+    /* The code boxes read each recipe's pos_key off S.saved — which is empty when the
+       Micros door was opened on its own and Saved recipes has never loaded. Without
+       this, every code column drew an em-dash and the feature simply was not there
+       on the one screen it was built for. */
+    if (!S.saved.length) loadSaved().then(function(){ if (S.step === 'micpast') render(); });
+    return;
   }
   var mfr = e.target.closest('[data-mfrom]');
   if (mfr){
