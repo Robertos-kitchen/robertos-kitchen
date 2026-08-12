@@ -27,10 +27,17 @@
 // been a lie told 360 times. The sheet a price came from is shown as a plain
 // fact beside the price, because a price with no date is the actual danger.
 //
-// PRICE — stock_take_items.price is the cost controller's monthly valuation,
-// not the FMC purchase price. Measured: Cucumber Medium -GCC reads 4.96 here
-// and 4.50 in FMC, out by 10%. So it is labelled as his figure, with its
-// month, everywhere it appears. See order-items-fmc-columns.sql.
+// PRICE — TWO of them, and the screen leads with FMC's own from 11 Aug 2026.
+// `fmc_articles.price` is what FMC charges per ORDER unit, read off the
+// Purchase grid: 456 articles have it, including 450 of the 451 that can
+// actually be ordered. `stock_take_items.price` is Aung's month-end valuation
+// and fills in behind it for the 389 articles FMC no longer sells but the
+// kitchen has counted. They are NOT the same number — 69 of the 456 that have
+// both are more than 10% apart (Cucumber Medium -GCC: 4.96 counted, 4.50 at
+// FMC) — so the note under every price says which of the two it is, and the
+// card shows both side by side rather than warning about the difference in
+// prose. 401 articles have neither and show a dash.
+// See order-items-fmc-columns.sql.
 //
 // SUPPLIER — not in the export yet (asked of Aung). The column is read when it
 // exists and the screen simply says so when it doesn't; nothing breaks either
@@ -153,7 +160,7 @@ async function acLoad(){
   var arts = {}, haveArts = false;
   var ares = await acFetchAllPaged(function(){
     return sb.from('fmc_articles')
-      .select('code,name,unit,supplier,on_assortment,retiring,item_group')
+      .select('code,name,unit,supplier,on_assortment,retiring,item_group,price')
       .eq('venue_id','robertos-difc').order('code');
   });
   if(!ares.error && ares.data && ares.data.length){
@@ -200,6 +207,11 @@ async function acLoad(){
       name:a.name || (r && r.name) || '',
       group:group,
       unit:a.unit || (r && r.unit) || '',
+      // TWO prices, kept apart on purpose. fmcPrice is what FMC charges on the
+      // order, read off the Purchase grid per ORDER unit — the number a chef is
+      // actually spending. price is Aung's month-end valuation, which drifts:
+      // 69 of the 456 articles that have both are more than 10% apart.
+      fmcPrice:(a.price == null ? null : a.price),
       price:(r ? r.price : null), month:(r ? r.month : null),
       supplier:a.supplier || (r && r.supplier) || '',
       orderable: !!a.on_assortment,
@@ -216,6 +228,7 @@ async function acLoad(){
     var group = r.item_group || 'Other';
     if(acIsBatch(group)) return;
     acAll.push({ code:c, name:r.name||'', group:group, unit:r.unit||'',
+                 fmcPrice:null,          // no master row, so no FMC price either
                  price:r.price, month:r.month, supplier:r.supplier||'',
                  orderable:null, retiring:false });
   });
@@ -359,8 +372,16 @@ function acRenderRows(){
           '</div>' +
         '</div>' +
         '<div class="ac-unit">'+acEsc(r.unit)+'</div>' +
-        '<div class="ac-price">'+acMoney(r.price)+' <span class="ac-cur">AED</span>' +
-          '<div class="ac-pricenote">'+(r.month ? acSheetShort(r.month)+' sheet' : 'never counted')+'</div></div>' +
+        // FMC's own price leads wherever we have it — 450 of the 451 orderable
+        // articles. Aung's valuation fills in behind it (389 articles FMC no
+        // longer sells but the kitchen has counted), and the note always says
+        // WHICH of the two is on screen, because they are not the same number.
+        // "— AED" reads like a currency with a missing amount. No number, no
+        // currency.
+        '<div class="ac-price">'+acMoney(r.fmcPrice == null ? r.price : r.fmcPrice) +
+          (r.fmcPrice == null && r.price == null ? '' : ' <span class="ac-cur">AED</span>') +
+          '<div class="ac-pricenote">'+(r.fmcPrice != null ? 'FMC price'
+             : (r.month ? acSheetShort(r.month)+' count' : 'no price'))+'</div></div>' +
       '</div>';
   });
   if(acShown.length > AC_LIMIT){
@@ -387,12 +408,15 @@ function acOpen(i){
         ? '<b>No — FMC has dropped it.</b> The code still identifies it on an old recipe, but an order will be refused.'
         : '<span class="ac-dash">Not known — it is not in the FMC list we hold. Ask before ordering.</span>');
 
-  // An article the kitchen has never counted has no valuation, and saying "—"
-  // beside a price label reads like a missing number rather than a missing count.
+  // BOTH prices, each named, and never merged into one figure. Where an article
+  // has both, a chef can see the drift for himself rather than being told about
+  // it in a footnote — 69 of the 456 that have both are more than 10% apart.
+  var fmcLine = (r.fmcPrice == null)
+    ? '<span class="ac-dash">not priced on the FMC list</span>'
+    : '<b>'+acMoney(r.fmcPrice)+' AED</b> per '+(acEsc(r.unit)||'unit');
   var priceLine = (r.price == null || r.price === '')
-    ? '<span class="ac-dash">never counted here — no valuation</span>'
-    : acMoney(r.price)+' AED';
-  var sheetLine = r.month ? acSheetLabel(r.month) : '<span class="ac-dash">no sheet carries it</span>';
+    ? '<span class="ac-dash">never counted here</span>'
+    : acMoney(r.price)+' AED'+(r.month ? ' · '+acSheetLabel(r.month) : '');
 
   var box = document.createElement('div');
   box.className = 'ml-daypick-overlay';
@@ -407,12 +431,15 @@ function acOpen(i){
         acKv('FMC code', '<span class="ac-code big">'+acEsc(r.code)+'</span>') +
         acKv('Unit', acEsc(r.unit)||'—') +
         acKv('Can you order it', orderLine) +
-        acKv('Cost controller\'s price', priceLine) +
-        acKv('From the sheet of', sheetLine) +
+        acKv('What FMC charges', fmcLine) +
+        acKv('Aung\'s stock-take count', priceLine) +
         acKv('Supplier', supplierLine) +
-        (r.price == null ? '' :
-          '<div class="ac-caution">This is Aung\'s monthly valuation, not the price FMC puts on the order — ' +
-          'the two drift by up to about 10%. Use it to judge, not to quote.</div>') +
+        // The caution belongs only where the FMC price is missing and Aung's
+        // figure is the only number a chef has. Where FMC's own price is on
+        // screen there is nothing to warn about — it is the real one.
+        (r.fmcPrice == null && r.price != null ?
+          '<div class="ac-caution">FMC does not price this one, so the only figure here is Aung\'s ' +
+          'month-end count. It is a valuation, not what you would pay — use it to judge, not to quote.</div>' : '') +
       '</div>' +
       '<div class="ac-modal-foot">' +
         '<button type="button" class="ml-ed-btn ml-ed-cancel" onclick="acCloseSheet()">Close</button>' +

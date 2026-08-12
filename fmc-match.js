@@ -50,7 +50,12 @@ function fmEsc(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function fmMoney(n){ var v=Number(n); return isFinite(v)? v.toFixed(2) : '—'; }
+// null/undefined/'' must not reach Number(), which makes all three 0 and prints
+// a confident "0.00 AED". Not reachable today — every offerable article has a
+// price — but it becomes reachable the moment FMC puts an article on the
+// assortment that the kitchen has never counted.
+function fmMoney(n){ if(n===null||n===undefined||n==='') return '—';
+  var v=Number(n); return isFinite(v)? v.toFixed(2) : '—'; }
 function fmSheetShort(m){
   var d = (typeof acKeyDate==='function') ? acKeyDate(m) : null;
   return d ? d.toLocaleDateString('en-GB',{month:'short',year:'numeric'}) : String(m||'');
@@ -306,6 +311,8 @@ function fmConfirm(){
   var a = c.art;
   fmDecided.push({ id:r.item.id, name:r.item.name, to:a.name, code:a.code,
                    group:a.group, price:a.price, month:a.month, supplier:a.supplier });
+  // `price` stays Aung's figure on purpose — it is written to
+  // order_items.cc_price, the cost controller's column by name.
   fmUndo.push({ at:fmIdx, decided:true });
   fmNext();
 }
@@ -518,8 +525,12 @@ function fmCandsHtml(r){
         (a.supplier?'<span>'+fmEsc(a.supplier)+'</span>':'') + '</div>' +
       '</div>' +
       '<div class="fm-unit">'+fmEsc(a.unit)+'</div>' +
-      '<div class="fm-price">'+fmMoney(a.price)+' <span class="fm-cur">AED</span>' +
-        '<div class="fm-pnote">'+fmSheetShort(a.month)+' sheet</div></div>' +
+      // What FMC charges leads: this list becomes a code on an order, so the
+      // useful number is the one that gets invoiced, not the month-end
+      // valuation. The note always names which of the two is on screen.
+      '<div class="fm-price">'+fmMoney(a.fmcPrice==null?a.price:a.fmcPrice) +
+        (a.fmcPrice==null && a.price==null ? '' : ' <span class="fm-cur">AED</span>') +
+        '<div class="fm-pnote">'+(a.fmcPrice!=null?'FMC price':(a.month?fmSheetShort(a.month)+' count':'no price'))+'</div></div>' +
     '</div>';
   }).join('');
 }
