@@ -194,9 +194,14 @@ function subscribeMarketList(){
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'order_items' },
       payload => {
-        if(activeStation === ORDER_KEY){
-          loadMarketList().then(()=>{ if(activeStation===ORDER_KEY) renderMarketList(); });
-        }
+        if(activeStation !== ORDER_KEY) return;
+        // A drag-reorder can rewrite several rows at once and each one comes
+        // back as its own event. Reloading all 425 items once per event would
+        // hammer the table and re-render the grid out from under the finger
+        // that is still holding a row. The dragger skips its own echo; every
+        // other screen coalesces the burst into one reload.
+        if(Date.now() < mlReorderEchoUntil) return;
+        mlScheduleItemsReload();
       })
     .subscribe(status=>{
       const dot=document.getElementById('realtime-dot');
@@ -712,6 +717,229 @@ function mlReqHtml(days){
   return `<div class="ml-req">${bits.join('')}</div>`;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// DRAG TO REORDER  (touch + mouse + keyboard)
+//
+// Antonio asked for this: "we need the chance to move up and down based on our
+// need, the item on the market list". The order the items sit in is the order
+// the chefs walk the list in, and it never matched anybody's need — it was the
+// order they happened to be seeded in.
+//
+// Ported from fish-display.js (fdGripDown / fdGripMove / fdGripUp): same ⠿
+// grip, same "Drag to reorder" title, same Pointer Events. A chef who has
+// reordered the fish list must not have to learn a second gesture.
+//
+// Two things the fish list never had to solve, and this list does:
+//   • 425 items in 16 categories. A drag is confined to ONE category's block
+//     (`.ml-catrows`). ML_CAT_ORDER decides where a category sits on screen, so
+//     a row dragged out of its own block would simply snap back — better that
+//     it cannot leave in the first place.
+//   • The list is many screens tall. A finger held near the top or bottom of
+//     #order-view scrolls it, or dragging something from the bottom of
+//     VEGETABLES to the top is impossible on a phone, not merely slow.
+//
+// `sort_order` is one global sequence (checked against the live table 13 Aug:
+// 10, 20, 30 … with the categories in contiguous blocks). So a single move
+// normally needs ONE write — the row takes the midpoint of the gap between its
+// new neighbours. Only when a gap is used up does the category get respaced,
+// and even then strictly inside the span it already occupies, so it can never
+// walk into the next category's numbers.
+// ══════════════════════════════════════════════════════════════════════════
+let mlDrag = null;            // { id, rowEl, container } while a row is held
+let mlDragEndedAt = 0;        // the click that follows a drop is not a tap
+let mlDragClientY = 0;
+let mlAutoScrollTimer = null;
+let mlItemsReloadTimer = null;
+let mlReorderEchoUntil = 0;   // ignore our own realtime echo until this moment
+
+// Reordering is only offered on the whole list. While a search or "Ordered
+// only" is on, the rows on screen are a subset, and renumbering a subset would
+// silently shuffle the items it is hiding.
+function mlCanReorder(){ return !mlSearch && !mlOrderedOnly; }
+function mlWhyNoReorder(){
+  return mlSearch ? 'Clear the search box to drag items into a new order.'
+                  : 'Untick “Ordered only” to drag items into a new order.';
+}
+function mlRowEl(id){ return document.querySelector('#ml-content .ml-row-tap[data-id="'+id+'"]'); }
+
+function mlGripDown(e, id){
+  if(e.button && e.button!==0) return;                  // primary button / touch only
+  e.preventDefault(); e.stopPropagation();
+  if(!mlCanReorder()){ if(typeof kToast==='function') kToast(mlWhyNoReorder()); return; }
+  const rowEl = mlRowEl(id); if(!rowEl) return;
+  const container = rowEl.closest('.ml-catrows'); if(!container) return;
+  mlDrag = { id, rowEl, container, scroller: mlScroller(container) };
+  mlDragClientY = e.clientY;
+  rowEl.classList.add('ml-dragging');
+  document.body.classList.add('ml-dragging-active');
+  document.addEventListener('pointermove', mlGripMove, { passive:false });
+  document.addEventListener('pointerup', mlGripUp, true);
+  document.addEventListener('pointercancel', mlGripUp, true);
+  mlAutoScrollTimer = setInterval(mlAutoScrollTick, 16);
+}
+
+// Slot the held row against the nearest row whose mid-point is below the
+// pointer. Split out of the move handler because auto-scroll has to re-run it
+// as the content slides past a finger that is not itself moving.
+function mlPlaceDragRow(){
+  if(!mlDrag) return;
+  const { container, rowEl } = mlDrag;
+  const y = mlDragClientY;
+  let before = null, closest = -Infinity;
+  for(const r of container.querySelectorAll('.ml-row-tap[data-id]')){
+    if(r===rowEl) continue;
+    const box = r.getBoundingClientRect();
+    const off = y - (box.top + box.height/2);
+    if(off < 0 && off > closest){ closest = off; before = r; }
+  }
+  if(before){ if(rowEl.nextSibling!==before) container.insertBefore(rowEl, before); }
+  else if(container.lastChild!==rowEl) container.appendChild(rowEl);
+}
+
+function mlGripMove(e){
+  if(!mlDrag) return;
+  e.preventDefault();                                   // stop the page scrolling under the finger
+  mlDragClientY = e.clientY;
+  mlPlaceDragRow();
+}
+
+// WHICH element actually scrolls is not obvious and must not be assumed.
+// #order-view carries `overflow-y:auto`, so it looks like the scroller — but it
+// is never given a height, so its scrollHeight equals its clientHeight and the
+// DOCUMENT is what moves. Measured in the running app 13 Aug: order-view
+// 21365/21365, documentElement 902/21461. Scrolling `order-view.scrollTop`
+// would have been a silent no-op and the auto-scroll simply would not work.
+// So: walk up for the first ancestor that can really scroll, else the document.
+function mlScroller(el){
+  for(let n = el; n && n !== document.body; n = n.parentElement){
+    const oy = getComputedStyle(n).overflowY;
+    if(/(auto|scroll|overlay)/.test(oy) && n.scrollHeight > n.clientHeight + 2) return n;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+function mlScrollerRect(sc){
+  return (sc === document.scrollingElement || sc === document.documentElement || sc === document.body)
+    ? { top: 0, bottom: window.innerHeight }
+    : sc.getBoundingClientRect();
+}
+
+// Top threshold clears the sticky category heading; without that the held row
+// parks underneath it and the chef cannot see where it is going to land.
+function mlAutoScrollTick(){
+  if(!mlDrag) return;
+  const sc = mlDrag.scroller; if(!sc) return;
+  const box = mlScrollerRect(sc);
+  const TOP = 96, BOTTOM = 72, MAX = 20;
+  const overTop = (box.top + TOP) - mlDragClientY;
+  const overBot = mlDragClientY - (box.bottom - BOTTOM);
+  let dy = 0;
+  if(overTop > 0)      dy = -Math.min(MAX, 3 + Math.round(overTop/5));
+  else if(overBot > 0) dy =  Math.min(MAX, 3 + Math.round(overBot/5));
+  if(!dy) return;
+  const was = sc.scrollTop;
+  sc.scrollTop = was + dy;
+  if(sc.scrollTop !== was) mlPlaceDragRow();   // the rows slid under a still finger
+}
+
+function mlStopDrag(){
+  clearInterval(mlAutoScrollTimer); mlAutoScrollTimer = null;
+  document.removeEventListener('pointermove', mlGripMove, { passive:false });
+  document.removeEventListener('pointerup', mlGripUp, true);
+  document.removeEventListener('pointercancel', mlGripUp, true);
+  if(mlDrag) mlDrag.rowEl.classList.remove('ml-dragging');
+  document.body.classList.remove('ml-dragging-active');
+  const d = mlDrag; mlDrag = null;
+  mlDragEndedAt = Date.now();
+  return d;
+}
+
+function mlGripUp(){
+  const d = mlStopDrag(); if(!d) return;
+  const ids = Array.from(d.container.querySelectorAll('.ml-row-tap[data-id]'))
+    .map(r=>Number(r.getAttribute('data-id')));
+  mlApplyOrder(d.id, ids);
+}
+
+// A keyboard has no drag. Arrow keys on a focused grip nudge one place — enough
+// to fix a drop that landed a row out, without becoming the primary gesture.
+function mlGripKey(e, id){
+  if(e.key!=='ArrowUp' && e.key!=='ArrowDown') return;
+  e.preventDefault(); e.stopPropagation();
+  if(!mlCanReorder()){ if(typeof kToast==='function') kToast(mlWhyNoReorder()); return; }
+  const rowEl = mlRowEl(id); if(!rowEl) return;
+  const container = rowEl.closest('.ml-catrows'); if(!container) return;
+  const rows = Array.from(container.querySelectorAll('.ml-row-tap[data-id]'));
+  const i = rows.indexOf(rowEl);
+  const j = e.key==='ArrowUp' ? i-1 : i+1;
+  if(i<0 || j<0 || j>=rows.length) return;
+  const ids = rows.map(r=>Number(r.getAttribute('data-id')));
+  ids.splice(j, 0, ids.splice(i,1)[0]);
+  Promise.resolve(mlApplyOrder(id, ids)).then(function(){
+    const again = document.querySelector('#ml-content .ml-row-tap[data-id="'+id+'"] .ml-grip');
+    if(again) again.focus();
+  });
+}
+
+// `ids` is one category's rows in their new on-screen order.
+async function mlApplyOrder(movedId, ids){
+  const byId = {}; mlItems.forEach(i=>{ byId[i.id]=i; });
+  const list = ids.map(id=>byId[id]).filter(Boolean);
+  // Somebody else changed the list underneath us — take theirs, not a guess.
+  if(list.length !== ids.length){ await loadMarketList(); renderMarketList(); return; }
+
+  const sorted = list.slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  if(sorted.every((it,k)=>it.id===list[k].id)) return;          // dropped back where it started
+
+  const k = list.findIndex(i=>i.id===movedId);
+  const moved = list[k];
+  const lo = k>0 ? (list[k-1].sort_order||0) : 0;
+  const hi = k<list.length-1 ? (list[k+1].sort_order||0) : lo + 20;
+
+  let writes = [];
+  if(hi - lo >= 2){
+    moved.sort_order = Math.floor((lo + hi)/2);                 // one write, whatever the list length
+    writes = [moved];
+  } else {
+    // The gap between the neighbours is used up. Respace the category across
+    // the span it ALREADY occupies — never outside it, or the numbers would
+    // run into the next category's block.
+    const slots = list.map(i=>i.sort_order||0).sort((a,b)=>a-b);
+    const step = Math.floor((slots[slots.length-1] - slots[0]) / Math.max(1, list.length-1));
+    list.forEach(function(it, i){
+      const want = step >= 2 ? (slots[0] + i*step) : slots[i];  // no room to spread → reuse the same numbers
+      if(it.sort_order !== want){ it.sort_order = want; writes.push(it); }
+    });
+  }
+
+  mlItems.sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  mlRenderRows(mlVisibleDays());                                // show it moved before the network answers
+
+  mlReorderEchoUntil = Date.now() + 4000;
+  const results = [];
+  for(let i=0; i<writes.length; i+=5){                          // chunked: never 30 parallel PATCHes
+    const chunk = writes.slice(i, i+5);
+    results.push(...await Promise.all(chunk.map(p=>
+      sb.from('order_items').update({ sort_order: p.sort_order }).eq('id', p.id))));
+  }
+  if(results.some(r=>r && r.error)){
+    mlReorderEchoUntil = 0;
+    if(typeof kToast==='function') kToast('Could not save the new order — putting the list back.');
+    await loadMarketList(); renderMarketList(); return;
+  }
+  if(typeof kToast==='function') kToast('✓ ' + moved.name + ' moved — everyone sees the new order');
+}
+
+// Coalesce a burst of order_items events into one reload, and never re-render
+// while a row is being held.
+function mlScheduleItemsReload(){
+  clearTimeout(mlItemsReloadTimer);
+  mlItemsReloadTimer = setTimeout(function(){
+    if(activeStation !== ORDER_KEY) return;
+    if(mlDrag){ mlScheduleItemsReload(); return; }
+    loadMarketList().then(function(){ if(activeStation===ORDER_KEY) renderMarketList(); });
+  }, 400);
+}
+
 function mlRenderRows(days){
   const items = mlFilteredItems();
   const c = document.getElementById('ml-content'); if(!c) return;
@@ -727,6 +955,7 @@ function mlRenderRows(days){
   // when searching/ordered-only, only show categories that have matching items;
   // when browsing the full list, show every present category (so its add box is reachable)
   const filtering = !!(mlSearch || mlCatFilter || mlOrderedOnly);
+  const canDrag = mlCanReorder();
   const byCat = {};
   items.forEach(it=>{ (byCat[it.category]=byCat[it.category]||[]).push(it); });
 
@@ -738,14 +967,26 @@ function mlRenderRows(days){
     any = true;
     const safe = cat.replace(/[^a-z0-9]/gi,'_');
     html += `<div class="ml-cat" id="ml-cat-${safe}">${cat}</div>`;
+    // Every row of a category lives in its own container: it is the box a drag
+    // is allowed to move a row around inside, and nothing else belongs in it —
+    // the add box below must not become a drop target.
+    html += `<div class="ml-catrows" data-cat="${safe}">`;
     rows.forEach(it=>{
       // The flag is the whole point of the catalogue on this screen: a line
       // carrying a code FMC will refuse looks exactly like a healthy one until
       // somebody tries to order it.
       const fl = mlArticleFlag(it);
       const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
-      html += `<div class="ml-row ml-row-tap" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div>
+      // The grip is drawn even when the view is filtered, greyed and carrying
+      // the reason — a control that silently vanishes teaches nobody why.
+      const grip = `<span class="ml-grip${canDrag?'':' off'}" role="button" tabindex="0"
+                 title="${canDrag?'Drag to reorder':mlEsc(mlWhyNoReorder())}"
+                 aria-label="Reorder ${mlEsc(it.name)} — drag, or use the arrow keys"
+                 onpointerdown="mlGripDown(event,${it.id})"
+                 onkeydown="mlGripKey(event,${it.id})"
+                 onclick="event.stopPropagation()">⠿</span>`;
+      html += `<div class="ml-row ml-row-tap" data-id="${it.id}" onclick="mlOpenEditor(${it.id})">
+        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div></div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -755,6 +996,7 @@ function mlRenderRows(days){
         }).join('')}
       </div>`;
     });
+    html += `</div>`;   // close .ml-catrows — the add box is not a drop target
     // per-category add box (hidden while ordered-only, to keep the chef view clean)
     if(!mlOrderedOnly){
       const c1 = cat.replace(/'/g,"\\'");
@@ -842,7 +1084,33 @@ function mlInjectCss(){
     '.ml-ed-flagline.none{background:#FDF4E0;color:#6d4700}',
     '.ml-ed-flagline.retiring{background:#EEF2FA;color:#23405f}',
     '.ml-ed-repoint{margin-top:7px;background:#fff;border:1px solid #c98d80;color:#8a3226;',
-      'border-radius:6px;padding:8px 12px;font:600 12px var(--font-sans,sans-serif);cursor:pointer}'
+      'border-radius:6px;padding:8px 12px;font:600 12px var(--font-sans,sans-serif);cursor:pointer}',
+
+    // ── drag to reorder ──
+    // The grip leads the name cell, which becomes a flex row. `.ml-nametext`
+    // needs min-width:0 or the ellipsis on a long article name stops working —
+    // a flex child refuses to be clipped below its content width without it.
+    '.ml-row-tap .ml-cell-name{display:flex;align-items:center;gap:8px}',
+    '.ml-nametext{flex:1;min-width:0}',
+    // Fixed height + line-height, never padding: a padding-sized box collapsed
+    // to zero content height on laptops once before (memory
+    // `pointer-coarse-masks-laptop-defects`), and only on laptops.
+    '.ml-grip{flex:0 0 auto;width:26px;height:30px;line-height:30px;text-align:center;',
+      'border-radius:6px;background:var(--sabbia-dark,#E8D9C7);color:var(--vino,#400207);',
+      'font-size:15px;opacity:.45;cursor:grab;user-select:none;touch-action:none;',
+      'transition:opacity .12s,background .12s,color .12s}',
+    '.ml-row-tap:hover .ml-grip{opacity:1}',
+    '.ml-grip:hover,.ml-grip:focus{background:var(--vino,#400207);color:var(--cream,#FBF6EC);opacity:1;outline:none}',
+    '.ml-grip:active{cursor:grabbing;background:var(--vino,#400207);color:var(--cream,#FBF6EC);opacity:1}',
+    '.ml-grip.off{opacity:.2;cursor:not-allowed}',
+    '.ml-grip.off:hover,.ml-grip.off:focus{background:var(--sabbia-dark,#E8D9C7);color:var(--vino,#400207);opacity:.35}',
+    // A finger has no hover, so the grip has to be visible before it is touched.
+    '@media(pointer:coarse){.ml-grip{opacity:.8;width:30px;height:34px;line-height:34px}}',
+    '.ml-row.ml-dragging{opacity:.97;background:var(--sabbia-light,#F3EADD);',
+      'box-shadow:0 6px 18px rgba(66,2,7,.22);position:relative;z-index:50}',
+    'body.ml-dragging-active{cursor:grabbing;user-select:none}',
+    'body.ml-dragging-active .ml-qty{pointer-events:none}',
+    '@media print{.ml-grip{display:none}}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -987,6 +1255,9 @@ let mlEditItemId = null;
 let mlEditBuf = {};   // weekday -> value (string)
 
 function mlOpenEditor(itemId){
+  // The whole row opens the quantity editor, so the click a browser fires at
+  // the end of a drag would open the editor for the row that was just dropped.
+  if(Date.now() - mlDragEndedAt < 400) return;
   const it = mlItems.find(x=>x.id===itemId);
   if(!it) return;
   mlEditItemId = itemId;
