@@ -106,60 +106,130 @@ async function fdAddMaster(name, kind){
 }
 // ── drag-to-reorder (touch + mouse) ──────────────────────────────────────────
 // Grab a row's grip and drop it anywhere in its list — no more one-step arrows.
-// Works with finger or mouse via Pointer Events; reorders the rows live in the
-// DOM while dragging, then on drop renumbers the standing pool (sort_order *10 so
-// duplicates self-heal) and writes only the rows that changed. Fish and caviar
-// live in separate columns, so a drag can never cross between the two kinds.
-let fdDrag = null;   // { id, kind, rowEl, container }
-function fdGripDown(e, id, kind){
-  if(e.button && e.button!==0) return;                 // primary button / touch only
-  e.preventDefault(); e.stopPropagation();
-  const host = document.getElementById('fish-view'); if(!host) return;
-  const rowEl = host.querySelector('.fd-row[data-id="'+id+'"]'); if(!rowEl) return;
-  fdDrag = { id, kind, rowEl, container: rowEl.parentNode };
-  rowEl.classList.add('fd-dragging');
-  document.body.classList.add('fd-dragging-active');
-  document.addEventListener('pointermove', fdGripMove, { passive:false });
-  document.addEventListener('pointerup', fdGripUp, true);
-  document.addEventListener('pointercancel', fdGripUp, true);
-}
+// Works with finger or mouse via Pointer Events. On drop it renumbers the
+// standing pool (sort_order *10 so duplicates self-heal) and writes only the
+// rows that changed. Fish and caviar live in separate columns, so a drag can
+// never cross between the two kinds.
+//
+// HOW IT MOVES (rewritten 13 Aug 2026 — Antonio, "not very smooth" on a laptop).
+// The first version left the dragged row sitting in the layout and re-inserted
+// it in the DOM as you crossed each mid-point: on a mouse the row never
+// followed the cursor (measured: it lagged the pointer by 39px on a 40px row),
+// so it read as a row that jumps a whole line late rather than one you are
+// carrying. And nothing scrolled: on a 900px laptop with 18 fish, 471px of the
+// list sat below the fold and holding the pointer at the bottom edge moved the
+// page 0px — the bottom of the list was simply unreachable in one drag.
+//
+// Now: geometry is measured ONCE on grab (in document coordinates, so scrolling
+// mid-drag cannot corrupt it); the dragged row is glued to the pointer with a
+// transform; the rows it displaces slide out of the way with a short CSS
+// transition; and the page auto-scrolls when the pointer nears either edge. The
+// DOM is not touched until the drop, so there is no per-move layout thrash and
+// no flicker when you hover a boundary.
+let fdDrag = null;
+const FD_EDGE = 72;        // px from a viewport edge where auto-scroll starts
+const FD_EDGE_MAX = 20;    // px per frame at the very edge
+
 function fdDragRows(container, dragEl){
   return Array.from(container.querySelectorAll('.fd-row[data-id]'))
     .filter(r=>r!==dragEl && !r.classList.contains('fd-writein'));
 }
+function fdGripDown(e, id, kind){
+  if(e.button && e.button!==0) return;                 // primary button / touch only
+  if(fdDrag) return;
+  e.preventDefault(); e.stopPropagation();
+  const host = document.getElementById('fish-view'); if(!host) return;
+  const rowEl = host.querySelector('.fd-row[data-id="'+id+'"]'); if(!rowEl) return;
+  const container = rowEl.parentNode;
+  const others = fdDragRows(container, rowEl);
+  const sy = window.scrollY;
+  const box = rowEl.getBoundingClientRect();
+  // document-coordinate geometry, measured once — immune to mid-drag scrolling
+  const geo = others.map(r=>{ const b=r.getBoundingClientRect(); return { el:r, mid:b.top+sy+b.height/2 }; });
+  // extents of the whole column. The carried row's centre is allowed to reach
+  // the very top and the very bottom edge — clamping it to the first/last
+  // mid-point instead would make the last slot unreachable (it needs a centre
+  // strictly past the last row's mid-point).
+  const tops = others.map(r=>r.getBoundingClientRect().top+sy).concat([box.top+sy]);
+  const bots = others.map(r=>{const b=r.getBoundingClientRect(); return b.bottom+sy;}).concat([box.bottom+sy]);
+  fdDrag = {
+    id, kind, rowEl, container, others: geo,
+    h: box.height,
+    from: others.filter(r=>r.compareDocumentPosition(rowEl)&Node.DOCUMENT_POSITION_FOLLOWING).length,
+    startDocY: e.clientY + sy,
+    startMid: box.top + sy + box.height/2,
+    minDocY: Math.min.apply(null, tops),              // clamp: never leave its own column
+    maxDocY: Math.max.apply(null, bots),
+    clientY: e.clientY, dy: 0, to: 0, raf: 0
+  };
+  fdDrag.to = fdDrag.from;
+  rowEl.classList.add('fd-dragging');
+  document.body.classList.add('fd-dragging-active');
+  fdDrag.others.forEach(g=>g.el.classList.add('fd-shift'));
+  try{ e.target.setPointerCapture(e.pointerId); fdDrag.grip = e.target; fdDrag.pid = e.pointerId; }catch(_){}
+  document.addEventListener('pointermove', fdGripMove, { passive:false });
+  document.addEventListener('pointerup', fdGripUp, true);
+  document.addEventListener('pointercancel', fdGripUp, true);
+  fdDrag.raf = requestAnimationFrame(fdDragFrame);
+}
 function fdGripMove(e){
   if(!fdDrag) return;
-  e.preventDefault();                                  // stop the page scrolling under the finger
-  const { container, rowEl } = fdDrag;
-  const y = e.clientY;
-  let before = null, closest = -Infinity;              // nearest row whose mid-point is below the pointer
-  for(const r of fdDragRows(container, rowEl)){
-    const box = r.getBoundingClientRect();
-    const off = y - (box.top + box.height/2);
-    if(off < 0 && off > closest){ closest = off; before = r; }
+  if(e.cancelable) e.preventDefault();                 // stop the page scrolling under the finger
+  fdDrag.clientY = e.clientY;
+}
+// One frame of the drag: auto-scroll near an edge, glue the row to the pointer,
+// then slide the displaced rows. Runs off rAF so a fast mouse cannot outpace it.
+function fdDragFrame(){
+  if(!fdDrag) return;
+  const d = fdDrag;
+  const vh = window.innerHeight;
+  let step = 0;                                        // ── edge auto-scroll ──
+  if(d.clientY < FD_EDGE)            step = -Math.ceil(FD_EDGE_MAX * (FD_EDGE - d.clientY) / FD_EDGE);
+  else if(d.clientY > vh - FD_EDGE)  step =  Math.ceil(FD_EDGE_MAX * (d.clientY - (vh - FD_EDGE)) / FD_EDGE);
+  if(step) window.scrollBy(0, step);
+
+  const docY = d.clientY + window.scrollY;
+  let dy = docY - d.startDocY;                         // pointer travel, scroll included
+  const mid = d.startMid + dy;                         // where the row now sits
+  if(mid < d.minDocY) dy += d.minDocY - mid;           // clamp inside its own column
+  if(mid > d.maxDocY) dy += d.maxDocY - mid;
+  if(dy !== d.dy){ d.dy = dy; d.rowEl.style.transform = 'translateY(' + dy + 'px)'; }
+
+  const c = d.startMid + d.dy;
+  let to = 0; for(const g of d.others) if(g.mid < c) to++;   // slot the row would land in
+  if(to !== d.to){
+    d.to = to;
+    d.others.forEach((g,i)=>{                          // open the gap at `to`
+      const shift = (i >= to && i < d.from) ?  d.h
+                  : (i >= d.from && i < to) ? -d.h : 0;
+      g.el.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+    });
   }
-  if(before){ if(rowEl.nextSibling!==before) container.insertBefore(rowEl, before); }
-  else {                                               // past the last fish → drop before the blank write-in rows
-    const blank = container.querySelector('.fd-row.fd-writein');
-    if(blank){ if(rowEl.nextSibling!==blank) container.insertBefore(rowEl, blank); }
-    else container.appendChild(rowEl);
-  }
+  d.raf = requestAnimationFrame(fdDragFrame);
 }
 async function fdGripUp(){
   if(!fdDrag) return;
-  const { container, rowEl, kind } = fdDrag;
+  const { container, rowEl, kind, others, from, to } = fdDrag;
+  cancelAnimationFrame(fdDrag.raf);
   document.removeEventListener('pointermove', fdGripMove, { passive:false });
   document.removeEventListener('pointerup', fdGripUp, true);
   document.removeEventListener('pointercancel', fdGripUp, true);
+  try{ if(fdDrag.grip) fdDrag.grip.releasePointerCapture(fdDrag.pid); }catch(_){}
+  rowEl.style.transform = '';
+  others.forEach(g=>{ g.el.style.transform=''; g.el.classList.remove('fd-shift'); });
   rowEl.classList.remove('fd-dragging');
   document.body.classList.remove('fd-dragging-active');
   fdDrag = null;
-  const orderedIds = Array.from(container.querySelectorAll('.fd-row[data-id]'))
-    .filter(r=>!r.classList.contains('fd-writein')).map(r=>r.getAttribute('data-id'));
+  // rebuild the order from the slot the row was dropped in — the DOM was never
+  // reordered during the drag, so this is the only place order changes
   const pool = fdItems.filter(i=>i.kind===kind);
-  const byId = {}; pool.forEach(p=>byId[p.id]=p);
-  const reordered = orderedIds.map(id=>byId[id]).filter(Boolean);
-  if(reordered.length!==pool.length){ await loadFishDisplay(); renderFishDisplay(); return; }
+  const domIds = Array.from(container.querySelectorAll('.fd-row[data-id]'))
+    .filter(r=>!r.classList.contains('fd-writein')).map(r=>r.getAttribute('data-id'));
+  if(domIds.length!==pool.length || String(pool[from]&&pool[from].id)!==String(rowEl.getAttribute('data-id'))){
+    await loadFishDisplay(); renderFishDisplay(); return;   // list moved under us — reload rather than guess
+  }
+  const reordered = pool.slice();
+  reordered.splice(to, 0, reordered.splice(from, 1)[0]);
   const changed = [];
   reordered.forEach((p,k)=>{ const want=(k+1)*10; if(p.sort_order!==want){ p.sort_order=want; changed.push(p); } });
   fdItems.sort((a,b)=> a.kind===b.kind ? (a.sort_order||0)-(b.sort_order||0) : (a.kind<b.kind?-1:1));
@@ -470,9 +540,13 @@ const FD_STYLE = `<style id="fd-style">
 .fd-row:hover .fd-del,.fd-lb-cell:hover .fd-del{opacity:1}.fd-del:hover{background:var(--vino);color:var(--cream);opacity:1}
 .fd-grip{position:absolute;right:30px;top:50%;transform:translateY(-50%);width:28px;height:28px;line-height:28px;text-align:center;border-radius:6px;background:var(--sabbia-dark);color:var(--vino);font-size:16px;opacity:.55;transition:opacity .12s,background .12s;cursor:grab;z-index:2;user-select:none;touch-action:none}
 .fd-row:hover .fd-grip{opacity:1}.fd-grip:hover{background:var(--vino);color:var(--cream);opacity:1}.fd-grip:active{cursor:grabbing;background:var(--vino);color:var(--cream);opacity:1}
-.fd-row.fd-dragging{opacity:.95;background:var(--sabbia-light);box-shadow:0 6px 18px rgba(66,2,7,.22);border-radius:6px;position:relative;z-index:50}
+/* the row you are carrying: glued to the pointer, so no transition on it */
+.fd-row.fd-dragging{opacity:.97;background:var(--sabbia-light);box-shadow:0 8px 22px rgba(66,2,7,.26);border-radius:6px;position:relative;z-index:50;transition:none;will-change:transform;border-bottom-color:transparent}
+/* the rows it displaces: slide aside instead of snapping */
+.fd-row.fd-shift{transition:transform .16s cubic-bezier(.2,.7,.3,1);will-change:transform}
 body.fd-dragging-active{cursor:grabbing;user-select:none}
 body.fd-dragging-active .fd-in{pointer-events:none}
+@media (prefers-reduced-motion: reduce){ .fd-row.fd-shift{transition:none} }
 /* inline Excel-style inputs */
 .fd-namecell{position:relative;display:flex;align-items:center;overflow:hidden}
 .fd-in{width:100%;border:none;background:transparent;font-family:var(--font-sans);color:var(--ink);padding:8px 6px;-webkit-appearance:none;border-radius:0}
