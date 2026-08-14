@@ -298,9 +298,15 @@ tr.main:hover .grip{opacity:1}
 .grip:hover,.grip:focus-visible{background:var(--vino);color:var(--cream);opacity:1;outline:none}
 .grip:focus-visible{box-shadow:0 0 0 2px var(--vino)}
 .grip:active{cursor:grabbing;background:var(--vino);color:var(--cream);opacity:1}
-/* the row under the finger: lifted off the sheet so it is obvious which one is moving */
-tr.main.dragging{background:var(--sabbia-light);box-shadow:0 6px 18px rgba(66,2,7,.22);
-  position:relative;z-index:50}
+/* the row under the finger: lifted off the sheet so it is obvious which one is moving.
+   It tracks the pointer 1:1, so it must NOT have a transition; the lines it displaces
+   must, or the gap snaps open instead of opening. */
+tr.main.dragging{background:var(--sabbia-light);box-shadow:0 8px 22px rgba(66,2,7,.26);
+  position:relative;z-index:50;transition:none;will-change:transform}
+tr.drop.dragging-mate{position:relative;z-index:50;transition:none;will-change:transform}
+tr.main.shift,tr.drop.shift{transition:transform .16s cubic-bezier(.2,.7,.3,1);
+  will-change:transform}
+@media (prefers-reduced-motion: reduce){tr.main.shift,tr.drop.shift{transition:none}}
 /* Nothing else on the sheet may answer the pointer mid-drag. A drag that passes over
    a quantity box must not put a caret in it, and one that ends on a dropdown must not
    open it. The grip itself stays live so the pointer capture is never lost. */
@@ -7061,57 +7067,73 @@ function syncText(){ S.text = S.rows.map(function(r){ return r.raw; }).join(',\n
    impossible. And its rows are one <div> each, where a line here is a <tr> plus,
    sometimes, an open explanation <tr> underneath. The pair moves together or the
    explanation is left behind attached to somebody else's ingredient. */
+/* HOW THE LINE MOVES (rewritten 13 Aug 2026 — the last of the three).
+   The first version left the held line sitting in the sheet and re-inserted it in the
+   DOM as the pointer crossed each mid-point. Measured on the two lists that shipped the
+   identical code: the row finished 39px behind the pointer on a 40px row, and 44px on a
+   46px row. It never moved with the hand at all — it sat still while the sheet
+   re-ordered itself only after the pointer had already passed the next line, which
+   reads as a line that jumps a whole row, late. Antonio reported exactly that about the
+   fish display; Francesco caught the market list still doing it an hour later.
+
+   So: geometry is measured ONCE on grab, in document coordinates, so scrolling mid-drag
+   cannot corrupt it; the line is glued to the pointer with a transform; the lines it
+   displaces slide aside on a short transition; and the DOM is not touched until the
+   drop. On a thirty-line sheet that also removes a full measure of every row on every
+   pointer move.
+
+   Two things here that neither list had. A line is a <tr> plus, sometimes, an open
+   explanation <tr> underneath — the PAIR carries the transform, and the gap the others
+   open is the pair's combined height, so a tall line still lands where it looks like it
+   will. And the whole thing is inside a <table>: transforms apply to <tr> fine, but the
+   dragged pair must keep its own stacking context or the sticky headings paint over it. */
 var GRIP = null, GRIPRAF = null;
 
-/* Where the pair sits now: the row after the dragged line's own rows. */
-function gripAfter(g){ return (g.mate || g.tr).nextElementSibling; }
-
-/* Put the dragged pair wherever the pointer is. Nearest row whose middle is BELOW the
-   pointer wins, exactly as the fish list does it — measuring midpoints rather than
-   tracking a delta means a row of any height lands where it looks like it will. */
-function gripPlace(y){
-  var g = GRIP, tb = $('tb'); if (!g || !tb) return;
-  var before = null, closest = -Infinity;
-  var all = tb.querySelectorAll('tr.main');
-  for (var k = 0; k < all.length; k++){
-    if (all[k] === g.tr) continue;
-    var b = all[k].getBoundingClientRect();
-    var off = y - (b.top + b.height / 2);
-    if (off < 0 && off > closest){ closest = off; before = all[k]; }
-  }
-  var after = gripAfter(g);
-  if (before){
-    if (after === before) return;
-    tb.insertBefore(g.tr, before); if (g.mate) tb.insertBefore(g.mate, before);
-  } else {
-    if (after === null) return;                       /* already last */
-    tb.appendChild(g.tr); if (g.mate) tb.appendChild(g.mate);
-  }
-  g.moved = true;
+/* The <tr>s that make up one line: the row itself plus its open explanation, if any. */
+function gripPair(tr){
+  var mate = tr.nextElementSibling;
+  return (mate && mate.classList.contains('drop')) ? [tr, mate] : [tr];
+}
+function gripShift(pair, px){
+  for (var k = 0; k < pair.length; k++)
+    pair[k].style.transform = px ? 'translateY(' + px + 'px)' : '';
 }
 
-/* The page scrolls under a finger held at the edge. 130 at the top clears the pinned
-   bar and the sticky column headings — stopping at the viewport edge would park the
-   dragged row underneath them, where it cannot be seen or dropped. */
-function gripScroll(){
-  if (GRIPRAF) return;
-  var step = function(){
-    if (!GRIP){ GRIPRAF = null; return; }
-    var y = GRIP.y, h = window.innerHeight, d = 0;
-    if (y < 130) d = -Math.min(22, Math.ceil((130 - y) / 3));
-    else if (y > h - 110) d = Math.min(22, Math.ceil((y - (h - 110)) / 3));
-    if (d){ window.scrollBy(0, d); gripPlace(y); }
-    GRIPRAF = requestAnimationFrame(step);
-  };
-  GRIPRAF = requestAnimationFrame(step);
+/* One frame: scroll if the pointer is near an edge, glue the line to the pointer, then
+   open the gap where it would land. 130 at the top clears the pinned bar AND the sticky
+   column headings — stopping at the viewport edge would park the held line underneath
+   them, where it cannot be seen or dropped. */
+function gripFrame(){
+  var g = GRIP; if (!g){ GRIPRAF = null; return; }
+  var y = g.y, vh = window.innerHeight, d = 0;
+  if (y < 130) d = -Math.min(22, Math.ceil((130 - y) / 3));
+  else if (y > vh - 110) d = Math.min(22, Math.ceil((y - (vh - 110)) / 3));
+  if (d) window.scrollBy(0, d);
+
+  var docY = g.y + window.scrollY;
+  var dy = docY - g.startDocY;
+  var mid = g.startMid + dy;
+  if (mid < g.minDocY) dy += g.minDocY - mid;         /* stay inside the sheet */
+  if (mid > g.maxDocY) dy += g.maxDocY - mid;
+  if (dy !== g.dy){ g.dy = dy; gripShift(g.pair, dy); }
+
+  var c = g.startMid + g.dy, to = 0, k;
+  for (k = 0; k < g.others.length; k++) if (g.others[k].mid < c) to++;
+  if (to !== g.to){
+    g.to = to;
+    for (k = 0; k < g.others.length; k++){
+      var shift = (k >= to && k < g.from) ?  g.h
+                : (k >= g.from && k < to) ? -g.h : 0;
+      gripShift(g.others[k].pair, shift);
+    }
+  }
+  GRIPRAF = requestAnimationFrame(gripFrame);
 }
 
 function gripMove(e){
   if (!GRIP) return;
-  e.preventDefault();                    /* or the browser scrolls the page instead */
+  if (e.cancelable) e.preventDefault();  /* or the browser scrolls the page instead */
   GRIP.y = e.clientY;
-  gripPlace(e.clientY);
-  gripScroll();
 }
 
 function gripUp(){
@@ -7120,44 +7142,86 @@ function gripUp(){
   document.removeEventListener('pointerup', gripUp, true);
   document.removeEventListener('pointercancel', gripUp, true);
   if (GRIPRAF){ cancelAnimationFrame(GRIPRAF); GRIPRAF = null; }
+  gripShift(g.pair, 0);
+  for (var k = 0; k < g.others.length; k++){
+    gripShift(g.others[k].pair, 0);
+    for (var j = 0; j < g.others[k].pair.length; j++)
+      g.others[k].pair[j].classList.remove('shift');
+  }
   g.tr.classList.remove('dragging');
+  if (g.mate) g.mate.classList.remove('dragging-mate');
   document.body.classList.remove('dragging-row');
+  var to = g.to, from = g.from;
   GRIP = null;
-  if (!g.moved) return;                  /* picked up and put back down — nothing happened */
-  /* Every control on a row carries the index it was DRAWN with, so once the rows have
-     been shuffled in the DOM the only honest way back to S.rows is to read those
-     original numbers off the <tr>s in their new order. */
-  var tb = $('tb');
-  var order = Array.prototype.map.call(tb.querySelectorAll('tr.main'),
-                function(r){ return +r.dataset.row; });
-  if (order.length !== S.rows.length || order.some(isNaN)){ rows(); return; }
+  if (to === from) return;               /* picked up and put back down — nothing happened */
+  /* The DOM was never reordered, so the new order is the old one with this line moved
+     from its slot to the one it was dropped in. Every control on a row carries the index
+     it was DRAWN with, and that is still what S.rows is indexed by. */
+  var order = [], i;
+  for (i = 0; i < S.rows.length; i++) order.push(i);
+  order.splice(to, 0, order.splice(from, 1)[0]);
   var was = S.rows;
-  S.rows = order.map(function(i){ return was[i]; });
+  S.rows = order.map(function(x){ return was[x]; });
   /* the question follows its ingredients rather than its row numbers */
   if (S.sel && S.sel.length) S.sel = S.sel
     .map(function(x){ return order.indexOf(x); })
     .filter(function(x){ return x > -1; });
   syncText(); rows(); foot();
-  sayMoved(g.word, order.indexOf(g.from));
+  sayMoved(g.word, to);
 }
 
 document.addEventListener('pointerdown', function(e){
   var gb = e.target.closest && e.target.closest('.grip'); if (!gb) return;
   if (e.button && e.button !== 0) return;              /* primary button, or a finger */
+  if (GRIP) return;
   var tr = gb.closest('tr.main'); if (!tr) return;
   var from = +tr.dataset.row; if (isNaN(from) || !S.rows[from]) return;
+  var tb = $('tb'); if (!tb) return;
   e.preventDefault();
   gb.focus();                            /* preventDefault took the focus a click gives */
   var mate = tr.nextElementSibling;
   if (!mate || !mate.classList.contains('drop')) mate = null;
-  GRIP = { tr:tr, mate:mate, from:from, word:S.rows[from].word, y:e.clientY, moved:false };
+  var pair = gripPair(tr);
+  var sy = window.scrollY;
+  var box = tr.getBoundingClientRect();
+  var mbox = mate ? mate.getBoundingClientRect() : null;
+  var pairH = box.height + (mbox ? mbox.height : 0);
+
+  /* every OTHER line, with its own explanation row, and where its middle sits now */
+  var all = tb.querySelectorAll('tr.main'), others = [], tops = [], bots = [], k;
+  for (k = 0; k < all.length; k++){
+    if (all[k] === tr) continue;
+    var p = gripPair(all[k]);
+    var a = p[0].getBoundingClientRect();
+    var z = p[p.length - 1].getBoundingClientRect();
+    others.push({ pair:p, mid: a.top + sy + (z.bottom - a.top) / 2 });
+    tops.push(a.top + sy); bots.push(z.bottom + sy);
+  }
+  tops.push(box.top + sy);
+  bots.push((mbox ? mbox.bottom : box.bottom) + sy);
+
+  GRIP = {
+    tr:tr, mate:mate, pair:pair, from:from, to:from,
+    word:S.rows[from].word, y:e.clientY, dy:0,
+    others:others, h:pairH,
+    startDocY: e.clientY + sy,
+    startMid: box.top + sy + pairH / 2,
+    /* clamp to the sheet's top and bottom EDGES, not to the first and last mid-point:
+       clamping to mid-points leaves the last line unreachable, and does it silently */
+    minDocY: Math.min.apply(null, tops),
+    maxDocY: Math.max.apply(null, bots)
+  };
   tr.classList.add('dragging');
+  if (mate) mate.classList.add('dragging-mate');
+  for (k = 0; k < others.length; k++)
+    for (var j = 0; j < others[k].pair.length; j++) others[k].pair[j].classList.add('shift');
   document.body.classList.add('dragging-row');
   /* the pointer must keep reporting to this grip even when it runs off the row */
   try { gb.setPointerCapture(e.pointerId); } catch(err){}
   document.addEventListener('pointermove', gripMove, { passive:false });
   document.addEventListener('pointerup', gripUp, true);
   document.addEventListener('pointercancel', gripUp, true);
+  GRIPRAF = requestAnimationFrame(gripFrame);
 });
 
 /* A keyboard has no drag. The arrow keys nudge the focused line one place, which is
