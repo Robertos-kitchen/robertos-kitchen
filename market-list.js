@@ -762,45 +762,95 @@ function mlWhyNoReorder(){
 }
 function mlRowEl(id){ return document.querySelector('#ml-content .ml-row-tap[data-id="'+id+'"]'); }
 
+// HOW THE HELD ROW MOVES (rewritten 13 Aug 2026, same day as fish-display.js).
+// The first version — ported from the fish list before the fish list was fixed
+// — left the held row sitting in the layout and re-inserted it in the DOM as the
+// pointer crossed each mid-point. Measured on the fish list, which used the
+// identical code: the row finished 39px behind the pointer on a 40px row. On a
+// mouse that reads as a row that does not move at all and then jumps a whole
+// line, late. Antonio reported exactly that about the fish display.
+//
+// Now the row is glued to the pointer with a transform and the rows it displaces
+// slide aside on a short transition. Geometry is measured ONCE on grab, in
+// scroller coordinates, so auto-scrolling mid-drag cannot corrupt it; the DOM is
+// not touched until the drop, so there is no per-move layout work over 400 rows
+// and no flicker when the pointer hovers a boundary.
+function mlScrollTop(sc){
+  return (sc === document.scrollingElement || sc === document.documentElement || sc === document.body)
+    ? window.scrollY : sc.scrollTop;
+}
 function mlGripDown(e, id){
   if(e.button && e.button!==0) return;                  // primary button / touch only
   e.preventDefault(); e.stopPropagation();
   if(!mlCanReorder()){ if(typeof kToast==='function') kToast(mlWhyNoReorder()); return; }
+  if(mlDrag) return;
   const rowEl = mlRowEl(id); if(!rowEl) return;
   const container = rowEl.closest('.ml-catrows'); if(!container) return;
-  mlDrag = { id, rowEl, container, scroller: mlScroller(container) };
+  const scroller = mlScroller(container);
+  const st = mlScrollTop(scroller);
+  const box = rowEl.getBoundingClientRect();
+  const others = Array.from(container.querySelectorAll('.ml-row-tap[data-id]')).filter(r=>r!==rowEl);
+  const geo = others.map(r=>{ const b=r.getBoundingClientRect(); return { el:r, mid:b.top+st+b.height/2 }; });
+  // Clamp to the category block's top and bottom EDGES, not to the first and
+  // last mid-point: clamping to mid-points leaves the very last slot
+  // unreachable, and does it silently.
+  const tops = others.map(r=>r.getBoundingClientRect().top+st).concat([box.top+st]);
+  const bots = others.map(r=>r.getBoundingClientRect().bottom+st).concat([box.bottom+st]);
+  mlDrag = {
+    id, rowEl, container, scroller, others: geo,
+    h: box.height,
+    from: others.filter(r=>r.compareDocumentPosition(rowEl)&Node.DOCUMENT_POSITION_FOLLOWING).length,
+    startDocY: e.clientY + st,
+    startMid: box.top + st + box.height/2,
+    minDocY: Math.min.apply(null, tops),
+    maxDocY: Math.max.apply(null, bots),
+    dy: 0, to: 0, raf: 0
+  };
+  mlDrag.to = mlDrag.from;
   mlDragClientY = e.clientY;
   rowEl.classList.add('ml-dragging');
   document.body.classList.add('ml-dragging-active');
+  geo.forEach(g=>g.el.classList.add('ml-shift'));
+  try{ e.target.setPointerCapture(e.pointerId); mlDrag.grip = e.target; mlDrag.pid = e.pointerId; }catch(_){}
   document.addEventListener('pointermove', mlGripMove, { passive:false });
   document.addEventListener('pointerup', mlGripUp, true);
   document.addEventListener('pointercancel', mlGripUp, true);
-  mlAutoScrollTimer = setInterval(mlAutoScrollTick, 16);
-}
-
-// Slot the held row against the nearest row whose mid-point is below the
-// pointer. Split out of the move handler because auto-scroll has to re-run it
-// as the content slides past a finger that is not itself moving.
-function mlPlaceDragRow(){
-  if(!mlDrag) return;
-  const { container, rowEl } = mlDrag;
-  const y = mlDragClientY;
-  let before = null, closest = -Infinity;
-  for(const r of container.querySelectorAll('.ml-row-tap[data-id]')){
-    if(r===rowEl) continue;
-    const box = r.getBoundingClientRect();
-    const off = y - (box.top + box.height/2);
-    if(off < 0 && off > closest){ closest = off; before = r; }
-  }
-  if(before){ if(rowEl.nextSibling!==before) container.insertBefore(rowEl, before); }
-  else if(container.lastChild!==rowEl) container.appendChild(rowEl);
+  mlDrag.raf = requestAnimationFrame(mlDragFrame);
 }
 
 function mlGripMove(e){
   if(!mlDrag) return;
-  e.preventDefault();                                   // stop the page scrolling under the finger
+  if(e.cancelable) e.preventDefault();                  // stop the page scrolling under the finger
   mlDragClientY = e.clientY;
-  mlPlaceDragRow();
+}
+
+// One frame: scroll if the pointer is near an edge, glue the row to the pointer,
+// then open the gap where it would land. Driven off rAF rather than a 16ms
+// interval so it cannot run twice between paints, and so a finger held still
+// while the content scrolls under it still re-slots.
+function mlDragFrame(){
+  if(!mlDrag) return;
+  const d = mlDrag;
+  mlAutoScrollTick();
+
+  const docY = mlDragClientY + mlScrollTop(d.scroller);
+  let dy = docY - d.startDocY;
+  const mid = d.startMid + dy;
+  if(mid < d.minDocY) dy += d.minDocY - mid;            // stay inside this category
+  if(mid > d.maxDocY) dy += d.maxDocY - mid;
+  if(dy !== d.dy){ d.dy = dy; d.rowEl.style.transform = 'translateY(' + dy + 'px)'; }
+
+  const c = d.startMid + d.dy;
+  let to = 0; for(const g of d.others) if(g.mid < c) to++;
+  if(to !== d.to){
+    d.to = to;
+    d.others.forEach((g,i)=>{
+      const shift = (i >= to && i < d.from) ?  d.h
+                  : (i >= d.from && i < to) ? -d.h : 0;
+      g.el.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+    });
+  }
+  d.raf = requestAnimationFrame(mlDragFrame);
 }
 
 // WHICH element actually scrolls is not obvious and must not be assumed.
@@ -836,17 +886,22 @@ function mlAutoScrollTick(){
   if(overTop > 0)      dy = -Math.min(MAX, 3 + Math.round(overTop/5));
   else if(overBot > 0) dy =  Math.min(MAX, 3 + Math.round(overBot/5));
   if(!dy) return;
-  const was = sc.scrollTop;
-  sc.scrollTop = was + dy;
-  if(sc.scrollTop !== was) mlPlaceDragRow();   // the rows slid under a still finger
+  const was = mlScrollTop(sc);
+  sc.scrollTop = was + dy;                     // mlDragFrame re-slots off the new scrollTop
 }
 
 function mlStopDrag(){
-  clearInterval(mlAutoScrollTimer); mlAutoScrollTimer = null;
+  if(mlAutoScrollTimer){ clearInterval(mlAutoScrollTimer); mlAutoScrollTimer = null; }
+  if(mlDrag) cancelAnimationFrame(mlDrag.raf);
   document.removeEventListener('pointermove', mlGripMove, { passive:false });
   document.removeEventListener('pointerup', mlGripUp, true);
   document.removeEventListener('pointercancel', mlGripUp, true);
-  if(mlDrag) mlDrag.rowEl.classList.remove('ml-dragging');
+  if(mlDrag){
+    try{ if(mlDrag.grip) mlDrag.grip.releasePointerCapture(mlDrag.pid); }catch(_){}
+    mlDrag.rowEl.style.transform = '';
+    mlDrag.others.forEach(g=>{ g.el.style.transform=''; g.el.classList.remove('ml-shift'); });
+    mlDrag.rowEl.classList.remove('ml-dragging');
+  }
   document.body.classList.remove('ml-dragging-active');
   const d = mlDrag; mlDrag = null;
   mlDragEndedAt = Date.now();
@@ -855,8 +910,14 @@ function mlStopDrag(){
 
 function mlGripUp(){
   const d = mlStopDrag(); if(!d) return;
+  // The DOM was never reordered during the drag, so the new order comes from
+  // the slot it was dropped in, not from reading the rows back.
   const ids = Array.from(d.container.querySelectorAll('.ml-row-tap[data-id]'))
     .map(r=>Number(r.getAttribute('data-id')));
+  if(d.from < 0 || d.from >= ids.length || ids[d.from] !== Number(d.id)){
+    loadMarketList().then(renderMarketList); return;   // list moved under us — take theirs
+  }
+  ids.splice(d.to, 0, ids.splice(d.from, 1)[0]);
   mlApplyOrder(d.id, ids);
 }
 
@@ -1106,8 +1167,13 @@ function mlInjectCss(){
     '.ml-grip.off:hover,.ml-grip.off:focus{background:var(--sabbia-dark,#E8D9C7);color:var(--vino,#400207);opacity:.35}',
     // A finger has no hover, so the grip has to be visible before it is touched.
     '@media(pointer:coarse){.ml-grip{opacity:.8;width:30px;height:34px;line-height:34px}}',
+    // The row being carried tracks the pointer 1:1, so it must NOT have a
+    // transition; the rows it displaces must, or the gap snaps open.
     '.ml-row.ml-dragging{opacity:.97;background:var(--sabbia-light,#F3EADD);',
-      'box-shadow:0 6px 18px rgba(66,2,7,.22);position:relative;z-index:50}',
+      'box-shadow:0 8px 22px rgba(66,2,7,.26);position:relative;z-index:50;',
+      'transition:none;will-change:transform}',
+    '.ml-row.ml-shift{transition:transform .16s cubic-bezier(.2,.7,.3,1);will-change:transform}',
+    '@media (prefers-reduced-motion: reduce){.ml-row.ml-shift{transition:none}}',
     'body.ml-dragging-active{cursor:grabbing;user-select:none}',
     'body.ml-dragging-active .ml-qty{pointer-events:none}',
     '@media print{.ml-grip{display:none}}'
