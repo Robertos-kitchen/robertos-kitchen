@@ -2834,44 +2834,123 @@ function mpCalendarList(){
 // works exactly like a mouse. A grip that is TAPPED rather than dragged opens a
 // move sheet instead — on a phone, asking for a precise drag is asking for a
 // mis-tap. A grouped row (Set Menu A/B/C) moves as one block.
-let mpDrag = null;   // { key, rowEl, container, startY, moved }
+// HOW THE CARD MOVES (rewritten 13 Aug 2026 — the fourth and last one).
+// This was ported from the Fish Display before the Fish Display was fixed, so it
+// carried the same defect, and it was the one nobody found by searching: the
+// other three draw a ⠿ character and this one draws an SVG, so a search for the
+// glyph walks straight past it.
+//
+// The defect, measured on the three that shipped it: the card being dragged never
+// moved with the hand. It stayed in the layout while the list re-ordered itself
+// only once the pointer had already passed the next card — 39px behind on a 40px
+// row, 44 on a 46, 64 on a 64. Now the card is glued to the pointer with a
+// transform, the cards it displaces slide aside, geometry is measured once on grab
+// in document coordinates, and the DOM is not touched until the drop.
+//
+// Menu cards are of DIFFERENT heights (a menu with more months is taller). That is
+// fine and needs no special case: the gap the others open is the DRAGGED card's own
+// height, whatever their own heights are, so it always lands where it looks like it
+// will.
+let mpDrag = null;
+var MP_EDGE = 72, MP_EDGE_MAX = 20;   // px from a viewport edge where auto-scroll starts / per frame
+
 function mpGripDown(e, key){
   if (e.button && e.button !== 0) return;
+  if (mpDrag) return;
   e.preventDefault(); e.stopPropagation();
   var container = document.getElementById('mp-callist'); if (!container) return;
   var rowEl = container.querySelector('.mp-calrow[data-row="' + key + '"]'); if (!rowEl) return;
-  mpDrag = { key:key, rowEl:rowEl, container:container, startY:e.clientY, moved:false };
+  var sy = window.scrollY;
+  var box = rowEl.getBoundingClientRect();
+  var others = [], tops = [], bots = [];
+  [].forEach.call(container.querySelectorAll('.mp-calrow[data-row]'), function(r){
+    if (r === rowEl) return;
+    var b = r.getBoundingClientRect();
+    others.push({ el:r, mid:b.top + sy + b.height/2 });
+    tops.push(b.top + sy); bots.push(b.bottom + sy);
+  });
+  tops.push(box.top + sy); bots.push(box.bottom + sy);
+  mpDrag = {
+    key:key, rowEl:rowEl, container:container, others:others,
+    h: box.height, from: others.filter(function(g){
+      return r_before(g.el, rowEl); }).length,
+    to: 0, dy: 0, raf: 0,
+    startY: e.clientY, clientY: e.clientY,
+    startDocY: e.clientY + sy,
+    startMid: box.top + sy + box.height/2,
+    // clamp to the list's top and bottom EDGES, not the first/last mid-point —
+    // mid-points leave the last place unreachable, and do it silently
+    minDocY: Math.min.apply(null, tops),
+    maxDocY: Math.max.apply(null, bots),
+    moved: false
+  };
+  mpDrag.to = mpDrag.from;
   rowEl.classList.add('mp-dragging');
   document.body.classList.add('mp-dragging-active');
+  others.forEach(function(g){ g.el.classList.add('mp-shift'); });
+  try { e.target.setPointerCapture(e.pointerId); mpDrag.grip = e.target; mpDrag.pid = e.pointerId; } catch(err){}
   document.addEventListener('pointermove', mpGripMove, { passive:false });
   document.addEventListener('pointerup', mpGripUp, true);
   document.addEventListener('pointercancel', mpGripUp, true);
+  mpDrag.raf = requestAnimationFrame(mpDragFrame);
 }
+function r_before(a, b){ return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+
 function mpGripMove(e){
   if (!mpDrag) return;
-  e.preventDefault();                                   // stop the page scrolling under the finger
+  if (e.cancelable) e.preventDefault();                 // stop the page scrolling under the finger
+  mpDrag.clientY = e.clientY;
   if (Math.abs(e.clientY - mpDrag.startY) > 6) mpDrag.moved = true;
-  var container = mpDrag.container, rowEl = mpDrag.rowEl, y = e.clientY;
-  var before = null, closest = -Infinity;               // nearest row whose mid-point is below the pointer
-  [].forEach.call(container.querySelectorAll('.mp-calrow[data-row]'), function(r){
-    if (r === rowEl) return;
-    var box = r.getBoundingClientRect();
-    var off = y - (box.top + box.height / 2);
-    if (off < 0 && off > closest){ closest = off; before = r; }
-  });
-  if (before){ if (rowEl.nextSibling !== before) container.insertBefore(rowEl, before); }
-  else container.appendChild(rowEl);
 }
+
+// One frame: scroll near an edge, glue the card to the pointer, open the gap.
+function mpDragFrame(){
+  if (!mpDrag) return;
+  var d = mpDrag, vh = window.innerHeight, step = 0;
+  if (d.clientY < MP_EDGE)             step = -Math.ceil(MP_EDGE_MAX * (MP_EDGE - d.clientY) / MP_EDGE);
+  else if (d.clientY > vh - MP_EDGE)   step =  Math.ceil(MP_EDGE_MAX * (d.clientY - (vh - MP_EDGE)) / MP_EDGE);
+  if (step) window.scrollBy(0, step);
+
+  var dy = (d.clientY + window.scrollY) - d.startDocY;
+  var mid = d.startMid + dy;
+  if (mid < d.minDocY) dy += d.minDocY - mid;
+  if (mid > d.maxDocY) dy += d.maxDocY - mid;
+  if (dy !== d.dy){ d.dy = dy; d.rowEl.style.transform = 'translateY(' + dy + 'px)'; }
+
+  var c = d.startMid + d.dy, to = 0;
+  d.others.forEach(function(g){ if (g.mid < c) to++; });
+  if (to !== d.to){
+    d.to = to;
+    d.others.forEach(function(g, i){
+      var shift = (i >= to && i < d.from) ?  d.h
+                : (i >= d.from && i < to) ? -d.h : 0;
+      g.el.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+    });
+  }
+  d.raf = requestAnimationFrame(mpDragFrame);
+}
+
 function mpGripUp(){
   if (!mpDrag) return;
   var d = mpDrag; mpDrag = null;
+  cancelAnimationFrame(d.raf);
   document.removeEventListener('pointermove', mpGripMove, { passive:false });
   document.removeEventListener('pointerup', mpGripUp, true);
   document.removeEventListener('pointercancel', mpGripUp, true);
+  try { if (d.grip) d.grip.releasePointerCapture(d.pid); } catch(err){}
+  d.rowEl.style.transform = '';
+  d.others.forEach(function(g){ g.el.style.transform = ''; g.el.classList.remove('mp-shift'); });
   d.rowEl.classList.remove('mp-dragging');
   document.body.classList.remove('mp-dragging-active');
   if (!d.moved){ mpMoveMenuSheet(d.key); return; }       // a tap, not a drag
-  mpSaveMenuOrder([].map.call(d.container.querySelectorAll('.mp-calrow[data-row]'), function(r){ return r.getAttribute('data-row'); }));
+  if (d.to === d.from) return;                           // picked up and put back down
+  // The DOM was never reordered, so the new order is the old one with this card
+  // moved from its place to the one it was dropped in.
+  var keys = [].map.call(d.container.querySelectorAll('.mp-calrow[data-row]'),
+               function(r){ return r.getAttribute('data-row'); });
+  if (d.from < 0 || d.from >= keys.length || keys[d.from] !== d.key) return mpRender();
+  keys.splice(d.to, 0, keys.splice(d.from, 1)[0]);
+  mpSaveMenuOrder(keys);
 }
 // The tap route: move one place at a time, or straight to the top or bottom.
 function mpMoveMenuSheet(key){
@@ -4690,7 +4769,11 @@ textarea.mp-in{resize:vertical;line-height:1.45}
 .mp-calrow{position:relative}
 .mp-grip{position:absolute;right:8px;top:8px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--mp-cream-l);border:1px solid var(--mp-line);color:var(--mp-maroon);opacity:.65;cursor:grab;user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
 .mp-grip:active{opacity:1;cursor:grabbing}
-.mp-calrow.mp-dragging{background:var(--mp-cream-l);box-shadow:0 6px 18px rgba(69,2,7,.22);position:relative;z-index:50}
+/* the card you are carrying tracks the pointer 1:1, so no transition on it;
+   the cards it displaces need one, or the gap snaps open instead of opening */
+.mp-calrow.mp-dragging{background:var(--mp-cream-l);box-shadow:0 8px 22px rgba(69,2,7,.26);position:relative;z-index:50;transition:none;will-change:transform}
+.mp-calrow.mp-shift{transition:transform .16s cubic-bezier(.2,.7,.3,1);will-change:transform}
+@media (prefers-reduced-motion: reduce){.mp-calrow.mp-shift{transition:none}}
 body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-calrow-h{padding-right:56px}
 .mp-more{margin-top:14px;border-top:1px solid var(--mp-line);padding-top:6px}
