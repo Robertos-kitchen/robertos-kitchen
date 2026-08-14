@@ -104,6 +104,7 @@ async function loadMarketList(){
   mlWeekStart = mlComputeWeekStart();
   mlItems = await mlFetchAllPaged(function(){ return sb.from('order_items').select('*').eq('active', true).order('sort_order'); });
   await Promise.all([loadMarketQuantities(), loadFmcPrices(), loadRequisitions()]);
+  mlApplyFmcFacts();   // FMC owns the name and the unit - see mlApplyFmcFacts
 }
 
 // ── what the order is worth, and what it became in Materials Control ───────
@@ -111,6 +112,8 @@ async function loadMarketList(){
 // database, so a price change or a new requisition shows up here by itself.
 const ML_VENUE = 'robertos-difc';
 let mlPrices = {};   // FMC article code -> contract price
+let mlArtName = {};  // FMC article code -> the name FMC holds
+let mlArtUnit = {};  // FMC article code -> the purchase unit FMC holds
 let mlReqs   = [];   // fmc_requisitions rows for this week, newest first
 
 // The value is worked out from fmc_articles.price - FMC's own contract price,
@@ -122,11 +125,38 @@ let mlReqs   = [];   // fmc_requisitions rows for this week, newest first
 // really worth 10,126, and nothing on screen would have said so.
 async function loadFmcPrices(){
   mlPrices = {};
+  mlArtName = {};
+  mlArtUnit = {};
   const rows = await mlFetchAllPaged(function(){
-    return sb.from('fmc_articles').select('code,price').eq('venue_id', ML_VENUE);
+    return sb.from('fmc_articles').select('code,price,name,unit').eq('venue_id', ML_VENUE);
   });
   (rows||[]).forEach(r=>{
-    if(r.code && r.price != null) mlPrices[String(r.code).trim()] = Number(r.price);
+    const c = r.code != null ? String(r.code).trim() : '';
+    if(!c) return;
+    if(r.price != null) mlPrices[c] = Number(r.price);
+    if(r.name) mlArtName[c] = String(r.name).trim();
+    if(r.unit) mlArtUnit[c] = String(r.unit).trim();
+  });
+}
+
+// ── the name and the unit belong to FMC, not to us ────────────────────────
+// order_items carries its own `name` and `unit`, and they drift. On 14 Aug 2026
+// forty-nine names and two hundred and eleven units disagreed with fmc_articles:
+// a chef was reading "Turbot -Portugal" for an article FMC calls "-Spain", and
+// units typed by hand - `pun`, `1kg`, `200g`, `1x6` - against FMC's real pack.
+// Fixing those once only buys time until the next drift, so the display now
+// READS the article table. The stored copy stays untouched as the fallback for
+// a line with no code, or one whose code the catalogue has not seen yet.
+//
+// This overlays the in-memory rows only. Nothing is written back: order_items
+// keeps its own values, so nothing is lost and this is reversible by deleting
+// the call.
+function mlApplyFmcFacts(){
+  (mlItems||[]).forEach(function(it){
+    const c = it && it.code != null ? String(it.code).trim() : '';
+    if(!c) return;
+    if(mlArtName[c]) it.name = mlArtName[c];
+    if(mlArtUnit[c]) it.fmc_unit = mlArtUnit[c];
   });
 }
 
