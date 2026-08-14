@@ -6363,10 +6363,37 @@ async function schedSendToHR(_downloadOnly) {
 
     if (typeof logReset === 'function') logReset(who, 'roster_send', _wkStr, null);
 
+    // The roster reached HR either way, so this is not a failure — but if the Cc
+    // list did not come from the FOH app's Admin → Emails screen, then whoever was
+    // ticked there was ignored, and a green tick says the opposite of what happened.
+    //
+    // Not hypothetical: between 1 and 14 Aug 2026 the key that reads that screen
+    // was the wrong one, every roster went to a list hardcoded in the function,
+    // and this button said '✓ Sent to HR' every time. The function had been
+    // reporting usedFallback the whole time and nothing displayed it. A flag
+    // nobody shows is the same as no flag at all.
+    var fellBack = emailData.usedFallback === true;
+    var copied = (emailData.recipients || []);
+
+    if (fellBack) {
+      alert('The roster WAS sent to HR — but the copy list did not come from Admin → Emails.\n\n'
+        + (emailData.fallbackReason ? 'Reason: ' + emailData.fallbackReason + '.\n\n' : '')
+        + 'The app used its built-in list instead, so these ' + copied.length + ' were copied:\n\n'
+        + copied.join('\n')
+        + '\n\nAnyone added or removed on that screen was ignored on this send. '
+        + 'HR has the roster, so nothing needs re-sending — but please report this so the list can be fixed.');
+    }
+
     if (btn) {
-      btn.textContent = _note ? '✓ Sent with your note' : '✓ Sent to HR';
-      btn.style.background = 'var(--oliva)'; btn.style.borderColor = 'var(--oliva)';
-      setTimeout(function(){ btn.textContent = '📧 Send to HR'; btn.style.background=''; btn.style.borderColor=''; btn.disabled=false; }, 3000);
+      // Says who, not just that it went — which people got it is the whole point,
+      // and it is the thing that was silently wrong.
+      var okLabel = (_note ? '✓ Sent with your note' : '✓ Sent to HR')
+                  + (copied.length ? ' · ' + copied.length + ' copied' : '');
+      btn.textContent = fellBack ? '⚠ Sent — wrong copy list' : okLabel;
+      btn.style.background = fellBack ? '#b45309' : 'var(--oliva)';
+      btn.style.borderColor = fellBack ? '#b45309' : 'var(--oliva)';
+      // A warning has to outlast a glance; a tick does not.
+      setTimeout(function(){ btn.textContent = '📧 Send to HR'; btn.style.background=''; btn.style.borderColor=''; btn.disabled=false; }, fellBack ? 12000 : 3000);
     }
   } catch(err) {
     console.error('Send to HR error:', err);
