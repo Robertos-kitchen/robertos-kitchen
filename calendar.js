@@ -119,6 +119,12 @@ async function calLoadFoh(){
   }
 }
 
+function calNoTable(err){
+  if(!err) return false;
+  const code = String(err.code || '');
+  return code === 'PGRST205' || code === '42P01' || /schema cache/i.test(String(err.message || ''));
+}
+
 // ── render ─────────────────────────────────────────────────────────────────
 function calHost(){ return document.getElementById('calendar-view'); }
 
@@ -590,8 +596,8 @@ async function openCalendar(){
     await calLoad();
   }catch(err){
     host.innerHTML = CAL_STYLE + '<div class="ops-title">Calendar</div>' +
-      '<div class="cal-err">' + (err && err.code === '42P01'
-        ? 'The calendar is not set up on this database yet. Run the kitchen-calendar SQL, then reopen.'
+      '<div class="cal-err">' + (calNoTable(err)
+        ? 'The calendar table has not been created on this database yet. Run kitchen-calendar.sql, then reopen this screen.'
         : 'Could not load the calendar — check the connection and try again.') + '</div>';
     console.warn('[calendar] boot failed', err);
     return;
