@@ -103,7 +103,7 @@ async function mlFetchAllPaged(build){
 async function loadMarketList(){
   mlWeekStart = mlComputeWeekStart();
   mlItems = await mlFetchAllPaged(function(){ return sb.from('order_items').select('*').eq('active', true).order('sort_order'); });
-  await Promise.all([loadMarketQuantities(), loadFmcPrices(), loadRequisitions()]);
+  await Promise.all([loadMarketQuantities(), loadFmcPrices(), loadRequisitions(), loadFmcQuotes()]);
   mlApplyFmcFacts();   // FMC owns the name and the unit - see mlApplyFmcFacts
 }
 
@@ -137,6 +137,82 @@ async function loadFmcPrices(){
     if(r.name) mlArtName[c] = String(r.name).trim();
     if(r.unit) mlArtUnit[c] = String(r.unit).trim();
   });
+}
+
+// ── who FMC will actually take the order from ──────────────────────────────
+// fmc_price_quotes is FMC's own Purchase | Price Quotes list, exported from the
+// screen that decides this and loaded per article. It holds ONLY the links FMC
+// has switched on (E/D), so a supplier in here is one an order will be accepted
+// for. This matters because the two disagree: on 15 Aug 2026 Turbot 4026100 had
+// been bought from Simply Gourmet, and FMC offers only Wisk - buying history
+// says who we USED, this says who we CAN use.
+//
+// order_items.supplier is our own choice and stays stored, because the choice is
+// ours to make. What is NOT stored is whether that choice is still possible -
+// that is read from here on every load. On 15 Aug 2026 sixty-one lines still
+// named Zurich Foodstuff Trading, whose every FMC link had been switched off, so
+// the app was naming a supplier no order could go to and nothing said so.
+let mlQuotes = {};   // FMC article code -> [{supplier, unit, price, priced}], newest priced first
+async function loadFmcQuotes(){
+  mlQuotes = {};
+  const rows = await mlFetchAllPaged(function(){
+    return sb.from('fmc_price_quotes')
+      .select('code,supplier,unit,price_per_unit,last_price_update')
+      .eq('venue_id', ML_VENUE);
+  });
+  (rows||[]).forEach(function(r){
+    const c = r.code != null ? String(r.code).trim() : '';
+    if(!c || !r.supplier) return;
+    (mlQuotes[c] = mlQuotes[c] || []).push({
+      supplier: String(r.supplier).trim(),
+      unit: r.unit ? String(r.unit).trim() : '',
+      price: r.price_per_unit == null ? null : Number(r.price_per_unit),
+      priced: r.last_price_update || ''
+    });
+  });
+  // Newest price first. FMC dates every quote itself, so this needs no history.
+  Object.keys(mlQuotes).forEach(function(c){
+    mlQuotes[c].sort(function(a,b){ return String(b.priced).localeCompare(String(a.priced)); });
+  });
+}
+
+// What FMC will accept for this line, and whether our stored choice is among it.
+// An empty list means the catalogue has nothing for the code - NOT that the item
+// cannot be ordered - so the caller shows the stored supplier unchanged rather
+// than inventing a warning. A missing match is not a missing capability.
+function mlSupplierState(it){
+  const c = it && it.code != null ? String(it.code).trim() : '';
+  const opts = (c && mlQuotes[c]) || [];
+  const stored = it && it.supplier ? String(it.supplier).trim() : '';
+  if(!opts.length){
+    // No options is two different situations and they must not look alike.
+    // If the article catalogue knows this code, FMC holds the article and has
+    // simply switched every supplier link off - nobody can order it, and that
+    // has to be said. Apple Cider Vinegar 4017238 is the live example: its only
+    // supplier was Zurich, now discontinued, and the line still read normally.
+    // If the catalogue does not know the code either, we know nothing - show
+    // the stored supplier unchanged rather than invent a warning.
+    const inCatalogue = !!(c && mlArtName[c]);
+    return { opts:[], stored:stored, known:false, none:inCatalogue, ok:!inCatalogue, chosen:null };
+  }
+  const chosen = opts.find(function(o){ return o.supplier === stored; }) || null;
+  return { opts:opts, stored:stored, known:true, none:false, ok:(!stored || !!chosen), chosen:chosen };
+}
+
+// mlMoney rounds to whole dirhams, which is right for an order worth 38,072 and
+// wrong here: it printed Ali Gholami's 2.85 as "3" against Wahat's 4.00, hiding
+// the fils the comparison is actually made of.
+function mlUnitPrice(n){
+  if(n == null) return '';
+  return Number(n).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+function mlPricedLabel(d){
+  if(!d) return '';
+  const p = String(d).split('-');
+  if(p.length !== 3) return String(d);
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return 'priced ' + Number(p[2]) + ' ' + (M[Number(p[1])-1] || p[1]);
 }
 
 // ── the name and the unit belong to FMC, not to us ────────────────────────
@@ -1174,6 +1250,34 @@ function mlInjectCss(){
     '.ml-ed-flagline.dead{background:#FDECEA;color:#8a1c16}',
     '.ml-ed-flagline.none{background:#FDF4E0;color:#6d4700}',
     '.ml-ed-flagline.retiring{background:#EEF2FA;color:#23405f}',
+    // "ordered from". Touch targets are 44px so this works on the pass tablet
+    // and on a phone, not only under a mouse.
+    '.ml-sup{border-top:1px solid #E6DCCB;padding:12px 16px 14px}',
+    '.ml-sup-lab{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:#8a7f70;margin-bottom:6px}',
+    '.ml-sup-one{font-size:15px;color:#2b2b2b}',
+    '.ml-sup-head{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;',
+      'background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer}',
+    '.ml-sup-cur{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}',
+    '.ml-sup-name{font-size:15px;font-weight:600;color:#2b2b2b;line-height:1.3}',
+    '.ml-sup-name.ml-sup-none{font-weight:500;color:#8a7f70}',
+    '.ml-sup-meta{font-size:12.5px;color:#6f665b;line-height:1.3}',
+    '.ml-sup-price{font-size:16px;font-weight:600;color:#2b2b2b;white-space:nowrap}',
+    '.ml-sup-chev{font-size:13px;color:#8a7f70;transition:transform .15s ease}',
+    '.ml-sup.open .ml-sup-chev{transform:rotate(180deg)}',
+    '.ml-sup-onlyone{font-size:12.5px;color:#6f665b;margin-top:2px}',
+    '.ml-sup-list{display:none;margin-top:8px}',
+    '.ml-sup.open .ml-sup-list{display:block}',
+    '.ml-sup-opt{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;',
+      'padding:8px 10px;margin-top:6px;border:1px solid #E6DCCB;border-radius:8px;',
+      'background:#fff;text-align:left;font:inherit;cursor:pointer}',
+    '.ml-sup-opt:hover{border-color:#C9B79A}',
+    '.ml-sup-opt.on{border-color:#410207;background:#F7F1E8}',
+    '.ml-sup-tick{width:14px;flex:0 0 14px;color:#410207;font-weight:700}',
+    '.ml-sup-optname{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:14.5px;color:#2b2b2b}',
+    '.ml-sup-optprice{font-size:15px;font-weight:600;color:#2b2b2b;white-space:nowrap}',
+    '.ml-sup-warn{background:#FDF4E0;color:#6d4700;border-radius:6px;padding:8px 10px;',
+      'font-size:12.5px;line-height:1.45;margin-bottom:8px}',
+    '@media (prefers-reduced-motion: reduce){.ml-sup-chev{transition:none}}',
     '.ml-ed-repoint{margin-top:7px;background:#fff;border:1px solid #c98d80;color:#8a3226;',
       'border-radius:6px;padding:8px 12px;font:600 12px var(--font-sans,sans-serif);cursor:pointer}',
 
@@ -1400,6 +1504,7 @@ function mlOpenEditor(itemId){
             `</div>`; })()}
       </div>
       <div class="ml-ed-body">${dayRows}</div>
+      ${mlSupplierBlock(it)}
       <div class="ml-ed-foot">
         <button type="button" class="ml-ed-btn ml-ed-remove" onclick="mlRemoveItem(${it.id})" title="Take this item off the market list">Take off the list</button>
         <button type="button" class="ml-ed-btn ml-ed-cancel" onclick="mlCloseEditor()">Cancel</button>
@@ -1410,6 +1515,98 @@ function mlOpenEditor(itemId){
   document.body.appendChild(box);
   mlInjectCss();
   setTimeout(()=>{ const f=document.getElementById('ml-ed-q1'); if(f) f.focus(); }, 60);
+}
+
+// ── "ordered from" ─────────────────────────────────────────────────────────
+// One line when there is nothing to decide, a list when there is. The options
+// are folded away by default: the day quantities are the job, this is a thing
+// you change occasionally. What never folds is the WARNING - a chef must not
+// have to open anything to find out the supplier on the line is one FMC will
+// refuse.
+function mlSupplierBlock(it){
+  const st = mlSupplierState(it);
+  if(!st.known){
+    if(st.none){
+      return `<div class="ml-sup"><div class="ml-sup-lab">Ordered from</div>
+        <div class="ml-sup-warn">FMC has no supplier switched on for this item, so it cannot be ordered${st.stored?' — the list still says <b>'+mlEsc(st.stored)+'</b>':''}. It needs a supplier setting up in FMC, or taking off the list.</div></div>`;
+    }
+    if(!st.stored) return '';
+    return `<div class="ml-sup"><div class="ml-sup-lab">Ordered from</div>
+      <div class="ml-sup-one">${mlEsc(st.stored)}</div></div>`;
+  }
+  const only = st.opts.length === 1;
+  const cur  = st.chosen || null;
+  const head = cur
+    ? `<div class="ml-sup-cur"><span class="ml-sup-name">${mlEsc(cur.supplier)}</span>` +
+      `<span class="ml-sup-meta">${mlEsc(cur.unit)}${cur.priced?' · '+mlPricedLabel(cur.priced):''}</span></div>` +
+      (cur.price!=null?`<div class="ml-sup-price">${mlUnitPrice(cur.price)}</div>`:'')
+    : `<div class="ml-sup-cur"><span class="ml-sup-name ml-sup-none">${st.stored?mlEsc(st.stored):'Nobody chosen yet'}</span></div>`;
+
+  const warn = st.ok ? '' :
+    `<div class="ml-sup-warn">This list says <b>${mlEsc(st.stored)}</b>, but FMC will not take an order from them any more. Pick someone else.</div>`;
+
+  const rows = st.opts.map(function(o, i){
+    const on = cur && o.supplier===cur.supplier && o.unit===cur.unit;
+    return `<button type="button" class="ml-sup-opt${on?' on':''}" onclick="mlPickSupplier(${it.id},${i})">
+      <span class="ml-sup-tick">${on?'✓':''}</span>
+      <span class="ml-sup-optname">${mlEsc(o.supplier)}<span class="ml-sup-meta">${mlEsc(o.unit)}${o.priced?' · '+mlPricedLabel(o.priced):''}</span></span>
+      <span class="ml-sup-optprice">${o.price!=null?mlUnitPrice(o.price):''}</span></button>`;
+  }).join('');
+
+  // Only one supplier and it is already the stored one: nothing to open.
+  if(only && st.ok && cur){
+    return `<div class="ml-sup"><div class="ml-sup-lab">Ordered from</div>
+      <div class="ml-sup-head">${head}</div>
+      <div class="ml-sup-onlyone">only supplier</div></div>`;
+  }
+  const open = !st.ok;   // a bad choice opens the list without being asked
+  return `<div class="ml-sup${open?' open':''}" id="ml-sup-${it.id}">
+    <div class="ml-sup-lab">${st.ok?'Ordered from':'Who FMC will take it from'}</div>
+    ${warn}
+    <button type="button" class="ml-sup-head ml-sup-toggle" onclick="mlSupToggle(${it.id})"
+            aria-expanded="${open?'true':'false'}">
+      ${head}<span class="ml-sup-chev">▾</span></button>
+    <div class="ml-sup-list">${rows}</div></div>`;
+}
+
+function mlSupToggle(id){
+  const el = document.getElementById('ml-sup-'+id);
+  if(!el) return;
+  const now = !el.classList.contains('open');
+  el.classList.toggle('open', now);
+  const b = el.querySelector('.ml-sup-toggle');
+  if(b) b.setAttribute('aria-expanded', now?'true':'false');
+}
+
+// The choice is ours, so it is stored - on order_items, the same row the rest of
+// the line lives on. Written straight away rather than on Save: the day boxes
+// have their own buffer and a supplier is not part of it, so folding this into
+// Save would make one button mean two different things.
+async function mlPickSupplier(itemId, idx){
+  const it = (mlItems||[]).find(function(x){ return x.id===itemId; });
+  if(!it) return;
+  const st = mlSupplierState(it);
+  const pick = st.opts[idx];
+  if(!pick) return;
+  const was = it.supplier;
+  const r = await sb.from('order_items').update({ supplier: pick.supplier }).eq('id', itemId);
+  if(r.error){
+    if(typeof kToast==='function') kToast('Could not save the supplier — check connection.', true);
+    return;
+  }
+  it.supplier = pick.supplier;
+  const host = document.getElementById('ml-sup-'+itemId);
+  if(host){
+    const fresh = document.createElement('div');
+    fresh.innerHTML = mlSupplierBlock(it);
+    const node = fresh.firstElementChild;
+    if(node){ node.classList.add('open'); host.replaceWith(node); }
+  }
+  if(typeof kToast==='function'){
+    kToast(was && was!==pick.supplier
+      ? 'Ordering from ' + pick.supplier + ' instead of ' + was + '.'
+      : 'Ordering from ' + pick.supplier + '.');
+  }
 }
 
 function mlEdRowToggle(wd){
