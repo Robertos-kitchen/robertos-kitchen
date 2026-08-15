@@ -1313,6 +1313,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
     <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Create new recipes, recipe card, Food Bible, current menu, Micros request</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
+    <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
   </div>
   </div>
   <div class="home-section mgmt" id="mgmt-section">
@@ -1396,6 +1397,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
+<div id="calendar-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative"></div>
 <div id="team-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
 <div class="content" id="content"></div>
 
@@ -1447,6 +1449,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   function openStockTake(){ lazyLoad('stock-take.js?v=1786343605').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1786519399').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
   function openFmcMatch(){ lazyLoad('fmc-match.js?v=1786519399').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
+  function openCalendar(){ lazyLoad('calendar.js?v=1786781390').then(function(){ openCalendar(); }).catch(function(){ alert('Could not load the Calendar. Check the connection and try again.'); }); }
   // Menu Development Plan is PARKED, 15 Aug 2026 — the team never adopted it and Danilo
   // called it a mess. Only the door is gone: menu-plan.js, its five .sql files, the
   // menuplan-view container below and every menu_plan_* table are untouched, so bringing
@@ -1467,7 +1470,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1786715414"></script>
+<script src="app.js?v=1786781390"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1496,7 +1499,7 @@ window.FB_INBOX = {
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
       'foodbible-view':'Food bible', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
-      'menuplan-view':'Menu development plan', 'team-view':'Team survey',
+      'menuplan-view':'Menu development plan', 'calendar-view':'Calendar', 'team-view':'Team survey',
       'scheduling-view':'Schedule' };
     try {
       for (var id in NAME) {
