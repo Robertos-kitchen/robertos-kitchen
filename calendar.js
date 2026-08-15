@@ -977,7 +977,7 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-quarter .cal-cell{min-height:72px}
 .cal-quarter .cal-chip{font-size:9.5px;padding:3px 4px;align-items:center}
 .cal-quarter .cal-dow{font-size:9px;letter-spacing:.6px}
-/* 21 day-columns across a laptop is ~55px each. `overflow-wrap:anywhere` then
+/* 21 day-columns across a laptop is ~55px each. overflow-wrap:anywhere then
    breaks EVERY character and a chip becomes a vertical column of letters 280px
    tall. At this density the chip is a coloured strip, not a sentence: one line,
    clipped. The full text is one tap away on the day. */
