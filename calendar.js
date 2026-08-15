@@ -226,9 +226,13 @@ function calFail(err){
 }
 
 // ── the message that carries undo ──────────────────────────────────────────
+// The toast hangs off <body>, NOT off the calendar view. calRender() replaces
+// the view's innerHTML, and a write of our own echoes straight back through
+// realtime and triggers exactly that — which wiped the Undo button about a
+// second after it appeared. A message you cannot reach is worse than no
+// message: it reads as "saved, and there is nothing you can do about it".
 function calToast(msg, undo){
-  const host = calHost(); if(!host) return;
-  const old = host.querySelector('.cal-toast'); if(old) old.remove();
+  const old = document.querySelector('.cal-toast'); if(old) old.remove();
   const t = document.createElement('div');
   t.className = 'cal-toast';
   t.setAttribute('role','status');
@@ -246,8 +250,8 @@ function calToast(msg, undo){
     };
     t.appendChild(b);
   }
-  host.appendChild(t);
-  const life = setTimeout(function(){ if(t.parentNode) t.remove(); }, undo ? 9000 : 4000);
+  document.body.appendChild(t);
+  const life = setTimeout(function(){ if(t.parentNode) t.remove(); }, undo ? 12000 : 4000);
   t.addEventListener('pointerenter', function(){ clearTimeout(life); });
 }
 
@@ -581,6 +585,7 @@ function calSubscribe(){
 async function openCalendar(){
   activeStation = CAL_KEY;
   hideAllPages();
+  const stray = document.querySelector('.cal-toast'); if(stray) stray.remove();
   const host = calHost();
   host.style.display = 'block';
   document.querySelector('.footer-bar').style.display = 'flex';
