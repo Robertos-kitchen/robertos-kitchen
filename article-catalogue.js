@@ -678,9 +678,61 @@ function acuReadMaster(file){
   });
 }
 
+/* ── the Price Quotes export: who FMC will take an order from ───────────────
+   Purchase | Price Quotes, every filter cleared, the green Excel button. It is
+   the only place that answers "will FMC accept an order from this supplier",
+   and the answer is not the same as who we last bought from: on 15 Aug 2026
+   Turbot 4026100 had been bought from Simply Gourmet and FMC offered only Wisk.
+
+   Only the rows FMC has switched ON are sent. A row that is off is not a
+   supplier a chef can be offered, and sending it would put the app back to
+   naming suppliers that refuse the order - which is what 61 market-list lines
+   were doing with Zurich Foodstuff.
+
+   The Article No. column here is the SUPPLIER's number, not FMC's. It is
+   usually FMC's code because we filled it in, but not always, so the article
+   NAME is sent alongside and the function decides which to believe. */
+function acuReadQuotes(file){
+  return file.arrayBuffer().then(function(buf){
+    var wb = XLSX.read(buf, { type:'array', cellDates:true });
+    if (wb.SheetNames.indexOf('Data') < 0)
+      throw new Error('that file has no "Data" sheet — it is not a Price Quotes export');
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets['Data'], { defval:'' });
+    var need = ['Supplier','Article','Unit','E/D','Price/Unit'];
+    var miss = need.filter(function(h){ return !(h in (rows[0]||{})); });
+    if (miss.length) throw new Error('the export is missing ' + miss.join(', '));
+
+    function day(v){
+      if (v instanceof Date && isFinite(v))
+        return v.getFullYear() + '-' + String(v.getMonth()+1).padStart(2,'0') +
+               '-' + String(v.getDate()).padStart(2,'0');
+      var s = String(v || '').trim();
+      var m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);   // FMC prints d/m/Y
+      if (m) return m[3] + '-' + m[2] + '-' + m[1];
+      return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : null;
+    }
+    function num(v){ var n = parseFloat(v); return isFinite(n) ? n : null; }
+
+    var out = [], off = 0;
+    rows.forEach(function(r){
+      var sup = String(r['Supplier']).trim(), art = String(r['Article']).trim();
+      if(!sup || !art) return;
+      if(Number(r['E/D']) !== 1){ off++; return; }
+      out.push({ code:String(r['Article No.']||'').trim().replace(/\.0$/,''),
+                 article:art, supplier:sup, unit:String(r['Unit']).trim(),
+                 price:num(r['Price/Unit']), priceBase:num(r['Price/BU']),
+                 priced:day(r['Last Price Update']),
+                 group:String(r['Item Group']||'').trim() });
+    });
+    if(!out.length) throw new Error('no switched-on price quotes could be read from that file');
+    out.switchedOffInFile = off;
+    return out;
+  });
+}
+
 function acOpenUpload(){
   var old = document.getElementById('ac-sheet'); if(old) old.remove();
-  acuParsed = { assortment:null, master:null };
+  acuParsed = { assortment:null, master:null, quotes:null };
 
   var box = document.createElement('div');
   box.className = 'ml-daypick-overlay';
@@ -695,7 +747,12 @@ function acOpenUpload(){
         '<div class="ac-caution" style="margin-bottom:12px">' +
           '<b>Assortment List</b> — File, Print, save as PDF. Sets what can be ordered.<br>' +
           '<b>Manage Articles</b> — the green Excel button. Sets names, units and recipe costs. ' +
-          'Clear any group filter first or drinks are left out.' +
+          'Clear any group filter first or drinks are left out.<br>' +
+          '<b>Price Quotes</b> — Purchase, Price Quotes, the green Excel button. Sets who each ' +
+          'item can be ordered from. Clear <i>every</i> filter, especially Supplier Group.' +
+        '</div>' +
+        '<div class="ac-dash" style="margin:-4px 0 10px;font-size:12px">' +
+          'The Price Quotes file can be loaded on its own — you do not need the other two.' +
         '</div>' +
         '<label class="ac-kv" style="cursor:pointer"><span>Assortment List (PDF)</span>' +
           '<span id="acu-s1" style="text-align:right">choose&hellip;' +
@@ -703,6 +760,9 @@ function acOpenUpload(){
         '<label class="ac-kv" style="cursor:pointer"><span>Manage Articles (XLS)</span>' +
           '<span id="acu-s2" style="text-align:right">choose&hellip;' +
           '<input type="file" accept=".xls,.xlsx" id="acu-f2" style="display:none"></span></label>' +
+        '<label class="ac-kv" style="cursor:pointer"><span>Price Quotes (XLSM)</span>' +
+          '<span id="acu-s3" style="text-align:right">choose&hellip;' +
+          '<input type="file" accept=".xls,.xlsx,.xlsm" id="acu-f3" style="display:none"></span></label>' +
         '<div class="ac-kv"><span>Your code</span>' +
           '<span><input type="password" id="acu-pin" inputmode="numeric" placeholder="&bull;&bull;&bull;&bull;" ' +
           'style="width:90px;text-align:center;letter-spacing:3px;padding:7px" oninput="acuReady()"></span></div>' +
@@ -722,6 +782,7 @@ function acOpenUpload(){
   });
   acuWire('acu-f1','acu-s1', acuReadAssortment, 'assortment', 'lines');
   acuWire('acu-f2','acu-s2', acuReadMaster,     'master',     'articles');
+  acuWire('acu-f3','acu-s3', acuReadQuotes,     'quotes',     'supplier prices');
   acuReady();
 }
 
@@ -747,11 +808,17 @@ function acuWire(inputId, labelId, reader, key, unit){
   });
 }
 
-/* A disabled button always says what it is waiting for. */
+/* A disabled button always says what it is waiting for.
+   Three files, two jobs. The article list needs BOTH the assortment and the
+   master - one without the other would let a single file overrule the two
+   questions they answer between them. The price quotes answer their own
+   question and go alone. */
 function acuReady(){
+  var a = !!acuParsed.assortment, m = !!acuParsed.master, q = !!acuParsed.quotes;
   var why = [];
-  if(!acuParsed.assortment) why.push('the Assortment List');
-  if(!acuParsed.master) why.push('the Manage Articles file');
+  if(!a && !m && !q) why.push('a file');
+  else if(a && !m) why.push('the Manage Articles file');
+  else if(m && !a) why.push('the Assortment List');
   var pin = document.getElementById('acu-pin');
   if(!pin || !pin.value.trim()) why.push('your code');
   var b = document.getElementById('acu-go'); if(!b) return;
@@ -770,7 +837,8 @@ function acuCall(dryRun){
     headers:{ 'Content-Type':'application/json',
               'Authorization':'Bearer ' + SUPABASE_KEY, apikey: SUPABASE_KEY },
     body: JSON.stringify({ passcode:document.getElementById('acu-pin').value.trim(),
-                           dryRun:dryRun, assortment:acuParsed.assortment, master:acuParsed.master })
+                           dryRun:dryRun, assortment:acuParsed.assortment, master:acuParsed.master,
+                           quotes:acuParsed.quotes })
   }).then(function(r){ return r.json(); });
 }
 
@@ -787,7 +855,7 @@ function acuCheck(){
   acuCall(true).then(function(j){
     go.textContent = 'See what changes'; go.disabled = false;
     if(j.error) return acuFail(j);
-    acuShow(j.report);
+    acuShowAll(j);
   }).catch(function(e){
     go.textContent = 'See what changes'; go.disabled = false;
     acuFail({ problems:[e.message] });
@@ -827,21 +895,103 @@ function acuShow(r){
           (up ? '#b3261e' : '#2e7d32') + '">' + p.now.toFixed(2) + '</b></div>';
       }).join('') + '</div>';
   }
+  return h + '</div>';
+}
+
+/* The supplier report. `switchedOff` is the line that matters: a supplier FMC
+   has turned off stops being offered when this saves, and a chef whose line
+   named them starts seeing the warning. That is the whole point, so it is
+   spelled out rather than counted. */
+function acuShowQuotes(q){
+  var h = '<div style="margin-top:12px">';
+  h += acKv('Supplier prices', q.rows);
+  h += acKv('Suppliers', q.suppliers);
+  h += acKv('Items covered', q.articles);
+  h += acKv('New supplier links', q.newLinks);
+
+  /* Most of these are real and expected — FMC quotes 2,492 articles and the
+     kitchen's catalogue carries 1,435, so the drinks range alone accounts for
+     most of it. A bare count that big reads like a fault and gets ignored,
+     which is how a genuine gap would hide inside it. So it says what they are
+     and shows some, and the reader can tell one from the other. */
+  if(q.couldNotMatch)
+    h += '<div class="ac-caution" style="max-height:170px;overflow:auto">' +
+      '<b>' + q.couldNotMatch + ' rows are for articles this catalogue does not carry</b> ' +
+      '— mostly the drinks range, which is normal. Left out rather than guessed at. ' +
+      'If you see a food item you order in here, its article is missing from the list.' +
+      ((q.couldNotMatchNames && q.couldNotMatchNames.length)
+        ? '<br><span class="ac-dash">' +
+          q.couldNotMatchNames.slice(0,12).map(acEsc).join('<br>') + '</span>'
+        : '') +
+      '</div>';
+
+  if(q.switchedOff.length)
+    h += '<div class="ac-caution" style="max-height:190px;overflow:auto">' +
+      '<b>FMC has switched these off (' + q.switchedOff.length + ')</b><br>' +
+      '<span class="ac-dash">They stop being offered. Any item still set to one ' +
+      'will show a warning until somebody picks another.</span><br>' +
+      q.switchedOff.slice(0,40).map(acEsc).join('<br>') + '</div>';
+
+  if(q.priceMoved.length)
+    h += '<div class="ac-caution" style="max-height:190px;overflow:auto">' +
+      '<b>Supplier prices moved more than 2%</b><br>' +
+      q.priceMoved.slice(0,40).map(function(p){
+        var up = p.now > p.before;
+        return '<div>' + acEsc(p.supplier) + ' &middot; ' + acEsc(p.code) + ' &middot; ' +
+          p.before.toFixed(2) + ' &rarr; <b style="color:' + (up?'#b3261e':'#2e7d32') + '">' +
+          p.now.toFixed(2) + '</b></div>';
+      }).join('') + '</div>';
+
+  if(!q.newLinks && !q.switchedOff.length && !q.priceMoved.length)
+    h += '<div class="ac-caution">No supplier or price has changed since the last update.</div>';
+  return h + '</div>';
+}
+
+function acuShowAll(j){
+  var h = '';
+  if(j.report) h += acuShow(j.report);
+  if(j.quotesReport){
+    if(j.report) h += '<div class="ac-modal-group" style="margin-top:14px">Suppliers</div>';
+    h += acuShowQuotes(j.quotesReport);
+  }
   h += '<button type="button" class="ml-ed-btn" style="margin-top:12px" onclick="acuSave(this)">Save it</button>' +
-       ' <span class="ac-dash">Nothing has been saved yet.</span></div>';
+       ' <span class="ac-dash">Nothing has been saved yet.</span>';
   document.getElementById('acu-out').innerHTML = h;
 }
 
+/* ⚠ The message is built defensively ON PURPOSE.
+   The first version read `j.report.orderable` unconditionally. On a quotes-only
+   upload there is no article report, so it threw — and the throw landed in the
+   catch below, which printed "Nothing was saved." It had saved: 1,144 rows were
+   already in the table while the screen said they were not. A save that lies
+   about having happened is worse than one that fails, because the next person
+   does it again. So: the outcome is decided by what the function RETURNED, and
+   only the wording is allowed to fail. */
 function acuSave(btn){
   btn.disabled = true; btn.textContent = 'Saving…';
   acuCall(false).then(function(j){
     if(j.error) return acuFail(j);
+    var bits = [];
+    if(j.report) bits.push(j.rowsInTable + ' articles, ' + j.report.orderable + ' of them orderable');
+    if(j.quotesReport) bits.push(j.quoteRowsInTable + ' supplier prices across ' +
+                                 j.quotesReport.articles + ' items');
+    var said = '';
+    try {
+      said = '<b>Saved.</b> ' + (bits.join('. ') || 'The update went through.') +
+        '.<br><span class="ac-dash">Recipes and the market list read these tables, so they ' +
+        'are already showing it.</span>';
+    } catch(e){ said = '<b>Saved.</b>'; }
     document.getElementById('acu-out').innerHTML =
       '<div class="ac-caution" style="border-color:#BFE0BF;background:#F4FAF4;color:#245c26">' +
-      '<b>Saved.</b> ' + j.rowsInTable + ' articles, ' + j.report.orderable + ' of them orderable.' +
-      '<br><span class="ac-dash">Recipes and the market list read this table, so they are already ' +
-      'showing it.</span></div>';
+      said + '</div>';
     acLoaded = false;                 // the screen behind is now out of date
     acLoad().then(acRender);
-  }).catch(function(e){ acuFail({ problems:[e.message] }); });
+  }).catch(function(e){
+    // Only a call that never returned lands here. Say what is actually known.
+    document.getElementById('acu-out').innerHTML =
+      '<div class="ac-caution" style="border-color:#F2B8B2;background:#FDECEA;color:#8a1c14">' +
+      '<b>The connection dropped before it answered.</b><br>' + acEsc(e.message) +
+      '<br><span class="ac-dash">It may or may not have saved — open the panel again ' +
+      'and press See what changes. If it says nothing has changed, it saved.</span></div>';
+  });
 }
