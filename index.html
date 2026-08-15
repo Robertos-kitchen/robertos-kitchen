@@ -1319,12 +1319,11 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   <button type="button" class="home-toggle mgmt-toggle" id="mgmt-toggle" onclick="toggleHomePanel('mgmt')">
     <span class="home-chev" id="mgmt-chev">&#9662;</span>
     <span class="home-toggle-label">Management</span>
-    <span class="home-chips"><span class="home-chip">Closing Report</span><span class="home-chip">Menu Plan</span><span class="home-chip">Team Survey</span></span>
+    <span class="home-chips"><span class="home-chip">Closing Report</span><span class="home-chip">Team Survey</span></span>
   </button>
   <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:none">
     <button class="home-tile compact mgmt" onclick="openMyTasks()"><span class="home-code">MINE</span><span><span class="home-name">My Tasks</span><span class="home-meta">Private &#183; today, tomorrow, all</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
-    <button class="home-tile compact mgmt" type="button" onclick="openMenuPlan()"><span class="home-code">MENU</span><span><span class="home-name">Menu Development Plan</span><span class="home-meta">Dish bank, year calendar, approvals</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
   </div>
   </div>
@@ -1448,7 +1447,10 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
   function openStockTake(){ lazyLoad('stock-take.js?v=1786343605').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1786519399').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
   function openFmcMatch(){ lazyLoad('fmc-match.js?v=1786519399').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
-  function openMenuPlan(){ lazyLoad('menu-plan.js?v=1786691786').then(function(){ openMenuPlan(); }).catch(function(){ alert('Could not load the Menu Development Plan. Check the connection and try again.'); }); }
+  // Menu Development Plan is PARKED, 15 Aug 2026 — the team never adopted it and Danilo
+  // called it a mess. Only the door is gone: menu-plan.js, its five .sql files, the
+  // menuplan-view container below and every menu_plan_* table are untouched, so bringing
+  // it back is this shim, the home tile and the Management chip — three lines.
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
