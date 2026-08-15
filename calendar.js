@@ -974,9 +974,15 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-quarter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .cal-qm{min-width:0}
 .cal-qm-h{font-family:var(--font-serif);font-size:17px;color:var(--vino);margin:0 0 6px}
-.cal-quarter .cal-cell{min-height:78px}
-.cal-quarter .cal-chip{font-size:10px;padding:3px 4px}
+.cal-quarter .cal-cell{min-height:72px}
+.cal-quarter .cal-chip{font-size:9.5px;padding:3px 4px;align-items:center}
 .cal-quarter .cal-dow{font-size:9px;letter-spacing:.6px}
+/* 21 day-columns across a laptop is ~55px each. `overflow-wrap:anywhere` then
+   breaks EVERY character and a chip becomes a vertical column of letters 280px
+   tall. At this density the chip is a coloured strip, not a sentence: one line,
+   clipped. The full text is one tap away on the day. */
+.cal-quarter .cal-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.cal-quarter .cal-warn,.cal-quarter .cal-anch{display:none}
 
 /* the year is a map: no text, a dot per note, a count per month */
 .cal-year{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
