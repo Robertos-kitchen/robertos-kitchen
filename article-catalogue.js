@@ -752,7 +752,8 @@ function acOpenUpload(){
           'item can be ordered from. Clear <i>every</i> filter, especially Supplier Group.' +
         '</div>' +
         '<div class="ac-dash" style="margin:-4px 0 10px;font-size:12px">' +
-          'The Price Quotes file can be loaded on its own — you do not need the other two.' +
+          'Any of these can be loaded on its own — you do not need all three. Without the ' +
+          'Assortment List, what can be ordered is left exactly as it is.' +
         '</div>' +
         '<label class="ac-kv" style="cursor:pointer"><span>Assortment List (PDF)</span>' +
           '<span id="acu-s1" style="text-align:right">choose&hellip;' +
@@ -817,8 +818,15 @@ function acuReady(){
   var a = !!acuParsed.assortment, m = !!acuParsed.master, q = !!acuParsed.quotes;
   var why = [];
   if(!a && !m && !q) why.push('a file');
+  /* The Assortment List needs the article file to read against — it carries
+     names, not codes, so on its own it can identify nothing.
+     The reverse is no longer true. The article file used to be held back until
+     the printed list came with it, because writing it alone would have marked
+     every article unorderable; the function now leaves that column untouched
+     when the printed list is absent, so the half that rots can be refreshed by
+     itself. That is the whole point — the file nobody can be bothered to
+     produce was gating the file that goes stale. */
   else if(a && !m) why.push('the Manage Articles file');
-  else if(m && !a) why.push('the Assortment List');
   var pin = document.getElementById('acu-pin');
   if(!pin || !pin.value.trim()) why.push('your code');
   var b = document.getElementById('acu-go'); if(!b) return;
@@ -862,34 +870,56 @@ function acuCheck(){
   });
 }
 
+/* ⚠ Every list is read through a `|| []` and the counts through locals, on
+   purpose. Each of the three files may now arrive on its own, so a field that
+   is always present on one upload shape is absent on another — and reading
+   `.length` off an absent one throws into the catch that prints failure. That
+   is precisely how "Nothing was saved" came to be printed over 1,144 saved
+   rows. The shape of the answer is allowed to vary; the wording is not allowed
+   to decide the outcome. */
 function acuShow(r){
+  var moved     = r.priceMoved || [],
+      gone      = r.noLongerOrderable || [],
+      fresh     = r.nowOrderable || [],
+      unmatched = r.unmatchedAssortmentLines || [],
+      /* null, never 0. An update with no printed Assortment List did not ask
+         whether anything is orderable, and printing 0 would answer it wrongly
+         in the most alarming possible direction. */
+      noAssort  = !!r.assortmentUntouched;
+
   var h = '<div style="margin-top:12px">';
   h += acKv('Articles', r.articles);
-  h += acKv('You can order', r.orderable);
+  h += acKv('You can order', noAssort ? 'not checked' : r.orderable);
   h += acKv('New to the list', r.addedCount);
-  h += acKv('Costs that moved', r.priceMoved.length);
+  h += acKv('Costs that moved', moved.length);
 
-  if(!r.addedCount && !r.priceMoved.length && !r.noLongerOrderable.length && !r.nowOrderable.length)
+  if(noAssort)
+    h += '<div class="ac-caution">Names, units and costs are being refreshed, and so is ' +
+      'FMC\'s mark for a retired article. <b>What can be ordered is not.</b> That only comes ' +
+      'from the printed Assortment List and there is none in this update, so it is left ' +
+      'exactly as it stands — nothing is switched on or off.</div>';
+
+  if(!r.addedCount && !moved.length && !gone.length && !fresh.length)
     h += '<div class="ac-caution">Nothing has changed since the last update.</div>';
 
-  if(r.unmatchedAssortmentLines.length)
-    h += '<div class="ac-caution"><b>' + r.unmatchedAssortmentLines.length + ' lines on the assortment ' +
+  if(unmatched.length)
+    h += '<div class="ac-caution"><b>' + unmatched.length + ' lines on the assortment ' +
       'match no article</b> — usually a group filter left on the Manage Articles export. They stay ' +
       'exactly as they are; nothing is switched off.</div>';
 
-  if(r.noLongerOrderable.length)
-    h += '<div class="ac-caution"><b>No longer orderable (' + r.noLongerOrderable.length + ')</b><br>' +
-      r.noLongerOrderable.map(acEsc).join('<br>') +
+  if(gone.length)
+    h += '<div class="ac-caution"><b>No longer orderable (' + gone.length + ')</b><br>' +
+      gone.map(acEsc).join('<br>') +
       '<br><span class="ac-dash">Nothing is deleted — recipes keep costing them.</span></div>';
 
-  if(r.nowOrderable.length)
-    h += '<div class="ac-caution"><b>Newly orderable (' + r.nowOrderable.length + ')</b><br>' +
-      r.nowOrderable.slice(0,15).map(acEsc).join('<br>') + '</div>';
+  if(fresh.length)
+    h += '<div class="ac-caution"><b>Newly orderable (' + fresh.length + ')</b><br>' +
+      fresh.slice(0,15).map(acEsc).join('<br>') + '</div>';
 
-  if(r.priceMoved.length){
+  if(moved.length){
     h += '<div class="ac-caution" style="max-height:210px;overflow:auto"><b>Costs moved more than 2%</b>' +
       '<br><span class="ac-dash">Per kilo or litre — every dish using one recosts when you save.</span><br>' +
-      r.priceMoved.slice(0,40).map(function(p){
+      moved.slice(0,40).map(function(p){
         var up = p.now > p.before;
         return '<div>' + acEsc(p.name) + ' &middot; ' + p.before.toFixed(2) + ' &rarr; <b style="color:' +
           (up ? '#b3261e' : '#2e7d32') + '">' + p.now.toFixed(2) + '</b></div>';
@@ -972,7 +1002,12 @@ function acuSave(btn){
   acuCall(false).then(function(j){
     if(j.error) return acuFail(j);
     var bits = [];
-    if(j.report) bits.push(j.rowsInTable + ' articles, ' + j.report.orderable + ' of them orderable');
+    if(j.report) bits.push(j.rowsInTable + ' articles' +
+      /* Only claimed when this upload actually established it. On an article-only
+         refresh `orderable` is null, and "null of them orderable" is worse than
+         saying nothing. */
+      (j.report.assortmentUntouched || j.report.orderable == null
+        ? '' : ', ' + j.report.orderable + ' of them orderable'));
     if(j.quotesReport) bits.push(j.quoteRowsInTable + ' supplier prices across ' +
                                  j.quotesReport.articles + ' items');
     var said = '';
