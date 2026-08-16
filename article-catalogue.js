@@ -89,6 +89,31 @@ function acEsc(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+// ⚠ A PRICE WITH NO DATE IS THE ACTUAL DANGER, and until 16 Aug 2026 this
+// screen showed none. FMC dates every article's last purchase and the median
+// one had not moved in 122 DAYS; 769 of 1,435 were over three months old and
+// the oldest — Truffle Black Summer at 700 a kilo, Mozzarella Pizza at 28 —
+// were last bought in OCTOBER 2025. All of it read as today's price.
+//
+// Short and plain: "8 Oct 25". Never a bare number again where a date exists.
+function acPaidWhen(d){
+  if(!d) return '';
+  var p = String(d).split('-');
+  if(p.length !== 3) return '';
+  var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return Number(p[2]) + ' ' + (M[Number(p[1])-1] || p[1]) + ' ' + p[0].slice(2);
+}
+
+// The base unit spelled the way a chef says it, and only where it is needed —
+// beside a per-kilo price, so it cannot be read as the price of a pack.
+function acPerUnit(u){
+  var t = String(u || '').toLowerCase();
+  if(t.indexOf('kilo') === 0 || t === 'kg') return 'per kg';
+  if(t.indexOf('lit') === 0 || t === 'ltr' || t === 'l') return 'per litre';
+  if(t.indexOf('piece') === 0 || t === 'each' || t === 'pcs') return 'each';
+  return u ? 'per ' + u : '';
+}
+
 function acMoney(n){
   // null/undefined/'' must NOT fall through to Number(), which turns all three
   // into 0 and prints a confident "0.00 AED". Found on the live screen 11 Aug
@@ -160,7 +185,7 @@ async function acLoad(){
   var arts = {}, haveArts = false;
   var ares = await acFetchAllPaged(function(){
     return sb.from('fmc_articles')
-      .select('code,name,unit,supplier,on_assortment,retiring,item_group,price')
+      .select('code,name,unit,supplier,on_assortment,retiring,item_group,price,price_per_base_unit,price_paid_at,base_unit')
       .eq('venue_id','robertos-difc').order('code');
   });
   if(!ares.error && ares.data && ares.data.length){
@@ -212,6 +237,13 @@ async function acLoad(){
       // actually spending. price is Aung's month-end valuation, which drifts:
       // 69 of the 456 articles that have both are more than 10% apart.
       fmcPrice:(a.price == null ? null : a.price),
+      // What we LAST PAID, per base unit, and the day we paid it. This exists
+      // for 1,434 of the 1,435 articles where the order-unit price reaches only
+      // 456 — so an article that showed a dash can now show a real number, as
+      // long as the screen says it is per kilo and not per pack.
+      paid:(a.price_per_base_unit == null ? null : a.price_per_base_unit),
+      paidAt:(a.price_paid_at || null),
+      baseUnit:(a.base_unit || ''),
       price:(r ? r.price : null), month:(r ? r.month : null),
       supplier:a.supplier || (r && r.supplier) || '',
       orderable: !!a.on_assortment,
@@ -229,6 +261,7 @@ async function acLoad(){
     if(acIsBatch(group)) return;
     acAll.push({ code:c, name:r.name||'', group:group, unit:r.unit||'',
                  fmcPrice:null,          // no master row, so no FMC price either
+                 paid:null, paidAt:null, baseUnit:'',
                  price:r.price, month:r.month, supplier:r.supplier||'',
                  orderable:null, retiring:false });
   });
@@ -378,10 +411,23 @@ function acRenderRows(){
         // WHICH of the two is on screen, because they are not the same number.
         // "— AED" reads like a currency with a missing amount. No number, no
         // currency.
-        '<div class="ac-price">'+acMoney(r.fmcPrice == null ? r.price : r.fmcPrice) +
-          (r.fmcPrice == null && r.price == null ? '' : ' <span class="ac-cur">AED</span>') +
-          '<div class="ac-pricenote">'+(r.fmcPrice != null ? 'FMC price'
-             : (r.month ? acSheetShort(r.month)+' count' : 'no price'))+'</div></div>' +
+        // Three prices in one column, and the note always says which. The
+        // ORDER-UNIT price still leads where FMC has one, so the number a chef
+        // knows does not change meaning under them; the per-kilo price fills in
+        // behind it and is labelled per kilo so it cannot be mistaken for a
+        // pack; Aung's count is the last resort. Every one of them carries its
+        // date where there is one.
+        '<div class="ac-price">'+acMoney(r.fmcPrice != null ? r.fmcPrice
+             : (r.paid != null ? r.paid : r.price)) +
+          (r.fmcPrice == null && r.paid == null && r.price == null
+             ? '' : ' <span class="ac-cur">AED</span>') +
+          '<div class="ac-pricenote">'+(
+             r.fmcPrice != null
+               ? (r.paidAt ? 'paid ' + acPaidWhen(r.paidAt) : 'FMC price')
+               : r.paid != null
+                 ? (acPerUnit(r.baseUnit) + (r.paidAt ? ' \u00b7 paid ' + acPaidWhen(r.paidAt) : ''))
+                 : (r.month ? acSheetShort(r.month)+' count' : 'no price')
+           )+'</div></div>' +
       '</div>';
   });
   if(acShown.length > AC_LIMIT){
