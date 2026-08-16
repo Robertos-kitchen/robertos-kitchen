@@ -111,7 +111,8 @@ async function loadMarketList(){
 // Both read their table. Neither keeps a copy of a number that lives in the
 // database, so a price change or a new requisition shows up here by itself.
 const ML_VENUE = 'robertos-difc';
-let mlPrices = {};   // FMC article code -> contract price
+let mlPrices = {};   // FMC article code -> the QUOTED price per order unit
+let mlPpbu   = {};   // FMC article code -> what we LAST PAID, per base unit
 let mlArtName = {};  // FMC article code -> the name FMC holds
 let mlArtUnit = {};  // FMC article code -> the purchase unit FMC holds
 let mlReqs   = [];   // fmc_requisitions rows for this week, newest first
@@ -125,15 +126,18 @@ let mlReqs   = [];   // fmc_requisitions rows for this week, newest first
 // really worth 10,126, and nothing on screen would have said so.
 async function loadFmcPrices(){
   mlPrices = {};
+  mlPpbu = {};
   mlArtName = {};
   mlArtUnit = {};
   const rows = await mlFetchAllPaged(function(){
-    return sb.from('fmc_articles').select('code,price,name,unit').eq('venue_id', ML_VENUE);
+    return sb.from('fmc_articles')
+      .select('code,price,price_per_base_unit,name,unit').eq('venue_id', ML_VENUE);
   });
   (rows||[]).forEach(r=>{
     const c = r.code != null ? String(r.code).trim() : '';
     if(!c) return;
     if(r.price != null) mlPrices[c] = Number(r.price);
+    if(r.price_per_base_unit != null) mlPpbu[c] = Number(r.price_per_base_unit);
     if(r.name) mlArtName[c] = String(r.name).trim();
     if(r.unit) mlArtUnit[c] = String(r.unit).trim();
   });
@@ -157,7 +161,7 @@ async function loadFmcQuotes(){
   mlQuotes = {};
   const rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_price_quotes')
-      .select('code,supplier,unit,price_per_unit,last_price_update')
+      .select('code,supplier,unit,price_per_unit,price_per_base_unit,last_price_update')
       .eq('venue_id', ML_VENUE);
   });
   (rows||[]).forEach(function(r){
@@ -167,6 +171,7 @@ async function loadFmcQuotes(){
       supplier: String(r.supplier).trim(),
       unit: r.unit ? String(r.unit).trim() : '',
       price: r.price_per_unit == null ? null : Number(r.price_per_unit),
+      base: r.price_per_base_unit == null ? null : Number(r.price_per_base_unit),
       priced: r.last_price_update || ''
     });
   });
@@ -252,19 +257,53 @@ function mlMoney(n){
   return Number(n||0).toLocaleString('en-GB', { maximumFractionDigits:0 });
 }
 
+// A last-paid price that no supplier comes near is a receiving error, not a
+// bargain. Radish Red -Holland reads 2.75 a kilo in FMC while every supplier
+// quotes 25.00-27.50 - checked 16 Aug 2026. Such a line is still counted, never
+// dropped, and the tile says how many are in doubt: a total that quietly
+// swallowed it would read 25 AED light with nothing on screen to say so.
+function mlPriceLooksWrong(code, ppbu){
+  if(ppbu == null) return false;
+  const q = (mlQuotes[code]||[]).map(x=>x.base).filter(v=>v!=null && v>0);
+  if(!q.length) return false;
+  const lo = Math.min.apply(null, q), hi = Math.max.apply(null, q);
+  return ppbu < lo/2 || ppbu > hi*2;
+}
+
+// ⚠ VALUED ON WHAT WE LAST PAID, AND NOT AS `qty * price`. The old line read the
+// QUOTED price per order unit, which only the 15-minute Price Quotes export
+// refreshes and which reaches 456 articles; `price_per_base_unit` is FMC's Last
+// Purchase Price, comes off the 24-second article export, and covers all 1,435.
+//
+// The multiplier is the MARKET LIST'S OWN `pack_size`, deliberately - not FMC's.
+// The two FMC files disagree about what a pack is: Yeast Dry 500gm is
+// `Ctn/20x500 Gm` in the article master and `Pkt/1x500 Gm` in the supplier's
+// quote, both 16 a kilo and twenty times apart per pack. The kitchen orders in
+// the market list's unit, so that is the one that may do the converting. Checked
+// on the real list, 16 Aug 2026: 326 of 402 lines land on exactly today's
+// figure, yeast among them at 8.00 rather than 160.00, and the rest are the
+// genuine gap between a quote and what we actually paid.
+//
+// The quoted price stays as the fallback, so a line with no pack size is no
+// worse off than it is today.
 function mlOrderValue(days){
-  let total=0, priced=0, unpriced=0;
+  let total=0, priced=0, unpriced=0, odd=0;
   mlItems.forEach(it=>{
     const code = (it.code||'').trim();
-    const price = code ? mlPrices[code] : undefined;
+    const pack = Number(it.pack_size);
+    const ppbu = code ? mlPpbu[code] : undefined;
+    const paid = (pack && ppbu != null) ? pack * ppbu : null;
+    const per  = paid != null ? paid : (code ? mlPrices[code] : undefined);
+    const doubt = paid != null && mlPriceLooksWrong(code, ppbu);
     days.forEach(wd=>{
       const qty = Number(mlQty[it.id+'|'+wd]);
       if(!qty) return;
-      if(price == null){ unpriced++; return; }
-      total += qty * price; priced++;
+      if(per == null){ unpriced++; return; }
+      total += qty * per; priced++;
+      if(doubt) odd++;
     });
   });
-  return { total, priced, unpriced };
+  return { total, priced, unpriced, odd };
 }
 
 // The newest row per requisition number, for the days on screen.
@@ -776,9 +815,11 @@ function mlRenderSummary(){
 
   // Never a lone figure. If some lines have no price the tile says how many,
   // because a total that cannot see part of the order must not look complete.
-  const valueNote = val.unpriced
+  const noteBits = [val.unpriced
     ? `${val.priced} of ${val.priced+val.unpriced} lines priced`
-    : `${scope} · at FMC prices`;
+    : `${scope} · at what we last paid`];
+  if(val.odd) noteBits.push(`${val.odd} to check`);
+  const valueNote = noteBits.join(' · ');
 
   el.innerHTML = `
     ${mlReqHtml(days)}
