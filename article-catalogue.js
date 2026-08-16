@@ -140,6 +140,12 @@ function acIsBatch(g){ return /^batch recipe/i.test(String(g||'')); }
 // Dark Drops 64%" means nothing on its own, "in 7 recipes" is what makes it
 // worth someone's afternoon.
 var acMasterAll = {};
+// ⚠ THE ONE THING IN HERE NO ROBOT REFRESHES. "not orderable" comes from the
+// printed Assortment List, and that list only changes when a person exports a
+// PDF from FMC by hand and uploads it. Prices refresh in 24 seconds; this can
+// sit untouched for weeks and still read as today's fact. So it carries its
+// date, plainly, next to everything it decides.
+var acAssortChecked = null;
 var acGaps = null;
 var acGapsOpen = false;
 
@@ -274,7 +280,7 @@ async function acLoad(){
   var arts = {}, haveArts = false;
   var ares = await acFetchAllPaged(function(){
     return sb.from('fmc_articles')
-      .select('code,name,unit,supplier,on_assortment,retiring,item_group,price,price_per_base_unit,price_paid_at,base_unit')
+      .select('code,name,unit,supplier,on_assortment,retiring,item_group,price,price_per_base_unit,price_paid_at,base_unit,assortment_checked_at')
       .eq('venue_id','robertos-difc').order('code');
   });
   if(!ares.error && ares.data && ares.data.length){
@@ -286,6 +292,11 @@ async function acLoad(){
       // never bought - so the gap report cannot use its list or it would accuse
       // all twenty RF/CP preps of having no article at all.
       acMasterAll[c] = a;
+      // The newest of these is the last time ANYBODY answered "can we order
+      // this" - see acAssortChecked.
+      if(a.assortment_checked_at && (!acAssortChecked || a.assortment_checked_at > acAssortChecked)){
+        acAssortChecked = a.assortment_checked_at;
+      }
     });
   }
 
@@ -429,7 +440,9 @@ function acRender(){
     // NOT "every article FMC can order" — it was that until 11 Aug 2026 and it
     // was wrong twice over: the list held 401 fewer articles than FMC sells, and
     // 390 of the ones it did hold are articles FMC will refuse.
-    '<div class="ops-subtitle">Every article FMC holds · read-only · look here for the real name and code' +
+    '<div class="ops-subtitle">Every article FMC holds · read-only · look here for the real name and code'
+      + (acAssortChecked ? ' · <span class="ac-note">what can be ordered was last checked '
+          + acEsc(acPaidWhen(String(acAssortChecked).slice(0,10))) + '</span>' : '') +
       ' <button class="report-btn" style="margin-left:8px" onclick="openFmcMatch()">Match the market list</button>' +
       ' <button class="report-btn" style="margin-left:6px" onclick="acOpenUpload()">Update from FMC</button></div>' +
 
