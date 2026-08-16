@@ -128,6 +128,95 @@ function acMoney(n){
 // articles and must not appear in a list used to place an order.
 function acIsBatch(g){ return /^batch recipe/i.test(String(g||'')); }
 
+// ── which ingredients cannot be costed, and what they cost us ──────────────
+// A recipe is only as honest as the prices under it, and nothing was watching
+// that. Measured 16 Aug 2026: the recipes name 175 distinct articles, and 43 of
+// them were not on the market list - 20 of those in-house preps that need no
+// price at all, 18 genuinely bought, and 5 codes FMC has never heard of.
+//
+// It has to be a standing check rather than a one-off tidy-up, because the
+// A la carte 2026 set is 60 more dishes and every one brings ingredients that
+// may not be on the list. It names the DISHES, not just the codes: "Chocolate
+// Dark Drops 64%" means nothing on its own, "in 7 recipes" is what makes it
+// worth someone's afternoon.
+var acMasterAll = {};
+var acGaps = null;
+var acGapsOpen = false;
+
+async function acLoadRecipeUse(){
+  try {
+    var recs = await acFetchAllPaged(function(){
+      return sb.from('recipes').select('id,name').eq('venue_id','robertos-difc');
+    });
+    var lines = await acFetchAllPaged(function(){
+      return sb.from('recipe_lines').select('recipe_id,stock_code');
+    });
+    if(recs.error || lines.error) return;
+    var name = {};
+    (recs.data||[]).forEach(function(r){ name[r.id] = r.name || ('recipe ' + r.id); });
+    var use = {};
+    (lines.data||[]).forEach(function(l){
+      var c = l.stock_code == null ? '' : String(l.stock_code).trim();
+      if(!c) return;
+      (use[c] = use[c] || {})[name[l.recipe_id] || '?'] = 1;
+    });
+    var g = { noArticle:[], noPrice:[], offList:[], used:Object.keys(use).length };
+    Object.keys(use).forEach(function(c){
+      var dishes = Object.keys(use[c]).sort();
+      var a = acMasterAll[c];
+      if(!a){ g.noArticle.push({ code:c, name:'', dishes:dishes }); return; }
+      // An in-house prep is costed from its own recipe. It is not missing a
+      // price, it never had one to miss.
+      if(acIsBatch(a.item_group)) return;
+      if(a.price_per_base_unit == null) g.noPrice.push({ code:c, name:a.name||'', dishes:dishes });
+      if(!a.on_assortment) g.offList.push({ code:c, name:a.name||'', dishes:dishes });
+    });
+    acGaps = g;
+  } catch(e){
+    // Never fatal. The catalogue is the job here; this is a warning on top of it.
+    console.warn('recipe gap check skipped', e);
+  }
+}
+
+function acToggleGaps(){
+  acGapsOpen = !acGapsOpen;
+  var b = document.getElementById('ac-gapbody');
+  var t = document.getElementById('ac-gaptoggle');
+  if(b) b.style.display = acGapsOpen ? 'block' : 'none';
+  if(t) t.textContent = acGapsOpen ? 'hide' : 'show me';
+}
+
+function acGapList(title, why, rows){
+  if(!rows.length) return '';
+  var items = rows.slice(0, 40).map(function(r){
+    var d = r.dishes.length > 3
+      ? r.dishes.slice(0,3).join(', ') + ' and ' + (r.dishes.length-3) + ' more'
+      : r.dishes.join(', ');
+    return '<li><b>'+acEsc(r.name || r.code)+'</b> <span class="ac-dash">'+acEsc(r.code)+'</span>'
+         + '<div class="ac-meta">in '+r.dishes.length+' recipe'+(r.dishes.length===1?'':'s')
+         + ': '+acEsc(d)+'</div></li>';
+  }).join('');
+  var more = rows.length > 40 ? '<li class="ac-dash">and '+(rows.length-40)+' more</li>' : '';
+  return '<div class="ac-gapgroup"><div class="ac-gaphead">'+acEsc(title)+' &mdash; '+rows.length+'</div>'
+       + '<div class="ac-dash">'+acEsc(why)+'</div><ul class="ac-gaplist">'+items+more+'</ul></div>';
+}
+
+function acGapsHtml(){
+  if(!acGaps) return '';
+  var total = acGaps.noArticle.length + acGaps.noPrice.length + acGaps.offList.length;
+  if(!total) return '';
+  return '<div class="ac-gaps">' +
+    '<div class="ac-gapline">' +
+      '<b>'+total+'</b> ingredient'+(total===1?'':'s')+' your recipes use cannot be costed reliably ' +
+      '<button class="report-btn" id="ac-gaptoggle" onclick="acToggleGaps()">'+(acGapsOpen?'hide':'show me')+'</button>' +
+    '</div>' +
+    '<div id="ac-gapbody" style="display:'+(acGapsOpen?'block':'none')+'">' +
+      acGapList('No price at all', 'FMC holds the article but has never recorded a purchase price, so any dish using it is costed short.', acGaps.noPrice) +
+      acGapList('Not on the market list', 'FMC prices it, but it is not something the kitchen can order today - so the price will drift and nobody will be told.', acGaps.offList) +
+      acGapList('Not in FMC at all', 'Typed straight into the app. Nothing can ever refresh these.', acGaps.noArticle) +
+    '</div></div>';
+}
+
 // ── data ──────────────────────────────────────────────────────────────────
 // PostgREST caps a select at 1000 rows; four sheets are ~3,600 rows, so a
 // single unpaged read would silently drop two thirds of the catalogue.
@@ -190,8 +279,19 @@ async function acLoad(){
   });
   if(!ares.error && ares.data && ares.data.length){
     haveArts = true;
-    ares.data.forEach(function(a){ arts[String(a.code).trim()] = a; });
+    ares.data.forEach(function(a){
+      var c = String(a.code).trim();
+      arts[c] = a;
+      // The catalogue itself drops Batch Recipe articles - they are made here,
+      // never bought - so the gap report cannot use its list or it would accuse
+      // all twenty RF/CP preps of having no article at all.
+      acMasterAll[c] = a;
+    });
   }
+
+  // Which ingredients the recipes actually lean on. Never fatal, and never
+  // blocking: the catalogue renders with or without it.
+  await acLoadRecipeUse();
 
   // THE PRICES. A stock-take failure must not empty the catalogue — the master
   // stands on its own and every price simply reads "no sheet price".
@@ -346,6 +446,10 @@ function acRender(){
     '</div>' +
 
     '<div class="ac-chips">'+chips+'</div>' +
+    // Folded by default. The number is the state of his own work and stays on
+    // screen; the names of forty ingredients are not something to scroll past
+    // every time the catalogue opens.
+    acGapsHtml() +
     '<div class="ac-countline" id="ac-count"></div>' +
     '<div class="ac-list" id="ac-list"></div>' +
     '<button class="ml-top" id="ac-top" onclick="document.getElementById(\'catalogue-view\').scrollTo({top:0,behavior:\'smooth\'})" aria-label="Scroll to top">&uarr;</button>';
@@ -556,6 +660,14 @@ function acInjectCss(){
     '.ac-chip.on{background:#6B1F2A;border-color:#6B1F2A;color:#fff}',
     '.ac-countline{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:#8B7355;margin:2px 0 8px}',
     '.ac-note{font-style:italic}',
+    // The gap panel. Gold edge, not red — this is work to schedule, not an
+    // alarm, and the Kitchen palette has no alarm colour by design.
+    '.ac-gaps{background:#fbf6ee;border:1px solid rgba(107,31,42,.15);border-left:3px solid #C9A84C;border-radius:10px;padding:10px 12px;margin:0 0 8px}',
+    '.ac-gapline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:#2C1810}',
+    '.ac-gapgroup{margin-top:10px;padding-top:8px;border-top:1px solid #f0e9df}',
+    '.ac-gaphead{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#6B1F2A}',
+    '.ac-gaplist{margin:6px 0 0;padding-left:18px}',
+    '.ac-gaplist li{font-size:13px;color:#2C1810;margin-bottom:6px}',
     '.ac-list{background:#fff;border:1px solid rgba(107,31,42,.15);border-radius:10px;overflow:hidden}',
     '.ac-cat{background:#efe6da;color:#6B1F2A;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:7px 12px}',
     '.ac-row{display:grid;grid-template-columns:1fr 108px 96px;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid #f0e9df;cursor:pointer}',
