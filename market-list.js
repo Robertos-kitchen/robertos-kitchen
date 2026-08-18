@@ -346,6 +346,12 @@ function subscribeMarketList(){
         // that is still holding a row. The dragger skips its own echo; every
         // other screen coalesces the burst into one reload.
         if(Date.now() < mlReorderEchoUntil) return;
+        // Taking a line off and putting it back are the same case as a drag:
+        // this browser has already applied the change to mlItems and redrawn
+        // the rows, so reloading all 415 items to be told what it just did is
+        // pure waste — and the redraw it triggers is what threw Antonio to the
+        // top of the list. Every OTHER screen still reloads, as it must.
+        if(Date.now() < mlQuickEditEchoUntil) return;
         mlScheduleItemsReload();
       })
     .subscribe(status=>{
@@ -714,9 +720,35 @@ function mlOrderedCount(){
 }
 
 // ── render ──
+// ── WHY THIS FUNCTION SAVES AND RESTORES THE SCROLL, AND WHY IT USED TO FAIL ──
+// Antonio, 18 Aug 2026: "everytime i remove something from the "market list"
+// automatically it will bring me on top of the list, and this is not
+// comfortable." He was 9000px down a 415-row list every time.
+//
+// This function already tried to hold the position and could never work, for
+// two independent reasons, both measured on the live app (build 1787062218):
+//
+//   1. WRONG ELEMENT. It saved and restored `#order-view.scrollTop`.
+//      #order-view carries overflow-y:auto so it looks like the scroller, but it
+//      is never given a height — measured 20960 scrollHeight / 20960 clientHeight
+//      — so it cannot scroll and the DOCUMENT moves instead (21056 / 720).
+//      Saving it always read 0 and restoring it was a silent no-op.
+//   2. WRONG MOMENT. The restore ran immediately after the shell was written,
+//      while #ml-content was still empty. The document is 720px tall at that
+//      instant, so the browser clamps any restore to 0 — fixing only the element
+//      would still have landed at the top. Measured: restore-before-rows 0,
+//      restore-after-rows 9000.
+//
+// Restoring is deliberately NOT done on every render. Opening the market list
+// from another view must land at the top, and this function is what draws it on
+// open too. Only the realtime path — someone else changing an item under you —
+// asks for the position back, by setting mlKeepScrollOnNextRender.
 function renderMarketList(){
   const ov = document.getElementById('order-view');
-  const savedScroll = ov ? ov.scrollTop : 0;
+  const sc = mlScroller(ov || document.body);
+  const keepScroll = mlKeepScrollOnNextRender;
+  mlKeepScrollOnNextRender = false;              // one render only, never sticky
+  const savedScroll = keepScroll ? mlScrollTop(sc) : 0;
   const days = mlVisibleDays();
   const cats = ['<option value="">All categories</option>',
     ...mlCatsPresent().map(c=>`<option value="${c}"${c===mlCatFilter?' selected':''}>${c}</option>`)].join('');
@@ -770,20 +802,21 @@ function renderMarketList(){
     <div id="ml-summary"></div>
     <div id="ml-content"></div>
 
-    <button class="ml-top" id="ml-top" onclick="document.getElementById('order-view').scrollTo({top:0,behavior:'smooth'})" aria-label="Scroll to top">↑</button>
+    <button class="ml-top" id="ml-top" onclick="mlScrollToTop()" aria-label="Scroll to top">↑</button>
   `;
-
-  // wire scroll-to-top visibility and restore scroll position
-  const ovAfter = document.getElementById('order-view');
-  if(ovAfter){
-    ovAfter.onscroll = ()=>{ const b=document.getElementById('ml-top'); if(b) b.style.display = ovAfter.scrollTop>200?'flex':'none'; };
-    ovAfter.scrollTop = savedScroll;
-  }
 
   mlRenderRows(days);
   mlRenderSummary();
   mlFmcCount();
   mlRenderQuickBar();   // the toolbar was just rebuilt — put the two buttons back
+
+  // AFTER the rows, never before: see reason 2 in the note above this function.
+  // The rows are in the DOM now, so the document is tall enough to hold the
+  // position instead of clamping it to the top.
+  if(savedScroll) mlSetScrollTop(sc, savedScroll);
+
+  // Show/hide the ↑ button off the element that actually moves.
+  mlBindScrollTop(sc);
 }
 
 // How many lines still have no FMC article behind them. Fetched after the grid
@@ -904,6 +937,8 @@ let mlDragClientY = 0;
 let mlAutoScrollTimer = null;
 let mlItemsReloadTimer = null;
 let mlReorderEchoUntil = 0;   // ignore our own realtime echo until this moment
+let mlQuickEditEchoUntil = 0; // ditto for taking a line off / putting it back
+let mlKeepScrollOnNextRender = false;  // set only by the realtime reload; see renderMarketList
 
 // Reordering is only offered on the whole list. While a search or "Ordered
 // only" is on, the rows on screen are a subset, and renumbering a subset would
@@ -931,6 +966,45 @@ function mlRowEl(id){ return document.querySelector('#ml-content .ml-row-tap[dat
 function mlScrollTop(sc){
   return (sc === document.scrollingElement || sc === document.documentElement || sc === document.body)
     ? window.scrollY : sc.scrollTop;
+}
+// Reading the scroll position needed to know which element really moves; so
+// does writing it. Without this half, a restore silently wrote to an element
+// that does not scroll — which is exactly the bug fixed on 18 Aug 2026.
+function mlIsDocScroller(sc){
+  return sc === document.scrollingElement || sc === document.documentElement || sc === document.body;
+}
+function mlSetScrollTop(sc, y){
+  if(mlIsDocScroller(sc)) window.scrollTo(0, y); else sc.scrollTop = y;
+}
+
+// ── THE ↑ BUTTON, AND WHY IT HAD NEVER APPEARED ───────────────────────────────
+// It was wired `ovAfter.onscroll` on #order-view and it hid itself until
+// `order-view.scrollTop > 200`. #order-view never scrolls (see mlScroller), so
+// that event never fired once, the button sat at display:none for its whole
+// life, and its click handler scrolled an element that cannot move. Measured on
+// the live app 18 Aug 2026 at scrollY 9000: display "none".
+// Same misread element as the scroll-restore below, so it is fixed here with it.
+var mlTopScroller = null, mlTopBoundTo = null;
+function mlScrollTopSync(){
+  var b = document.getElementById('ml-top');
+  if(!b || !mlTopScroller) return;
+  b.style.display = mlScrollTop(mlTopScroller) > 200 ? 'flex' : 'none';
+}
+function mlBindScrollTop(sc){
+  mlTopScroller = sc;
+  // The document's scroll event fires on window, not on documentElement.
+  var target = mlIsDocScroller(sc) ? window : sc;
+  if(mlTopBoundTo !== target){
+    if(mlTopBoundTo) mlTopBoundTo.removeEventListener('scroll', mlScrollTopSync);
+    target.addEventListener('scroll', mlScrollTopSync, { passive:true });
+    mlTopBoundTo = target;                  // rebound only when the scroller changes, never stacked per render
+  }
+  mlScrollTopSync();
+}
+function mlScrollToTop(){
+  var sc = mlTopScroller || document.scrollingElement || document.documentElement;
+  if(mlIsDocScroller(sc)) window.scrollTo({ top:0, behavior:'smooth' });
+  else sc.scrollTo({ top:0, behavior:'smooth' });
 }
 function mlGripDown(e, id){
   if(e.button && e.button!==0) return;                  // primary button / touch only
@@ -1150,7 +1224,13 @@ function mlScheduleItemsReload(){
   mlItemsReloadTimer = setTimeout(function(){
     if(activeStation !== ORDER_KEY) return;
     if(mlDrag){ mlScheduleItemsReload(); return; }
-    loadMarketList().then(function(){ if(activeStation===ORDER_KEY) renderMarketList(); });
+    loadMarketList().then(function(){
+      if(activeStation !== ORDER_KEY) return;
+      // Somebody else changed an item while this chef was reading. Redrawing is
+      // right; moving them to the top of 415 rows to do it is not.
+      mlKeepScrollOnNextRender = true;
+      renderMarketList();
+    });
   }, 400);
 }
 
@@ -1825,8 +1905,9 @@ async function mlRestoreSupplier(itemId, was){
 // nothing was ever deleted: the quantities, the code, the supplier and the
 // line's own place in its category are all still sitting on the row.
 async function mlRestoreItem(it){
+  mlQuickEditEchoUntil = Date.now() + 3000;      // same reason as mlRemoveItem
   var r = await sb.from('order_items').update({ active:true }).eq('id', it.id);
-  if(r && r.error) return r.error.message;
+  if(r && r.error){ mlQuickEditEchoUntil = 0; return r.error.message; }
   if(!(mlItems||[]).some(function(x){ return x.id === it.id; })){
     mlItems.push(it);
     // Re-sorted, not appended: the grid renders mlItems in order, so an
@@ -1935,8 +2016,13 @@ async function mlRemoveItem(itemId){
               '\n\nNothing is deleted. Everything ever ordered against it is kept, and Undo ' +
               'in the toolbar puts the line straight back.')) return;
 
+  // mlItems is updated and the rows redrawn a few lines below, so our own echo
+  // has nothing to tell us. Cleared on failure so a screen that did NOT change
+  // still hears about anything else that did.
+  mlQuickEditEchoUntil = Date.now() + 3000;
   var res = await sb.from('order_items').update({ active:false }).eq('id', itemId);
   if(res && res.error){
+    mlQuickEditEchoUntil = 0;
     var m = 'Could not remove it — ' + res.error.message;
     if(typeof kToast === 'function') kToast(m, true); else alert(m);
     return;
