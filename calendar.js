@@ -52,6 +52,7 @@ let calChannel   = null;
 let calBooted    = false;
 let calDrag      = null;
 let calArm       = null;
+let calUndos     = [];      // ways back, newest last — see calPaintUndo
 let calDragEnded = 0;
 let calSheetKind = null;
 let calView      = 'month';   // month | quarter | year
@@ -286,6 +287,7 @@ function calRender(){
       '</div>' +
       '<div class="cal-tools">' +
         '<span class="cal-seg" role="group" aria-label="How many months">' + seg + '</span>' +
+        '<button class="cal-tbtn cal-undo" id="cal-undo" type="button" hidden onclick="calRunUndo()"></button>' +
         '<button class="cal-tbtn" type="button" onclick="calGoToday()">Today</button>' +
         '<button class="cal-tbtn" type="button" onclick="calOpenTypes()">Types</button>' +
         '<button class="cal-tbtn" type="button" onclick="window.print()">Print</button>' +
@@ -308,6 +310,7 @@ function calRender(){
         '<span class="cal-si">Floor staff training + 1 dish of the day</span>' +
       '</div>');
 
+  calPaintUndo();
   calWire();
 }
 
@@ -349,7 +352,8 @@ function calFail(err){
 // realtime and triggers exactly that — which wiped the Undo button about a
 // second after it appeared. A message you cannot reach is worse than no
 // message: it reads as "saved, and there is nothing you can do about it".
-function calToast(msg, undo){
+function calToast(msg, undo, what){
+  if(undo) calRemember(what || 'that', undo);
   const old = document.querySelector('.cal-toast'); if(old) old.remove();
   const t = document.createElement('div');
   t.className = 'cal-toast';
@@ -359,18 +363,57 @@ function calToast(msg, undo){
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = 'Undo';
-    b.onclick = async function(){
-      t.remove();
-      try{ await undo(); }catch(err){ console.warn('[calendar] undo failed', err); }
-      await calLoad().catch(function(){});
-      calRender();
-      calToast('Put back.');
-    };
+    b.onclick = function(){ calRunUndo(); };
     t.appendChild(b);
   }
   document.body.appendChild(t);
   const life = setTimeout(function(){ if(t.parentNode) t.remove(); }, undo ? 12000 : 4000);
   t.addEventListener('pointerenter', function(){ clearTimeout(life); });
+}
+
+// ── the way back does not expire ───────────────────────────────────────────
+// Undo used to live only on the message, which clears itself after twelve
+// seconds. Anyone who removed a note and realised a minute later had nothing —
+// the note was gone from the database for good. The message still carries
+// Undo for the moment straight after; the button in the top bar carries it for
+// as long as the Calendar is open, and it steps back one action at a time so
+// clearing three notes and regretting the second one is recoverable.
+function calRemember(what, fn){
+  calUndos.push({ what: what, fn: fn });
+  if(calUndos.length > 20) calUndos.shift();
+  calPaintUndo();
+}
+
+function calPaintUndo(){
+  const b = document.getElementById('cal-undo'); if(!b) return;
+  const u = calUndos[calUndos.length - 1];
+  b.hidden = !u;
+  if(!u) return;
+  b.disabled = false;
+  b.innerHTML = '&#8630; Undo <span class="cal-uw">' + calEsc(u.what) + '</span>';
+  b.setAttribute('aria-label', 'Undo ' + u.what);
+  b.title = 'Puts back the last thing you changed' + (calUndos.length > 1 ? ' \u2014 ' + calUndos.length + ' steps available' : '');
+}
+
+// A restore that fails must NOT report success and must NOT lose the way back:
+// that is the one moment where a wrong message costs the note itself.
+async function calRunUndo(){
+  const u = calUndos.pop();
+  if(!u){ calPaintUndo(); return; }
+  const t = document.querySelector('.cal-toast'); if(t) t.remove();
+  const b = document.getElementById('cal-undo');
+  if(b){ b.disabled = true; b.textContent = 'Putting back…'; }
+  let ok = true;
+  try{ ok = await u.fn(); }catch(err){ console.warn('[calendar] undo failed', err); ok = false; }
+  if(ok === false){
+    calUndos.push(u);
+    calPaintUndo();
+    calToast('Could not put that back &mdash; check the connection and try again. Nothing is lost.');
+    return;
+  }
+  await calLoad().catch(function(){});
+  calRender();
+  calToast('Put back.');
 }
 
 // ── wiring ─────────────────────────────────────────────────────────────────
@@ -528,16 +571,18 @@ async function calDrop(){
     return;
   }
   const undo = async function(){
-    await calWriteDates(was.map(w => ({ id:w.row.id, date:w.date })));
+    const back = await calWriteDates(was.map(w => ({ id:w.row.id, date:w.date })));
+    if(!back) return false;
     was.forEach(function(w){ w.row.note_date = w.date; });
+    return true;
   };
   const label = calType(d.row.kind).label;
   if(d.follow.length){
     calToast(label + ' moved to <b>' + calPretty(to) + '</b>. ' +
       d.follow.map(f => calType(f.row.kind).label.toLowerCase() + ' ' + calPretty(f.row.note_date)).join(', ') +
-      ' &mdash; moved with it.', undo);
+      ' &mdash; moved with it.', undo, 'the move');
   } else {
-    calToast(label + ' moved to <b>' + calPretty(to) + '</b>.', undo);
+    calToast(label + ' moved to <b>' + calPretty(to) + '</b>.', undo, 'the move');
   }
 }
 
@@ -662,14 +707,14 @@ function calOpenDay(iso){
     }
     scrim.remove();
     calRender();
-    const undo = async function(){ await calRemove(made.map(r => r.id)); };
+    const undo = async function(){ return await calRemove(made.map(r => r.id)); };
     if(anchor && calSheetKind === anchor.id){
       calToast('Chain started. ' + calEsc(anchor.label) + ' <b>' + calPretty(iso) + '</b>' +
-        (follow.length ? ', ' + follow.map(f => calEsc(f.label.toLowerCase()) + ' ' + calPretty(calShift(iso, f.offset_days == null ? 0 : f.offset_days))).join(', ') : '') + '.', undo);
+        (follow.length ? ', ' + follow.map(f => calEsc(f.label.toLowerCase()) + ' ' + calPretty(calShift(iso, f.offset_days == null ? 0 : f.offset_days))).join(', ') : '') + '.', undo, 'the new chain');
     } else if(made.length > 1){
-      calToast('Saved on <b>' + made.length + ' days</b> this month.', undo);
+      calToast('Saved on <b>' + made.length + ' days</b> this month.', undo, 'the new notes');
     } else {
-      calToast('Saved on <b>' + calPretty(iso) + '</b>.', undo);
+      calToast('Saved on <b>' + calPretty(iso) + '</b>.', undo, 'the new note');
     }
   };
 }
@@ -761,8 +806,8 @@ function calCopy(id){
     scrim.remove();
     calRender();
     if(!made.length){ calToast('Those days already have it &mdash; nothing to add.'); return; }
-    const undo = async function(){ await calRemove(made.map(r => r.id)); };
-    calToast('Copied onto the next <b>' + n + (n === 1 ? ' day' : ' days') + '</b>.', undo);
+    const undo = async function(){ return await calRemove(made.map(r => r.id)); };
+    calToast('Copied onto the next <b>' + n + (n === 1 ? ' day' : ' days') + '</b>.', undo, 'the copy');
   };
 }
 
@@ -819,10 +864,13 @@ async function calDelete(id){
   const scrim = document.querySelector('.cal-scrim'); if(scrim) scrim.remove();
   calRender();
   if(!ok){ calToast('Could not remove that — check the connection.'); return; }
-  calToast('Removed ' + (gone.length > 1 ? gone.length + ' notes' : '1 note') + '.', async function(){
+  calToast('Removed ' + (gone.length > 1 ? gone.length + ' notes' : '1 note') +
+    '. <b>Undo</b> stays in the top bar until you use it.', async function(){
     const res = await sb.from(CAL_TABLE).insert(gone);
-    if(!res.error) calRows = calRows.concat(gone);
-  });
+    if(res.error){ console.warn('[calendar] put back failed', res.error); return false; }
+    calRows = calRows.concat(gone);
+    return true;
+  }, gone.length > 1 ? 'the removal of ' + gone.length : 'the removal');
 }
 
 // ── the types screen ───────────────────────────────────────────────────────
@@ -1049,6 +1097,9 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-nav{display:flex;align-items:center;gap:8px}
 .cal-navbtn{width:34px;height:34px;border:1px solid var(--sabbia-dark);background:var(--cream);color:var(--vino);border-radius:8px;font-size:17px;line-height:1;cursor:pointer}
 .cal-navbtn:hover{background:var(--sabbia-light)}
+.cal-tbtn.cal-undo{border-color:var(--vino);color:var(--vino);background:var(--cream);font-weight:700}
+.cal-tbtn.cal-undo[disabled]{opacity:.6}
+.cal-tbtn.cal-undo:hover{background:var(--vino);color:var(--cream)}
 .cal-month{font-family:var(--font-serif);font-size:21px;color:var(--vino);min-width:168px;text-align:center}
 .cal-tools{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
 .cal-tbtn{border:1px solid var(--sabbia-dark);background:var(--cream);color:var(--vino);border-radius:8px;padding:8px 14px;font-family:var(--font-sans);font-size:12px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;cursor:pointer}
@@ -1180,6 +1231,7 @@ const CAL_STYLE = `<style id="cal-style">
 @media (max-width:700px){
   .cal-cell,.cal-quarter .cal-cell{min-height:56px}
   .cal-month{font-size:18px;min-width:120px}
+  .cal-uw{display:none}
   .cal-anchnote{display:none}
   .cal-year{grid-template-columns:repeat(2,minmax(0,1fr))}
   .cal-sheet{max-width:none}
