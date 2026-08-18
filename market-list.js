@@ -751,6 +751,8 @@ function renderMarketList(){
         <button class="report-btn" onclick="mlEmailPrompt()">Email chefs</button>
         <button class="report-btn" id="ml-fmc" onclick="openFmcMatch()">Match to FMC</button>
         <button class="report-btn" onclick="mlOrderHelper()">Order helper</button>
+        <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Quick edit</button>
+        <button class="report-btn ml-undo" id="ml-undo" onclick="mlUndoLast()" disabled>↩ Undo</button>
       </div>
     </div>
 
@@ -778,6 +780,7 @@ function renderMarketList(){
   mlRenderRows(days);
   mlRenderSummary();
   mlFmcCount();
+  mlRenderQuickBar();   // the toolbar was just rebuilt — put the two buttons back
 }
 
 // How many lines still have no FMC article behind them. Fetched after the grid
@@ -1151,10 +1154,14 @@ function mlScheduleItemsReload(){
 function mlRenderRows(days){
   const items = mlFilteredItems();
   const c = document.getElementById('ml-content'); if(!c) return;
+  // The rows are about to be replaced, so the menu anchored to one of them
+  // must go too — a realtime reload from another screen would otherwise leave
+  // it floating over a row that is no longer the row it was opened for.
+  mlSupMenuClose();
 
   const cols = days.length;
   const todayWd = mlWeekdayToday();
-  let html = `<div class="ml-table" style="--ml-cols:${cols}">`;
+  let html = `<div class="ml-table${mlEditUnlocked?' ml-quick':''}" style="--ml-cols:${cols}">`;
   // header
   html += `<div class="ml-row ml-head"><div class="ml-cell-name">Item</div>${days.map(wd=>`<div class="ml-cell-day${wd===todayWd?' today':''}">${ML_DAYS[wd-1]}<span class="ml-cell-day-date">${mlDateForWeekday(wd).split(' ').slice(1).join(' ')}</span></div>`).join('')}</div>`;
 
@@ -1187,6 +1194,30 @@ function mlRenderRows(days){
       const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
       // The grip is drawn even when the view is filtered, greyed and carrying
       // the reason — a control that silently vanishes teaches nobody why.
+      // Antonio's two, drawn only while quick edit is unlocked. stopPropagation
+      // on both: the whole row opens the quantity editor, and a ✕ that also
+      // opened the popup behind its own confirm box would be worse than no ✕.
+      let quick = '';
+      if(mlEditUnlocked){
+        const sst = mlSupplierState(it);
+        // An arrow only where there is a choice to make — more than one supplier
+        // FMC will take it from, or a single one that is not the one we store.
+        // A line with one agreed supplier has nothing to open.
+        if(sst.opts.length > 1 || (sst.opts.length === 1 && !sst.ok)){
+          const supNow = sst.chosen ? sst.chosen.supplier : (sst.stored || 'nobody yet');
+          const supTitle = sst.ok
+            ? 'Ordered from ' + supNow + ' — ' + sst.opts.length + ' suppliers FMC will take it from'
+            : 'FMC will not take this from ' + (sst.stored || 'them') + ' any more — pick someone else';
+          quick += `<button type="button" class="ml-supbtn${sst.ok?'':' bad'}"
+                 title="${mlEsc(supTitle)}"
+                 aria-label="Change who ${mlEsc(it.name)} is ordered from"
+                 onclick="event.stopPropagation();mlSupMenuOpen(event,${it.id})">▾</button>`;
+        }
+        quick += `<button type="button" class="ml-x"
+               title="Take ${mlEsc(it.name)} off the market list"
+               aria-label="Take ${mlEsc(it.name)} off the market list"
+               onclick="event.stopPropagation();mlRemoveItem(${it.id})">✕</button>`;
+      }
       const grip = `<span class="ml-grip${canDrag?'':' off'}" role="button" tabindex="0"
                  title="${canDrag?'Drag to reorder':mlEsc(mlWhyNoReorder())}"
                  aria-label="Reorder ${mlEsc(it.name)} — drag, or use the arrow keys"
@@ -1194,7 +1225,7 @@ function mlRenderRows(days){
                  onkeydown="mlGripKey(event,${it.id})"
                  onclick="event.stopPropagation()">⠿</span>`;
       html += `<div class="ml-row ml-row-tap" data-id="${it.id}" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div></div>
+        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div>${quick}</div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -1351,7 +1382,65 @@ function mlInjectCss(){
     '@media (prefers-reduced-motion: reduce){.ml-row.ml-shift{transition:none}}',
     'body.ml-dragging-active{cursor:grabbing;user-select:none}',
     'body.ml-dragging-active .ml-qty{pointer-events:none}',
-    '@media print{.ml-grip{display:none}}'
+    '@media print{.ml-grip{display:none}}',
+
+    // ── quick edit: the ✕ and the supplier arrow on the row ──
+    // Fixed height + line-height, never padding — the same rule the grip
+    // follows, and for the same reason: a padding-sized box collapsed to zero
+    // content height on laptops once before, and only on laptops.
+    '.ml-x,.ml-supbtn{flex:0 0 auto;width:26px;height:30px;line-height:30px;text-align:center;',
+      'border:0;padding:0;border-radius:6px;font:600 14px var(--font-sans,sans-serif);',
+      'cursor:pointer;user-select:none;transition:background .12s,color .12s,opacity .12s}',
+    '.ml-supbtn{background:var(--sabbia-dark,#E8D9C7);color:var(--vino,#400207);opacity:.6}',
+    '.ml-row-tap:hover .ml-supbtn{opacity:1}',
+    '.ml-supbtn:hover,.ml-supbtn:focus{background:var(--vino,#400207);color:var(--cream,#FBF6EC);opacity:1;outline:none}',
+    // A line FMC will no longer take from the stored supplier is the one case
+    // the arrow is not optional, so it stops being quiet.
+    '.ml-supbtn.bad{background:#FDECEA;color:#a01c12;opacity:1;box-shadow:inset 0 0 0 1px #F2B8B2}',
+    '.ml-supbtn.bad:hover,.ml-supbtn.bad:focus{background:#a01c12;color:#fff}',
+    '.ml-x{background:#fff;color:#8a3226;opacity:.55;box-shadow:inset 0 0 0 1px rgba(107,31,42,.28)}',
+    '.ml-row-tap:hover .ml-x{opacity:1}',
+    '.ml-x:hover,.ml-x:focus{background:#a01c12;color:#fff;opacity:1;outline:none;box-shadow:inset 0 0 0 1px #a01c12}',
+    // A finger has no hover, so both have to be visible before they are touched
+    // and big enough to hit without catching the row underneath.
+    '@media(pointer:coarse){.ml-x,.ml-supbtn{opacity:.85;width:34px;height:34px;line-height:34px;font-size:15px}}',
+
+    // the row's supplier menu — position:fixed, hung off <body>: see mlSupMenuOpen
+    '.ml-supmenu{position:fixed;z-index:70;min-width:250px;max-width:min(360px,calc(100vw - 16px));',
+      'background:#fff;border:1px solid rgba(64,2,7,.18);border-radius:10px;',
+      'box-shadow:0 14px 34px rgba(64,2,7,.22);padding:6px;max-height:60vh;overflow:auto}',
+    '.ml-supm-head{font:600 11px var(--font-sans,sans-serif);letter-spacing:.6px;text-transform:uppercase;',
+      'color:#7a6f60;padding:7px 9px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ml-supm-warn{background:#FDF4E0;color:#6d4700;border-radius:6px;padding:7px 9px;',
+      'margin:0 3px 5px;font-size:12px;line-height:1.4}',
+    '.ml-supm-opt{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;',
+      'padding:7px 9px;margin-top:3px;border:1px solid #E6DCCB;border-radius:8px;background:#fff;',
+      'text-align:left;font:inherit;cursor:pointer}',
+    '.ml-supm-opt:hover,.ml-supm-opt:focus{border-color:#C9B79A;background:#FBF6EC;outline:none}',
+    '.ml-supm-opt.on{border-color:#410207;background:#F7F1E8}',
+    '.ml-supm-tick{width:13px;flex:0 0 13px;color:#410207;font-weight:700}',
+    '.ml-supm-nm{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;font-size:14px;color:#2b2b2b}',
+    '.ml-supm-meta{font-size:11.5px;color:#6b6257}',
+    '.ml-supm-price{font-size:14px;font-weight:600;color:#2b2b2b;white-space:nowrap}',
+
+    // the toolbar pair. Undo carries the name of what it will undo, so it is
+    // clamped rather than allowed to push the rest of the toolbar off a phone.
+    '.ml-quickedit.on{background:var(--vino,#400207);color:var(--cream,#FBF6EC);border-color:var(--vino,#400207)}',
+    '.ml-undo{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ml-undo:disabled{opacity:.45;cursor:not-allowed}',
+    '@media(max-width:520px){.ml-undo{max-width:150px}}',
+    // On a phone the row is ~350px and the two controls take 76px of it out of
+    // the name — measured: the name column fell 206px → 122px and the number of
+    // truncated names went from 126 of 419 to 258. A chef cannot be asked to
+    // take a line off when the app will not show them which line it is, so on a
+    // narrow screen the name wraps to two lines instead of being cut. Scoped to
+    // .ml-quick: with quick edit locked the row is exactly what it always was.
+    '@media(max-width:640px){',
+      '.ml-quick .ml-row-tap .ml-cell-name{gap:5px;align-items:center}',
+      '.ml-quick .ml-row-tap .ml-name{white-space:normal;display:-webkit-box;',
+        '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.28}',
+    '}',
+    '@media print{.ml-x,.ml-supbtn,.ml-supmenu,.ml-quickedit,.ml-undo{display:none}}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1405,6 +1494,261 @@ function mlWeekName(weekStart, thisWeek){
   var n = Math.round((b - a) / 604800000);          // 7 * 24 * 60 * 60 * 1000
   if(n === 1) return 'next week';
   return (n > 1 ? '+' + n + ' weeks' : 'week') + ' (' + weekStart + ')';
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QUICK EDIT — the ✕ and the supplier arrow, on the row itself
+//
+// Antonio asked for both (Tell us, 18 Aug 2026). Taking a line off and changing
+// who it comes from are the two things he does over and over, and each one cost
+// him a tap into the editor, a scroll to the bottom and a tap back out.
+//
+// They sit behind a code, in his words, "cosi altre persone non possono
+// cambiarlo anche per errore". The same speed that helps him is what makes a
+// brushed thumb expensive on a shared pass screen. Locked is the default, and
+// while it is locked the rows draw no ✕ and no arrow at all — a control nobody
+// on this screen can use is better absent than greyed out on 425 rows. The
+// toolbar button is the one thing always on show, so the capability stays
+// discoverable to the person who has the code.
+//
+// The code is an ADMIN code, not any employee ID. mlIdentify() accepts every
+// active member of staff, which is right for RECORDING who took a line off and
+// wrong for deciding who MAY. Unlocking with an admin code also fills mlWho, so
+// the removal that follows does not ask a second time for something it knows.
+//
+// Nothing about the editor changed. Its "Take off the list" button and its
+// "Ordered from" block work exactly as they did, for everybody, locked or not.
+// This is a faster lane onto the same two writes, not a gate across the old one.
+// ══════════════════════════════════════════════════════════════════════════
+var mlEditUnlocked = false;
+var mlLockTimer = null;
+var ML_LOCK_IDLE_MS = 10 * 60 * 1000;   // a pass screen gets walked away from
+
+function mlQuickEditToggle(){
+  if(mlEditUnlocked){ mlLock('Quick edit locked.'); return; }
+  var code = prompt('Quick edit puts an ✕ and a supplier arrow on every row, so you can '
+    + 'take an item off or change who it comes from without opening it.\n\n'
+    + 'Enter the admin code to switch it on:');
+  if(code === null) return;                       // Cancel
+  code = String(code).trim();
+  if(!ML_ADMIN[code]){
+    var m = code ? 'That is not an admin code, so quick edit stays off.'
+                 : 'No code entered, so quick edit stays off.';
+    if(typeof kToast === 'function') kToast(m, true); else alert(m);
+    return;
+  }
+  mlEditUnlocked = true;
+  mlWho = { emp_id:code, name:ML_ADMIN[code] };   // so removing does not ask again
+  mlTouchLock();
+  mlRenderRows(mlVisibleDays());
+  mlRenderQuickBar();
+  if(typeof kToast === 'function') kToast('✓ Quick edit on for ' + mlWho.name
+    + ' — ✕ takes a line off, ▾ changes the supplier. It locks itself after 10 quiet minutes.');
+}
+
+function mlLock(msg){
+  mlEditUnlocked = false;
+  mlWho = null;                       // identity is not left behind on a shared screen
+  clearTimeout(mlLockTimer); mlLockTimer = null;
+  mlSupMenuClose();
+  if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); mlRenderQuickBar(); }
+  if(msg && typeof kToast === 'function') kToast(msg);
+}
+
+// Every quick edit pushes the lock back; ten quiet minutes lock it again.
+function mlTouchLock(){
+  clearTimeout(mlLockTimer);
+  mlLockTimer = setTimeout(function(){
+    mlLock('Quick edit locked itself — nobody had used it for ten minutes.');
+  }, ML_LOCK_IDLE_MS);
+}
+
+// ── UNDO ──────────────────────────────────────────────────────────────────────────
+// "sarebbe anche bello avere un pulsante undo cosi se mi accorgo che ho fatto un
+// errore, posso tornare indietro facilmente."
+//
+// It covers the two writes quick edit makes — taking a line off, and changing
+// who it is ordered from — from BOTH lanes, the row and the editor, because a
+// mistake does not care which button made it. It does NOT cover the day
+// quantities (the editor already shows every day with a "clear" on each one) or
+// a drag-reorder (its own grip puts a row straight back). The button NAMES what
+// it will undo, so it can never be a mystery tap.
+//
+// In memory and per session on purpose: an undo that survived a reload would be
+// offering to reverse something the person now holding the screen never did.
+var mlUndo = [];                       // newest last; { label, fn }
+var ML_UNDO_MAX = 20;
+
+function mlPushUndo(label, fn){
+  mlUndo.push({ label:label, fn:fn });
+  if(mlUndo.length > ML_UNDO_MAX) mlUndo.shift();
+  mlRenderQuickBar();
+}
+
+async function mlUndoLast(){
+  var step = mlUndo[mlUndo.length - 1];
+  if(!step) return;
+  var btn = document.getElementById('ml-undo');
+  if(btn){ btn.disabled = true; btn.textContent = 'Undoing…'; }
+  var err = null;
+  try { err = await step.fn(); }
+  catch(e){ err = (e && e.message) ? e.message : String(e); }
+  if(err){
+    // The write did not land, so the step STAYS on the stack. Popping it would
+    // leave the mistake in place and take away the button that fixes it.
+    var m = 'Could not undo it — ' + err + '. Nothing has changed; try again.';
+    if(typeof kToast === 'function') kToast(m, true); else alert(m);
+    mlRenderQuickBar();
+    return;
+  }
+  mlUndo.pop();
+  mlRenderRows(mlVisibleDays());
+  mlRenderSummary();
+  mlRenderQuickBar();
+  if(typeof kToast === 'function') kToast('✓ Undone — ' + step.label + ' is back as it was.');
+}
+
+// The toolbar is drawn by renderMarketList and the rows by mlRenderRows, and an
+// action only redraws the rows — so these two buttons are updated in place. A
+// full toolbar re-render would blow away whatever is typed in the search box.
+function mlRenderQuickBar(){
+  var q = document.getElementById('ml-quickedit');
+  if(q){
+    q.textContent = mlEditUnlocked ? '🔓 Quick edit on' : '🔒 Quick edit';
+    q.classList.toggle('on', mlEditUnlocked);
+    q.title = mlEditUnlocked
+      ? 'On — ✕ takes a line off the list, ▾ changes who it is ordered from. Tap to lock it again.'
+      : 'Off — tap and enter the admin code to get ✕ and ▾ on every row.';
+  }
+  var u = document.getElementById('ml-undo');
+  if(u){
+    var last = mlUndo[mlUndo.length - 1];
+    u.disabled = !last;
+    u.textContent = last ? '↩ Undo ' + last.label : '↩ Undo';
+    u.title = last ? 'Undo ' + last.label
+                   : 'Nothing to undo yet — this comes alive after you take a line off or change a supplier.';
+  }
+}
+
+// ── the row's supplier menu ──────────────────────────────────────────────────────────────────────────
+// position:fixed and hung off <body>, never inside the row: .ml-table carries
+// overflow:hidden, so a menu positioned inside a row would be clipped off at
+// the table's edge and the arrow would look like it had done nothing at all.
+var mlSupMenuFor = null;
+
+function mlSupMenuClose(){
+  var m = document.getElementById('ml-supmenu'); if(m) m.remove();
+  mlSupMenuFor = null;
+  document.removeEventListener('pointerdown', mlSupMenuOutside, true);
+  window.removeEventListener('scroll', mlSupMenuClose, true);
+  window.removeEventListener('resize', mlSupMenuClose);
+}
+function mlSupMenuOutside(e){
+  var m = document.getElementById('ml-supmenu');
+  if(m && !m.contains(e.target)) mlSupMenuClose();
+}
+
+function mlSupMenuOpen(ev, itemId){
+  if(mlSupMenuFor === itemId){ mlSupMenuClose(); return; }   // the same arrow closes it
+  mlSupMenuClose();
+  var it = (mlItems||[]).find(function(x){ return x.id === itemId; });
+  if(!it) return;
+  var st = mlSupplierState(it);
+  if(!st.opts.length) return;
+  var btn = ev && ev.currentTarget;
+  var r = (btn && btn.getBoundingClientRect) ? btn.getBoundingClientRect()
+                                             : { left:20, right:60, top:60, bottom:90, width:26 };
+
+  var rows = st.opts.map(function(o, i){
+    var on = st.chosen && o.supplier === st.chosen.supplier && o.unit === st.chosen.unit;
+    return '<button type="button" class="ml-supm-opt' + (on ? ' on' : '') + '"'
+      + ' onclick="mlRowPickSupplier(' + it.id + ',' + i + ')">'
+      + '<span class="ml-supm-tick">' + (on ? '✓' : '') + '</span>'
+      + '<span class="ml-supm-nm">' + mlEsc(o.supplier)
+        + '<span class="ml-supm-meta">' + mlEsc(o.unit)
+        + (o.priced ? ' · ' + mlPricedLabel(o.priced) : '') + '</span></span>'
+      + '<span class="ml-supm-price">' + (o.price != null ? mlUnitPrice(o.price) : '') + '</span></button>';
+  }).join('');
+
+  var m = document.createElement('div');
+  m.id = 'ml-supmenu';
+  m.className = 'ml-supmenu';
+  m.innerHTML = '<div class="ml-supm-head">Ordered from — ' + mlEsc(it.name) + '</div>'
+    + (st.ok ? '' : '<div class="ml-supm-warn">FMC will not take this from <b>'
+        + mlEsc(st.stored) + '</b> any more.</div>')
+    + rows;
+  document.body.appendChild(m);
+
+  // Placed only after it is in the DOM, so the height being fitted to the
+  // window is the real rendered one and not a guess.
+  var w = m.offsetWidth, h = m.offsetHeight;
+  var left = Math.min(Math.max(8, r.left + r.width - w), window.innerWidth - w - 8);
+  var top  = r.bottom + 6;
+  if(top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  m.style.left = Math.max(8, left) + 'px';
+  m.style.top  = top + 'px';
+
+  mlSupMenuFor = itemId;
+  // Registered on the next tick: the pointerdown that OPENED the menu is still
+  // travelling, and a listener added now would catch it and shut it again.
+  setTimeout(function(){
+    document.addEventListener('pointerdown', mlSupMenuOutside, true);
+    window.addEventListener('scroll', mlSupMenuClose, true);
+    window.addEventListener('resize', mlSupMenuClose);
+  }, 0);
+}
+
+// The same one-column write as the editor's picker, made from the row.
+async function mlRowPickSupplier(itemId, idx){
+  var it = (mlItems||[]).find(function(x){ return x.id === itemId; });
+  if(!it) return;
+  var st = mlSupplierState(it);
+  var pick = st.opts[idx];
+  if(!pick) return;
+  var was = it.supplier || null;
+  if(was === pick.supplier){ mlSupMenuClose(); return; }   // nothing written, nothing to undo
+  var r = await sb.from('order_items').update({ supplier: pick.supplier }).eq('id', itemId);
+  if(r && r.error){
+    var m = 'Could not save the supplier — ' + r.error.message;
+    if(typeof kToast === 'function') kToast(m, true); else alert(m);
+    return;
+  }
+  it.supplier = pick.supplier;
+  mlSupMenuClose();
+  mlTouchLock();
+  mlPushUndo('the supplier on "' + it.name + '"', function(){ return mlRestoreSupplier(itemId, was); });
+  mlRenderRows(mlVisibleDays());
+  if(typeof kToast === 'function'){
+    kToast(was ? 'Ordering "' + it.name + '" from ' + pick.supplier + ' instead of ' + was + '.'
+               : 'Ordering "' + it.name + '" from ' + pick.supplier + '.');
+  }
+}
+
+// Both undo paths share this. Returns an error STRING, or null when the write
+// landed — mlUndoLast keeps the step on the stack whenever this reports a
+// failure, so a dropped connection cannot swallow the way back.
+async function mlRestoreSupplier(itemId, was){
+  var r = await sb.from('order_items').update({ supplier: was }).eq('id', itemId);
+  if(r && r.error) return r.error.message;
+  var it = (mlItems||[]).find(function(x){ return x.id === itemId; });
+  if(it) it.supplier = was;
+  return null;
+}
+
+// Putting a line back on the list. `active = true` is the whole write, because
+// nothing was ever deleted: the quantities, the code, the supplier and the
+// line's own place in its category are all still sitting on the row.
+async function mlRestoreItem(it){
+  var r = await sb.from('order_items').update({ active:true }).eq('id', it.id);
+  if(r && r.error) return r.error.message;
+  if(!(mlItems||[]).some(function(x){ return x.id === it.id; })){
+    mlItems.push(it);
+    // Re-sorted, not appended: the grid renders mlItems in order, so an
+    // appended row would reappear at the bottom of its category rather than
+    // where the chef left it.
+    mlItems.sort(function(a,b){ return (a.sort_order||0) - (b.sort_order||0); });
+  }
+  return null;
 }
 
 async function mlRemoveItem(itemId){
@@ -1484,9 +1828,14 @@ async function mlRemoveItem(itemId){
   }
   mlItems = mlItems.filter(function(x){ return x.id !== itemId; });
   mlCloseEditor();
+  mlTouchLock();
+  // The row OBJECT is kept, not just its id: putting the line back has to
+  // restore it to its own place in the category, and sort_order lives on it.
+  mlPushUndo('taking "' + it.name + '" off', function(){ return mlRestoreItem(it); });
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
-  if(typeof kToast === 'function') kToast('✓ "' + it.name + '" taken off the list by ' + who.name);
+  if(typeof kToast === 'function') kToast('✓ "' + it.name + '" taken off the list by ' + who.name
+    + ' — Undo is in the toolbar if that was the wrong one.');
 }
 
 // ── EDIT POPUP: tap an item's name OR any of its cells to open ──
@@ -1636,6 +1985,9 @@ async function mlPickSupplier(itemId, idx){
     return;
   }
   it.supplier = pick.supplier;
+  // The editor's picker records an undo step too. A mistake does not care
+  // which of the two lanes made it, so both have the same way back.
+  mlPushUndo('the supplier on "' + it.name + '"', function(){ return mlRestoreSupplier(itemId, was); });
   const host = document.getElementById('ml-sup-'+itemId);
   if(host){
     const fresh = document.createElement('div');
@@ -1899,6 +2251,9 @@ async function openMarketList(){
   if(window.innerWidth < 760 && !mlActiveDay) mlActiveDay = mlWeekdayToday() || 1;
   if(window.innerWidth >= 760) mlActiveDay = null;
   mlLoadHidden();
+  // Locked on every open. The unlock is held in memory, so walking away from
+  // the pass screen and coming back through the menu must not still be armed.
+  mlLock();
   // Injected before the first render, not on opening the editor: the picker
   // and the row flags are drawn with the grid, so styling them later would
   // show one unstyled frame of raw list on every open.
@@ -1914,6 +2269,11 @@ async function openMarketList(){
 
 // ── keyboard handling for the edit popup (Esc closes, Enter saves) ──
 document.addEventListener('keydown', function(e){
+  // Checked before the editor guard: the row menu opens with no editor behind
+  // it, so an Escape aimed at it would otherwise fall straight through.
+  if(e.key === 'Escape' && document.getElementById('ml-supmenu')){
+    e.preventDefault(); mlSupMenuClose(); return;
+  }
   if(!document.getElementById('ml-editor')) return;
   if(e.key === 'Escape'){ e.preventDefault(); mlCloseEditor(); }
   else if(e.key === 'Enter'){ e.preventDefault(); mlSaveEditor(); }
