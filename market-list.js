@@ -1521,6 +1521,26 @@ async function mlQuantitiesFrom(itemId, fromWeek){
   return (res.data || []).filter(function(r){ return r.qty != null && Number(r.qty) !== 0; });
 }
 
+// The real calendar date a quantity sits on. week_start is the Monday and
+// weekday is 1..6, so the date is Monday + (weekday - 1).
+//
+// Built from LOCAL parts, never .toISOString() — east of GMT (Dubai UTC+4) that
+// converts to UTC and rolls the date back a day, which would move every
+// quantity one day earlier and put today's order in the past. The same trap
+// mlWeekStartFor already carries a comment about.
+function mlRowDate(weekStart, weekday){
+  var d = new Date(weekStart + 'T00:00:00');
+  d.setDate(d.getDate() + (Number(weekday) - 1));
+  var m = d.getMonth() + 1, day = d.getDate();
+  return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+}
+
+// A day the order has NOT gone out on yet: today, or later. Both strings are
+// 'YYYY-MM-DD' so the comparison is a plain string compare.
+function mlIsStillToCome(r){
+  return mlRowDate(r.week_start, r.weekday) >= TODAY;
+}
+
 // 'this week' / 'next week' / the date itself, so the refusal names a week the
 // chef can navigate to rather than a bare Monday they have to work out.
 function mlWeekName(weekStart, thisWeek){
@@ -1845,20 +1865,42 @@ async function mlRemoveItem(itemId){
   // next week's quantities in exactly the way this guard exists to prevent —
   // the same failure as the heirloom tomatoes, one week displaced, and just as
   // invisible.
+  //
+  // ── WHERE THE LINE IS DRAWN, AND WHY IT MOVED (18 Aug 2026) ────────────
+  // It used to be this week's MONDAY, and that was wrong by its own reasoning.
+  // The guard exists to stop a quantity being stranded where nobody can see it
+  // and nobody will order it. A quantity on a day that has already gone is not
+  // stranded — that order was placed and delivered, and it is history in
+  // exactly the way last week is history, which this same function already
+  // excludes on purpose.
+  //
+  // Drawing it at Monday meant yesterday's delivered order blocked the line.
+  // Measured on 18 Aug: 46 of the 98 items carrying a quantity from Monday on
+  // were refused purely because of Monday, a day already bought and eaten.
+  // Antonio hit it and could not take an item off at all.
+  //
+  // TODAY is the boundary now, and today itself still BLOCKS: the market order
+  // for today may not have gone out yet, so a quantity sitting on it is still a
+  // live instruction. Only days strictly in the past are treated as history.
   var fromWeek = mlWeekStartFor(0);          // this week's Monday, whatever is on screen
-  var pending = await mlQuantitiesFrom(itemId, fromWeek);
+  var all = await mlQuantitiesFrom(itemId, fromWeek);
 
   // A guard that cannot see is not a guard. supabase-js reports failures on the
   // result rather than throwing, so a dropped connection would otherwise read
   // as "no quantities found" and wave the removal through — the one outcome
   // this must never produce. No answer means refuse.
-  if(pending === null){
+  if(all === null){
     alert('"' + it.name + '" was not taken off the list.\n\n' +
       'Its quantities could not be checked just now — the connection did not answer. ' +
       'Taking a line off without that check is how quantities get stranded where nobody ' +
       'can see them, so nothing has been changed.\n\nTry again in a moment.');
     return;
   }
+
+  // Only what is still to come can be stranded. What already went is kept and
+  // said out loud in the confirm below, never used to refuse.
+  var pending = all.filter(mlIsStillToCome);
+  var alreadyGone = all.length - pending.length;
 
   if(pending.length){
     var byWeek = {};
@@ -1871,8 +1913,9 @@ async function mlRemoveItem(itemId){
       return '  ' + mlWeekName(ws, fromWeek) + ':  ' + days.join(',  ');
     });
     alert('"' + it.name + '" cannot be taken off the list yet.\n\n' +
-      'It still has ' + pending.length + ' quantit' + (pending.length===1?'y':'ies') +
-      ' on it, across ' + weeks.length + ' week' + (weeks.length===1?'':'s') + ':\n' +
+      'It has ' + pending.length + ' quantit' + (pending.length===1?'y':'ies') +
+      ' on it that ' + (pending.length===1?'has':'have') + ' not been ordered yet, ' +
+      'across ' + weeks.length + ' week' + (weeks.length===1?'':'s') + ':\n' +
       lines.join('\n') +
       '\n\nSwitching it off now would hide the line while those quantities stayed in the ' +
       'database — they would never be ordered and nobody would see them. Three kilos of ' +
@@ -1882,9 +1925,15 @@ async function mlRemoveItem(itemId){
     return;
   }
   if(!confirm('Take "' + it.name + '" off the market list?' +
-              '\n\nChecked: it has no quantities on this week or any week ahead. Nothing is ' +
-              'deleted — everything ever ordered against it in past weeks is kept. ' +
-              'Ask Francesco to put it back.')) return;
+              '\n\nChecked: nothing is waiting to be ordered on it — not today, and not on ' +
+              'any day ahead.' +
+              (alreadyGone
+                ? '\n\nIt was ordered ' + alreadyGone + ' time' + (alreadyGone===1?'':'s') +
+                  ' on days that have already gone. Those orders were placed and are kept — ' +
+                  'taking the line off now cannot unsend them.'
+                : '') +
+              '\n\nNothing is deleted. Everything ever ordered against it is kept, and Undo ' +
+              'in the toolbar puts the line straight back.')) return;
 
   var res = await sb.from('order_items').update({ active:false }).eq('id', itemId);
   if(res && res.error){
