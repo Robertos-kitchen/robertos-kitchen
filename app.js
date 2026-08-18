@@ -2891,6 +2891,13 @@ var krtSpanN = 4;    // remembered "several weeks" count
 // ════════════════════════════════════════════════════════════════════════
 var schedPlanMode = false;              // true only while the Roster tool is open
 var SCHED_PLAN_LS = 'kitchenRosterDraftV2';
+// ── Keeping the plan on this device and the live schedule saying the same thing ──
+// The plan holds only the cells that DIFFER from live. Each planned cell now remembers
+// the live value it was planned ON TOP OF (its "base"). If live later moves under that
+// cell — someone edited the real schedule directly — the live change wins and the cell
+// drops out of the plan, so both read the same. A cell whose live value has NOT moved is
+// left completely alone, so planning weeks ahead of an empty rota still works as before.
+var kplDraftBase = {};   // draft key -> schedPlanSig(live) at the moment the cell was planned
 
 // ── Section (add / rename / reorder / delete) held in the plan until Bring live ──
 var kplSecLive   = null;   // snapshot of the live section list [{key,label}] (baseline)
@@ -2945,7 +2952,7 @@ function schedPlanSig(row){
   if(!row) return 'EMPTY';
   var st = row.status || 'working';
   if(st === 'working'){
-    var s=(row.shift_start||''), e=(row.shift_end||''), s2=(row.shift_start2||''), e2=(row.shift_end2||''), n=(row.notes||''), o=(row.station_override||'');
+    var s=formatTime(row.shift_start), e=formatTime(row.shift_end), s2=formatTime(row.shift_start2), e2=formatTime(row.shift_end2), n=(row.notes||''), o=(row.station_override||'');
     if(!s && !e && !s2 && !e2 && !n && !o) return 'EMPTY';
     return 'W|'+s+'|'+e+'|'+s2+'|'+e2+'|'+n+'|'+o;
   }
@@ -2965,10 +2972,11 @@ function schedPlanRowFromEntry(sid, ds, e){
 function schedPlanSaveDraft(){ krtScheduleCheckpoint(); schedPlanPersist(); }
 function schedPlanPersist(){
   kplDirty = true;
+  schedPlanSeedMissingBases();   // every planned cell records the live value it sits on
   try{
     localStorage.setItem(SCHED_PLAN_LS, JSON.stringify({
       entries: kplDraft, secMoves: kplDraftSec, order: kplDraftOrd,
-      newStaff: kplNewStaff, newSeq: kplNewSeq,
+      newStaff: kplNewStaff, newSeq: kplNewSeq, base: kplDraftBase,
       secRename: kplSecRename, secNew: kplSecNew, secOrder: kplSecOrder, updatedAt: new Date().toISOString()
     }));
   }catch(e){ console.warn('plan draft save failed', e); }
@@ -3057,7 +3065,111 @@ function schedPlanOverlay(){
   Object.keys(kplDraft||{}).forEach(function(k){ var p = k.split('|'); schedRoster[k] = schedPlanRowFromEntry(p[0], p[1], kplDraft[k]); });
 }
 // After loading live for a new week/range, keep the draft and re-apply it.
-function schedPlanReseedFromLive(){ schedPlanSnapshotLive(); schedPlanApplySections(); schedPlanOverlay(); }
+function schedPlanReseedFromLive(){
+  schedPlanSnapshotLive();
+  schedPlanSeedMissingBases();                     // a plan saved before this change gets its baseline here
+  var moved = schedPlanAdoptLiveChanges();         // live edits made since you planned come in
+  schedPlanApplySections();
+  schedPlanOverlay();
+  if(moved.length){ schedPlanPersist(); schedPlanLiveNote(moved); }
+}
+// Give every planned cell a baseline, and forget baselines for cells no longer planned.
+// A cell with no baseline is never adopted — we do not guess what live used to say.
+function schedPlanSeedMissingBases(){
+  Object.keys(kplDraft||{}).forEach(function(k){
+    if(kplDraftBase[k] === undefined) kplDraftBase[k] = schedPlanSig(kplLive[k] || null);
+  });
+  Object.keys(kplDraftBase).forEach(function(k){ if(!(kplDraft||{})[k]) delete kplDraftBase[k]; });
+}
+// The live schedule moved under a planned cell → the live value wins and the cell leaves
+// the plan, so the plan on this device and the live schedule always match. Returns the
+// cells a person would notice changing, so we can say so out loud.
+function schedPlanAdoptLiveChanges(){
+  var moved = [];
+  Object.keys(kplDraft||{}).forEach(function(k){
+    var base = kplDraftBase[k];
+    if(base === undefined) return;                       // no baseline — leave it exactly as it is
+    var now = schedPlanSig(kplLive[k] || null);
+    if(now === base) return;                             // live has not moved under this cell
+    var planned = schedPlanSig(kplDraft[k]);
+    delete kplDraft[k]; delete kplDraftBase[k];          // live wins
+    if(now !== planned) moved.push(k);                   // live catching up with the plan is not news
+  });
+  return moved;
+}
+// Say what came in, by name and day — never change someone's plan silently.
+function schedPlanLiveNote(keys){
+  var host = document.getElementById('kpl-full'); if(!host || !keys || !keys.length) return;
+  var note = document.getElementById('krt-livenote');
+  if(!note){
+    note = document.createElement('div');
+    note.id = 'krt-livenote';
+    note.style.cssText = 'margin:8px 18px 0;padding:9px 12px;border-radius:8px;background:#fdf3d9;'
+      + 'border:1px solid #d9b95f;color:#4a3906;font-size:13px;line-height:1.55;display:flex;gap:10px;align-items:flex-start';
+    var grid = host.querySelector('.krt-grid-wrap');
+    if(grid && grid.parentElement) grid.parentElement.insertBefore(note, grid); else host.appendChild(note);
+  }
+  var byId = {}; (kplStaff||[]).concat(kplNewStaff||[]).forEach(function(s){ byId[s.id] = s; });
+  var bits = keys.slice(0,6).map(function(k){
+    var p = k.split('|'), who = (byId[p[0]] && byId[p[0]].name) || 'Someone';
+    var d = new Date(p[1] + 'T12:00:00');
+    return who + ' ' + d.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
+  });
+  if(keys.length > 6) bits.push('and ' + (keys.length - 6) + ' more');
+  note.innerHTML = '<span>Taken from the live schedule so your plan matches it: <b>' + bits.join('</b>, <b>')
+    + '</b>. Change them here if you want them different.</span>'
+    + '<button type="button" title="Hide this" onclick="var n=document.getElementById(\'krt-livenote\'); if(n&&n.parentElement) n.parentElement.removeChild(n);"'
+    + ' style="margin-left:auto;background:none;border:0;font-size:17px;line-height:1;cursor:pointer;color:#4a3906;padding:0 2px">&times;</button>';
+}
+
+// ── Watch the live schedule while the tool is open ─────────────────────────
+// So a change made on the real schedule (another tab, another device, the phone in the
+// kitchen) reaches this plan on its own, instead of waiting for the next week change.
+var krtLiveTimer = null, krtLiveBusy = false;
+var KRT_LIVE_POLL_MS = 45000;
+function schedPlanRosterSig(map){
+  var ks = Object.keys(map||{}); ks.sort();
+  var out = [];
+  for(var i=0;i<ks.length;i++){ var s = schedPlanSig(map[ks[i]]); if(s !== 'EMPTY') out.push(ks[i] + ':' + s); }
+  return out.join(';');
+}
+// Never pull the grid out from under someone mid-action.
+function krtLiveBlocked(){
+  if(!schedPlanMode) return true;
+  if(document.hidden) return true;
+  var m = document.getElementById('sch-modal-box'); if(m && m.offsetParent !== null) return true;
+  var host = document.getElementById('kpl-modalhost'); if(host && host.innerHTML.trim()) return true;
+  if(typeof krtWeekClip !== 'undefined' && krtWeekClip) return true;
+  return false;
+}
+function krtLiveRefresh(){
+  if(krtLiveBusy || krtLiveBlocked()) return;
+  krtLiveBusy = true;
+  var before = schedPlanRosterSig(kplLive);
+  Promise.resolve().then(krtLoad).then(function(){
+    if(schedPlanRosterSig(schedRoster) === before){
+      schedPlanSnapshotLive(); schedPlanOverlay();          // nothing moved — re-apply, don't repaint
+      return;
+    }
+    var sc = document.querySelector('#kpl-full .krt-grid-wrap');
+    var top = sc ? sc.scrollTop : 0, left = sc ? sc.scrollLeft : 0;
+    krtAfterLoad();                                          // reseed (adopts) + render
+    if(sc){ sc.scrollTop = top; sc.scrollLeft = left; }      // stay where they were reading
+  }).catch(function(e){
+    console.warn('[Roster tool] live check skipped', (e && e.message) || e);   // offline → try again next tick
+  }).then(function(){ krtLiveBusy = false; });
+}
+function krtLiveWatchStart(){
+  krtLiveWatchStop();
+  krtLiveTimer = setInterval(krtLiveRefresh, KRT_LIVE_POLL_MS);
+  window.addEventListener('focus', krtLiveRefresh);
+  document.addEventListener('visibilitychange', krtLiveRefresh);
+}
+function krtLiveWatchStop(){
+  if(krtLiveTimer){ clearInterval(krtLiveTimer); krtLiveTimer = null; }
+  window.removeEventListener('focus', krtLiveRefresh);
+  document.removeEventListener('visibilitychange', krtLiveRefresh);
+}
 
 // Rebuild the draft from what's on screen vs the live copy. Only touches the
 // dates currently loaded, so edits made on weeks you've navigated away from stay.
@@ -3103,6 +3215,7 @@ function schedPlanEnter(){
   kplMode = 'draft';
   var saved = schedPlanLoadDraft();
   kplDraft    = (saved && saved.entries)  || {};
+  kplDraftBase = (saved && saved.base)    || {};
   kplDraftSec = (saved && saved.secMoves) || {};
   kplDraftOrd = (saved && saved.order)    || {};
   kplNewStaff = (saved && saved.newStaff) || [];
@@ -3117,6 +3230,7 @@ function schedPlanEnter(){
   // live-schedule edit can never be "undone" into the draft. Cleared again on close (krtClose).
   schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
   krtUndoReset();   // comprehensive draft undo — fresh baseline for this planning session
+  krtLiveWatchStart();   // from here on, a live edit reaches this plan on its own
 }
 // ── Sections manager (in the tool): rename, add, reorder (▲▼), delete — held in the plan ──
 function krtSectionRowHtml(key, label, isNew){
@@ -3484,12 +3598,14 @@ function krtToggleActions(ev){
 function krtCloseActions(){ var m=document.getElementById('krt-actmenu'); if(m) m.classList.remove('open'); }
 function krtClose(){
   schedPlanMode = false;                 // back to live editing on the real schedule
+  krtLiveWatchStop();                    // stop watching live — the tool is shut
   schedPlanRestoreLiveSections();        // drop any draft section add/rename from the live list
   // End the planning session cleanly: stop any paste-in-progress and drop the draft-only undo
   // history so it can't be replayed against the live DB once we're back on the real schedule.
   if (typeof schedEndPaste === 'function') schedEndPaste();
   schedUndoStack = [];
   krtUndoStack = []; krtUndoBase = null; if (typeof krtRenderUndoBtn === 'function') krtRenderUndoBtn();   // drop the draft undo history + hide its button
+  var ln=document.getElementById('krt-livenote'); if(ln && ln.parentElement) ln.parentElement.removeChild(ln);
   var el=document.getElementById('kpl-full'); if(el) el.style.display='none';
   var sview=document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
   if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
