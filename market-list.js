@@ -747,14 +747,17 @@ function renderMarketList(){
       <select class="check-select" id="ml-category" onchange="mlOnCat(this.value)">${cats}</select>
       <label class="ml-check"><input id="ml-only" type="checkbox" ${mlOrderedOnly?'checked':''} onchange="mlOnOnly(this.checked)"> Ordered only</label>
       <div class="ml-actions">
+        <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Quick edit</button>
+        <button class="report-btn ml-undo" id="ml-undo" onclick="mlUndoLast()" disabled>↩ Undo</button>
+        <span class="ml-actions-gap"></span>
         <button class="report-btn" onclick="mlPrint()">Print</button>
         <button class="report-btn" onclick="mlEmailPrompt()">Email chefs</button>
         <button class="report-btn" id="ml-fmc" onclick="openFmcMatch()">Match to FMC</button>
         <button class="report-btn" onclick="mlOrderHelper()">Order helper</button>
-        <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Quick edit</button>
-        <button class="report-btn ml-undo" id="ml-undo" onclick="mlUndoLast()" disabled>↩ Undo</button>
       </div>
     </div>
+
+    <div id="ml-quickbar"></div>
 
     ${isMobile ? `
       <div class="ml-dayswitch">
@@ -1426,6 +1429,13 @@ function mlInjectCss(){
     // the toolbar pair. Undo carries the name of what it will undo, so it is
     // clamped rather than allowed to push the rest of the toolbar off a phone.
     '.ml-quickedit.on{background:var(--vino,#400207);color:var(--cream,#FBF6EC);border-color:var(--vino,#400207)}',
+    // flex:0 0 auto, and it matters. As flex items these two were shrinkable,
+    // and the row squeezed Undo to 88px for an 89px label — one pixel, enough
+    // to fire the ellipsis and print "↩ UND…" on the button whose whole job is
+    // to say what it will undo. It sizes to its text now, and only the long
+    // "Undo the supplier on '…'" label is clamped, which is what the clamp is for.
+    '.ml-quickedit,.ml-undo{flex:0 0 auto}',
+    '.ml-actions{flex-wrap:wrap}',
     '.ml-undo{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.ml-undo:disabled{opacity:.45;cursor:not-allowed}',
     '@media(max-width:520px){.ml-undo{max-width:150px}}',
@@ -1440,7 +1450,32 @@ function mlInjectCss(){
       '.ml-quick .ml-row-tap .ml-name{white-space:normal;display:-webkit-box;',
         '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.28}',
     '}',
-    '@media print{.ml-x,.ml-supbtn,.ml-supmenu,.ml-quickedit,.ml-undo{display:none}}'
+    // the state line. Quiet when locked — it is not an alarm, it is a label —
+    // and it takes the brand's own colours when it is on, because "this screen
+    // is armed" is worth seeing from across the pass.
+    '.ml-qbar{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 13px;',
+      'border:1px solid var(--sabbia-dark,#E8D9C7);border-radius:8px;background:var(--cream,#FBF6EC);',
+      'cursor:pointer;font-size:13px;line-height:1.4;color:#5f5344;',
+      'transition:border-color .12s,background .12s}',
+    '.ml-qbar:hover,.ml-qbar:focus{border-color:#C9B79A;background:#F5EDE0;outline:none}',
+    '.ml-qbar b{color:var(--vino,#400207);font-weight:700}',
+    '.ml-qbar-ico{flex:0 0 auto;font-size:15px;line-height:1}',
+    '.ml-qbar-txt{flex:1;min-width:0}',
+    '.ml-qbar-act{flex:0 0 auto;font-weight:700;font-size:12px;letter-spacing:.4px;',
+      'text-transform:uppercase;color:var(--vino,#400207);border:1px solid var(--vino,#400207);',
+      'border-radius:6px;padding:6px 11px;white-space:nowrap}',
+    '.ml-qbar.on{background:var(--vino,#400207);border-color:var(--vino,#400207);color:rgba(251,246,236,.92)}',
+    '.ml-qbar.on b{color:var(--cream,#FBF6EC)}',
+    '.ml-qbar.on:hover,.ml-qbar.on:focus{background:#520309;border-color:#520309}',
+    '.ml-qbar.on .ml-qbar-act{color:var(--vino,#400207);background:var(--cream,#FBF6EC);border-color:var(--cream,#FBF6EC)}',
+    // On a phone the sentence needs the width, so the button drops under it
+    // rather than squeezing the words into a column.
+    '@media(max-width:560px){.ml-qbar{flex-wrap:wrap}.ml-qbar-txt{flex:1 1 100%;order:2}',
+      '.ml-qbar-act{order:3;margin-left:auto}.ml-qbar-ico{order:1}}',
+    // The lock is a mode switch, not a one-shot action like Print, so it sits
+    // first and the gap pushes the report buttons away from it.
+    '.ml-actions-gap{flex:1 1 12px;min-width:0}',
+    '@media print{.ml-x,.ml-supbtn,.ml-supmenu,.ml-quickedit,.ml-undo,.ml-qbar{display:none}}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1611,7 +1646,38 @@ async function mlUndoLast(){
 // The toolbar is drawn by renderMarketList and the rows by mlRenderRows, and an
 // action only redraws the rows — so these two buttons are updated in place. A
 // full toolbar re-render would blow away whatever is typed in the search box.
+// A LINE THAT SAYS WHY THE ROW HAS NO ✕.
+//
+// The controls are absent while locked, which is right - 419 greyed buttons on
+// a shared pass screen is noise. But absent with nothing said reads as broken,
+// and on 18 Aug it did: the list opened, there was no ✕, and the only thing on
+// screen that could explain it was a button at the far right of six.
+//
+// So the state of the surface is stated where the surface is, in one line, and
+// the whole line is the control - a 1900px target instead of a 128px one. This
+// is the state of his own work, not teaching prose, so it does not fold away.
+function mlQuickBarHtml(){
+  if(mlEditUnlocked){
+    return '<div class="ml-qbar on" role="button" tabindex="0" onclick="mlQuickEditToggle()" '
+      + 'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mlQuickEditToggle();}" '
+      + 'title="Tap to lock quick edit again">'
+      + '<span class="ml-qbar-ico">\uD83D\uDD13</span>'
+      + '<span class="ml-qbar-txt"><b>Quick edit is on.</b> ✕ takes a line off, ▾ changes who it '
+      + 'is ordered from. It locks itself after ten quiet minutes.</span>'
+      + '<span class="ml-qbar-act">Lock it</span></div>';
+  }
+  return '<div class="ml-qbar" role="button" tabindex="0" onclick="mlQuickEditToggle()" '
+    + 'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mlQuickEditToggle();}" '
+    + 'title="Tap and enter the admin code to edit from the row">'
+    + '<span class="ml-qbar-ico">\uD83D\uDD12</span>'
+    + '<span class="ml-qbar-txt"><b>Quick edit is off</b> — that is why there is no ✕ on a row. '
+    + 'Turn it on to take an item off, or change its supplier, without opening it.</span>'
+    + '<span class="ml-qbar-act">Turn it on</span></div>';
+}
+
 function mlRenderQuickBar(){
+  var bar = document.getElementById('ml-quickbar');
+  if(bar) bar.innerHTML = mlQuickBarHtml();
   var q = document.getElementById('ml-quickedit');
   if(q){
     q.textContent = mlEditUnlocked ? '🔓 Quick edit on' : '🔒 Quick edit';
