@@ -51,6 +51,8 @@ let calM         = 0;
 let calChannel   = null;
 let calBooted    = false;
 let calDrag      = null;
+let calArm       = null;
+let calDragEnded = 0;
 let calSheetKind = null;
 let calView      = 'month';   // month | quarter | year
 let calTypeDraft = [];
@@ -200,10 +202,10 @@ function calMonthCells(y, m, phone){
       inner += items.map(function(r){
         const t    = calType(r.kind);
         const miss = calIsAnchor(r) ? calMissing(r.chain_id) : [];
-        return '<div class="cal-chip" style="' + calChipStyle(t) + '" data-id="' + calAttr(r.id) + '"' +
+        return '<div class="cal-chip' + (r.readonly ? ' ro' : '') + '" style="' + calChipStyle(t) + '" data-id="' + calAttr(r.id) + '"' +
                (r.chain_id ? ' data-ch="' + calAttr(r.chain_id) + '"' : '') + '>' +
                (r.readonly ? '<span class="cal-grip ro"></span>'
-                           : '<span class="cal-grip" title="Drag to another day">&#10287;</span>') +
+                           : '<span class="cal-grip" title="Press anywhere on this note and drag it to another day">&#10287;</span>') +
                '<span class="cal-txt">' + calEsc(r.body) + (r.series_id ? ' &#8635;' : '') + '</span>' +
                (miss.length ? '<span class="cal-warn" title="No ' + calAttr(miss.map(k => calType(k).label.toLowerCase()).join(' and no ')) + ' planned yet">!</span>' : '') +
                (calIsAnchor(r) ? '<span class="cal-anch" title="Anchor &mdash; moving this moves the chain">&#9875;</span>' : '') +
@@ -386,9 +388,11 @@ function calWire(){
     });
   });
   body.addEventListener('pointerleave', calClearKin);
-  body.addEventListener('pointerdown', calGripDown);
+  body.addEventListener('pointerdown', calChipDown);
   body.addEventListener('click', function(e){
-    if(e.target.closest('.cal-grip')) return;
+    // A drag that ends inside a cell fires a click straight after the drop.
+    // Without this the day sheet opened on top of every move.
+    if(Date.now() - calDragEnded < 400) return;
     if(e.target.closest('.cal-y-month')) return;
     const cell = e.target.closest('.cal-cell');
     if(cell) calOpenDay(cell.dataset.k);
@@ -410,11 +414,44 @@ function calCells(){ return document.querySelectorAll('#cal-body .cal-cell'); }
 // The row must sit under the finger with a constant offset for the whole drag.
 // A gap that grows and snaps back is the sawtooth the team felt in the other
 // four lists before 13 Aug.
-function calGripDown(e){
-  const g = e.target.closest('.cal-grip');
-  if(!g || g.classList.contains('ro')) return;
-  const chip = g.closest('.cal-chip'); if(!chip) return;
+// THE WHOLE NOTE IS THE HANDLE. Danilo could only move a note by landing on
+// the 11px grip, which on a screen at arm's length is a coin toss. A press
+// anywhere on the note now arms a drag and about 6px of travel lifts it;
+// under that it is still a tap, and a tap still opens the day.
+const CAL_SLOP = 6;
+
+function calChipDown(e){
+  if(e.button != null && e.button > 0) return;
+  const chip = e.target.closest('.cal-chip');
+  if(!chip || chip.classList.contains('ro')) return;
   const row = calRows.find(r => String(r.id) === chip.dataset.id); if(!row) return;
+  calArm = { chip:chip, row:row, x:e.clientX, y:e.clientY, pid:e.pointerId, lifted:false };
+  document.addEventListener('pointermove', calArmMove, { passive:false });
+  document.addEventListener('pointerup', calArmUp, true);
+  document.addEventListener('pointercancel', calArmUp, true);
+}
+
+function calArmMove(e){
+  const a = calArm; if(!a) return;
+  if(a.lifted){ calMove(e); return; }
+  if(Math.abs(e.clientX - a.x) < CAL_SLOP && Math.abs(e.clientY - a.y) < CAL_SLOP) return;
+  a.lifted = true;
+  calLift(a, e);
+  calMove(e);
+}
+
+function calArmUp(e){
+  const a = calArm; calArm = null;
+  document.removeEventListener('pointermove', calArmMove, { passive:false });
+  document.removeEventListener('pointerup', calArmUp, true);
+  document.removeEventListener('pointercancel', calArmUp, true);
+  if(a && a.lifted) calDrop(e);
+}
+
+// The ghost keeps the offset it was picked up by for the whole drag — the
+// glue-to-pointer rule the other four lists were rewritten to on 13 Aug.
+function calLift(a, e){
+  const chip = a.chip, row = a.row;
   e.preventDefault();
 
   const host = calHost();
@@ -427,7 +464,7 @@ function calGripDown(e){
 
   calDrag = {
     row: row, chip: chip, ghost: ghost, hr: hr,
-    dx: e.clientX - r.left, dy: e.clientY - r.top,
+    dx: a.x - r.left, dy: a.y - r.top,
     follow: calFollowers(row).map(o => ({ row:o, gap: calGap(row.note_date, o.note_date) }))
   };
   chip.classList.add('lifting');
@@ -435,11 +472,7 @@ function calGripDown(e){
     const c = document.querySelector('.cal-chip[data-id="' + f.row.id + '"]');
     if(c) c.classList.add('tow');
   });
-  calMove(e);
-  try{ g.setPointerCapture(e.pointerId); calDrag.pid = e.pointerId; calDrag.grip = g; }catch(_){}
-  document.addEventListener('pointermove', calMove, { passive:false });
-  document.addEventListener('pointerup', calDrop, true);
-  document.addEventListener('pointercancel', calDrop, true);
+  try{ chip.setPointerCapture(a.pid); calDrag.pid = a.pid; calDrag.grip = chip; }catch(_){}
 }
 
 function calMove(e){
@@ -470,9 +503,7 @@ function calMove(e){
 async function calDrop(){
   if(!calDrag) return;
   const d = calDrag; calDrag = null;
-  document.removeEventListener('pointermove', calMove, { passive:false });
-  document.removeEventListener('pointerup', calDrop, true);
-  document.removeEventListener('pointercancel', calDrop, true);
+  calDragEnded = Date.now();
   try{ d.grip.releasePointerCapture(d.pid); }catch(_){}
 
   const to = d.target && d.target.dataset.k;
@@ -542,6 +573,7 @@ function calOpenDay(iso){
         return '<div class="cal-ex" style="' + calChipStyle(t) + '">' +
           '<span>' + calEsc(r.body) + (r.series_id ? ' &#8635;' : '') + '</span>' +
           '<span class="cal-ex-tag">' + (calIsAnchor(r) ? '&#9875; ' : '') + calEsc(t.label) + '</span>' +
+          (r.readonly ? '' : '<button class="cal-cp" type="button" onclick="calCopy(&#39;' + calAttr(r.id) + '&#39;)" aria-label="Put this note on the days after">Copy</button>') +
           (r.readonly ? '' : '<button class="cal-del" type="button" onclick="calDelete(&#39;' + calAttr(r.id) + '&#39;)" aria-label="Remove this note">&times;</button>') +
           '</div>';
       }).join('') + '</div>'
@@ -668,6 +700,93 @@ async function calSave(iso, kind, body, repeat){
   return rows;
 }
 
+// ── copy a note onto the days after it ─────────────────────────────────────
+// Danilo plans the same thing two or three days running and had no way to say
+// so: the only repeat was a create-time tickbox — weekly, this month only, and
+// gone the moment the note existed. This copies a note that already exists.
+// An anchor brings its chain: copying a tasting copies its push and its live
+// with it, each copy a chain of its own, because a tasting with nothing behind
+// it is exactly the state nobody notices.
+function calCopy(id){
+  const row = calRows.find(r => String(r.id) === String(id)); if(!row) return;
+  const isAnchor = calIsAnchor(row);
+  // in the order they actually happen, so the sentence below reads like the plan
+  const kin = isAnchor ? [row].concat(calFollowers(row).sort(function(a,b){ return a.note_date < b.note_date ? -1 : 1; })) : [row];
+  const open = document.querySelector('.cal-scrim'); if(open) open.remove();
+
+  let n = 1;
+  const scrim = calSheet(
+    '<h4>Copy to the days after</h4>' +
+    '<p class="cal-sub">' + calEsc(row.body) + ' &mdash; ' + calPretty(row.note_date) + '</p>' +
+    '<div class="cal-step">' +
+      '<button type="button" class="cal-step-b" data-less aria-label="One day fewer">&minus;</button>' +
+      '<span class="cal-step-n" id="cal-cp-n" aria-live="polite">1 day</span>' +
+      '<button type="button" class="cal-step-b" data-more aria-label="One day more">+</button>' +
+    '</div>' +
+    '<div class="cal-cp-say" id="cal-cp-say"></div>' +
+    '<div class="cal-err-msg" hidden></div>' +
+    '<div class="cal-acts">' +
+      '<button type="button" class="cal-btn pri" data-go>Copy</button>' +
+      '<button type="button" class="cal-btn" data-cancel>Cancel</button>' +
+    '</div>', 'Copy this note');
+
+  const nEl = scrim.querySelector('#cal-cp-n');
+  const say = scrim.querySelector('#cal-cp-say');
+  const err = scrim.querySelector('.cal-err-msg');
+  const draw = function(){
+    nEl.textContent = n + (n === 1 ? ' day' : ' days');
+    const days = [];
+    for(let k = 1; k <= n; k++) days.push(calPretty(calShift(row.note_date, k)));
+    say.innerHTML = 'That puts it on <b>' + days.join('</b>, <b>') + '</b>' +
+      (kin.length > 1
+        ? ', each one with its ' + kin.slice(1).map(r => calEsc(calType(r.kind).label.toLowerCase())).join(' and its ') + '.'
+        : '.');
+    scrim.querySelector('[data-less]').disabled = n <= 1;
+    scrim.querySelector('[data-more]').disabled = n >= 14;
+  };
+  draw();
+  scrim.querySelector('[data-less]').onclick = function(){ if(n > 1){ n--; draw(); } };
+  scrim.querySelector('[data-more]').onclick = function(){ if(n < 14){ n++; draw(); } };
+  scrim.querySelector('[data-cancel]').onclick = function(){ scrim.remove(); };
+  scrim.querySelector('[data-go]').onclick = async function(){
+    const b = scrim.querySelector('[data-go]');
+    b.disabled = true; b.textContent = 'Copying…';
+    const made = await calCopyWrite(kin, n);
+    if(!made){
+      b.disabled = false; b.textContent = 'Copy';
+      err.textContent = 'Could not copy — check the connection and try again.';
+      err.hidden = false;
+      return;
+    }
+    scrim.remove();
+    calRender();
+    if(!made.length){ calToast('Those days already have it &mdash; nothing to add.'); return; }
+    const undo = async function(){ await calRemove(made.map(r => r.id)); };
+    calToast('Copied onto the next <b>' + n + (n === 1 ? ' day' : ' days') + '</b>.', undo);
+  };
+}
+
+async function calCopyWrite(kin, n){
+  const rows = [];
+  const sid  = calUuid();
+  for(let k = 1; k <= n; k++){
+    const ch = kin.length > 1 ? calUuid() : null;
+    kin.forEach(function(src){
+      const when = calShift(src.note_date, k);
+      // A second tap on Copy must not double the day up.
+      const same = function(o){ return o.note_date === when && o.kind === src.kind && o.body === src.body; };
+      if(calRows.some(same) || rows.some(same)) return;
+      rows.push({ id:calUuid(), note_date:when, kind:src.kind, body:src.body,
+                  chain_id:ch, series_id:(ch ? null : sid) });
+    });
+  }
+  if(!rows.length) return [];
+  const res = await sb.from(CAL_TABLE).insert(rows);
+  if(res.error){ console.warn('[calendar] copy failed', res.error); return null; }
+  calRows = calRows.concat(rows);
+  return rows;
+}
+
 async function calRemove(ids){
   const res = await sb.from(CAL_TABLE).delete().in('id', ids);
   if(res.error){ console.warn('[calendar] remove failed', res.error); return false; }
@@ -689,8 +808,9 @@ async function calDelete(id){
       if(both) ids = ids.concat(rest.map(r => r.id));
     }
   } else if(row.series_id){
-    const all = confirm('This repeats every week.\n\nOK — remove the whole series.\nCancel — remove only this one.');
-    if(all) ids = calRows.filter(r => r.series_id === row.series_id).map(r => r.id);
+    const kin = calRows.filter(r => r.series_id === row.series_id);
+    const all = confirm('This same note is on ' + kin.length + ' days.\n\nOK — remove all ' + kin.length + '.\nCancel — remove only this one.');
+    if(all) ids = kin.map(r => r.id);
   }
   const gone = calRows.filter(r => ids.indexOf(r.id) > -1).map(function(r){
     return { id:r.id, note_date:r.note_date, kind:r.kind, body:r.body, chain_id:r.chain_id, series_id:r.series_id };
@@ -956,7 +1076,8 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-dnum b{font-weight:700;color:var(--vino);font-size:12px}
 .cal-tod{font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--vino)}
 
-.cal-chip{display:flex;gap:4px;align-items:flex-start;border-radius:6px;padding:4px 5px;margin-bottom:3px;font-size:11px;line-height:1.3;touch-action:none}
+.cal-chip{display:flex;gap:4px;align-items:flex-start;border-radius:6px;padding:6px;margin-bottom:3px;min-height:28px;font-size:11px;line-height:1.3;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.cal-chip.ro{cursor:pointer;touch-action:auto;user-select:auto;-webkit-user-select:auto}
 .cal-chip .cal-grip{opacity:.6;cursor:grab;flex:0 0 auto;line-height:1.3;font-size:11px}
 .cal-chip .cal-grip.ro{width:0;overflow:hidden}
 .cal-txt{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -1015,6 +1136,13 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-ex{display:flex;gap:8px;align-items:center;border-radius:8px;padding:8px 11px;font-size:13px}
 .cal-ex-tag{margin-left:auto;font-size:10px;letter-spacing:.9px;text-transform:uppercase;opacity:.8;white-space:nowrap}
 .cal-del{flex:0 0 auto;border:0;background:transparent;color:inherit;font-size:19px;line-height:1;cursor:pointer;opacity:.75;padding:0 2px}
+.cal-cp{flex:0 0 auto;display:inline-flex;align-items:center;min-height:40px;border:1px solid currentColor;background:transparent;color:inherit;font-family:var(--font-sans);font-size:10px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;border-radius:6px;padding:0 13px;cursor:pointer;opacity:.9}
+.cal-del{min-height:40px;min-width:30px}
+.cal-step{display:flex;align-items:center;justify-content:center;gap:18px;margin:18px 0 12px}
+.cal-step-b{width:54px;height:54px;border-radius:50%;border:1px solid var(--sabbia-dark);background:var(--sabbia-light);color:var(--vino);font-size:26px;line-height:1;cursor:pointer}
+.cal-step-b[disabled]{opacity:.35;cursor:default}
+.cal-step-n{min-width:104px;text-align:center;font-family:var(--font-serif);font-size:23px;color:var(--vino)}
+.cal-cp-say{font-size:14px;line-height:1.55;color:var(--vino);text-align:center;margin:0 0 6px}
 .cal-chainline{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:11px 12px;border:1px solid var(--sabbia-dark);border-radius:9px;background:var(--sabbia-light)}
 .cal-cl-h{flex:1 0 100%;font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--vino-light);font-weight:600}
 .cal-cl{font-size:12.5px;padding:5px 10px;border-radius:7px}
@@ -1059,7 +1187,7 @@ const CAL_STYLE = `<style id="cal-style">
 @media print{
   .cal-top,.cal-toast,.footer-bar,.cal-scrim{display:none !important}
   .cal-cell{min-height:118px;break-inside:avoid}
-  .cal-chip{font-size:10px}
+  .cal-chip{font-size:10px;min-height:0;padding:3px 4px}
   .cal-grid{gap:2px}
   .cal-quarter{grid-template-columns:1fr}
 }
