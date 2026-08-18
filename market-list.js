@@ -1714,15 +1714,32 @@ function mlTouchLock(){
 var mlUndo = [];                       // newest last; { label, fn }
 var ML_UNDO_MAX = 20;
 
+// Returns the step it pushed, so a caller can offer to undo THAT act
+// specifically rather than whatever happens to be newest by the time the offer
+// is taken up.
 function mlPushUndo(label, fn){
-  mlUndo.push({ label:label, fn:fn });
+  var step = { label:label, fn:fn };
+  mlUndo.push(step);
   if(mlUndo.length > ML_UNDO_MAX) mlUndo.shift();
   mlRenderQuickBar();
+  return step;
 }
 
 async function mlUndoLast(){
-  var step = mlUndo[mlUndo.length - 1];
+  return mlUndoStep(mlUndo[mlUndo.length - 1]);
+}
+
+// Undo one NAMED step. The toolbar passes the newest; the Undo carried by the
+// toast passes its own, because the two can differ — the toast for taking a
+// line off is still on screen while a supplier change is made, and "Undo"
+// under a sentence about the line must never reverse the supplier instead.
+//
+// Removed by identity, not by popping: the step being undone is not always the
+// top of the stack.
+async function mlUndoStep(step){
   if(!step) return;
+  var i = mlUndo.indexOf(step);
+  if(i === -1) return;     // already undone — an offer that outlived its step
   var btn = document.getElementById('ml-undo');
   if(btn){ btn.disabled = true; btn.textContent = 'Undoing…'; }
   var err = null;
@@ -1736,7 +1753,7 @@ async function mlUndoLast(){
     mlRenderQuickBar();
     return;
   }
-  mlUndo.pop();
+  mlUndo.splice(i, 1);
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
   mlRenderQuickBar();
@@ -2005,16 +2022,43 @@ async function mlRemoveItem(itemId){
       'at the right article instead, which keeps everything ever ordered against it.');
     return;
   }
-  if(!confirm('Take "' + it.name + '" off the market list?' +
-              '\n\nChecked: nothing is waiting to be ordered on it — not today, and not on ' +
-              'any day ahead.' +
-              (alreadyGone
-                ? '\n\nIt was ordered ' + alreadyGone + ' time' + (alreadyGone===1?'':'s') +
-                  ' on days that have already gone. Those orders were placed and are kept — ' +
-                  'taking the line off now cannot unsend them.'
-                : '') +
-              '\n\nNothing is deleted. Everything ever ordered against it is kept, and Undo ' +
-              'in the toolbar puts the line straight back.')) return;
+  // ── WHY THERE IS NO "ARE YOU SURE" HERE ANY MORE (18 Aug 2026) ────────
+  // Antonio, on the feedback button: "Please don't show this message everytime
+  // I try do delete something, important is that I can undo it, no need this
+  // message everytime."
+  //
+  // He is right, and the old confirm proved it in its own last line — it ended
+  // "Undo in the toolbar puts the line straight back". A question whose answer
+  // is already reversible is not a safeguard, it is a keystroke. The chef
+  // taking twenty duplicates off a list read the same five paragraphs twenty
+  // times and pressed OK twenty times, which is how people stop reading the
+  // dialogs that DO matter.
+  //
+  // What protects the list is not the asking, it is the two things above this
+  // line and the one below it:
+  //   • the orphan guard REFUSES a line that still has quantities on it,
+  //   • a connection that cannot answer REFUSES rather than waves through,
+  //   • and nothing is deleted — `active=false` is reversed by one write.
+  // Those all stay. Only the question goes.
+  //
+  // The safeguard now sits AFTER the act instead of before it, where it costs
+  // nothing to the person who meant it: the toast carries Undo itself, so the
+  // way back is under the thumb that just pressed ✕ rather than in a toolbar
+  // that may be scrolled off a phone — which, after the scroll fix landed the
+  // same day, is exactly where the toolbar now stays.
+  //
+  // A CONFIRM STILL APPEARS IF THERE IS NO WAY BACK. kToast is defined in
+  // app.js; market-list.js is also loaded by screens that do not have it. Where
+  // the toast cannot be shown the undo cannot be offered, and an unofferable
+  // undo must not become a silent delete — so that case, and only that case,
+  // still asks first.
+  if(typeof kToast !== 'function'){
+    if(!confirm('Take "' + it.name + '" off the market list?' +
+                '\n\nChecked: nothing is waiting to be ordered on it — not today, and not on ' +
+                'any day ahead.' +
+                '\n\nNothing is deleted. Everything ever ordered against it is kept, and Undo ' +
+                'in the toolbar puts the line straight back.')) return;
+  }
 
   // mlItems is updated and the rows redrawn a few lines below, so our own echo
   // has nothing to tell us. Cleared on failure so a screen that did NOT change
@@ -2032,11 +2076,23 @@ async function mlRemoveItem(itemId){
   mlTouchLock();
   // The row OBJECT is kept, not just its id: putting the line back has to
   // restore it to its own place in the category, and sort_order lives on it.
-  mlPushUndo('taking "' + it.name + '" off', function(){ return mlRestoreItem(it); });
+  var step = mlPushUndo('taking "' + it.name + '" off', function(){ return mlRestoreItem(it); });
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
-  if(typeof kToast === 'function') kToast('✓ "' + it.name + '" taken off the list by ' + who.name
-    + ' — Undo is in the toolbar if that was the wrong one.');
+  if(typeof kToast === 'function'){
+    // The one fact the old confirm carried that the act itself does not show:
+    // this line HAS been ordered before. It is said here rather than asked
+    // beforehand, because it changes nothing about whether taking the line off
+    // is safe — those orders went and are kept either way.
+    kToast('✓ "' + it.name + '" taken off the list by ' + who.name + '.'
+      + (alreadyGone
+          ? ' It was ordered ' + alreadyGone + ' time' + (alreadyGone===1?'':'s')
+            + ' on days already gone — those orders are kept.'
+          : '')
+      + ' Nothing is deleted.',
+      false,
+      { label:'↩ Undo', onClick:function(){ mlUndoStep(step); } });
+  }
 }
 
 // ── EDIT POPUP: tap an item's name OR any of its cells to open ──

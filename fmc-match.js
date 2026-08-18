@@ -292,15 +292,53 @@ async function fmAcceptExact(){
 
 // A duplicate is retired, never deleted: `active = false` takes it off the
 // market list and leaves every quantity ever ordered against it intact.
-async function fmRetire(id, name){
-  if(!confirm('Take "' + name + '" off the market list?\n\nIt stays in the database with everything ordered against it — it just stops appearing as a line to fill.')) return;
-  var res = await sb.from('order_items').update({ active:false }).eq('id', id);
+//
+// Putting one back is therefore the same single write with `true`. It had no
+// way back before 18 Aug 2026 — not because reversing it was hard, but because
+// nobody had written the other half.
+async function fmUnretire(id, name){
+  var res = await sb.from('order_items').update({ active:true }).eq('id', id);
   if(res.error){
-    if(typeof kToast === 'function') kToast('Could not remove it — ' + res.error.message, true);
+    // The line is still off. Say so, rather than letting a failed undo read as
+    // a successful one.
+    if(typeof kToast === 'function') kToast('Could not put it back — ' + res.error.message + '. "' + name + '" is still off the list.', true);
     return;
   }
   await fmLoad(); fmRender();
-  if(typeof kToast === 'function') kToast('"' + name + '" is off the list.');
+  if(typeof kToast === 'function') kToast('✓ "' + name + '" is back on the list.');
+}
+
+// ── WHY THIS NO LONGER ASKS FIRST (18 Aug 2026) ─────────────────────────
+// Antonio, via the feedback button: "Please don't show this message everytime
+// I try do delete something, important is that I can undo it, no need this
+// message everytime." He photographed the market list's version of this
+// dialog, but this is the same sentence about the same act on the same rows —
+// fixing only the screen in the photograph would have him report it again from
+// this one.
+//
+// His condition is the whole design: the question goes, and the way back
+// arrives. Nothing was deleted here even before — `active=false` is one write
+// from reversed — but that only helps somebody who is offered the reversal, so
+// fmUnretire above exists now and the toast carries it.
+//
+// Where kToast is unavailable the undo cannot be offered, and an act with no
+// way back must still ask.
+async function fmRetire(id, name){
+  if(typeof kToast !== 'function'){
+    if(!confirm('Take "' + name + '" off the market list?\n\nIt stays in the database with everything ordered against it — it just stops appearing as a line to fill.')) return;
+  }
+  var res = await sb.from('order_items').update({ active:false }).eq('id', id);
+  if(res.error){
+    if(typeof kToast === 'function') kToast('Could not remove it — ' + res.error.message, true);
+    else alert('Could not remove it — ' + res.error.message);
+    return;
+  }
+  await fmLoad(); fmRender();
+  if(typeof kToast === 'function'){
+    kToast('✓ "' + name + '" is off the list. Everything ordered against it is kept.',
+      false,
+      { label:'↩ Undo', onClick:function(){ fmUnretire(id, name); } });
+  }
 }
 
 // ── decisions ─────────────────────────────────────────────────────────────

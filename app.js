@@ -369,19 +369,76 @@ function flashSync() {
 // Lightweight non-blocking toast for save failures. supabase-js returns {error}
 // instead of throwing, so without an explicit check a failed write looks like a
 // success on screen — this is how the user finds out a tap didn't reach the server.
-function kToast(msg, isError) {
+//
+// THE THIRD ARGUMENT — an action the toast can carry (18 Aug 2026).
+// Antonio: "don't show this message everytime I try do delete something,
+// important is that I can undo it". The way out of asking before is answering
+// after, so the toast that says what happened is also the thing that reverses
+// it. `action` is { label, onClick, ms }, all optional together:
+//
+//   kToast('✓ "X" taken off the list.', false, { label:'Undo', onClick: fn });
+//
+// Callers that pass nothing behave exactly as before.
+function kToast(msg, isError, action) {
   var t = document.getElementById('k-toast');
   if (!t) {
     t = document.createElement('div');
     t.id = 'k-toast';
-    t.style.cssText = 'position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:99999;max-width:90%;padding:12px 18px;border-radius:10px;font:600 14px/1.35 system-ui,-apple-system,sans-serif;color:#fff;box-shadow:0 6px 24px rgba(0,0,0,.32);text-align:center;display:none';
+    // CENTRED WITH left/right/margin, NOT left:50% + translateX.
+    // The old rule capped the toast at HALF the screen: a fixed box with
+    // width:auto shrink-to-fits into the space from its `left` edge to the
+    // viewport's right edge, which at left:50% is 195px on a 390px phone.
+    // Measured 18 Aug 2026 — "taken off the list by Admin" came out one word
+    // per line down a narrow green column. Harmless while a toast was only
+    // ever a message; not harmless now the way back from a delete lives in it.
+    t.style.cssText = 'position:fixed;left:16px;right:16px;bottom:84px;margin:0 auto;'
+      + 'width:fit-content;max-width:calc(100vw - 32px);z-index:99999;'
+      + 'padding:12px 18px;border-radius:10px;font:600 14px/1.35 system-ui,-apple-system,sans-serif;'
+      + 'color:#fff;box-shadow:0 6px 24px rgba(0,0,0,.32);text-align:center;display:none;'
+      + 'align-items:center;justify-content:center;gap:14px';
     document.body.appendChild(t);
   }
   t.style.background = isError ? '#b00020' : '#2e7d32';
-  t.textContent = msg;
-  t.style.display = 'block';
+  // Rebuilt every time rather than assigning textContent: the node is reused
+  // across toasts, and a previous toast's Undo button left sitting on the next
+  // message would offer to reverse something else entirely.
+  t.textContent = '';
+  var say = document.createElement('span');
+  say.textContent = msg;
+  // Free to take the width it needs, and free to wrap. Without min-width:0 a
+  // flex item refuses to shrink below its longest word, which on a phone
+  // pushes the button off the end of the toast.
+  say.style.cssText = 'flex:1 1 auto;min-width:0';
+  t.appendChild(say);
+
+  var live = action && action.label && typeof action.onClick === 'function';
+  // 4.5s is enough to read a confirmation and far too short to decide whether
+  // you meant it — so a toast carrying an action stays up longer.
+  var ms = live ? (action.ms || 12000) : 4500;
+  if (live) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = action.label;
+    // White on the toast's own green, not a tinted overlay: this is the way
+    // back from a delete and it has to read at arm's length on a pass screen.
+    // Sized for a thumb — the ✕ that got here is reachable on a phone and so
+    // must this be.
+    b.style.cssText = 'flex:0 0 auto;background:#fff;color:#1b5e20;border:0;border-radius:8px;'
+      + 'padding:9px 16px;min-height:38px;font:700 14px/1 system-ui,-apple-system,sans-serif;'
+      + 'cursor:pointer;-webkit-appearance:none';
+    b.onclick = function () {
+      clearTimeout(window._kToastTimer);
+      t.style.display = 'none';
+      action.onClick();
+    };
+    t.appendChild(b);
+  }
+  // Ragged-right beside the button: centred text against a left-aligned button
+  // reads as two things that were not made for each other.
+  t.style.textAlign = live ? 'left' : 'center';
+  t.style.display = live ? 'flex' : 'block';
   clearTimeout(window._kToastTimer);
-  window._kToastTimer = setTimeout(function () { t.style.display = 'none'; }, 4500);
+  window._kToastTimer = setTimeout(function () { t.style.display = 'none'; }, ms);
 }
 
 // â”€â”€ CHEF CHECKLIST STORAGE â”€â”€
