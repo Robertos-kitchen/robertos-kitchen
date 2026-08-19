@@ -432,13 +432,34 @@ async function mlLoadArticles(){
     return sb.from('fmc_articles')
       .select('code,name,unit,supplier,on_assortment,retiring')
       .eq('venue_id','robertos-difc')
-      .eq('on_assortment', true)
       .order('name');
   });
   if(!rows || !rows.length) return;          // no catalogue -> no claims
-  mlArticles = rows;
+
+  // ⚠ TWO LISTS OUT OF ONE FETCH, AND THEY ARE NOT THE SAME LIST.
+  //
+  // Until 19 Aug 2026 this asked for `on_assortment = true` and used that one
+  // set for both jobs, which capped what could be ADDED at 451 of the 1,436
+  // articles FMC holds. That was right while the FMC assortment was fixed and
+  // this app could only describe it. It is backwards now: the market list is
+  // mirrored INTO the assortment, so limiting the chef to what is already on
+  // the assortment means he can only add what is already there — the exact
+  // thing the mirror exists to fix. Antonio hit it building a new list.
+  //
+  // Excluding `retiring` is what takes 1,436 down to 1,000 rather than any
+  // judgement of ours: those 436 are FMC's own withdrawn stock, renamed ZZZ…
+  // in its master. Nobody should be offered them.
+  mlArticles = rows.filter(function(a){ return !a.retiring; });
+
+  // The FLAGS keep keying off the assortment ALONE. Widening this map as well
+  // would have silently switched off every "not on our list" warning — the
+  // flag fires on a code being ABSENT from it, so filling it with off-list
+  // articles makes the warning unreachable, and a line that cannot be ordered
+  // would look perfectly healthy. Two collections, two jobs.
   mlArtByCode = {};
-  rows.forEach(function(a){ mlArtByCode[String(a.code).trim()] = a; });
+  rows.forEach(function(a){
+    if(a.on_assortment) mlArtByCode[String(a.code).trim()] = a;
+  });
   mlArtLoaded = true;
   if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); }
 }
