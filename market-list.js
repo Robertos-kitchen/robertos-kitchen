@@ -493,14 +493,21 @@ function mlOffListFlag(code){
     why:'FMC has no article ' + code + '. The number itself looks wrong — point this line at the right article.' };
   var q = mlQuotesLoaded ? (mlQuotes[code] || [])[0] : null;
   if(!mlQuotesLoaded) return { kind:'dead', label:'not on our list',
-    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. Add it to the assortment in FMC, or point this line at an article that is on it.' };
+    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on it.' };
+  // ⚠ THIS SAID "FMC holds it but has no supplier linked to it" for one morning
+  // and that was a claim about FMC made from OUR records. It was inferred from
+  // an empty `mlQuotes[code]`, and `fmc_price_quotes` is a separate export on
+  // its own schedule — four days stale on 19 Aug 2026, when the routine robot
+  // run stopped carrying the price half. Holm Oak charcoal 1106015 tripped it
+  // while the market list had iGrade stored as its supplier the whole time.
+  // What is actually known is what WE have on file, so that is what it says.
   if(!q) return { kind:'dead', label:'not on our list',
-    why:'FMC holds ' + code + ' but has no supplier linked to it, and it is not on the Kitchen Market List assortment. Point this line at an article that is on the list.' };
+    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. We have no supplier price from FMC on file for it either. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on the list.' };
   return { kind:'dead', label:'not on our list',
     why:'FMC sells this — ' + q.supplier +
         (q.price != null ? ', ' + q.price.toFixed(2) + (q.unit ? ' per ' + q.unit : '') : '') +
         '. It is just not on the Kitchen Market List assortment, so an order cannot carry it. ' +
-        'Add ' + code + ' to the assortment in FMC, or point this line at an article that is on it.' };
+        'Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on it.' };
 }
 
 // ── search ────────────────────────────────────────────────────────────────
