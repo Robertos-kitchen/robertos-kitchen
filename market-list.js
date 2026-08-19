@@ -650,6 +650,7 @@ function mlPickChoose(category, safe, i){
 //     That is a different fact from silence, and it keeps the line out of the
 //     Match-to-FMC count for ever instead of asking the same question weekly.
 async function mlAddCustom(category, safe){
+  if(!mlMayEditList('Adding an item')) return;
   const inp = document.getElementById('mladd-' + safe);
   if(!inp) return;
   const typed = (inp.value||'').trim();
@@ -657,13 +658,41 @@ async function mlAddCustom(category, safe){
   const st = mlPickState[safe] || {};
   const art = st.picked || null;
 
-  // sort it just after the last existing item in this category
-  const inCat = mlItems.filter(i=>i.category===category);
-  const maxSort = inCat.length ? Math.max(...inCat.map(i=>i.sort_order||0)) : 0;
+  // ── slot it ALPHABETICALLY inside its category ──────────────────────────
+  // This appended to the end of the category until 19 Aug 2026. Antonio had
+  // just asked for the whole list in alphabetical order and every one of the
+  // 406 lines was renumbered that morning to give him it - so appending would
+  // have started undoing that on the very next add, and the person adding is
+  // the person who asked for the order.
+  //
+  // The renumber left a gap of 10 between neighbours, so a new line takes the
+  // midpoint and nothing else has to move. If a gap has been used up, it falls
+  // back to appending rather than colliding: a line at the end of its category
+  // is easy to see and to drag, a duplicate sort_order is neither.
+  //
+  // Sorted on the name as SHOWN, which for a coded line is FMC's name, not the
+  // one typed here - mlApplyFmcFacts overwrites it on every load, so sorting on
+  // anything else puts the row somewhere the eye will not find it.
+  const newName = ((art ? art.name : typed) || '').trim().toLowerCase();
+  const inCat = mlItems.filter(i=>i.category===category)
+                       .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  let before = null, after = null;
+  for(const i of inCat){
+    if(((i.name||'').trim().toLowerCase()) <= newName) before = i;
+    else { after = i; break; }
+  }
+  let slot;
+  if(!inCat.length)      slot = 10;
+  else if(!before)       slot = (after.sort_order||10) - 5;
+  else if(!after)        slot = (before.sort_order||0) + 10;
+  else                   slot = Math.floor(((before.sort_order||0) + (after.sort_order||0)) / 2);
+  if(before && slot <= (before.sort_order||0)){         // no gap left - append instead
+    slot = Math.max(...inCat.map(i=>i.sort_order||0)) + 10;
+  }
 
   const row = { name: art ? art.name : typed, category,
                 unit: art ? (art.unit||'') : '',
-                sort_order: maxSort + 1, active:true };
+                sort_order: slot, active:true };
   if(art){
     row.code = art.code;
     row.fmc_unit = art.unit || null;
@@ -712,6 +741,7 @@ async function mlAddCustom(category, safe){
 var mlRepointFor = null;      // item id the picker is open for
 
 function mlRepointOpen(itemId){
+  if(!mlMayEditList('Repointing a line at another article')) return;
   var it = mlItems.find(function(x){ return x.id === itemId; });
   if(!it) return;
   if(!mlArtLoaded){ alert('The article catalogue has not loaded yet — give it a moment and try again.'); return; }
@@ -856,7 +886,7 @@ function renderMarketList(){
       <select class="check-select" id="ml-category" onchange="mlOnCat(this.value)">${cats}</select>
       <label class="ml-check"><input id="ml-only" type="checkbox" ${mlOrderedOnly?'checked':''} onchange="mlOnOnly(this.checked)"> Ordered only</label>
       <div class="ml-actions">
-        <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Quick edit</button>
+        <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Edit list</button>
         <button class="report-btn ml-undo" id="ml-undo" onclick="mlUndoLast()" disabled>↩ Undo</button>
         <span class="ml-actions-gap"></span>
         <button class="report-btn" onclick="mlPrint()">Print</button>
@@ -1396,8 +1426,10 @@ function mlRenderRows(days){
       </div>`;
     });
     html += `</div>`;   // close .ml-catrows — the add box is not a drop target
-    // per-category add box (hidden while ordered-only, to keep the chef view clean)
-    if(!mlOrderedOnly){
+    // per-category add box. Hidden while ordered-only (to keep the chef view
+    // clean) and while the list is locked (see mlMayEditList) - adding is the
+    // write Antonio asked to put behind the code on 19 Aug 2026.
+    if(!mlOrderedOnly && mlEditUnlocked){
       const c1 = cat.replace(/'/g,"\\'");
       html += `<div class="ml-catadd">
         <div class="ml-catadd-combo">
@@ -1734,13 +1766,52 @@ function mlWeekName(weekStart, thisWeek){
 // ══════════════════════════════════════════════════════════════════════════
 var mlEditUnlocked = false;
 var mlLockTimer = null;
+
+// ══════════════════════════════════════════════════════════════════════════
+// WHO MAY CHANGE THE LIST ITSELF
+//
+// Antonio, Tell us, 19 Aug 2026: "Togliere la possibilita' ai ragazzi di
+// aggiungere elementi sulla market list, perché dovrebbero sempre confrontarsi
+// con me e Danilo prima di aggiungere degli items. Perché alcune volte
+// aggiungono ingredienti che però sono sbagliati. Quindi si possono fare
+// modifiche alla market list, solo con il codice 2468."
+//
+// So the line between the two jobs this screen does is now drawn in code:
+//
+//   ORDERING  — typing a quantity against a day. Everybody, always, untouched.
+//               It is what the boys are on this screen to do.
+//   THE LIST  — adding a line, taking one off, repointing it at another
+//               article, changing who it is ordered from. Admin code only.
+//
+// A wrong ingredient added here is ordered, delivered and invoiced before
+// anybody reads it back, which is why the add box is the one that mattered
+// most to him. The others are the same kind of write and are gated with it.
+//
+// ⚠ NOTHING IS REMOVED. Every one of these still works exactly as it did —
+// the code opens them, and the same admin codes that already unlocked quick
+// edit unlock these (2468 is Supervisor, and was already in ML_ADMIN). This is
+// a lock on an existing door, not a door bricked up.
+//
+// The add box is HIDDEN while locked rather than greyed: the same reasoning
+// already written down for the row ✕ a few lines up — a control nobody on this
+// screen can use is better absent than disabled under every category heading.
+// The bar at the top says why, and how to turn it on, so it stays discoverable.
+// ══════════════════════════════════════════════════════════════════════════
+function mlMayEditList(what){
+  if(mlEditUnlocked) return true;
+  var m = 'The market list is locked. ' + (what || 'Changing the list')
+        + ' needs the admin code — tap the bar at the top of the screen. '
+        + 'Ordering is not affected: you can still type quantities.';
+  if(typeof kToast === 'function') kToast(m, true); else alert(m);
+  return false;
+}
 var ML_LOCK_IDLE_MS = 10 * 60 * 1000;   // a pass screen gets walked away from
 
 function mlQuickEditToggle(){
-  if(mlEditUnlocked){ mlLock('Quick edit locked.'); return; }
-  var code = prompt('Quick edit puts an ✕ and a supplier arrow on every row, so you can '
-    + 'take an item off or change who it comes from without opening it.\n\n'
-    + 'Enter the admin code to switch it on:');
+  if(mlEditUnlocked){ mlLock('List locked.'); return; }
+  var code = prompt('Unlocking lets you change the MARKET LIST itself - add an item, take '
+    + 'one off, change who it is ordered from.\n\nOrdering is never locked: anybody '
+    + 'can type quantities.\n\nEnter the admin code:');
   if(code === null) return;                       // Cancel
   code = String(code).trim();
   if(!ML_ADMIN[code]){
@@ -1754,8 +1825,8 @@ function mlQuickEditToggle(){
   mlTouchLock();
   mlRenderRows(mlVisibleDays());
   mlRenderQuickBar();
-  if(typeof kToast === 'function') kToast('✓ Quick edit on for ' + mlWho.name
-    + ' — ✕ takes a line off, ▾ changes the supplier. It locks itself after 10 quiet minutes.');
+  if(typeof kToast === 'function') kToast('List unlocked for ' + mlWho.name
+    + ' - you can add, remove and change suppliers. It locks itself after 10 quiet minutes.');
 }
 
 function mlLock(msg){
@@ -1771,7 +1842,7 @@ function mlLock(msg){
 function mlTouchLock(){
   clearTimeout(mlLockTimer);
   mlLockTimer = setTimeout(function(){
-    mlLock('Quick edit locked itself — nobody had used it for ten minutes.');
+    mlLock('The list locked itself — nobody had used it for ten minutes.');
   }, ML_LOCK_IDLE_MS);
 }
 
@@ -1856,16 +1927,17 @@ function mlQuickBarHtml(){
       + 'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mlQuickEditToggle();}" '
       + 'title="Tap to lock quick edit again">'
       + '<span class="ml-qbar-ico">\uD83D\uDD13</span>'
-      + '<span class="ml-qbar-txt"><b>Quick edit is on.</b> ✕ takes a line off, ▾ changes who it '
-      + 'is ordered from. It locks itself after ten quiet minutes.</span>'
+      + '<span class="ml-qbar-txt"><b>The list is unlocked.</b> You can add items, take them '
+      + 'off and change who they come from. It locks itself after ten quiet minutes.</span>'
       + '<span class="ml-qbar-act">Lock it</span></div>';
   }
   return '<div class="ml-qbar" role="button" tabindex="0" onclick="mlQuickEditToggle()" '
     + 'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mlQuickEditToggle();}" '
     + 'title="Tap and enter the admin code to edit from the row">'
     + '<span class="ml-qbar-ico">\uD83D\uDD12</span>'
-    + '<span class="ml-qbar-txt"><b>Quick edit is off</b> — that is why there is no ✕ on a row. '
-    + 'Turn it on to take an item off, or change its supplier, without opening it.</span>'
+    + '<span class="ml-qbar-txt"><b>The list is locked</b> - that is why there is no Add box '
+    + 'and no cross on a row. Ordering still works: type quantities as usual. Unlock it to '
+    + 'change the list itself.</span>'
     + '<span class="ml-qbar-act">Turn it on</span></div>';
 }
 
@@ -1874,7 +1946,7 @@ function mlRenderQuickBar(){
   if(bar) bar.innerHTML = mlQuickBarHtml();
   var q = document.getElementById('ml-quickedit');
   if(q){
-    q.textContent = mlEditUnlocked ? '🔓 Quick edit on' : '🔒 Quick edit';
+    q.textContent = mlEditUnlocked ? '🔓 List unlocked' : '🔒 Edit list';
     q.classList.toggle('on', mlEditUnlocked);
     q.title = mlEditUnlocked
       ? 'On — ✕ takes a line off the list, ▾ changes who it is ordered from. Tap to lock it again.'
@@ -2013,6 +2085,7 @@ async function mlRestoreItem(it){
 }
 
 async function mlRemoveItem(itemId){
+  if(!mlMayEditList('Taking an item off')) return;
   var it = mlItems.find(function(x){ return x.id === itemId; });
   if(!it) return;
 
@@ -2224,13 +2297,13 @@ function mlOpenEditor(itemId){
           // Spelled out here, not just as a chip: the grid has room for a
           // label, this is where somebody can actually act on it.
           return `<div class="ml-ed-flagline ${fl.kind}">${mlEsc(fl.why)}` +
-            (fl.kind==='dead' ? `<br><button type="button" class="ml-ed-repoint" onclick="mlRepointOpen(${it.id})">Point this line at another article…</button><div id="ml-repoint-host"></div>` : '') +
+            (fl.kind==='dead' && mlEditUnlocked ? `<br><button type="button" class="ml-ed-repoint" onclick="mlRepointOpen(${it.id})">Point this line at another article…</button><div id="ml-repoint-host"></div>` : '') +
             `</div>`; })()}
       </div>
       <div class="ml-ed-body">${dayRows}</div>
       ${mlSupplierBlock(it)}
       <div class="ml-ed-foot">
-        <button type="button" class="ml-ed-btn ml-ed-remove" onclick="mlRemoveItem(${it.id})" title="Take this item off the market list">Take off the list</button>
+        ${mlEditUnlocked ? `<button type="button" class="ml-ed-btn ml-ed-remove" onclick="mlRemoveItem(${it.id})" title="Take this item off the market list">Take off the list</button>` : ''}
         <button type="button" class="ml-ed-btn ml-ed-cancel" onclick="mlCloseEditor()">Cancel</button>
         <button type="button" class="ml-ed-btn ml-ed-save" onclick="mlSaveEditor()">Save</button>
       </div>
@@ -2307,6 +2380,7 @@ function mlSupToggle(id){
 // have their own buffer and a supplier is not part of it, so folding this into
 // Save would make one button mean two different things.
 async function mlPickSupplier(itemId, idx){
+  if(!mlMayEditList('Changing the supplier')) return;
   const it = (mlItems||[]).find(function(x){ return x.id===itemId; });
   if(!it) return;
   const st = mlSupplierState(it);
