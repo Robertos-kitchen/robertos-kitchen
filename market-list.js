@@ -157,13 +157,20 @@ async function loadFmcPrices(){
 // named Zurich Foodstuff Trading, whose every FMC link had been switched off, so
 // the app was naming a supplier no order could go to and nothing said so.
 let mlQuotes = {};   // FMC article code -> [{supplier, unit, price, priced}], newest priced first
+// False until the quotes actually arrive. mlOffListFlag says "FMC holds it but
+// has no supplier linked to it" off an EMPTY list for that code, and an empty
+// list is also what a failed fetch looks like — so without this the flag would
+// state as fact something it never checked. Same rule as mlArtLoaded above.
+let mlQuotesLoaded = false;
 async function loadFmcQuotes(){
   mlQuotes = {};
+  mlQuotesLoaded = false;
   const rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_price_quotes')
       .select('code,supplier,unit,price_per_unit,price_per_base_unit,last_price_update')
       .eq('venue_id', ML_VENUE);
   });
+  if(rows && rows.length) mlQuotesLoaded = true;
   (rows||[]).forEach(function(r){
     const c = r.code != null ? String(r.code).trim() : '';
     if(!c || !r.supplier) return;
@@ -447,11 +454,53 @@ function mlArticleFlag(it){
   var code = (it.code||'').trim();
   if(!code) return null;
   var art = mlArtByCode[code];
-  if(!art) return { kind:'dead', label:'dead code ' + code,
-    why:'FMC will not accept ' + code + ' — it is not on the assortment. Repoint this line to the right article.' };
+  if(!art) return mlOffListFlag(code);
   if(art.retiring) return { kind:'retiring', label:'retiring',
     why:'FMC is withdrawing this article. It can still be ordered today.' };
   return null;
+}
+
+// ── a code that is not on OUR list ────────────────────────────────────────
+// ⚠ THIS SAID "dead code NNNNNNN — FMC will not accept it" UNTIL 19 Aug 2026,
+// AND BOTH HALVES WERE FALSE. Francesco reported it on 4012124 Activ Dried
+// Sourdough 1Kg: FMC holds that article, quotes it through Alba Foodstuff
+// Trading LLC at 60.00 per Pkt/1x1 Kg with FMC's own price dated 1 Aug 2026,
+// and we paid 60.00 for it on 30 Mar. Nothing about the code is dead, and FMC
+// accepts the article perfectly well.
+//
+// What is true is narrower, and it is OUR gap rather than FMC's: the article
+// is not on the Kitchen Market List assortment, so an order raised off that
+// list cannot carry it. Saying "FMC will not accept" blamed FMC for a line
+// missing from a list we maintain, and a chef reading "dead code" concludes
+// the number is wrong or the product is discontinued. Neither is the case.
+//
+// The old copy also offered exactly one way out — repoint — and for this line
+// there is none: all six sourdough articles in FMC are off the assortment,
+// three of them ZZZ/retiring. So the single instruction on screen was the one
+// thing that could not be done, and the thing that CAN be done (put it on the
+// assortment) was never mentioned. Both routes are named now.
+//
+// Three situations hid behind one message and they need different actions, so
+// they are separated here. `mlArtName` is the whole master (loadFmcPrices does
+// not filter on the assortment), which is what makes the first two knowable:
+//   FMC sells it              -> add it to the assortment, or point elsewhere
+//   FMC holds it, no supplier -> point elsewhere; nobody can supply it today
+//   FMC has never heard of it -> the NUMBER is wrong, which is the only case
+//                                the old wording was ever right about
+function mlOffListFlag(code){
+  var known = mlArtName[code];
+  if(!known) return { kind:'dead', label:'code not in FMC',
+    why:'FMC has no article ' + code + '. The number itself looks wrong — point this line at the right article.' };
+  var q = mlQuotesLoaded ? (mlQuotes[code] || [])[0] : null;
+  if(!mlQuotesLoaded) return { kind:'dead', label:'not on our list',
+    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. Add it to the assortment in FMC, or point this line at an article that is on it.' };
+  if(!q) return { kind:'dead', label:'not on our list',
+    why:'FMC holds ' + code + ' but has no supplier linked to it, and it is not on the Kitchen Market List assortment. Point this line at an article that is on the list.' };
+  return { kind:'dead', label:'not on our list',
+    why:'FMC sells this — ' + q.supplier +
+        (q.price != null ? ', ' + q.price.toFixed(2) + (q.unit ? ' per ' + q.unit : '') : '') +
+        '. It is just not on the Kitchen Market List assortment, so an order cannot carry it. ' +
+        'Add ' + code + ' to the assortment in FMC, or point this line at an article that is on it.' };
 }
 
 // ── search ────────────────────────────────────────────────────────────────
@@ -1271,8 +1320,8 @@ function mlRenderRows(days){
     html += `<div class="ml-catrows" data-cat="${safe}">`;
     rows.forEach(it=>{
       // The flag is the whole point of the catalogue on this screen: a line
-      // carrying a code FMC will refuse looks exactly like a healthy one until
-      // somebody tries to order it.
+      // pointing at an article our assortment does not carry looks exactly
+      // like a healthy one until somebody tries to order it.
       const fl = mlArticleFlag(it);
       const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
       // The grip is drawn even when the view is filtered, greyed and carrying
@@ -2147,7 +2196,7 @@ function mlOpenEditor(itemId){
           // Spelled out here, not just as a chip: the grid has room for a
           // label, this is where somebody can actually act on it.
           return `<div class="ml-ed-flagline ${fl.kind}">${mlEsc(fl.why)}` +
-            (fl.kind==='dead' ? `<br><button type="button" class="ml-ed-repoint" onclick="mlRepointOpen(${it.id})">Repoint to the right article…</button><div id="ml-repoint-host"></div>` : '') +
+            (fl.kind==='dead' ? `<br><button type="button" class="ml-ed-repoint" onclick="mlRepointOpen(${it.id})">Point this line at another article…</button><div id="ml-repoint-host"></div>` : '') +
             `</div>`; })()}
       </div>
       <div class="ml-ed-body">${dayRows}</div>
