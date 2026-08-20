@@ -2717,7 +2717,19 @@ function mlPrint(){
 // What the helper never does: save, choose a basket, or press Request. It
 // types and stops. A person commits the order under their own FMC login.
 // ══════════════════════════════════════════════════════════════════════════
-var ML_HELPER_EXE = 'downloads/FMC-order-helper.exe';
+// ⚠ THE HELPER IS A DOWNLOAD, SO THE BUILD HAS TO BE ON SCREEN IN BOTH PLACES.
+//
+// Nobody gets a new helper by opening it - it is an exe somebody saved to the
+// laptop once. On 19 Aug 2026 Antonio's order stopped at 23:47 on a fault that
+// had already been found, and there was no way for him, or for us, to tell
+// which build he was running. The date below is the current one; the helper
+// prints its own build under its name and on the first line of every run, so
+// the two can be compared without asking anybody.
+//
+// The ?v= is not decoration either: without it the browser is entitled to hand
+// back the copy it downloaded in August and call that a fresh download.
+var ML_HELPER_BUILD = '2026-08-20';
+var ML_HELPER_EXE = 'downloads/FMC-order-helper.exe?v=' + ML_HELPER_BUILD;
 
 function mlOrderHelper(){
   var w = document.getElementById('order-view');
@@ -2734,6 +2746,10 @@ function mlOrderHelper(){
     'For the laptop that has Materials Control on it. Windows only.' +
     '<div style="margin:10px 0"><a class="report-btn" style="text-decoration:none" ' +
       'href="' + ML_HELPER_EXE + '" download>Download the order helper</a></div>' +
+    '<div style="margin:-4px 0 10px">The current one is <b>build ' +
+      ML_HELPER_BUILD + '</b>. The helper shows its build under its name, top ' +
+      'left, and on the first line of every run. If the laptop says an older ' +
+      'date, download it again before you order.</div>' +
     '<b>What to do</b><ol style="margin:6px 0 0 18px;padding:0">' +
       '<li>Open Materials Control on the Kitchen Market List.</li>' +
       '<li>Open the helper, pick the day, read the plan.</li>' +
