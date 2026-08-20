@@ -887,6 +887,8 @@ function renderMarketList(){
       <label class="ml-check"><input id="ml-only" type="checkbox" ${mlOrderedOnly?'checked':''} onchange="mlOnOnly(this.checked)"> Ordered only</label>
       <div class="ml-actions">
         <button class="report-btn ml-quickedit" id="ml-quickedit" onclick="mlQuickEditToggle()">🔒 Edit list</button>
+        <button class="report-btn ml-sortaz" id="ml-sortaz" onclick="mlSortAZ()" style="display:none"
+                title="Put every category back into A–Z order — it says how many items move before it moves any">Sort A–Z</button>
         <button class="report-btn ml-undo" id="ml-undo" onclick="mlUndoLast()" disabled>↩ Undo</button>
         <span class="ml-actions-gap"></span>
         <button class="report-btn" onclick="mlPrint()">Print</button>
@@ -1362,6 +1364,85 @@ async function mlApplyOrder(movedId, ids){
   if(typeof kToast==='function') kToast('✓ ' + moved.name + ' moved — everyone sees the new order');
 }
 
+// ── PUT THE WHOLE LIST BACK IN A–Z ────────────────────────────────
+// The second half of Antonio’s message, 20 Aug 2026: "il mio suggerimento e’ di
+// riordinare ancora una volta la lista". By hand that is 404 drags, and the state
+// it produces is exactly the state one stray finger had already undone — so it is
+// a button, and it is behind the same admin code as the drag above.
+//
+// It sorts INSIDE each category and hands the rows back the sort_order numbers
+// that category ALREADY occupies. Two things follow, and both matter: one
+// category can never walk into the next one’s numbers, and only the rows that
+// genuinely move are written — pressed on the live list 20 Aug 2026 it sent 2
+// PATCHes, not 404. Which category comes first on screen is ML_CAT_ORDER, and
+// this does not touch it.
+//
+// The comparator is the one the list is ALREADY sorted by — the same
+// trim/toLowerCase comparison mlAddCustom has used since 19 Aug to slot a new
+// line in. Deliberately NOT localeCompare: its answer changes with the device’s
+// language, so two chefs pressing this button would write two different orders
+// and each would look wrong to the other.
+//
+// And it sorts on `it.name` AS SHOWN, which for a coded line is FMC’s name —
+// mlApplyFmcFacts overwrites the stored name on every load. That is not a
+// detail: the rebuild done straight from the database earlier the same day
+// sorted the STORED names, and left the two Langoustine lines crossed over on
+// screen — one of them is stored as "langoustine8/11 italy" and shown as
+// "Langoustine 8-11 Pcs/kg Whole Drozen". The eye reads the screen, so the
+// screen is what has to sort.
+function mlByName(a, b){
+  const x = String(a.name || '').trim().toLowerCase();
+  const y = String(b.name || '').trim().toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+async function mlSortAZ(){
+  if(!mlMayEditList('Sorting the list back into A–Z')) return;
+  const byCat = {};
+  mlItems.forEach(function(it){ (byCat[it.category] = byCat[it.category] || []).push(it); });
+
+  // Nothing is mutated until it has been agreed to — a cancelled confirm must
+  // leave the list in memory exactly as the table still has it.
+  const plan = [];                                  // [{it, want}]
+  Object.keys(byCat).forEach(function(cat){
+    const rows  = byCat[cat].slice().sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0); });
+    const slots = rows.map(function(i){ return i.sort_order||0; });   // ascending, and already distinct
+    rows.slice().sort(mlByName).forEach(function(it, i){
+      if((it.sort_order||0) !== slots[i]) plan.push({ it: it, want: slots[i] });
+    });
+  });
+
+  if(!plan.length){
+    if(typeof kToast === 'function') kToast('The list is already in A–Z order — nothing moved.');
+    return;
+  }
+  // Says how many BEFORE it moves any: the whole complaint was a shared order
+  // changing without anybody being told.
+  const many = plan.length === 1 ? '1 item' : plan.length + ' items';
+  if(!confirm('Put every category back into A–Z order?\n\n' + many + ' of ' + mlItems.length
+      + ' move. Categories stay where they are, and nobody’s quantities are touched.\n\n'
+      + 'Everyone sees the new order.')) return;
+
+  plan.forEach(function(pl){ pl.it.sort_order = pl.want; });
+  mlItems.sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0); });
+  mlRenderRows(mlVisibleDays());                    // show it before the network answers
+
+  const results = [];
+  for(let i = 0; i < plan.length; i += 5){          // chunked, exactly as a drag writes
+    mlReorderEchoUntil = Date.now() + 4000;         // re-armed per chunk: a long sort must not out-run it
+    const chunk = plan.slice(i, i + 5);
+    results.push(...await Promise.all(chunk.map(function(pl){
+      return sb.from('order_items').update({ sort_order: pl.want }).eq('id', pl.it.id);
+    })));
+  }
+  if(results.some(function(r){ return r && r.error; })){
+    mlReorderEchoUntil = 0;
+    if(typeof kToast === 'function') kToast('Could not save the new order — putting the list back as it was.', true);
+    await loadMarketList(); renderMarketList(); return;
+  }
+  if(typeof kToast === 'function') kToast('✓ Sorted A–Z — ' + many + ' moved. Everyone sees it.');
+}
+
 // Coalesce a burst of order_items events into one reload, and never re-render
 // while a row is being held.
 function mlScheduleItemsReload(){
@@ -1661,7 +1742,7 @@ function mlInjectCss(){
     // to fire the ellipsis and print "↩ UND…" on the button whose whole job is
     // to say what it will undo. It sizes to its text now, and only the long
     // "Undo the supplier on '…'" label is clamped, which is what the clamp is for.
-    '.ml-quickedit,.ml-undo{flex:0 0 auto}',
+    '.ml-quickedit,.ml-undo,.ml-sortaz{flex:0 0 auto}',
     '.ml-actions{flex-wrap:wrap}',
     '.ml-undo{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.ml-undo:disabled{opacity:.45;cursor:not-allowed}',
@@ -1702,7 +1783,7 @@ function mlInjectCss(){
     // The lock is a mode switch, not a one-shot action like Print, so it sits
     // first and the gap pushes the report buttons away from it.
     '.ml-actions-gap{flex:1 1 12px;min-width:0}',
-    '@media print{.ml-x,.ml-supbtn,.ml-supmenu,.ml-quickedit,.ml-undo,.ml-qbar{display:none}}'
+    '@media print{.ml-x,.ml-supbtn,.ml-supmenu,.ml-quickedit,.ml-undo,.ml-sortaz,.ml-qbar{display:none}}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1819,7 +1900,9 @@ var mlLockTimer = null;
 //   ORDERING  — typing a quantity against a day. Everybody, always, untouched.
 //               It is what the boys are on this screen to do.
 //   THE LIST  — adding a line, taking one off, repointing it at another
-//               article, changing who it is ordered from. Admin code only.
+//               article, changing who it is ordered from, and (20 Aug 2026,
+//               Antonio again) MOVING one into a different place. Admin
+//               code only.
 //
 // A wrong ingredient added here is ordered, delivered and invoiced before
 // anybody reads it back, which is why the add box is the one that mattered
@@ -1848,8 +1931,8 @@ var ML_LOCK_IDLE_MS = 10 * 60 * 1000;   // a pass screen gets walked away from
 function mlQuickEditToggle(){
   if(mlEditUnlocked){ mlLock('List locked.'); return; }
   var code = prompt('Unlocking lets you change the MARKET LIST itself - add an item, take '
-    + 'one off, change who it is ordered from.\n\nOrdering is never locked: anybody '
-    + 'can type quantities.\n\nEnter the admin code:');
+    + 'one off, change who it is ordered from, move it into a different place.\n\nOrdering '
+    + 'is never locked: anybody can type quantities.\n\nEnter the admin code:');
   if(code === null) return;                       // Cancel
   code = String(code).trim();
   if(!ML_ADMIN[code]){
@@ -1864,7 +1947,7 @@ function mlQuickEditToggle(){
   mlRenderRows(mlVisibleDays());
   mlRenderQuickBar();
   if(typeof kToast === 'function') kToast('List unlocked for ' + mlWho.name
-    + ' - you can add, remove and change suppliers. It locks itself after 10 quiet minutes.');
+    + ' - you can add, remove, change suppliers and re-order the list. It locks itself after 10 quiet minutes.');
 }
 
 function mlLock(msg){
@@ -1966,16 +2049,17 @@ function mlQuickBarHtml(){
       + 'title="Tap to lock quick edit again">'
       + '<span class="ml-qbar-ico">\uD83D\uDD13</span>'
       + '<span class="ml-qbar-txt"><b>The list is unlocked.</b> You can add items, take them '
-      + 'off and change who they come from. It locks itself after ten quiet minutes.</span>'
+      + 'off, change who they come from and drag them into a new order. It locks itself '
+      + 'after ten quiet minutes.</span>'
       + '<span class="ml-qbar-act">Lock it</span></div>';
   }
   return '<div class="ml-qbar" role="button" tabindex="0" onclick="mlQuickEditToggle()" '
     + 'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mlQuickEditToggle();}" '
     + 'title="Tap and enter the admin code to edit from the row">'
     + '<span class="ml-qbar-ico">\uD83D\uDD12</span>'
-    + '<span class="ml-qbar-txt"><b>The list is locked</b> - that is why there is no Add box '
-    + 'and no cross on a row. Ordering still works: type quantities as usual. Unlock it to '
-    + 'change the list itself.</span>'
+    + '<span class="ml-qbar-txt"><b>The list is locked</b> - that is why there is no Add box, '
+    + 'no cross on a row, and no row can be dragged into a different place. Ordering still '
+    + 'works: type quantities as usual. Unlock it to change the list itself.</span>'
     + '<span class="ml-qbar-act">Turn it on</span></div>';
 }
 
@@ -1987,9 +2071,15 @@ function mlRenderQuickBar(){
     q.textContent = mlEditUnlocked ? '🔓 List unlocked' : '🔒 Edit list';
     q.classList.toggle('on', mlEditUnlocked);
     q.title = mlEditUnlocked
-      ? 'On — ✕ takes a line off the list, ▾ changes who it is ordered from. Tap to lock it again.'
-      : 'Off — tap and enter the admin code to get ✕ and ▾ on every row.';
+      ? 'On — ✕ takes a line off the list, ▾ changes who it is ordered from, ⠿ drags it into a new place. Tap to lock it again.'
+      : 'Off — tap and enter the admin code to get ✕, ▾ and the drag handle on every row.';
   }
+  // Only offered to the person holding the code, and shown/hidden here rather
+  // than in renderMarketList: unlocking redraws the rows and this bar, never the
+  // toolbar, because a toolbar re-render would blow away whatever is typed in the
+  // search box.
+  var az = document.getElementById('ml-sortaz');
+  if(az) az.style.display = mlEditUnlocked ? '' : 'none';
   var u = document.getElementById('ml-undo');
   if(u){
     var last = mlUndo[mlUndo.length - 1];
