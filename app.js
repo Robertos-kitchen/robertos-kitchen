@@ -905,7 +905,13 @@ async function renderDashboard(){
   // Tonight's covers
   const tonight = dashCovers[TODAY];
   const nightCovers = tonight ? tonight.night_covers : null;
-  const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
+  // A sync stamp that carries its DAY, not just a time of day. "updated 23:26" read as
+  // "a few minutes ago" at 10am on 20 Aug when it was in fact last night's sync.
+  const coversUpdated = tonight ? (function(){
+    const d = new Date(tonight.updated_at);
+    const t = d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    return formatDate(d) === TODAY ? t : d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + ' ' + t;
+  })() : null;
 
   // Live "still expected" breakdown straight from SevenRooms (read-only)
   const flowFor = flowDate || TODAY;
@@ -976,16 +982,29 @@ async function renderDashboard(){
   // bookings only), so 88 here against 0 there is normal before service ends. Both
   // numbers are right — only the labels were missing, and a careful reader already
   // read the pair as a bug. The figures below are untouched.
-  const coversCard = nightCovers !== null
+  // LIVE WINS. Both figures are already in hand on this render — liveTonight came back from
+  // SevenRooms a few lines above, and nightCovers is whatever the last laptop sync wrote to the
+  // `covers` table. Preferring the cached row meant that on 20 Aug this tile read 52 while the
+  // flow footer on the SAME screen read 56, then 58 half an hour later. This is the number the
+  // pass preps to, so it must be the freshest one we have, and the fallback must say plainly
+  // that it is a stored figure rather than wear a "SevenRooms" caption that implies live.
+  const liveBooked = (liveTonight && liveTonight.booked != null) ? liveTonight.booked : null;
+  const coversCard = liveBooked !== null
+    ? `<div class="ops-card dark dash-covers-card">
+        <div class="ops-num">${liveBooked}</div>
+        <div class="ops-label">Tonight's covers booked</div>
+        <div class="dash-covers-sync">Live from SevenRooms</div>
+       </div>`
+    : nightCovers !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${nightCovers}</div>
         <div class="ops-label">Tonight's covers booked</div>
-        ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
+        <div class="dash-covers-sync">${coversUpdated ? 'Last synced ' + coversUpdated + ' — not live' : 'Stored figure — not live'}</div>
        </div>`
     : `<div class="ops-card dash-covers-card dash-no-covers">
-        <div class="ops-num">${liveTonight ? liveTonight.booked : '—'}</div>
+        <div class="ops-num">—</div>
         <div class="ops-label">Tonight's covers booked</div>
-        <div class="dash-covers-sync">${liveTonight ? 'Live from SevenRooms' : 'Not synced — use laptop to sync'}</div>
+        <div class="dash-covers-sync">Not synced — use laptop to sync</div>
        </div>`;
 
   document.getElementById('dashboard-view').innerHTML=`
