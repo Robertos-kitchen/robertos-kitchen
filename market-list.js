@@ -1050,8 +1050,35 @@ let mlKeepScrollOnNextRender = false;  // set only by the realtime reload; see r
 // Reordering is only offered on the whole list. While a search or "Ordered
 // only" is on, the rows on screen are a subset, and renumbering a subset would
 // silently shuffle the items it is hiding.
-function mlCanReorder(){ return !mlSearch && !mlOrderedOnly; }
+// MOVING A ROW IS A CHANGE TO THE LIST, NOT PART OF ORDERING - 20 Aug 2026.
+//
+// The 2468 lock of 19 Aug covered adding a line, taking one off, repointing it
+// at another article and changing its supplier. It did NOT cover the drag, and
+// the team moved rows by accident: eight lines were found sitting on half-step
+// sort_order values (110045, 130185, 130195 - the fingerprint of a drop between
+// two rows), and the alphabetical order Antonio had just rebuilt had to be
+// rebuilt again from the database.
+//
+// A drag is not a private act. It rewrites the order every other chef sees, and
+// the FMC assortment is mirrored FROM this order - so a row dragged here moves
+// in Materials Control too, the next time the mirror runs. That is the same
+// class of change as adding an ingredient nobody agreed to, which is what
+// Antonio asked for the code for.
+//
+// ORDERING IS UNTOUCHED. Anybody can still type quantities against a day, always
+// - that is what the boys are on this screen to do, and no code is ever asked
+// for. Only the ORDER OF THE ROWS is behind the code.
+//
+// Nothing new is drawn for this: the grip already renders `.off` with a reason
+// in its tooltip whenever reordering is unavailable (search, Ordered only), and
+// a press on a locked grip already toasts mlWhyNoReorder(). Unlocking re-renders
+// the rows, so the grips come alive the moment the code is accepted.
+function mlCanReorder(){ return mlEditUnlocked && !mlSearch && !mlOrderedOnly; }
 function mlWhyNoReorder(){
+  if(!mlEditUnlocked)
+    return 'The list is locked, so rows cannot be moved. Ordering is not affected '
+         + '- you can still type quantities. To change the order, tap the bar at '
+         + 'the top of the screen and enter the admin code.';
   return mlSearch ? 'Clear the search box to drag items into a new order.'
                   : 'Untick “Ordered only” to drag items into a new order.';
 }
@@ -1277,6 +1304,17 @@ function mlGripKey(e, id){
 
 // `ids` is one category's rows in their new on-screen order.
 async function mlApplyOrder(movedId, ids){
+  // THE CHOKE POINT. Both gestures - the drag and the arrow keys - end here, and
+  // this is the only place a new order is written to the database. mlCanReorder()
+  // already stops both entry points; this is the belt to that pair of braces, so
+  // no future caller can reach the write without the code. Reloading puts the row
+  // back where the database still says it is, rather than leaving the screen
+  // showing a move that was never saved.
+  if(!mlEditUnlocked){
+    mlMayEditList('Moving a row');
+    await loadMarketList(); renderMarketList();
+    return;
+  }
   const byId = {}; mlItems.forEach(i=>{ byId[i.id]=i; });
   const list = ids.map(id=>byId[id]).filter(Boolean);
   // Somebody else changed the list underneath us — take theirs, not a guess.
