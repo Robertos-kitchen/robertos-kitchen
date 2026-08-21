@@ -1,4 +1,4 @@
-const CACHE = 'robertos-kitchen-v1787209492';
+const CACHE = 'robertos-kitchen-v1787331509';
 // Pre-cache only the shell. The JS files are always requested with a
 // ?v=<stamp> query, so unversioned './app.js' etc. would sit in the cache
 // unused forever — the fetch handler below runtime-caches the real versioned

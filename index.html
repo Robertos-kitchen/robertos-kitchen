@@ -1259,6 +1259,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .kev-prow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;font-size:13.5px;color:var(--ink);border-bottom:1px solid rgba(207,192,173,.5)}
 .kev-prow:last-child{border-bottom:none}.kev-dish b{color:var(--vino)}
 .kev-alg{font-size:10.5px;color:#9a7b5f}.kev-comp{font-size:10.5px;color:var(--oliva)}.kev-def{font-size:10px;color:#b0892f}
+/* What the dish IS, under its name. A chef cannot cook "Sea bass tart" from the name. Darker than .kev-sub on purpose: this is read, not glanced at. */
+.kev-desc{font-size:11.5px;line-height:1.4;color:#6B4A33;margin-top:2px}
+.kev-prow{align-items:flex-start}.kev-dish{flex:1;min-width:0}.kev-qty{padding-top:1px}
 .kev-qty{font-family:var(--font-serif);font-size:16px;color:var(--vino);white-space:nowrap}.kev-min{font-size:10px;color:#b00020}
 .kev-ovr-n{color:var(--vino);white-space:normal;display:inline-block;max-width:240px;vertical-align:middle;text-align:right}.kev-ovr-was{font-size:10.5px;color:#8a6a4f;font-family:var(--font-sans,inherit)}
 .kev-edit{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:#8a6a4f;background:transparent;border:1px solid #d8c6ad;border-radius:6px;padding:2px 7px;margin-left:8px;cursor:pointer;vertical-align:middle;font-family:inherit}
@@ -1470,7 +1473,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1787318417"></script>
+<script src="app.js?v=1787331509"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH

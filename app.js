@@ -1955,7 +1955,7 @@ function kevMenuModelRaw(e){
   }
   if(e.kind==='canape' && e.menu && e.menu.length){
     var rows2 = e.menu.map(function(m){
-      return {name:m.name, group:m.group, qty:m.qty, unit:m.unit||'pcs', sub:(m.per_guest?m.per_guest+' / guest':''), allergens:m.allergens||[], comp:m.comp, unconfirmed:m.unconfirmed, min_flag:m.min_flag}; });
+      return {name:m.name, group:m.group, qty:m.qty, unit:m.unit||'pcs', sub:(m.per_guest?m.per_guest+' / guest':''), desc:m.desc||'', allergens:m.allergens||[], comp:m.comp, unconfirmed:m.unconfirmed, min_flag:m.min_flag}; });
     return { rows:rows2, total_label:(e.total_pcs||0)+' pcs'+(e.pcs_per_guest?' · '+e.pcs_per_guest+' / guest':''), empty_msg:null };
   }
   return { rows:[], total_label:'', empty_msg: e.bev_only ? 'Beverage only — no kitchen prep' : 'No dishes listed yet — check with the events desk' };
@@ -2090,6 +2090,11 @@ function kevPrepRows(e){
       (m.allergens&&m.allergens.length?' <span class="kev-alg">'+kevEsc(kevAlg(m.allergens))+'</span>':'')+
       (m.sub?' <span class="kev-sub">'+kevEsc(m.sub)+'</span>':'')+
       (m.unconfirmed?' <span class="kev-def">to confirm</span>':'')+
+      // The dish name alone cannot be cooked from, and cannot be handed to the
+      // pass as a menu. The wording is recorded in Chef Corner (canapes) or on
+      // the menu itself (set menus) and now arrives on the feed, so it belongs
+      // here, under the name, on the chef's own screen.
+      (m.desc?'<div class="kev-desc">'+kevEsc(m.desc)+'</div>':'')+
       '</div><div class="kev-qty">'+
         (m.ovr?'<b class="kev-ovr-n">'+(m.ovr_label!=null?kevEsc(m.ovr_label):(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—'))+'</b> <span class="kev-ovr-was">events: '+(m.base_qty==null?'—':m.base_qty)+'</span>'
              :(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—'))+
@@ -2139,7 +2144,8 @@ function kevPrintMenu(id){
   mm.rows.forEach(function(m){
     if(m.group && m.group!==lastG){ lastG = m.group; rows += '<tr><td colspan="2" style="background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8A6A4F">'+kevEsc(m.group)+'</td></tr>'; }
     var note = [kevAlg(m.allergens), m.sub].filter(Boolean).join(' · ');
-    rows += '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+(note?' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(note)+'</span>':'')+'</td>'+
+    rows += '<tr><td>'+kevEsc(m.name)+(m.comp?' — on the house':'')+(note?' <span style="color:#9a7b5f;font-size:11px">'+kevEsc(note)+'</span>':'')+
+      (m.desc?'<div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#6B4A33;line-height:1.4;margin-top:3px">'+kevEsc(m.desc)+'</div>':'')+'</td>'+
       '<td style="text-align:right"><b>'+(m.ovr_label!=null?kevEsc(m.ovr_label):(m.qty!=null?m.qty+' '+(m.unit||'pcs'):'—'))+'</b>'+
       (m.ovr?' <span style="color:#9a7b5f;font-size:11px">(events: '+(m.base_qty==null?'—':m.base_qty)+')</span>':'')+
       (m.min_flag?' <span style="color:#b00020;font-size:11px">min '+m.min_flag+'</span>':'')+'</td></tr>';
