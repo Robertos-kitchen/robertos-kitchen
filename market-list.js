@@ -423,10 +423,12 @@ var mlArticles   = [];        // [{code,name,unit,supplier,on_assortment,retirin
 var mlArtByCode  = {};        // code -> article, for flagging existing lines
 var mlArtLoaded  = false;     // false until the fetch lands (or fails)
 
-// Loaded once per open, after the grid is drawn. The market list must work at
-// full speed whether or not this ever arrives: with no catalogue the add box
-// falls back to plain free text, which is exactly what it did before, and no
-// row gets a flag it cannot justify.
+// Loaded once per open, after the grid is drawn. Everything EXCEPT adding must
+// work at full speed whether or not this ever arrives - reading, ordering and
+// the quantities all do. Adding cannot: since 21 Aug 2026 a line needs an FMC
+// article behind it, so with no catalogue there is nothing to pick from. The
+// add box says it is still loading and mlAddCustom refuses rather than
+// creating a row it cannot justify.
 async function mlLoadArticles(){
   var rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_articles')
@@ -577,12 +579,18 @@ function mlRenderPickMenu(category, safe){
       '<span class="ml-pick-code">' + mlEsc(a.code) + '</span></div>';
   }).join('');
 
-  // Free text is ALWAYS offered when CREATING a line, whether or not anything
-  // matched: eleven lines genuinely have no FMC article and blocking them
-  // would be wrong. Repointing is the opposite case — it exists to put a real
-  // article behind a line, so "none of these" is not an answer there.
+  // Free text used to be offered here when CREATING a line, and is not any
+  // more - Francesco removed it 21 Aug 2026. A line with no FMC article
+  // cannot be ordered: the mirror's `read_market_list` keeps only lines that
+  // carry a code, so an uncoded line is invisible to FMC for ever, and the
+  // sync then looks as though it quietly did less than it said. It was
+  // already unused - 0 of 404 active lines had no code on the day it went.
+  //
+  // Adding and repointing now behave the SAME WAY: only a real article will
+  // do, and 'nothing matches' is a dead end rather than a way through.
+  if(!st.hits.length) html = '<div class="ml-pick-free">Nothing on the FMC assortment matches. '
+    + 'An item has to be in the FMC article catalogue before it can go on the market list.</div>';
   if(safe === 'repoint'){
-    if(!st.hits.length) html = '<div class="ml-pick-free">Nothing on the FMC assortment matches.</div>';
     box.innerHTML = html;
     box.style.display = 'block';
     Array.prototype.forEach.call(box.querySelectorAll('[data-i]'), function(el){
@@ -590,10 +598,6 @@ function mlRenderPickMenu(category, safe){
     });
     return;
   }
-  html += '<div class="ml-pick-free' + (st.sel===st.hits.length?' sel':'') +
-    '" data-i="' + st.hits.length + '"><b>Add “' + mlEsc(q) + '” anyway</b>' +
-    '<span>' + (st.hits.length ? 'None of these is right' : 'No FMC article matches') +
-    ' — the item is created and marked <b>not in FMC</b>.</span></div>';
 
   box.innerHTML = html;
   box.style.display = 'block';
@@ -607,13 +611,13 @@ function mlAddKey(e, category, safe){
   var st = mlPickState[safe]; if(!st) return;
   var box = document.getElementById('mlpick-' + safe);
   var open = box && box.style.display === 'block';
-  if(e.key === 'ArrowDown' && open){ e.preventDefault(); st.sel = Math.min(st.hits.length, st.sel+1); mlRenderPickMenu(category, safe); }
+  if(e.key === 'ArrowDown' && open){ e.preventDefault(); st.sel = Math.max(0, Math.min(st.hits.length - 1, st.sel+1)); mlRenderPickMenu(category, safe); }
   else if(e.key === 'ArrowUp' && open){ e.preventDefault(); st.sel = Math.max(0, st.sel-1); mlRenderPickMenu(category, safe); }
   else if(e.key === 'Escape' && open){ e.preventDefault(); box.style.display='none'; }
   else if(e.key === 'Enter'){
     e.preventDefault();
     if(open) mlPickChoose(category, safe, st.sel);
-    else mlAddCustom(category, safe);        // catalogue never loaded — plain add
+    else mlAddCustom(category, safe);        // refused unless an article is picked; was: catalogue never loaded — plain add
   }
 }
 
@@ -621,11 +625,16 @@ function mlPickChoose(category, safe, i){
   var st = mlPickState[safe]; if(!st) return;
   var box = document.getElementById('mlpick-' + safe);
   var inp = document.getElementById('mladd-' + safe);
-  if(i < st.hits.length){
+  if(i >= 0 && i < st.hits.length){
     st.picked = st.hits[i];
     if(inp) inp.value = st.picked.name;
   } else {
-    st.picked = null;                        // free text: keep what was typed
+    // No row past the last hit exists any more, and with no hits at all the
+    // selection sits at -1. Either way this is not a choice: close the menu
+    // and add NOTHING. st.hits[-1] would be undefined and throw on .name.
+    st.picked = null;
+    if(box) box.style.display = 'none';
+    return;
   }
   if(box) box.style.display = 'none';
   // The repoint picker shares this menu but not its destination: it changes
@@ -639,16 +648,18 @@ function mlPickChoose(category, safe, i){
 }
 
 // ── add an item ───────────────────────────────────────────────────────────
-// Two ways in, and both are legitimate:
-//   picked from the catalogue -> code, fmc_unit and supplier are filled here,
-//     with no second step for anybody. The pick IS the confirmation, so
-//     fmc_verified_at is stamped: a line resolved against the assortment is at
-//     least as trustworthy as one matched by hand on the Match-to-FMC screen,
-//     and leaving it blank would send it back into that queue to be answered
-//     a second time.
-//   free text -> fmc_none, which says a PERSON decided there is no article.
-//     That is a different fact from silence, and it keeps the line out of the
-//     Match-to-FMC count for ever instead of asking the same question weekly.
+// ONE way in: the item must be picked from the FMC article catalogue. The
+// pick fills code, fmc_unit and supplier here, with no second step for
+// anybody, and stamps fmc_verified_at - a line resolved against the
+// assortment is at least as trustworthy as one matched by hand on the
+// Match-to-FMC screen, and leaving it blank would send it back into that
+// queue to be answered a second time.
+//
+// Free text used to be a second way in, and was removed 21 Aug 2026. An
+// uncoded line cannot be ordered and cannot be mirrored into FMC, so it sat
+// on the list looking real. Everything below assumes `art` exists; the gate
+// that makes that true is the first thing in the function, because all three
+// routes in - the Add button, Enter, and a pick from the menu - land here.
 async function mlAddCustom(category, safe){
   if(!mlMayEditList('Adding an item')) return;
   const inp = document.getElementById('mladd-' + safe);
@@ -657,6 +668,22 @@ async function mlAddCustom(category, safe){
   if(!typed) return;
   const st = mlPickState[safe] || {};
   const art = st.picked || null;
+
+  // THE GATE. Nothing goes on the market list without an FMC article behind
+  // it. Refuse out loud and say what to do - a silent return on a pressed
+  // button reads as the app being broken.
+  if(!mlArtLoaded){
+    alert('The FMC article list has not loaded yet - give it a moment and try again.');
+    return;
+  }
+  if(!art){
+    alert('Choose the item from the list that drops down as you type.\n\n'
+        + 'Only items in the FMC article catalogue can go on the market list, so that '
+        + 'they can actually be ordered.\n\n'
+        + 'If “' + typed + '” is not in that list, it has to be added in Materials '
+        + 'Control first.');
+    return;
+  }
 
   // ── slot it ALPHABETICALLY inside its category ──────────────────────────
   // This appended to the end of the category until 19 Aug 2026. Antonio had
@@ -690,18 +717,14 @@ async function mlAddCustom(category, safe){
     slot = Math.max(...inCat.map(i=>i.sort_order||0)) + 10;
   }
 
-  const row = { name: art ? art.name : typed, category,
-                unit: art ? (art.unit||'') : '',
-                sort_order: slot, active:true };
-  if(art){
-    row.code = art.code;
-    row.fmc_unit = art.unit || null;
-    row.supplier = art.supplier || null;
-    row.fmc_verified_at = new Date().toISOString();
-    row.fmc_verified_by = 'catalogue';
-  } else if(mlArtLoaded){
-    row.fmc_none = true;         // only claim this when we actually looked
-  }
+  const row = { name: art.name, category,
+                unit: art.unit || '',
+                sort_order: slot, active:true,
+                code: art.code,
+                fmc_unit: art.unit || null,
+                supplier: art.supplier || null,
+                fmc_verified_at: new Date().toISOString(),
+                fmc_verified_by: 'catalogue' };
 
   const { data, error } = await sb.from('order_items').insert(row).select().single();
   if(error){ alert('Could not add item: ' + error.message); return; }
@@ -714,8 +737,7 @@ async function mlAddCustom(category, safe){
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
   if(typeof kToast === 'function'){
-    kToast(art ? ('✓ ' + art.name + ' added · ' + art.code + ' · ' + (art.unit||''))
-               : ('✓ ' + typed + ' added — marked not in FMC'));
+    kToast('✓ ' + art.name + ' added · ' + art.code + ' · ' + (art.unit||''));
   }
   // keep focus flowing: re-focus the same category's add box
   const again = document.getElementById('mladd-' + safe);
@@ -1553,7 +1575,7 @@ function mlRenderRows(days){
       html += `<div class="ml-catadd">
         <div class="ml-catadd-combo">
           <input class="check-input ml-catadd-input" id="mladd-${safe}" autocomplete="off"
-                 placeholder="${mlArtLoaded?`Add item to ${cat} — type to find an FMC article…`:`Add item to ${cat}…`}"
+                 placeholder="${mlArtLoaded?`Add item to ${cat} — type to find an FMC article…`:`Loading the FMC article list…`}"
                  oninput="mlAddInput('${c1}','${safe}',this.value)"
                  onkeydown="mlAddKey(event,'${c1}','${safe}')">
           <div class="ml-pick-menu" id="mlpick-${safe}"></div>
