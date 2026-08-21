@@ -19,6 +19,55 @@ let fdBizDate = null;  // 'YYYY-MM-DD' — the sheet's business date (= TODAY)
 let fdPendingRender = false;  // a remote change arrived while a cell was focused; apply on blur
 function fdGridFocused(){ const a=document.activeElement; return !!(a && a.classList && a.classList.contains('fd-in')); }
 
+// -- why this tab has a name, and why it remembers what it typed ---------------
+// The whole sheet is ONE json document and every keystroke saves all of it.
+// Supabase sends that write straight back to the tab that made it, and until
+// 21 Aug 2026 the echo handler replaced fdDoc with it unconditionally - with a
+// snapshot that was already half a second stale. Anything typed in the meantime
+// was dropped from memory, and the NEXT keystroke's save then wrote the
+// shortened document back over the database, so the quantity was gone for good.
+// The screen kept showing it (the redraw is deferred while a cell has focus),
+// which is why it only seemed to change when the cook left the cell to print.
+// Measured on the deployed build: a 515ms echo against a 150ms debounce, so any
+// cell filled in under half a second was at risk. Antonio reported it as the
+// quantity "changing automatically when I try to print".
+//   FD_TAB  - lets this tab recognise its own echo and ignore it.
+//   fdDirty - every cell typed here since this tab's last CONFIRMED save, so
+//             another device's whole-document write cannot silently undo it.
+const FD_TAB = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const FD_CLAIM_MS = 10000;     // how long a just-typed cell is defended (echoes take <1s)
+const FD_CLAIM_PUSHES = 2;     // and how many times we re-assert it, so two people
+                               // fighting over ONE cell settles instead of ping-ponging
+const fdDirty = new Map();     // 'e|item|field' . 'l|list|row' . 'o' . 'b'  ->  {v,at,pushes}
+
+function fdReadKey(doc, k){
+  const p = k.split('|');
+  if(p[0]==='e'){ const e = doc.entries[p[1]]; return (e && e[p[2]]!=null) ? e[p[2]] : ''; }
+  if(p[0]==='l'){ const a = doc[p[1]]; return (Array.isArray(a) && a[+p[2]]!=null) ? a[+p[2]] : ''; }
+  if(p[0]==='o') return doc.oyster || '';
+  if(p[0]==='b') return String(doc.blank_rows==null ? 3 : doc.blank_rows);
+  return '';
+}
+function fdWriteKey(doc, k, v){
+  const p = k.split('|');
+  if(p[0]==='e'){
+    if(v===''){ if(doc.entries[p[1]]){ delete doc.entries[p[1]][p[2]];
+                  if(!Object.keys(doc.entries[p[1]]).length) delete doc.entries[p[1]]; } }
+    else { if(!doc.entries[p[1]]) doc.entries[p[1]] = {}; doc.entries[p[1]][p[2]] = v; }
+    return;
+  }
+  if(p[0]==='l'){ if(!Array.isArray(doc[p[1]])) doc[p[1]]=[];
+                  while(doc[p[1]].length <= +p[2]) doc[p[1]].push('');
+                  doc[p[1]][+p[2]] = v; return; }
+  if(p[0]==='o'){ doc.oyster = v; return; }
+  if(p[0]==='b'){ doc.blank_rows = +v || 0; return; }
+}
+function fdMark(k, v){ fdDirty.set(k, { v: v==null ? '' : String(v), at: Date.now(), pushes: 0 }); }
+function fdPruneClaims(){
+  const now = Date.now();
+  fdDirty.forEach((c,k)=>{ if(now - c.at > FD_CLAIM_MS) fdDirty.delete(k); });
+}
+
 function fdEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fdBlankDoc(){ return { entries:{}, oyster:'', low85:['',''], out86:['',''], push:['',''], blank_rows:3 }; }
 function fdNormalise(d){
@@ -36,6 +85,7 @@ function fdNormalise(d){
 // ── data load ──────────────────────────────────────────────────────────────
 async function loadFishDisplay(){
   fdBizDate = TODAY;
+  fdDirty.clear();                 // whatever we were defending, we are about to replace
   const it = await sb.from('fish_display_items').select('*').eq('active', true).order('kind').order('sort_order');
   fdItems = (it.data || []);
   const sh = await sb.from('fish_display_sheet').select('doc').eq('biz_date', fdBizDate).maybeSingle();
@@ -61,11 +111,33 @@ function subscribeFishDisplay(){
     .on('postgres_changes', { event:'*', schema:'public', table:'fish_display_sheet', filter:`biz_date=eq.${fdBizDate}` },
       payload => {
         const r = payload.new; if(!r) return;
-        fdDoc = fdNormalise(r.doc);
-        // NEVER re-render while a cell is focused — that would destroy the input the
-        // user is typing in (their own auto-save echoes back here). Defer instead.
-        if(activeStation === FISH_KEY){ if(fdGridFocused()) fdPendingRender = true; else renderFishDisplay(); }
         fdFlashSync();
+        // Our OWN write coming back. It can only be older than what we hold, never
+        // newer, so there is nothing to learn from it - and applying it is exactly
+        // what used to erase the cell typed while it was still in flight.
+        if(r.doc && r.doc._tab === FD_TAB) return;
+
+        // Someone else's write. It carries the WHOLE sheet, including their stale
+        // copy of the cells we have just typed, so put ours back before adopting it.
+        const remote = fdNormalise(r.doc);
+        const now = Date.now();
+        let ours = false;
+        fdDirty.forEach((c,k)=>{
+          // A claim is NOT released just because our own save succeeded: another
+          // device's save can already be in flight, built on the sheet as it was
+          // BEFORE ours landed, and it will overwrite us when it arrives. Hold the
+          // cell until a document written by someone else comes back carrying it.
+          if(now - c.at > FD_CLAIM_MS || c.pushes >= FD_CLAIM_PUSHES){ fdDirty.delete(k); return; }
+          if(fdReadKey(remote,k) === c.v){ fdDirty.delete(k); return; }   // shared sheet agrees
+          fdWriteKey(remote, k, c.v); c.pushes++; ours = true;
+        });
+        fdDoc = remote;
+        // NEVER re-render while a cell is focused - that would destroy the input
+        // the user is typing in. Defer instead.
+        if(activeStation === FISH_KEY){ if(fdGridFocused()) fdPendingRender = true; else renderFishDisplay(); }
+        // Their document did not carry our cells. Write ours back, so the database
+        // ends up agreeing with the screen instead of the screen holding it alone.
+        if(ours) fdSaveSoon();
       })
     .on('postgres_changes', { event:'*', schema:'public', table:'fish_display_items' },
       () => { if(activeStation === FISH_KEY){ loadFishDisplay().then(()=>{ if(activeStation!==FISH_KEY) return; if(fdGridFocused()) fdPendingRender=true; else renderFishDisplay(); }); } })
@@ -80,6 +152,8 @@ function fdFlashSync(){ const dot=document.getElementById('realtime-dot'); if(!d
 let fdSaveTimer = null;
 async function fdSave(){
   const snapshot = JSON.parse(JSON.stringify(fdDoc));
+  snapshot._tab = FD_TAB;            // so this tab knows its own echo; fdNormalise drops it on read
+  fdPruneClaims();
   const row = { biz_date: fdBizDate, doc: snapshot, updated_by:(window.CURRENT_USER||null), updated_at:new Date().toISOString() };
   const res = await sb.from('fish_display_sheet').upsert(row, { onConflict:'biz_date' });
   if(res && res.error){
@@ -87,6 +161,7 @@ async function fdSave(){
     // pull the server's truth back so the screen never shows what the DB doesn't have
     const sh = await sb.from('fish_display_sheet').select('doc').eq('biz_date', fdBizDate).maybeSingle();
     fdDoc = fdNormalise(sh && sh.data ? sh.data.doc : null);
+    fdDirty.clear();                 // we are deliberately discarding local state
     renderFishDisplay();
     if(String(res.error.message||'').indexOf('read-only')===-1) alert('Could not save — check connection.');
     else alert('DEV site is read-only — tap the DEV badge (bottom-left) to enable test writes.');
@@ -242,6 +317,7 @@ async function fdGripUp(){
 async function fdDelItem(id){
   fdItems = fdItems.filter(i=>i.id!==id);
   delete fdDoc.entries[id];
+  Array.from(fdDirty.keys()).forEach(k=>{ if(k.indexOf('e|'+id+'|')===0) fdDirty.delete(k); });
   renderFishDisplay();
   const res = await sb.from('fish_display_items').update({ active:false }).eq('id', id);
   if(res && res.error){ await loadFishDisplay(); renderFishDisplay(); }
@@ -357,17 +433,19 @@ function fdSetNum(id, field, val){
   val = (val==null?'':String(val)).trim();
   if(val==='') delete fdDoc.entries[id][field]; else fdDoc.entries[id][field] = val;
   if(!Object.keys(fdDoc.entries[id]).length) delete fdDoc.entries[id];
+  fdMark('e|'+id+'|'+field, val);
 }
 function fdSetList(key, r, val){
   if(!Array.isArray(fdDoc[key])) fdDoc[key]=[];
   while(fdDoc[key].length <= r) fdDoc[key].push('');
   fdDoc[key][r] = (val==null?'':String(val));
+  fdMark('l|'+key+'|'+r, fdDoc[key][r]);
 }
 function fdOnInput(e){
   const t=e.target; if(!fdIsCell(t)) return;
   const f=t.dataset.f;
   if(f==='name' || f==='newfish') return;             // committed on change (blur/Enter)
-  if(f==='oyster'){ fdDoc.oyster = t.value.trim(); fdSaveSoon(); return; }
+  if(f==='oyster'){ fdDoc.oyster = t.value.trim(); fdMark('o', fdDoc.oyster); fdSaveSoon(); return; }
   if(f==='list'){ fdSetList(t.dataset.grid, +t.dataset.r, t.value); fdSaveSoon(); return; }
   fdSetNum(t.dataset.id, f, t.value); fdSaveSoon();    // qty/kg/price/gr
 }
@@ -409,7 +487,7 @@ function fdOnPaste(e){
     const f=el.dataset.f; if(f==='name'||f==='newfish') return;   // never paste over names
     el.value = val.trim();
     if(f==='list') fdSetList(grid, r0+ri, val.trim());
-    else if(f==='oyster') fdDoc.oyster = val.trim();
+    else if(f==='oyster'){ fdDoc.oyster = val.trim(); fdMark('o', fdDoc.oyster); }
     else fdSetNum(el.dataset.id, f, val.trim());
   }); });
   fdSaveSoon();
@@ -429,9 +507,16 @@ async function fdCommitNewCav(el){
   if(idx>=0) fdFocusCell('cav', idx, 1);                // jump to the new caviar's Qty
 }
 
-function fdDelList(key,i){ if(Array.isArray(fdDoc[key])){ fdDoc[key].splice(i,1); } fdSaveSoon(); renderFishDisplay(); }
-function fdAddBlank(){ fdDoc.blank_rows=(fdDoc.blank_rows||0)+1; fdSaveSoon(); renderFishDisplay(); }
-function fdRemoveBlank(){ fdDoc.blank_rows=Math.max(0,(fdDoc.blank_rows||0)-1); fdSaveSoon(); renderFishDisplay(); }
+function fdDelList(key,i){
+  if(Array.isArray(fdDoc[key])){ fdDoc[key].splice(i,1); }
+  // the splice shifts every row after i, so the old row-keyed claims now point at
+  // the wrong lines - drop them and re-claim the list exactly as it now stands
+  Array.from(fdDirty.keys()).forEach(k=>{ if(k.indexOf('l|'+key+'|')===0) fdDirty.delete(k); });
+  (fdDoc[key]||[]).forEach((v,r)=> fdMark('l|'+key+'|'+r, v));
+  fdSaveSoon(); renderFishDisplay();
+}
+function fdAddBlank(){ fdDoc.blank_rows=(fdDoc.blank_rows||0)+1; fdMark('b', fdDoc.blank_rows); fdSaveSoon(); renderFishDisplay(); }
+function fdRemoveBlank(){ fdDoc.blank_rows=Math.max(0,(fdDoc.blank_rows||0)-1); fdMark('b', fdDoc.blank_rows); fdSaveSoon(); renderFishDisplay(); }
 
 // ── print (A3 landscape, white paper / black ink / bold clear font) ──────────
 function fdPrint(){
