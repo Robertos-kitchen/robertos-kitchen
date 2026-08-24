@@ -199,7 +199,7 @@ col.cq{width:92px}
 table.sheet td{padding:12px 8px;border-bottom:1px solid rgba(207,192,173,.65);vertical-align:top}
 table.sheet th{padding:8px}
 table.sheet td.w{padding-left:14px}
-select.prod,input.cell,select.unit{height:22px;line-height:22px;padding-top:0;padding-bottom:0}
+input.pick,input.cell,select.unit{height:22px;line-height:22px;padding-top:0;padding-bottom:0}
 td.money{line-height:22px}
 table.sheet tr.main:nth-of-type(odd) td{background:rgba(237,229,216,.45)}
 table.sheet tr.pick td{background:var(--attn-soft)}
@@ -230,15 +230,52 @@ td.w .fix{color:var(--vino);text-decoration:underline;cursor:pointer}
    the 11px back. Invisible on the pass and on any tablet because (pointer:coarse) lifts
    the height to 44px — so it only ever showed on a laptop with a mouse, which is exactly
    where Danilo and the team hit it. */
-select.prod{width:100%;min-width:150px;border:none;background:transparent;font-family:var(--sans);font-size:13.5px;color:var(--ink);padding:0 6px;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;
-  background-image:linear-gradient(45deg,transparent 50%,var(--vino-light) 50%),linear-gradient(135deg,var(--vino-light) 50%,transparent 50%);
-  background-position:calc(100% - 11px) calc(50% + 1px),calc(100% - 7px) calc(50% + 1px);background-size:4px 4px,4px 4px;background-repeat:no-repeat;padding-right:22px}
-select.prod:focus{background-color:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
-select.prod.empty{color:var(--attn);font-weight:600}
-select.prod option{color:var(--ink);font-weight:400}
-select.prod optgroup{color:var(--vino-light);font-weight:700}
+/* `select.prod` was the ingredient dropdown and it lived here. It is a box he types in
+   now — `input.pick` below — and the rules went with the control rather than being left
+   behind for somebody to read as still being on the page. */
 
-/* Zero vertical padding, for the same arithmetic as select.prod above — 22 − 11 − 11 = 0,
+/* ───── typing the ingredient on the line ─────
+   Antonio, 24 Aug: "Be able to write on the line the ingredient I need and then a list
+   of Items will show up and I'll choose the correct one." So the Ingredient column is a
+   box he writes in, and the catalogue answers as he writes.
+
+   The list is drawn in a FIXED layer on the body, never inside the cell. `.sheetwrap`
+   turns into `overflow-x:auto` on anything under 1024px (line 184), and a suggestion
+   list clipped at the edge of a scrolling table is worse than no list at all. One layer,
+   one list, wherever on the sheet the line happens to be. */
+input.pick{width:100%;min-width:150px;border:none;background:transparent;font-family:var(--sans);
+  font-size:13.5px;color:var(--ink);padding:0 6px;outline:none;box-sizing:border-box;
+  text-overflow:ellipsis}
+input.pick:focus{background-color:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
+/* nothing picked yet: the same colour the dropdown used to say it with */
+input.pick.empty{color:var(--attn);font-weight:600}
+input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
+#cbpop{position:fixed;z-index:400;display:none;background:#fff;border:1px solid var(--vino);
+  border-radius:4px;box-shadow:0 12px 28px rgba(43,10,15,.24);max-height:52vh;overflow-y:auto;
+  font-family:var(--sans);-webkit-overflow-scrolling:touch}
+#cbpop.on{display:block}
+#cbpop .cbg{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--vino-light);
+  font-weight:700;padding:7px 10px 4px;background:var(--sabbia-light);position:sticky;top:0}
+#cbpop .cbo{display:block;width:100%;text-align:left;border:0;background:#fff;cursor:pointer;
+  font-family:var(--sans);font-size:14px;color:var(--ink);padding:9px 10px;line-height:1.25;
+  border-bottom:1px solid rgba(207,192,173,.5)}
+#cbpop .cbo:last-child{border-bottom:none}
+#cbpop .cbo.hi,#cbpop .cbo:hover{background:var(--sabbia-light)}
+#cbpop .cbo .cbm{display:block;font-size:11px;color:var(--vino-light);margin-top:2px}
+#cbpop .cbo.act{color:var(--vino);font-weight:700}
+#cbpop .cbn{padding:10px;font-size:12.5px;color:var(--vino-light);font-style:italic;line-height:1.4}
+
+/* the name, and main-or-batch, on the sheet — the two things the screens in front of
+   it used to be for */
+.name.sheetname{font-size:30px;margin-bottom:8px}
+.kindline{font-family:var(--sans);font-size:12.5px;color:var(--vino-light);margin:0 0 16px}
+.kindline b{color:var(--vino)}
+.addb.blank{background:none;color:var(--vino);border:1px solid var(--sabbia-dark)}
+.alsoin{padding:0 16px 14px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark)}
+.alsoin .bring{margin-top:0}
+.alsoin .lnk{margin-top:8px;font-size:12.5px}
+
+/* Zero vertical padding, for the same arithmetic as input.pick above — 22 − 11 − 11 = 0,
    and the quantity a chef types was being drawn into a box with no height. */
 input.cell{width:100%;border:none;background:transparent;font-family:var(--sans);font-size:15px;padding:0 7px;outline:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
 input.cell:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
@@ -556,7 +593,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 /* The closed select is cream because it sits on the vino bar. The list that OPENS is
    drawn by the browser on white, and it inherits that cream — so every section was
    cream on white and you could only read whichever one was highlighted. Options get
-   their own colour, exactly as select.prod already does. */
+   their own colour, exactly as input.pick already does. */
 .bsec option{color:var(--ink);background:#fff;text-transform:none;font-size:14px;letter-spacing:0}
 /* fade the closed control with colour, not opacity: opacity on a select washes out
    the open list too in some browsers, which is the same bug by another route */
@@ -1214,7 +1251,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 @media(max-width:1023px), (pointer:coarse) and (max-width:1200px){
   table.sheet th{top:42px}
   td.w{font-size:17px}
-  select.prod{min-width:110px;font-size:12.5px}
+  input.pick{min-width:110px;font-size:12.5px}
   input.cell{font-size:14px;padding:10px 4px}
   col.cq{width:84px}                 /* smaller font here, so it needs less — give the rest back */
 
@@ -1248,7 +1285,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   table.sheet tr.isbatch{border-left:3px solid rgba(75,81,40,.55)}
   table.sheet tr.isbatch td{border-left:none}
   table.sheet tr.drop td{padding:0 12px 12px}
-  select.prod{min-width:0}                                  /* it has a whole line now */
+  input.pick{min-width:0}                                   /* it has a whole line now */
 
   table.sheet td.money{font-size:16px}
   .foot .v{font-size:21px}
@@ -1261,7 +1298,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
    a laptop with a trackpad keeps the tighter rows. The 22px control height exists
    to line the columns up — every control grows together, so the row still reads across. */
 @media(pointer:coarse){
-  select.prod,input.cell{height:44px;line-height:normal}
+  input.pick,input.cell{height:44px;line-height:normal}
   /* the unit is a box you tap now, so the box is the 44px target — the select inside it
      fills it exactly, and stays invisible */
   /* a text link is a 19px target — fine for a mouse, not for a thumb */
@@ -1270,7 +1307,11 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   .unbx .unv{font-size:15px;line-height:44px}
   select.unit{height:100%}
   input.cell{font-size:16px;padding:0 10px}      /* 16px — iOS zooms the page on anything smaller */
-  select.prod{font-size:15px;padding:0 22px 0 10px}
+  /* 16px, not 15 — iOS zooms the whole page the moment a thumb lands in anything
+     smaller, and this box is the one a chef types every line into */
+  input.pick{font-size:16px;padding:0 10px}
+  #cbpop .cbo{padding:13px 12px;font-size:16px}
+  #cbpop .cbo .cbm{font-size:12.5px}
   select.unit{font-size:15px;padding:0 8px;min-width:52px;text-align:center}
   .ibx{width:40px;height:40px;line-height:38px;font-size:15px}
   button.rm{font-size:22px;padding:0;width:44px;height:44px}
@@ -1676,7 +1717,7 @@ function qtyInBase(q,u){ var t = TOBASE[String(u).toLowerCase()]; return t ? q*t
 function soldByOf(u){ var t = TOBASE[String(u||'').toLowerCase()]; return t ? t[0] : 'kg'; }
 
 /* ───────── state ───────── */
-var S = { step:'type', kind:null, name:'', text:'', rows:[], price:null,
+var S = { step:'sheet', kind:'main', name:'', text:'', rows:blankRows(6), price:null,
           /* the lines he has tapped to add up. A question, never part of the recipe —
              so it is not saved, not in sig(), and starts empty on every sheet. */
           sel:[],
@@ -2365,8 +2406,11 @@ function saveRecipe(){
     S.id = rec.id;
     return sb('recipe_lines?recipe_id=eq.'+S.id, { method:'DELETE', prefer:'return=minimal' });
   }).then(function(){
-    if (!S.rows.length) return null;
-    return sb('recipe_lines', { method:'POST', prefer:'return=minimal', body: linesFor(S.id, S.rows) });
+    /* realRows(), never S.rows: the sheet carries empty lines for him to write on and
+       not one of them is an ingredient. Positions renumber off the filtered list, so
+       what is saved is 0..n with no holes in it. */
+    if (!realRows().length) return null;
+    return sb('recipe_lines', { method:'POST', prefer:'return=minimal', body: linesFor(S.id, realRows()) });
   }).then(function(){
     return saveRecipeMenus();
   }).then(function(){
@@ -2408,7 +2452,7 @@ function sig(){
     a:(S.allergens||[]).slice().sort(),
     mn:(S.menus||[]).slice().sort(),
     ph:(S.photos||[]).map(function(p){ return (p.n||'') + ':' + ((p.u||'').length); }),
-    r:(S.rows||[]).map(function(r){
+    r:realRows().map(function(r){
       return [r.raw, r.code, r.qty, r.unit, !!r.adj, r.yield, r.waste].join('|'); })
   });
 }
@@ -2417,7 +2461,7 @@ function markClean(){ S.clean = sig(); }
    he browses Saved recipes, and tapping another recipe from there would overwrite it
    just as surely as going back would. */
 function isDirty(){
-  if (!S.kind || !(S.rows || []).length) return false;
+  if (!S.kind || !realRows().length) return false;   /* six empty lines are not work */
   if (!S.id) return true;                    /* never saved — all of it is at risk */
   return S.clean != null && sig() !== S.clean;
 }
@@ -2476,8 +2520,8 @@ function parkSnapshot(){
               memory. It counts as a change (see sig()), so adding one is exactly what
               causes the sheet to be parked in the first place. */
            photos:(S.photos || []).slice(),
-           lines:(S.rows || []).length,
-           rows:(S.rows || []).map(function(r){
+           lines:realRows().length,
+           rows:realRows().map(function(r){
              return { raw:r.raw, code:r.code || null, qty:r.qty, unit:r.unit || null,
                       note:r.note || null,
                       adj:!!r.adj, yield:r.yield, waste:r.waste }; }) };
@@ -2649,8 +2693,15 @@ function newRecipe(){
   /* A brand-new sheet IS the whole recipe — there is nothing on the record it does not
      already hold. See `whole` in saveRecipe. */
   S.whole = true;
-  S.id=null; S.kind=null; S.name=''; S.section=''; S.text=''; S.rows=[]; S.sel=[];
-  S.price=null; S.makesQty=null; S.makesUnit=null; S.step='type';
+  S.id=null; S.kind='main'; S.name=''; S.section=''; S.text=''; S.rows=blankRows(BLANKLINES); S.sel=[];
+  /* ── straight onto the sheet ──
+     There were two screens in front of the work: "main or batch?", then a box to type
+     the ingredients into so the app could split them up. Antonio, 24 Aug: "I believe we
+     can remove the first page and start directly with the one I sent." Both are off the
+     way in. Neither is gone from the app — Back walks out through them, the badge in the
+     bar changes main to batch, and the box that takes a whole list at once is one tap
+     from the sheet. */
+  S.price=null; S.makesQty=null; S.makesUnit=null; S.step='sheet';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
   /* the printed dish this was started from belongs to the sheet that has just left */
   S.fromItem = null;
@@ -4675,20 +4726,28 @@ function isStale(r){ return !!(r.code && RETIRED[r.code]); }
 function freeOnPurpose(it){ return !!(it && it.mine && it.price === 0); }
 function noPriceYet(it){ return !!(it && it.price === 0 && !it.mine); }
 
-function mkRow(part){
-  if (typeof part === 'string') part = { raw:part, name:part, qty:null, unit:null };
-  var opts = search(part.name), loose = false;
+/* "Seabass Fillett sliced" is his wording, not Aung's — try the shorter phrase. These
+   are suggestions only: a loose match is NEVER picked for you. Only real words, or
+   "LE Campaillou" falls back to "LE" and offers 34 lemons.
+
+   Lifted out of mkRow so a line HE types on the sheet finds exactly what a line read
+   out of a workbook finds. Two searches that nearly agree is how the same ingredient
+   comes back on one route and not on the other. */
+function looseSearch(name){
+  var opts = search(name), loose = false;
   if (!opts.length){
-    /* "Seabass Fillett sliced" is his wording, not Aung's — try the shorter phrase.
-       These are suggestions only: a loose match is NEVER picked for you. */
-    /* only real words — "LE Campaillou" must not fall back to "LE" and offer 34 lemons */
-    var w = words(part.name).filter(function(x){ return x.length >= 3; });
+    var w = words(name).filter(function(x){ return x.length >= 3; });
     for (var n = w.length - 1; n >= 1 && !opts.length; n--){
       opts = search(w.slice(0, n).join(' '));
       if (!opts.length) opts = search(w.slice(w.length - n).join(' '));
     }
     loose = opts.length > 0;
   }
+  return { opts:opts, loose:loose };
+}
+function mkRow(part){
+  if (typeof part === 'string') part = { raw:part, name:part, qty:null, unit:null };
+  var ls = looseSearch(part.name), opts = ls.opts, loose = ls.loose;
   var r = { raw:part.raw, word:part.name, note:part.note || null, opts:opts, loose:loose,
             code: (!loose && opts.length === 1) ? opts[0].code : null,   /* auto only when there's no choice to make */
             qty:part.qty, unit:null, yield:100, waste:0, adj:false };
@@ -4743,6 +4802,33 @@ function mkRow(part){
   }
   return r;
 }
+/* ═════ an empty line, waiting to be written on ═════
+   Antonio, 24 Aug: "Having some empty lines, have the chance to remove or add more, as
+   much as I need." A new sheet opens with lines already on it, so writing a recipe is
+   writing down the sheet — not filling a box on the page in front of it and asking the
+   app to split what he wrote into lines.
+
+   An empty line is NOT a line. It is never saved, never counted, never costed, and it
+   never makes the sheet dirty — otherwise a recipe would go to the database with six
+   blank ingredients on it and every one of them would print on the pass card. Anything
+   that counts rows or writes them asks realRows(); only the SCREEN sees the blanks. */
+var BLANKLINES = 6;
+function blankRow(){
+  return { raw:'', word:'', note:null, opts:[], loose:false, code:null,
+           qty:null, unit:null, yield:100, waste:0, adj:false };
+}
+function blankRows(n){ var a = []; for (var i = 0; i < n; i++) a.push(blankRow()); return a; }
+function isBlankRow(r){
+  return !!r && !r.code && r.qty == null &&
+         !String(r.raw  == null ? '' : r.raw ).trim() &&
+         !String(r.word == null ? '' : r.word).trim();
+}
+function realRows(){ return (S.rows || []).filter(function(r){ return !isBlankRow(r); }); }
+/* one spare at the bottom, always — see addBlankLine() */
+function padBlank(){
+  if (!(S.rows||[]).length || !isBlankRow(S.rows[S.rows.length-1])) S.rows.push(blankRow());
+}
+
 /* do the file's name and Aung's name for that code describe the same thing at all? */
 function nameAgrees(a, b){
   var wb = words(b).map(stem);
@@ -4792,7 +4878,9 @@ function rowCostRaw(r){
 }
 function totals(){
   var t=0, noProd=0, noQty=0, noPrice=0, badBatch=[];
-  S.rows.forEach(function(r){
+  /* an empty line is not a line "without an ingredient" — it is a line he has not
+     written yet, and counting it would put a warning on the sheet about nothing */
+  realRows().forEach(function(r){
     if (!r.code){ noProd++; return; }
     var it = itemOf(r);
     if (it && it.myBatch && it.problem) badBatch.push(it.name);
@@ -6376,10 +6464,10 @@ function render(){
 
        He is not choosing between main and batch at this moment. He is trying to get back
        to his dish. So it is offered first, by name, before the two doors that wipe it. */
-    var hold = (S.id || (S.name||'').trim() || (S.rows||[]).length) ? {
+    var hold = (S.id || (S.name||'').trim() || realRows().length) ? {
       name: (S.name||'').trim() || 'the recipe you have open',
       saved: !!S.id,
-      lines: (S.rows||[]).length
+      lines: realRows().length
     } : null;
     w.innerHTML = '<div class="pane">' + parkedNote() +
       (hold ? '<div class="holdon"><div class="holdt"><b>' + esc(hold.name) + '</b> is still open' +
@@ -6504,8 +6592,22 @@ function render(){
   }
 
   else if (S.step === 'sheet'){
-    b.textContent = S.id ? 'Save changes' : 'Save'; b.classList.remove('off');
+    /* There is always one line at the bottom waiting to be written on — on a new recipe,
+       on one that came out of a file, and on one opened out of Saved recipes. It is the
+       cheapest version of "add more, as much as I need": nothing to press. It is never
+       saved and never counted, so an opened recipe is not made dirty by growing one. */
+    padBlank();
+    b.textContent = S.id ? 'Save changes' : 'Save';
+    /* The name used to be asked for on the page in front of this one, where it could not
+       be skipped. The sheet is the first screen now, so the one thing that page
+       guaranteed has to be guaranteed here — and the button says why it is off rather
+       than sitting there dead. */
+    b.classList.toggle('off', !S.name.trim());
+    b.title = S.name.trim() ? '' : 'Give the recipe a name first';
     w.innerHTML =
+      '<input class="name sheetname" id="nm" placeholder="Octopus" value="'+esc(S.name)+
+        '" aria-label="What is this recipe called?">' +
+      newKindLine() +
       /* where the money comes from is a fact about THIS sheet and stays;
          how to move down the columns is a thing you learn once */
       '<div class="hint"><b>Costed off the FMC article catalogue, live.</b> ' +
@@ -6534,7 +6636,7 @@ function render(){
          and silently cut everything smaller. checkFit() below now proves it. */
       /* "You wrote" was 32%. The grip took a 22px column, and on a 1280 screen every
          pixel of it would have come out of the ingredient column — the one the file has
-         twice been fixed for cutting. 30% hands those 22px back, so select.prod measures
+         twice been fixed for cutting. 30% hands those 22px back, so input.pick measures
          266px with the grip, which is exactly what it measured without it. */
       '<colgroup><col style="width:30px"><col style="width:30%"><col><col class="cq"><col style="width:56px">' +
       /* Trim holds the tick AND, when it is on, the two small boxes — so nothing has
@@ -6557,9 +6659,58 @@ function render(){
          it says what it does. */
       '<div class="addline"><input id="more" placeholder="olive oil 20g, lemon 1 — type as many as you like">' +
         /* it says what it adds, not where it puts it — he is looking at the sheet */
-        '<button class="addb" id="addmore">＋ Add ingredient</button></div>' +
+        '<button class="addb" id="addmore">＋ Add ingredient</button>' +
+        /* "have the chance to remove or add more, as much as I need" — the × takes one
+           off, this puts one on, and typing on the last line puts one on by itself */
+        '<button class="addb blank" id="addblank">＋ Empty line</button></div>' +
+      /* The two doors that used to be on the screens in front of the sheet. Taking the
+         screens off the way in must not take these off the app: a file, a folder, saying
+         it out loud, and the box that swallows a whole list at once are all still here,
+         one tap from the work. */
+      '<div class="alsoin">' + bringHTML() +
+        '<button class="lnk" id="towrite">Or write the whole list into one box ›</button></div>' +
       methodHTML();
       rows(); swapbar(); wireMethod(); drawSaveBar(); drawKindBar(); drawUndo();
+    /* the same box, and the same wiring, the ingredients page had — it is on the sheet
+       now because the sheet is where he starts */
+    var nmS = $('nm');
+    if (nmS) nmS.addEventListener('input', function(){
+      S.name = this.value;
+      $('bnm').textContent = this.value || ('New ' + kindWord(S.kind));
+      var ab = $('act');
+      ab.classList.toggle('off', !this.value.trim());
+      ab.title = this.value.trim() ? '' : 'Give the recipe a name first';
+    });
+    /* A new, unnamed sheet opens with the cursor in the name box — the first thing to do
+       is say what it is. Only when nothing else already has it: this branch runs again
+       every time the sheet is redrawn, and the menus arriving used to yank the cursor out
+       of the ingredient he was in the middle of writing and drop it up here. */
+    var hadFocus = document.activeElement;
+    if (!S.id && !S.name.trim() && nmS &&
+        (!hadFocus || hadFocus === document.body || hadFocus === document.documentElement)) nmS.focus();
+    var addBlank = $('addblank');
+    if (addBlank) addBlank.addEventListener('click', function(){ addBlankLine(true); });
+    var toWrite = $('towrite');
+    if (toWrite) toWrite.addEventListener('click', function(){
+      S.step = 'write'; render(); window.scrollTo(0,0); });
+    var kf = $('kindflip');
+    if (kf) kf.addEventListener('click', function(){
+      /* Nothing written on the sheet yet, so this is still a choice and it is one tap.
+         The moment there IS work on it, it is a conversion — and that goes through the
+         same checked change the badge in the bar asks for, which says what it will do to
+         the price, the menus and the boxes before it does any of it. */
+      if (S.name.trim() || realRows().length){ askKind(); drawKindBar();
+        var kb = $('kindbar'); if (kb && kb.scrollIntoView) kb.scrollIntoView({ block:'center' });
+        return; }
+      S.kind = S.kind === 'main' ? 'batch' : 'main';
+      S.price = null; S.makesQty = null; S.makesUnit = null;
+      if (S.section && sectionList().indexOf(S.section) < 0) S.section = '';
+      if (S.kind === 'main' && !(S.menus||[]).length){
+        var runm = MENUS.filter(function(m){ return m.running; })[0];
+        S.menus = runm ? [runm.id] : [];
+      } else if (S.kind === 'batch') S.menus = [];
+      render(); window.scrollTo(0,0);
+    });
     var addMore = function(){
       var box = $('more'); if (!box || !box.value.trim()) return;
       var n = 0;
@@ -6569,7 +6720,7 @@ function render(){
          box and forward again quietly drops what was just added */
       syncText(); rows(); foot(); fitBar();
       flash(n + (n===1 ? ' ingredient' : ' ingredients') + ' added — pick '+(n===1?'it':'them')+' at the bottom of the sheet.');
-      var last = document.querySelectorAll('tr.main select.prod');
+      var last = document.querySelectorAll('tr.main input.pick');
       if (last.length) last[last.length-1].scrollIntoView({ block:'center' });
       box.focus();
     };
@@ -6581,7 +6732,19 @@ function render(){
   foot();
   if (typeof fitBar === 'function') fitBar();
 }
-function gate(){ $('act').classList.toggle('off', !(S.name.trim() && S.rows.length)); }
+function gate(){ $('act').classList.toggle('off', !(S.name.trim() && realRows().length)); }
+/* ── main or batch, on the sheet instead of on a page of its own ──
+   This was the first screen in the module and it asked one question. The question still
+   has to be asked — it changes what the sheet is — but it is asked here, on the recipe,
+   where the answer can be read at a glance and changed without going anywhere. On a
+   saved recipe it says nothing: the badge in the bar owns the change by then, because by
+   then it is a conversion with consequences and it explains them first. */
+function newKindLine(){
+  if (S.id) return '';
+  var other = S.kind === 'batch' ? 'main' : 'batch';
+  return '<div class="kindline">This is a <b>' + kindWord(S.kind) + '</b>. ' +
+    '<button class="lnk" id="kindflip">Make it a ' + kindWord(other) + ' instead</button></div>';
+}
 
 /* ── the one confirm screen for a whole workbook ── */
 function drawPlan(){ var p = $('planpane'); if (p) p.innerHTML = planInner(); }
@@ -6786,51 +6949,33 @@ function rowHTML(r, i){
   var typed = (r.typedUnit && r.typedUnit !== '?') ? r.typedUnit : null;
   var u = r.unit || (it ? defUnit(it) : typed);
   var stale = isStale(r);
-  function opt(o){
-    var nm = disp(o.name);
-    if (RETIRED[o.code]) nm += '  (no longer stocked)';
-    if (o.mine) nm += '  (added by you)';
-    var pr = o.myBatch
-      ? (o.price==null ? 'no cost yet' : fmt(o.price)+'/'+esc(o.unit))
-      : fmt(o.price)+'/'+esc(o.unit);
-    return '<option value="'+o.code+'"'+(o.code===r.code?' selected':'')+'>'+esc(nm)+'  ·  '+pr+'</option>';
-  }
-  var opts = r.opts.slice();
-  if (stale && it && !opts.some(function(o){ return o.code===r.code; })) opts.unshift(it);
-  /* a batch can't contain itself, however far round the houses it goes */
-  if (S.kind==='batch' && S.id) opts = opts.filter(function(o){
-    return !(o.myBatch && usesBatch(idOf(o.code), S.id));
-  });
-  var mine    = opts.filter(function(o){ return o.myBatch; });
-  var batches = opts.filter(function(o){ return !o.myBatch && o.group==='Batch Recipe (Food)'; });
-  var prods   = opts.filter(function(o){ return !o.myBatch && o.group!=='Batch Recipe (Food)'; });
-  /* A batch of ours that carries no cost — usually because it never got told how much it
-     makes — sits at the top of the list purely because it is ours, and it is the most
-     dangerous thing to pick: a line pointing at it prices the whole dish at nothing.
-     He had a batch called "water" with no yield AND his own water sold by the litre, and
-     the broken one was offered first. Anything with no cost yet goes to the bottom of
-     its group. It is still there, and still his to pick — just not first. */
-  var mineBad = mine.filter(function(o){ return o.problem; });
-  mine = mine.filter(function(o){ return !o.problem; });
-  /* No "all my batches" list here. With a hundred batches it is a wall to scroll,
-     not a help. The row suggests what has a similar name — his own batches included,
-     via the shorter-phrase fallback in mkRow — and otherwise offers to make a new one. */
-  var sel = '<select class="prod'+(need?' empty':'')+'" data-i="'+i+'">' +
-    (need ? '<option value="">Choose — '+opts.length+' option'+(opts.length===1?'':'s')+'</option>' : '') +
-    (opts.length
-      ? (mine.length    ? '<optgroup label="Our batch recipes">'+mine.map(opt).join('')+'</optgroup>' : '') +
-        (batches.length ? '<optgroup label="Batch">'+batches.map(opt).join('')+'</optgroup>' : '') +
-        (prods.length   ? '<optgroup label="Ingredients">'+prods.map(opt).join('')+'</optgroup>' : '') +
-        (mineBad.length ? '<optgroup label="Ours — no cost yet">'+mineBad.map(opt).join('')+'</optgroup>' : '')
-      : '') +
-    /* on every row, picked or not — otherwise the only way to change your mind
-       about a row is to delete it and type it again */
-    '<optgroup label="Not on the list?">' +
-      '<option value="__add">＋ Add it as an ingredient of your own</option>' +
-      '<option value="__batch">＋ Make it a batch recipe</option>' +
-    '</optgroup></select>';
+  /* ── the box he writes the ingredient in ──
+     This was a dropdown, and a dropdown can only ever offer what the app had already
+     guessed from the words in the box on the page before it — so getting an ingredient
+     onto a line meant typing it there, coming forward, and then opening a list.
+     Antonio, 24 Aug: "In this way we'll skip a process and probably be a bit faster."
 
-  var fix = r.opts.length ? null : didYouMean(r.word);
+     Now the line itself is the box. What he types searches the whole catalogue as he
+     types (see cbOpen below), the answers come up under his finger, and the one he
+     chooses is what the line points at. The grouping, the order, the "a batch cannot
+     contain itself" rule and the two ＋ actions are all still exactly what the dropdown
+     had — they moved into cbListHTML(), they were not rewritten.
+
+     What the box SAYS is the truth of the line: the catalogue's name once something is
+     picked, and his own words while nothing is. His words are never overwritten — they
+     stay in "You wrote", which is the column for them. */
+  var pickVal = it ? disp(it.name) : String(r.word || '');
+  var sel = '<input class="pick'+(need?' empty':'')+'" data-i="'+i+'" type="text"' +
+    ' value="'+esc(pickVal)+'"' +
+    ' placeholder="'+(need ? 'type the ingredient…' : '')+'"' +
+    ' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"' +
+    ' role="combobox" aria-autocomplete="list" aria-expanded="false"' +
+    ' aria-label="Ingredient for line '+(i+1)+'"' +
+    ' title="'+esc(pickVal || 'Type what you need and pick it off the list')+'">';
+
+  /* on a line he has not written on yet there is nothing to did-you-mean about, and
+     "not on the list" against an empty line reads as a fault in the sheet */
+  var fix = (r.opts.length || isBlankRow(r)) ? null : didYouMean(r.word);
   /* Burrata on the sheet twice is two lines, two costs, and both of them count. It is
      nearly always two goes at typing the same thing rather than a deliberate split —
      so it is said, on both lines, and never changed for him: a dish that really does
@@ -6842,8 +6987,11 @@ function rowHTML(r, i){
      always counted, and still do. */
   var onPurpose = twice > 1 && S.rows.filter(function(x){ return x.code === r.code; })
                                      .every(function(x){ return !!x.note; });
-  /* one short line, never a paragraph — the sheet must read at a glance */
-  var sub = (twice > 1 && onPurpose)
+  /* one short line, never a paragraph — the sheet must read at a glance.
+     An empty line says nothing at all: it is not "not on the list", it is not written
+     on yet, and six lines of warnings on a fresh sheet is a sheet that looks broken. */
+  var sub = isBlankRow(r)    ? ''
+          : (twice > 1 && onPurpose)
                              ? '<i class="one">on this sheet ' + (twice===2?'twice':twice+' times') +
                                ', on purpose — both lines are counted in the cost</i>'
           : twice > 1        ? '<i class="many">on this sheet ' + (twice===2?'twice':twice+' times') +
@@ -6960,7 +7108,7 @@ function rowHTML(r, i){
        keyboard has instead of a drag. */
     '<td class="mv"><button class="grip" data-grip="'+i+'"' +
       ' title="Drag to reorder — or the arrow keys to move it one line"' +
-      ' aria-label="Reorder '+esc(r.word)+' — line '+(i+1)+' of '+S.rows.length+
+      ' aria-label="Reorder '+esc(r.word || 'this line')+' — line '+(i+1)+' of '+S.rows.length+
       '. Drag, or press the up and down arrow keys.">⠿</button></td>' +
     '<td class="x"><button class="rm" data-rm="'+i+'">×</button></td></tr>';
 
@@ -7048,11 +7196,395 @@ function wireAdd(draw){
     }).then(function(){ b.disabled = false; b.textContent = was; });
   };
 }
-function rows(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); if (typeof fitBar==='function') fitBar(); }
+/* ══ redrawing a screen he is already writing on ══
+   The menus, the article catalogue and the batches all land a second or two after the
+   first screen is drawn, and every one of them redraws it. That was harmless while the
+   sheet was the THIRD screen — nobody was on it yet. It is the first screen now, so a
+   chef is already halfway through his first ingredient when they arrive, and a redraw
+   takes the box he is typing in off the page with the focus and the caret inside it.
+   Measured 24 Aug: "octopus" typed a second after opening, and by the time the catalogue
+   landed the focus was in the name box and the word was nowhere on screen.
+
+   So the box he is in, what is actually in it, and where the caret sits all come back.
+   What is in the box is only put back while nothing is picked on that line — on a line
+   that points at something the box says what it points at, and a half-typed search he
+   never took must not be left sitting there looking like the answer. */
+function keepFocus(draw){
+  var a = document.activeElement, k = null;
+  if (a && a.id === 'nm') k = { sel:'#nm', name:true };
+  else if (a && a.dataset && a.dataset.i != null){
+    var c = a.classList.contains('pick') ? 'input.pick'
+          : a.classList.contains('qty')  ? 'input.qty' : null;
+    if (c) k = { sel:c + '[data-i="' + a.dataset.i + '"]', i:+a.dataset.i, pick:c === 'input.pick' };
+  }
+  if (k){ k.val = a.value; try { k.at = [a.selectionStart, a.selectionEnd]; } catch (e){} }
+  draw();
+  if (!k) return;
+  var n = document.querySelector(k.sel); if (!n) return;
+  var r = k.i != null ? S.rows[k.i] : null;
+  if (k.val != null && n.value !== k.val && (k.name || (k.pick && r && !r.code))) n.value = k.val;
+  n.focus();
+  if (k.at) try { n.setSelectionRange(k.at[0], k.at[1]); } catch (e){}
+}
+function rows(){
+  keepFocus(function(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); });
+  if (typeof fitBar==='function') fitBar();
+}
+
+/* ═════════ writing the ingredient on the line ═════════
+   Antonio asked for three things on 24 August and they are one thing: the sheet should
+   be where a recipe gets written. Empty lines to write on (blankRow), the line itself
+   as the box (rowHTML), and the catalogue answering as he types — this.
+
+   Two decisions worth keeping:
+
+   · The list is ONE element, fixed to the viewport, moved to whichever line is being
+     written on. Drawn inside the cell it would be cut off by `.sheetwrap`, which turns
+     into overflow-x:auto on every screen under 1024px — and a list of ingredients with
+     its bottom half missing is how the wrong one gets picked.
+
+   · mousedown is swallowed on the list, so reaching for an answer never takes the focus
+     off the box. A suggestion list that closes as you reach for it is the oldest bug
+     these boxes have. */
+var CB = { i:null, hi:-1, inp:null, codes:[] };
+function cbPop(){
+  var p = document.getElementById('cbpop');
+  if (p) return p;
+  p = document.createElement('div'); p.id = 'cbpop'; p.setAttribute('role','listbox');
+  p.addEventListener('mousedown', function(e){ e.preventDefault(); });
+  p.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('.cbo') : null;
+    if (!b) return;
+    e.preventDefault();
+    cbChoose(b.getAttribute('data-cb'));
+  });
+  document.body.appendChild(p);
+  return p;
+}
+
+/* Everything this line is allowed to point at, for what he has written so far. Same
+   search as a line read out of a workbook (looseSearch), same "a batch cannot contain
+   itself" rule the dropdown had. His own words are parsed for a quantity first, so
+   "200 g pistachio" typed on one line is still one ingredient and one amount — exactly
+   what the ingredients box always did with it. */
+function cbFind(r, q){
+  var tn = takeNote(String(q == null ? '' : q));
+  var p  = parseQty(tn.text);
+  var nm = String(p.name || '').trim();
+  /* Nothing written on the line yet: offer what the file guessed for it. Something
+     written: the catalogue answers that, and only that. */
+  var list = nm ? looseSearch(nm).opts : (r.opts || []).slice();
+  var it = itemOf(r);
+  /* A retired code stays on offer, or a line cannot say what it used to point at. Any
+     OTHER time what is already picked must NOT be forced to the top of the list: he taps
+     a line that says Burrata precisely BECAUSE Burrata is wrong, and a list that answers
+     "Burrata" first to the word "parmesan" hands the wrong ingredient straight back on
+     Enter. Measured 24 Aug — it did exactly that, and the line looked picked. */
+  if (it && (!nm || isStale(r)) && !list.some(function(o){ return o.code === it.code; })) list.unshift(it);
+  if (S.kind === 'batch' && S.id) list = list.filter(function(o){
+    return !(o.myBatch && usesBatch(idOf(o.code), S.id));
+  });
+  return { list:list.slice(0, 40), qty:p, note:tn.note, name:nm };
+}
+
+function cbListHTML(r, q){
+  var f = cbFind(r, q), mine = [], mineBad = [], batches = [], prods = [];
+  f.list.forEach(function(o){
+    if (o.myBatch) (o.problem ? mineBad : mine).push(o);
+    else if (o.group === 'Batch Recipe (Food)') batches.push(o);
+    else prods.push(o);
+  });
+  CB.codes = [];
+  var html = '';
+  function grp(label, arr){
+    if (!arr.length) return;
+    html += '<div class="cbg">' + label + '</div>';
+    arr.forEach(function(o){
+      var nm = disp(o.name);
+      if (RETIRED[o.code]) nm += '  (no longer stocked)';
+      if (o.mine) nm += '  (added by you)';
+      var pr = (o.myBatch && o.price == null) ? 'no cost yet'
+             : fmt(o.price) + ' / ' + String(o.unit);
+      html += '<button type="button" class="cbo' + (o.code === r.code ? ' act' : '') +
+        '" data-cb="' + esc(String(o.code)) + '">' + esc(nm) +
+        '<span class="cbm">' + esc(pr) + (o.group ? '  ·  ' + esc(o.group) : '') + '</span></button>';
+      CB.codes.push(String(o.code));
+    });
+  }
+  /* Ours first, then Aung's batches, then his ingredients — the dropdown's order, kept.
+     A batch of ours with no cost yet goes last: a line pointing at it prices the whole
+     dish at nothing, so it is still offered and never offered first. */
+  grp('Our batch recipes', mine);
+  grp('Batch', batches);
+  grp('Ingredients', prods);
+  grp('Ours — no cost yet', mineBad);
+  if (!f.list.length)
+    html += '<div class="cbn">' + (f.name
+      ? 'Nothing in the catalogue matches “' + esc(f.name) + '”. Add it yourself below, or ' +
+        'try fewer words — <b>seabass</b> finds more than <b>seabass fillet sliced</b>.'
+      : 'Write what you need — the catalogue answers as you type.') + '</div>';
+  /* on every line, picked or not — otherwise the only way to change your mind about a
+     line is to delete it and write it again */
+  html += '<div class="cbg">Not on the list?</div>' +
+    '<button type="button" class="cbo" data-cb="__add">＋ Add it as an ingredient of your own</button>' +
+    '<button type="button" class="cbo" data-cb="__batch">＋ Make it a batch recipe</button>';
+  CB.codes.push('__add'); CB.codes.push('__batch');
+  return html;
+}
+
+function cbPlace(inp){
+  var p = cbPop(), b = inp.getBoundingClientRect();
+  var w = Math.max(b.width, 280);
+  if (w > window.innerWidth - 16) w = window.innerWidth - 16;
+  p.style.width = w + 'px';
+  p.style.left  = Math.max(8, Math.min(b.left, window.innerWidth - w - 8)) + 'px';
+  /* Below the line by default, above it when there is more room above — the last line of a
+     long sheet sits on the bottom of the screen and a list drawn downwards from there is
+     off it. Then the height is capped to whichever side it went on, so it is NEVER drawn
+     past the edge of the screen: 42 ingredients with the last eight below the fold reads
+     as a list of 34, and picking the wrong one is the whole danger this box exists to
+     remove. Measured every time, never assumed. */
+  var below = window.innerHeight - b.bottom - 10, above = b.top - 10;
+  var want  = Math.min(p.scrollHeight, window.innerHeight * 0.52);
+  var up    = below < want && above > below;
+  if (up){ p.style.top = 'auto'; p.style.bottom = (window.innerHeight - b.top + 2) + 'px'; }
+  else   { p.style.bottom = 'auto'; p.style.top = (b.bottom + 2) + 'px'; }
+  p.style.maxHeight = Math.max(120, Math.min(want, up ? above : below)) + 'px';
+}
+function cbOpen(inp){
+  var i = +inp.dataset.i, r = S.rows[i]; if (!r) return;
+  var p = cbPop();
+  p.innerHTML = cbListHTML(r, inp.value);
+  p.classList.add('on');
+  p.scrollTop = 0;
+  CB.i = i; CB.inp = inp;
+  /* The first answer is highlighted the moment he has written something, so Enter always
+     takes the thing he can SEE at the top of the list. When nothing he wrote matches, the
+     top of the list IS "＋ Add it as an ingredient of your own" — which is the right next
+     move and is highlighted, so Enter is still never a surprise.
+
+     Nothing typed at all: nothing is highlighted and Enter does nothing. Otherwise
+     tapping into an empty line and pressing Enter would open the add-an-ingredient form
+     for something he has not named yet. */
+  CB.hi = String(inp.value).trim() ? 0 : -1;
+  cbHi();
+  cbPlace(inp);
+  inp.setAttribute('aria-expanded', 'true');
+}
+function cbShut(){
+  var p = document.getElementById('cbpop');
+  if (p){ p.classList.remove('on'); p.innerHTML = ''; }
+  if (CB.inp) CB.inp.setAttribute('aria-expanded', 'false');
+  CB.i = null; CB.hi = -1; CB.inp = null; CB.codes = [];
+}
+function cbHi(){
+  var p = document.getElementById('cbpop'); if (!p) return;
+  var bs = p.querySelectorAll('.cbo');
+  for (var k = 0; k < bs.length; k++) bs[k].classList.toggle('hi', k === CB.hi);
+  if (CB.hi > -1 && bs[CB.hi] && bs[CB.hi].scrollIntoView) bs[CB.hi].scrollIntoView({ block:'nearest' });
+}
+
+/* what he has typed on the line, kept as HIS words. The amount he wrote on the same
+   line comes off the front or the back exactly as the ingredients box always took it. */
+function cbWord(r, v){
+  var tn = takeNote(String(v == null ? '' : v)), p = parseQty(tn.text);
+  r.raw  = String(v == null ? '' : v);
+  r.word = String(p.name || tn.text || '').trim();
+  r.note = tn.note || null;
+  if (p.qty != null){
+    if (p.unit === '?'){ r.noMeasure = true; r.qty = null; r.typedUnit = null; }
+    else { r.qty = p.qty; r.typedUnit = p.unit || null; r.noMeasure = false; }
+  }
+}
+
+/* ── an ingredient is chosen for a line ──
+   Lifted out of the dropdown's change handler and NOT rewritten, so every check that
+   was fought for still runs: a retired code is recorded as a swap, the unit he wrote is
+   kept only if the thing is sold that way, "2 pcs" of something sold by the kilo is
+   never re-read as 2 g, and a bare count of something sold by weight is not one gram. */
+function pickRow(i, code){
+  var r = S.rows[i]; if (!r) return;
+  var wasStale = isStale(r), oldCode = r.code, oldName = itemOf(r) && itemOf(r).name;
+  r.code = code || null;
+  if (wasStale && r.code && r.code !== oldCode){
+    SWAPS.push({ from:oldCode, fromName:oldName, to:r.code,
+                 toName:(r.opts.filter(function(o){ return o.code===r.code; })[0]||{}).name });
+    delete RETIRED[oldCode];
+  }
+  if (r.code){
+    var _it = itemOf(r), _al = unitsFor(_it), _want = r.unit || r.typedUnit;
+    if (_al.indexOf(_want) > -1) r.unit = _want;
+    else {
+      r.unit = defUnit(_it);
+      if (r.typedUnit && r.typedUnit !== '?' && r.qty != null){  /* 2 pcs sold by the kilo is NOT 2 g */
+        r.mismatch = r.typedUnit; r.qty = null;
+      }
+    }
+    /* and a bare count — "1 lemon" — of something sold by weight is not 1 gram */
+    if (!r.typedUnit && r.qty != null && baseOf(_it) !== 'pcs'){ r.bare = r.qty; r.qty = null; }
+    if (baseOf(_it) === 'pcs'){ r.bare = null; r.noMeasure = false; }
+  }
+  /* the "on this sheet twice" note lives on BOTH lines, and the other one is not the row
+     being redrawn — so when a pick creates or clears a pair, the sheet is drawn, not the
+     row. Everything else stays a single-row redraw. */
+  var pair = r.code && S.rows.filter(function(x){ return x.code === r.code; }).length > 1;
+  var wasPair = oldCode && S.rows.filter(function(x){ return x.code === oldCode; }).length === 1;
+  if (pair || wasPair) rows(); else redrawRow(i);
+  syncText(); foot(); swapbar();
+}
+
+function cbChoose(code){
+  var i = CB.i, inp = CB.inp;
+  if (i == null || !code) return;
+  var r = S.rows[i]; if (!r) return;
+  var typed = inp ? String(inp.value).trim() : '';
+  var itNow = itemOf(r);
+  /* his words only when they ARE his words. On a line that already points at something,
+     the box shows the catalogue's name — that is not something he wrote and it must
+     never be written into "You wrote". */
+  var his = typed && typed !== (itNow ? disp(itNow.name) : '');
+  cbShut();
+  if (code === '__add' || code === '__batch'){
+    if (his) cbWord(r, typed);
+    if (code === '__add'){
+      /* Open the form on the unit he already wrote. It defaulted to kg, so "0.5 L" met
+         a form that said "sold by kg" and the litres were quietly re-read as grams. */
+      r.adding = true; r.adj = false;
+      if (!r.addUnit) r.addUnit = soldByOf(r.unit || r.typedUnit);
+      redrawRow(i);
+      var f = document.querySelector('[data-i="'+i+'"][data-f="anm"]'); if (f){ f.focus(); f.select(); }
+    } else makeBatchFor(i);
+    return;
+  }
+  var hit = pool().filter(function(o){ return String(o.code) === String(code); })[0];
+  if (!hit) return;
+  if (his) cbWord(r, typed);
+  /* itemOf() looks the pick up inside r.opts, so what he chose has to be in there — and
+     the rest of what his words found stays with the line, or the note under it reads
+     "only one — picked" about a search that returned three. That note is what tells him
+     whether the sheet had a choice to make; it must be about the catalogue, not about
+     which one he happened to take. */
+  var found = String(r.word || '').trim() ? looseSearch(r.word).opts : (r.opts || []);
+  r.opts = [hit].concat(found.filter(function(o){ return o.code !== hit.code; }));
+  r.loose = false;
+  pickRow(i, hit.code);
+  /* Straight to the amount, on the same line. The dropdown used to jump to the next line
+     with nothing picked, which was right when the app had written every line for him —
+     but a chef writing his own sheet says the thing, then how much of it, and being
+     thrown three rows down mid-sentence is the process Antonio wants gone. */
+  var q = document.querySelector('input.qty[data-i="'+i+'"]');
+  if (q){ q.focus(); q.select(); }
+}
+
+/* one spare line at the bottom, always — appended to the table on its own so the sheet
+   is never redrawn under his hands while he is typing in it */
+function addBlankLine(focusIt){
+  S.rows.push(blankRow());
+  var i = S.rows.length - 1, tb = $('tb');
+  if (tb){
+    var tmp = document.createElement('tbody'); tmp.innerHTML = rowHTML(S.rows[i], i);
+    while (tmp.rows.length) tb.appendChild(tmp.rows[0]);
+    if (typeof fitBar === 'function') fitBar();
+    if (focusIt){
+      var p = tb.querySelector('input.pick[data-i="'+i+'"]');
+      if (p){ p.focus(); if (p.scrollIntoView) p.scrollIntoView({ block:'center' }); }
+    }
+  }
+  return i;
+}
+
+document.addEventListener('focusin', function(e){
+  var t = e.target;
+  if (t && t.classList && t.classList.contains('pick')){
+    /* On a line that already points at something the box holds the catalogue's name, and
+       tapping it means "this is the wrong one". So the name is selected: writing replaces
+       it. Without this the caret lands wherever the finger did and the first thing typed
+       goes into the MIDDLE of the name — "Burrata" tapped in the middle and typed into
+       searches for something that is not a word, and the line looks broken.
+       A line with nothing picked keeps the caret where he put it: that is a half-written
+       word he is coming back to fix, not one he is replacing. */
+    var r0 = S.rows[+t.dataset.i];
+    if (r0 && r0.code) try { t.select(); } catch (e0){}
+    cbOpen(t);
+  }
+  else if (CB.i != null) cbShut();
+});
+document.addEventListener('input', function(e){
+  var t = e.target;
+  if (!t.classList || !t.classList.contains('pick')) return;
+  var i = +t.dataset.i, r = S.rows[i]; if (!r) return;
+  /* A line that already points at something: typing is a SEARCH, and it changes nothing
+     until he picks. Leave it alone and the line is exactly as it was — the box goes back
+     to saying what the line points at when the focus leaves. */
+  if (!r.code){
+    cbWord(r, t.value);
+    /* "You wrote" is his words and follows the box straight away; the rest of the row is
+       left until he picks, because redrawing it would take the box away mid-word */
+    var tr = $('tb') ? $('tb').querySelectorAll('tr.main')[i] : null;
+    var nm = tr ? tr.querySelector('td.w .nm') : null;
+    if (nm){ nm.textContent = r.word; nm.title = r.word; }
+    if (i === S.rows.length - 1 && String(t.value).trim()) addBlankLine(false);
+  }
+  cbOpen(t);
+});
+document.addEventListener('focusout', function(e){
+  var t = e.target;
+  if (!t.classList || !t.classList.contains('pick')) return;
+  var i = +t.dataset.i;
+  /* after the focus has actually gone — a pick keeps it, and a pick has already redrawn
+     the row and taken this box off the page */
+  setTimeout(function(){
+    if (!document.body.contains(t)) return;
+    if (document.activeElement === t) return;
+    if (CB.inp === t) cbShut();
+    var r = S.rows[i]; if (!r) return;
+    if (r.code){
+      var ci = itemOf(r);
+      if (ci) t.value = disp(ci.name);
+      return;
+    }
+    /* nothing picked: his words stay, and the row is drawn so it can say what it makes
+       of them — how many to choose from, or a spelling it recognises */
+    var ls = looseSearch(r.word); r.opts = ls.opts; r.loose = ls.loose;
+    syncText(); redrawRow(i); foot();
+  }, 60);
+});
+document.addEventListener('keydown', function(e){
+  var t = e.target;
+  if (!t.classList || !t.classList.contains('pick')) return;
+  var p = document.getElementById('cbpop');
+  var open = !!(p && p.classList.contains('on'));
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    if (!open){ cbOpen(t); return; }
+    var n = p.querySelectorAll('.cbo').length; if (!n) return;
+    CB.hi = e.key === 'ArrowDown' ? Math.min(CB.hi + 1, n - 1) : Math.max(CB.hi - 1, 0);
+    cbHi(); return;
+  }
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    if (!open){ cbOpen(t); return; }
+    if (CB.hi < 0) return;                     /* nothing is highlighted — nothing to take */
+    var b = p.querySelectorAll('.cbo')[CB.hi];
+    if (b) b.click();
+    return;
+  }
+  if (e.key === 'Escape'){ if (open){ e.preventDefault(); cbShut(); } return; }
+  if (e.key === 'Tab' && open) cbShut();
+});
+/* the list is fixed to the viewport, so it has to follow the line it belongs to */
+window.addEventListener('scroll', function(){ if (CB.inp) cbPlace(CB.inp); }, true);
+window.addEventListener('resize', function(){ if (CB.inp) cbPlace(CB.inp); });
 /* The sheet and the typed text are one thing said twice. Whenever the sheet changes
    shape — a line added, a line taken off — the text follows it, so stepping back to the
    ingredients box shows what is actually on the sheet and coming forward changes nothing. */
-function syncText(){ S.text = S.rows.map(function(r){ return r.raw; }).join(',\n') + (S.rows.length ? ',' : ''); }
+function syncText(){
+  /* realRows(), or the box on the ingredients screen fills up with ",\n,\n,\n" — one empty
+     line for every line on the sheet he has not written on yet. The box is meant to read
+     back exactly what the sheet says, and the sheet does not say that. */
+  var rr = realRows();
+  S.text = rr.map(function(r){ return r.raw; }).join(',\n') + (rr.length ? ',' : '');
+}
 
 /* ═════════ dragging a line into place ═════════
    Grab the ⠿ and drop the line anywhere in the sheet. This replaced a pair of
@@ -8513,7 +9045,7 @@ function foot(){
       ? '<div class="todo">'+[t.noProd?t.noProd+' without an ingredient':'', t.noQty?t.noQty+' without a quantity':'']
           .filter(Boolean).join(' · ')+' — saves anyway</div>'
       : (t.badBatch.length || t.noPrice) ? ''
-      : '<div class="ok">All '+S.rows.length+' done'+
+      : '<div class="ok">All '+realRows().length+' done'+
         (S.kind==='batch' ? (mk ? ' · ready to link into any recipe' : '') : '')+'</div>') +
     '<button class="sshut" id="footshut">Put it away ▲</button>' +
     '</div>';
@@ -8556,51 +9088,9 @@ document.addEventListener('change', function(e){
   var t = e.target, i = t.dataset.i;
   if (i == null) return;
   var r = S.rows[+i];
-  if (t.classList.contains('prod') && (t.value === '__add' || t.value === '__batch')){
-    var act = t.value; t.value = r.code || '';        /* the dropdown is not the answer, it starts one */
-    /* Open the form on the unit he already wrote. It defaulted to kg, so "0.5 L" met
-       a form that said "sold by kg" and the litres were quietly re-read as grams. */
-    if (act === '__add'){
-      r.adding = true; r.adj = false;
-      if (!r.addUnit) r.addUnit = soldByOf(r.unit || r.typedUnit);
-      redrawRow(+i);
-      var f = document.querySelector('[data-i="'+i+'"][data-f="anm"]'); if (f){ f.focus(); f.select(); }
-    } else makeBatchFor(+i);
-    return;
-  }
-  if (t.classList.contains('prod')){
-    var wasStale = isStale(r), oldCode = r.code, oldName = itemOf(r) && itemOf(r).name;
-    r.code = t.value || null;
-    if (wasStale && r.code && r.code !== oldCode){
-      SWAPS.push({ from:oldCode, fromName:oldName, to:r.code,
-                   toName:(r.opts.filter(function(o){ return o.code===r.code; })[0]||{}).name });
-      delete RETIRED[oldCode];
-    }
-    if (r.code){
-      var _it = itemOf(r), _al = unitsFor(_it), _want = r.unit || r.typedUnit;
-      if (_al.indexOf(_want) > -1) r.unit = _want;
-      else {
-        r.unit = defUnit(_it);
-        if (r.typedUnit && r.typedUnit !== '?' && r.qty != null){  /* 2 pcs sold by the kilo is NOT 2 g */
-          r.mismatch = r.typedUnit; r.qty = null;
-        }
-      }
-      /* and a bare count — "1 lemon" — of something sold by weight is not 1 gram */
-      if (!r.typedUnit && r.qty != null && baseOf(_it) !== 'pcs'){ r.bare = r.qty; r.qty = null; }
-      if (baseOf(_it) === 'pcs'){ r.bare = null; r.noMeasure = false; }
-    }
-    /* the "on this sheet twice" note lives on BOTH lines, and the other one is not
-       the row being redrawn — so when a pick creates or clears a pair, the sheet is
-       drawn, not the row. Everything else stays a single-row redraw. */
-    var pair = r.code && S.rows.filter(function(x){ return x.code === r.code; }).length > 1;
-    var wasPair = oldCode && S.rows.filter(function(x){ return x.code === oldCode; }).length === 1;
-    if (pair || wasPair) rows(); else redrawRow(+i);
-    foot(); swapbar();
-    var next = -1;                                          /* stay in the Ingredient column */
-    for (var k=+i+1;k<S.rows.length;k++) if (!S.rows[k].code){ next=k; break; }
-    if (next > -1){ var s = document.querySelector('.prod[data-i="'+next+'"]'); if (s) s.focus(); }
-    return;
-  }
+  /* Choosing the ingredient no longer comes through here: the dropdown is a box he
+     types in now, and everything that used to be in this handler is in pickRow(),
+     unchanged, so the checks that were fought for still run on every pick. */
   if (t.dataset.f === 'aun'){ r.addUnit = t.value; redrawRow(+i); return; }
   if (t.dataset.f === 'afr'){ r.addFree = t.checked; redrawRow(+i); return; }
   if (t.dataset.f === 'unit'){
@@ -8655,7 +9145,19 @@ document.addEventListener('input', function(e){
   if (f==='yield' && !(r.yield > 0))                { r.yield = 100;  t.value = '100'; }
   if (f==='waste' && r.waste < 0)                   { r.waste = 0;    t.value = '0'; }
   if (f==='qty' && (r.mismatch || r.bare != null || r.noMeasure)){
-    r.mismatch = null; r.bare = null; r.noMeasure = false; redrawRow(+i); foot(); return;
+    r.mismatch = null; r.bare = null; r.noMeasure = false;
+    /* This fires on the FIRST keystroke in the amount box — and redrawing the row takes
+       that very box off the page, so the focus goes with it and the rest of the number is
+       typed into nothing. "1" of "150" is a real amount and a wrong one, and there is
+       nothing on the sheet to give it away. The row still has to be drawn (the warning
+       under the name has just stopped being true), so it is drawn and the box is handed
+       straight back, caret where he left it. */
+    var at = [0, 0];
+    try { at = [t.selectionStart, t.selectionEnd]; } catch (_e){}
+    redrawRow(+i); foot();
+    var nq = document.querySelector('input.qty[data-i="'+i+'"]');
+    if (nq){ nq.focus(); try { nq.setSelectionRange(at[0], at[1]); } catch (_f){} }
+    return;
   }
   var tr = $('tb').querySelectorAll('tr.main')[+i];
   var c = rowCost(r), td = tr.querySelector('td.money');
@@ -8676,6 +9178,17 @@ document.addEventListener('keydown', function(e){
   }
   if (!t.classList || !t.classList.contains('cell')) return;
   e.preventDefault();
+  /* Down the sheet the way a recipe is actually written: the thing, then how much of it,
+     then the next thing. Enter on the amount goes to the next line's ingredient box —
+     not to the next amount, which is where it used to go and which meant coming back up
+     the sheet with the mouse for every single line. On the last line it makes another
+     one, so the list never runs out from under him. */
+  if (t.classList.contains('qty') && t.dataset.i != null){
+    var qi = +t.dataset.i;
+    if (qi >= S.rows.length - 1){ addBlankLine(true); return; }
+    var np = document.querySelector('input.pick[data-i="'+(qi+1)+'"]');
+    if (np){ np.focus(); np.select(); return; }
+  }
   var all = [].slice.call(document.querySelectorAll('.cell'));
   var n = all[all.indexOf(t)+1]; if (n) n.focus();
 });
@@ -8831,7 +9344,9 @@ document.addEventListener('click', function(e){
        still keeps what you have typed. */
     if (S.id) newRecipe();
     if (!S.method) S.method = emptyMethod();
-    S.kind=k.dataset.k; S.step='write';
+    /* it lands on the sheet now, not on the box in front of it */
+    S.kind=k.dataset.k; S.step='sheet';
+    if (!realRows().length) S.rows = blankRows(BLANKLINES);
     /* The very first recipe of a visit never went through newRecipe(), so it was the
        one dish that started on no menu at all — and a dish on no menu shows on no
        card. A new main starts on the menu that is running; the control in the bar
@@ -8984,7 +9499,9 @@ document.addEventListener('click', function(e){
      above [data-rm] and every control branch: those all sit in their own cells, so a
      tap on the quantity, the dropdown, the tick or the × never reaches this. */
   var pk = e.target.closest('[data-pick]');
-  if (pk && !e.target.closest('input,select,button,a')){
+  /* and an empty line cannot be added up — it would sit on the strip as "1 picked, no
+     amount" about a line nobody has written on */
+  if (pk && !e.target.closest('input,select,button,a') && !isBlankRow(S.rows[+pk.dataset.pick])){
     var pi = +pk.dataset.pick;
     if (!S.sel) S.sel = [];
     var at = S.sel.indexOf(pi);
@@ -9718,6 +10235,21 @@ document.addEventListener('click', function(e){
 $('act').addEventListener('click', function(){
   if (S.step==='write'){ S.step='sheet'; render(); window.scrollTo(0,0); return; }
   if (S.step!=='sheet') return;
+  /* The name is not optional, and it is not the database's job to say so. The page that
+     used to guarantee it is off the way in, so it is guaranteed here — by name, in his
+     words, with the box focused rather than a shrug. */
+  if (!S.name.trim()){
+    var nmb = $('nm');
+    var tn = flash('Give the recipe a name first — the box at the top of the sheet.');
+    setTimeout(function(){ if (tn) tn.remove(); }, 4000);
+    if (nmb){ nmb.focus(); if (nmb.scrollIntoView) nmb.scrollIntoView({ block:'center' }); }
+    return;
+  }
+  if (!realRows().length){
+    var t0 = flash('Nothing is written on the sheet yet — write an ingredient on a line first.');
+    setTimeout(function(){ if (t0) t0.remove(); }, 4000);
+    return;
+  }
   /* A second tap while the first is still going must not start a second save — but it
      must not be nothing, either. Tapping a button that does not answer is exactly what
      "it is not saving" looks like from the other side of the pass. */
@@ -10166,6 +10698,16 @@ function checkFit(){
     var pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
     note(el, o.text, el.clientWidth - pad, cv.measureText(o.text).width);  /* padding-right already holds the arrow */
   });
+  /* The ingredient box is a text input and an input's scrollWidth is only as wide as what
+     is in it, so it is measured the same way the dropdown was — by the text, on canvas.
+     This is the column that has twice been fixed for cutting names; it stays measured. */
+  document.querySelectorAll('table.sheet input.pick').forEach(function(el){
+    if (!el.value) return;
+    var cs = getComputedStyle(el);
+    cv.font = cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;
+    var pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    note(el, el.value, el.clientWidth - pad, cv.measureText(el.value).width);
+  });
   return bad;
 }
 window.checkFit = checkFit;
@@ -10231,7 +10773,9 @@ loadMenus().then(function(){
     return;
   }
   if (TODOSOLO) return;
-  if (S.step==='sheet' || S.step==='saved') render();
+  /* This is the one LATE full render of the sheet, and it lands about a second in — right
+     on top of the first ingredient somebody is writing. keepFocus, or the box goes. */
+  if (S.step==='sheet' || S.step==='saved') keepFocus(render);
   /* the bar's menu control is empty until the menus land — redraw it whatever step
      he is on, or a recipe started before the read finished never gets asked */
   drawBarMenu();
@@ -10278,6 +10822,6 @@ if (Q.get('id')){
       flash('That recipe could not be opened — ' + e.message, true);
     });
 } else if (Q.get('new') === '1'){
-  S.step = 'type'; render();
+  S.step = 'sheet'; padBlank(); render();
 }
 </script>
