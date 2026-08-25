@@ -420,6 +420,15 @@ td.per{font-size:11px;color:var(--vino-light);white-space:nowrap}
 .mrm:disabled{opacity:.3;cursor:default;text-decoration:none}
 /* on a phone the sheet rows wrap and Remove lands on its own line — give it a thumb */
 @media (pointer:coarse){ .mrm{padding:12px 10px;font-size:12px} }
+/* Pricing one of your own, in place. Adding one was always possible; CORRECTING the
+   price was not, and Remove is refused the moment a recipe uses it — so a price you
+   did not have on the day was a price you were stuck with for good. 16px on a touch
+   screen because anything smaller makes iOS zoom the whole page on focus. */
+.mpr{font-family:var(--sans);font-size:14px;width:72px;text-align:right;padding:6px 7px;
+  border:1px solid var(--sabbia-dark);border-radius:3px;background:#fff;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.mpr:focus{outline:none;border-color:var(--vino);box-shadow:0 0 0 2px rgba(64,2,7,.16)}
+@media (pointer:coarse){ .mpr{font-size:16px;padding:10px 8px;width:84px} }
 .lnote .bad{color:#8d1f1f}
 .mine{display:inline-block;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;background:var(--oliva);color:#fff;border-radius:2px;padding:2px 6px;margin-right:6px;vertical-align:1px}
 .lnote{padding:13px 16px;font-size:12px;color:var(--vino-light);line-height:1.6}
@@ -3263,6 +3272,24 @@ function saveMine(it){
       code:it.code, name:it.name, group_name:it.group, unit:it.unit, price:it.price } })
     .then(function(rows){ var r = rows && rows[0]; if (r) it.rowId = r.id; return it; });
 }
+/* The price on one of your own, changed after the fact. It lives out here with
+   saveMine() and archiveMine() and not inside the click handler, for a reason worth
+   knowing: that handler declares `var sb = $('m-story')` for the story box, and `var`
+   hoists to the top of the whole function — so inside it the global sb() is shadowed
+   by undefined and any write called from there dies on "sb is not a function". Found
+   by pressing the real button, 25 Aug 2026. Every other write on this screen already
+   goes through a function out here; this one does too. */
+function repriceMine(it, price){
+  return sb('ingredients?id=eq.' + it.rowId, { method:'PATCH',
+      body:{ price:price, updated_at:new Date().toISOString() } })
+    .then(function(){
+      /* BOTH, or the sheet goes on costing off the old figure: basePrice() reads
+         `units` first and only falls back to `price`. */
+      it.price = price;
+      it.units = [{ unit:it.unit, price:price }];
+      return it;
+    });
+}
 /* Plain words for what the database says back */
 function minePlain(msg){
   msg = String(msg||'');
@@ -5681,7 +5708,9 @@ function render(){
         '</div>' +
         '<div class="why"><b>0 is a real price.</b> Tap water, ice, herbs from the garden \u2014 they cost nothing and the app treats zero as an answer, not a gap. ' +
         'And if you bought something FMC doesn\u2019t carry yet, put the code in and use it now \u2014 ' +
-        'when the catalogue picks that code up, <b>its price takes over automatically</b>.</div>' +
+        'when the catalogue picks that code up, <b>its price takes over automatically</b>. ' +
+        'And a price you were not sure of is not a trap: <b>change it in the Price column</b> \u2014 ' +
+        'type the new one, press Save, and every recipe using it costs off it from then on.</div>' +
         '<div class="err" id="ae"></div></div>' +
       '<table class="sheet"><thead><tr><th>Code</th><th>Ingredient</th><th>Group</th>' +
         '<th class="n">Price</th><th>Per</th><th class="n">Works out at</th><th class="n">Used in</th><th></th></tr>' +
@@ -5703,7 +5732,16 @@ function render(){
             (noPriceYet(i)?'<span class="mine" style="background:var(--attn)">no price</span>':'') +
             esc(i.name.replace(/^RF /,'').replace(/ \(PA\)$/,''))+'</td>' +
           '<td class="per">'+esc(i.group)+'</td>' +
-          '<td class="money">'+fmt(i.price)+'</td>' +
+          /* Yours is editable, Aung's is not — the same line the Remove column draws.
+             Without this a price you did not know on the day could never be put right:
+             Remove is refused the moment a recipe uses it, so the wrong figure was
+             load-bearing for good. */
+          '<td class="money">'+(i.mine && i.rowId
+            ? '<input class="mpr" data-mpr="'+esc(i.code)+'" inputmode="decimal" ' +
+              'aria-label="What '+esc(i.name)+' costs per '+esc(i.unit)+'" ' +
+              'value="'+(i.price==null?'':esc(i.price))+'">' +
+              ' <button class="mrm" data-mprok="'+esc(i.code)+'">Save</button>'
+            : fmt(i.price))+'</td>' +
           '<td class="per">'+esc(i.unit)+'</td>' +
           '<td class="money">'+(per==null ? '<span class="per" style="color:var(--attn)">unit not readable</span>'
                                             : fmt(per)+' <span class="per">/'+p.base+'</span>')+'</td>' +
@@ -7011,8 +7049,14 @@ function rowHTML(r, i){
           : (r.goneCode && need)  ? '<i class="stale">code '+esc(r.goneCode)+' gone — pick a replacement</i>'
           : r.byCode           ? '<i class="one">matched on code '+esc(r.code)+'</i>'
           : (r.loose && need)  ? '<i class="many">no exact match — '+r.opts.length+' closest</i>'
+          /* It used to stop at 'not on the list', which reads as a fault to be cleared
+             before you may carry on. It is not one: the words are kept, the line saves,
+             and the only thing that changes is that the cost underneath is a floor. Say
+             that on the line, so nobody abandons a recipe over a bottle FMC does not
+             sell — which is what happened on 25 Aug 2026. */
           : r.opts.length===0  ? '<i class="many">not on the list' +
-                                (fix ? ' — <span class="fix" data-rowfix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') + '</i>'
+                                (fix ? ' — <span class="fix" data-rowfix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') +
+                                ' — your words are kept, the cost below is short by this line</i>'
           : r.opts.length===1  ? '<i class="one">only one — picked</i>'
           : need               ? '<i class="many">'+r.opts.length+' to choose from</i>'
           /* only while the tick is ON. Kept-but-not-counting numbers say so in the Trim
@@ -7129,8 +7173,11 @@ function rowHTML(r, i){
         '<button class="okb" data-addok="'+i+'"'+(r.addBusy?' disabled':'')+'>'+(r.addBusy?'Adding…':'Add it')+'</button> ' +
         '<button class="cxb" data-addno="'+i+'"'+(r.addBusy?' disabled':'')+'>Cancel</button></div></div>' +
       '<div class="exp">It joins your list for every recipe, marked as yours. ' +
-        'Give it a real price or say it is free — there is no third answer, because a missing price ' +
-        'makes every dish that uses it look cheaper than it is.' +
+        'Give it a real price or say it is free — an invented price ' +
+        'makes every dish that uses it look cheaper than it is. ' +
+        '<b>Do not know it yet?</b> Cancel — your words stay on the line, the recipe still saves, ' +
+        'and the cost below says it is short until the price is on the list. Put it in when you ' +
+        'have it; you can change it later on Aung’s list without losing the recipes using it.' +
         (r.addErr ? '<br><b class="bad">'+esc(r.addErr)+'</b>' : '') + '</div>' +
     '</div></td></tr>'
     /* Only when he ASKS for it now. The two boxes moved onto the row above, so this
@@ -7321,14 +7368,29 @@ function cbListHTML(r, q){
   if (!f.list.length)
     html += '<div class="cbn">' + (f.name
       ? 'Nothing in the catalogue matches “' + esc(f.name) + '”. Add it yourself below, or ' +
-        'try fewer words — <b>seabass</b> finds more than <b>seabass fillet sliced</b>.'
+        'try fewer words — <b>seabass</b> finds more than <b>seabass fillet sliced</b>.' +
+        /* Spelling was never the problem for a bottle. This list is the FOOD supplier's
+           catalogue — 23 item groups, not one of them drink — so gin, Campari and
+           vermouth are not on it and no shorter search will ever find them. Saying
+           'try fewer words' and nothing else sent Antonio hunting for something that
+           does not exist. Reported 25 Aug 2026. */
+        '<br>This is FMC’s <b>food</b> catalogue, and food is all it holds — nothing from ' +
+        'the bar is on it, however you spell it. Add it yourself, or keep your words.'
       : 'Write what you need — the catalogue answers as you type.') + '</div>';
   /* on every line, picked or not — otherwise the only way to change your mind about a
      line is to delete it and write it again */
   html += '<div class="cbg">Not on the list?</div>' +
     '<button type="button" class="cbo" data-cb="__add">＋ Add it as an ingredient of your own</button>' +
-    '<button type="button" class="cbo" data-cb="__batch">＋ Make it a batch recipe</button>';
-  CB.codes.push('__add'); CB.codes.push('__batch');
+    '<button type="button" class="cbo" data-cb="__batch">＋ Make it a batch recipe</button>' +
+    /* The third door, and why it had to exist. 'Add it as an ingredient of your own'
+       opens a form that will not save without a price — and for a bottle FMC does not
+       sell there is no price to be found on this screen or any other. With only two
+       doors, both shut, the recipe gets abandoned: that is what happened to the Negroni
+       syrup for Benvenuti al Nord on 25 Aug 2026. Keeping his words costs the sheet
+       nothing it was not already short — a line with no code carries no cost, and
+       totals() already turns every figure underneath into 'at least' because of it. */
+    '<button type="button" class="cbo" data-cb="__words">＋ Keep my words — no cost for this line yet</button>';
+  CB.codes.push('__add'); CB.codes.push('__batch'); CB.codes.push('__words');
   return html;
 }
 
@@ -7444,6 +7506,22 @@ function cbChoose(code){
      never be written into "You wrote". */
   var his = typed && typed !== (itNow ? disp(itNow.name) : '');
   cbShut();
+  /* 'I cannot cost it yet' is a real answer and it now has a button. His words stay on
+     the line, no ingredient is pointed at, and the sheet goes straight to the amount —
+     the same move picking an ingredient makes, so the sentence he is writing is not
+     interrupted. The cost underneath is a FLOOR, never a smaller number: that is
+     totals() counting the line in noProd, which is already what makes the footer say
+     'at least'. Nothing here invents a price. */
+  if (code === '__words'){
+    if (his) cbWord(r, typed);
+    r.code = null; r.adding = false; r.addErr = null;
+    var lw = String(r.word || '').trim() ? looseSearch(r.word) : { opts:[], loose:false };
+    r.opts = lw.opts; r.loose = lw.loose;
+    redrawRow(i);
+    var qw = document.querySelector('input.qty[data-i="'+i+'"]');
+    if (qw){ qw.focus(); qw.select(); }
+    return;
+  }
   if (code === '__add' || code === '__batch'){
     if (his) cbWord(r, typed);
     if (code === '__add'){
@@ -9287,8 +9365,10 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'whuse'){
     if (WH_STORY && WH_STORY.story){
       mth().story = WH_STORY.story;
-      var sb = $('m-story');
-      if (sb){ sb.value = WH_STORY.story; grow(sb); }
+      /* NOT `sb` — the global sb() is this file's only way to the database, and a
+         `var sb` anywhere in this handler hoists over it for the whole function. */
+      var stb = $('m-story');
+      if (stb){ stb.value = WH_STORY.story; grow(stb); }
       var wc = $('wc-story'); if (wc) wc.innerHTML = budget(FSEC.filter(function(x){ return x.k === 'story'; })[0], WH_STORY.story);
       drawSaveBar(); drawFohState();
       WH_STORY = null; whDrawStory(); whScanBox('story');
@@ -9449,7 +9529,10 @@ document.addEventListener('click', function(e){
     var un = rr.addUnit || 'kg';
     var pr = rr.addFree ? 0 : parseFloat(rr.addPrice);
     rr.addErr = !nm ? 'Give it a name.'
-              : (!rr.addFree && (!isFinite(pr) || pr <= 0)) ? 'Put in what it costs per '+un+', or tick that it is free.'
+              /* The refusal used to end there, with no way out but the price he came
+                 here BECAUSE he has not got. Name the way out in the same sentence. */
+              : (!rr.addFree && (!isFinite(pr) || pr <= 0)) ? 'Put in what it costs per '+un+', or tick that it is free — '
+                  + 'or Cancel, and keep your words on the line until you have the price.'
               : ING.some(function(x){ return x.name.toLowerCase() === nm.toLowerCase(); })
                   ? 'There is already something called "'+nm+'" on the list — pick that one.'
               : null;
@@ -10155,6 +10238,57 @@ document.addEventListener('click', function(e){
       btn.disabled = false; btn.textContent = was;
       var e2 = $('mne'); if (e2) e2.textContent = 'Not made — ' + menuPlain(ex.message);
     });
+    return;
+  }
+
+  /* Putting a price on one of your own, after the fact. Until now the only control on
+     these rows was Remove — and Remove is refused the moment a recipe uses it, so a
+     price you did not have on the day was a price you were stuck with. Antonio hit
+     exactly that on 25 Aug 2026: the bar's bottles are not in FMC's catalogue, so the
+     cost has to come from him, and it has to be able to come LATER. */
+  var mpk = e.target.closest('[data-mprok]');
+  if (mpk){
+    var pcode = mpk.dataset.mprok;
+    var pit = ING.filter(function(x){ return x.code === pcode; })[0];
+    var pin = document.querySelector('input.mpr[data-mpr="'+pcode+'"]');
+    if (!pit || !pit.rowId || !pin) return;
+    var pnote = $('ae');
+    var praw2 = String(pin.value).trim(), pnew = parseFloat(praw2);
+    /* 0 is an answer here, the same as it is in the add box. Empty and negative are not. */
+    if (praw2 === '' || !isFinite(pnew) || pnew < 0){
+      if (pnote){ pnote.style.color = '';
+        pnote.textContent = 'Put in what ' + pit.name + ' costs per ' + String(pit.unit).toLowerCase() +
+                            '. If it is free, type 0.'; }
+      pin.focus(); pin.select(); return;
+    }
+    if (pnew === Number(pit.price)){
+      if (pnote){ pnote.style.color = '';
+        pnote.textContent = pit.name + ' is already ' + fmt(pnew) + ' per ' +
+                            String(pit.unit).toLowerCase() + ' — nothing changed.'; }
+      return;
+    }
+    var pold = pit.price, pwas = mpk.textContent;
+    mpk.disabled = true; mpk.textContent = 'Saving…';
+    if (pnote){ pnote.style.color = ''; pnote.textContent = ''; }
+    /* The database first, the screen after — the same order saveMine() uses and for the
+       same reason: a price that looked changed all sitting and was the old one again in
+       the morning is worse than one that was never touched. */
+    repriceMine(pit, pnew)
+      .then(function(){
+        refreshOpts();
+        render();                                /* the row redraws — then say so on the fresh screen */
+        var n3 = $('ae');
+        if (n3){ n3.style.color = 'var(--oliva)';
+          n3.textContent = pit.name + ' is now ' + fmt(pnew) + ' per ' + String(pit.unit).toLowerCase() +
+            ' (was ' + fmt(pold) + ') ✓ — every recipe using it costs off the new price from now on.'; }
+      })
+      .catch(function(err){
+        mpk.disabled = false; mpk.textContent = pwas;
+        var n4 = $('ae');
+        if (n4){ n4.style.color = '';
+          n4.textContent = 'Not changed — ' + minePlain(err.message) +
+                           ' The old price is still what the recipes use.'; }
+      });
     return;
   }
 
