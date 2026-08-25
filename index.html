@@ -1313,7 +1313,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
     <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
     <button class="home-tile compact" onclick="openArticleCatalogue()"><span class="home-code">ART</span><span><span class="home-name">Article Catalogue</span><span class="home-meta">Every article FMC holds &mdash; name, code, unit, price</span></span></button>
-    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">The recipe book — every dish, filed by menu. Recipe card, Food Bible, current menu.</span></span></button>
+    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Recipe book, create new recipes, recipe card, Food Bible, current menu</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
     <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
@@ -1397,6 +1397,11 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 <div id="menupdf-view" class="ops-view" style="display:none"></div>
 <div id="todo-view" class="ops-view" style="display:none"></div>
 <div id="micros-view" class="ops-view" style="display:none"></div>
+<!-- The Recipe book took the Micros request's place on the Recipes page, 25 Aug 2026.
+     Its own view rather than reusing micros-view: an id that names the wrong screen is
+     how the next person reading this loses an afternoon. micros-view stays where it is,
+     empty and unused, because nothing is gained by taking it out. -->
+<div id="recipebook-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1473,7 +1478,7 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1787667177"></script>
+<script src="app.js?v=1787672050"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH

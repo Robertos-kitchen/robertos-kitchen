@@ -1890,7 +1890,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2211,18 +2211,17 @@ function openOrderInventory(){ openMarketList(); }
 // half-written recipe, which is the one thing this module must never do.
 // The way in. Three screens, one dish, one record — so they live together behind one
 // door rather than as three unrelated things on the home screen.
-// The BOOK is first, and it is what Recipes opens on — 25 Aug 2026, Danilo and Antonio:
-// they asked for a recipe book, not a module. What they want first is the dishes that
-// are already written, so that is the screen; everything else is a button inside it.
+// ONE door changed, 25 Aug 2026 — Danilo and Antonio. The Micros request came off the
+// page and the RECIPE BOOK took its place. The rest of the page is exactly as it was.
 //
-// The Micros request lost its door in the same pass. It was never a PLACE — it is a
-// thing you do to a dish or to a menu — and giving it a tile meant asking for one
-// started by leaving the dish. It is a button on the card in the book, and a button
-// inside the menu. Same screen, same code; only the way in is different.
+// The Micros request was never a PLACE. It is a thing you do to a dish or to a menu, and
+// giving it a door meant that asking for one dish to go to the till started by leaving
+// the dish. It is a button on the recipe's card in the book, and a button inside a menu.
+// Same screen, same code; only the way in is different.
 var RECIPE_SCREENS=[
-  {code:'BOOK', view:'recipecreate-view', page:'recipe-create.html?embed=1&saved=1',
-   name:'Recipe book',
-   meta:'Every dish we have written, filed by menu — open one to change it, or start a new one.'},
+  {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
+   name:'Create new recipes',
+   meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
   {code:'PASS', view:'recipecard-view', page:'recipe-card.html?embed=1',
    name:'Recipe card',
    meta:'The station card: the dish and every batch inside it, scaled, printable.'},
@@ -2234,15 +2233,46 @@ var RECIPE_SCREENS=[
    meta:'Every menu we print, kept ready for the printer — à la carte, wine, set menus.'},
   {code:'FIX', view:'todo-view', page:'recipe-create.html?embed=1&todo=1',
    name:'Needs finishing',
-   meta:'Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'}
+   meta:'Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'},
+  // Where the Micros request used to be. It is the saved recipes, filed by menu — the
+  // screen they actually wanted quick access to, and the one every other way in already
+  // went through. Micros is now a button on the cards inside it.
+  {code:'BOOK', view:'recipebook-view', page:'recipe-create.html?embed=1&saved=1',
+   name:'Recipe book',
+   meta:'Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'}
 ];
-// where Recipes lands, and where every other screen's bar goes back to
-var RECIPE_HOME='recipecreate-view';
-// Recipes IS the book. There used to be a page of six doors here first, and every one
-// of them was a screen you had to have opened once to know what was behind it — so the
-// tile called "Recipes" led to a menu of names rather than to the recipes. It opens on
-// the book now; the other screens are on the strip along the top of it.
-function openRecipes(){ openRecipeScreen(RECIPE_HOME); }
+function openRecipes(){
+  activeStation=RECIPES_KEY;
+  hideAllPages();
+  var v=document.getElementById('recipes-view');
+  v.style.cssText='';
+  // The room at the top, then the doors on paper. `aria-label` is on the button because
+  // a <button> only takes phrasing content — the name inside a heading announced as
+  // nothing at all on a screen reader.
+  v.innerHTML='<div class="rcp-paper">'+
+    '<div class="rcp-hero">'+
+      '<img src="img/recipes-terrace.jpg" alt="The terrace at Roberto\'s DIFC at night">'+
+      '<div class="rcp-hero-in">'+
+        '<div class="rcp-eyebrow">Roberto\'s Kitchen</div>'+
+        '<h2>Recipes</h2>'+
+        '<div class="rcp-hero-rule"></div>'+
+        '<p>One dish, written once. The pass and the floor read the same record.</p>'+
+      '</div>'+
+    '</div>'+
+    '<div class="rcp-doors">'+RECIPE_SCREENS.map(function(s){
+      return '<button class="rcp-door" type="button" data-rcp="'+s.view+'" '+
+        'aria-label="Open '+escHtml(s.name)+'">'+
+        '<span class="rcp-top">'+
+          '<span class="rcp-code">'+s.code+'</span>'+
+          '<span class="rcp-name">'+escHtml(s.name)+'</span>'+
+        '</span>'+
+        '<span class="rcp-meta">'+escHtml(s.meta)+'</span>'+
+        '<span class="rcp-go">Open<span class="rcp-arw">&rarr;</span></span></button>';
+    }).join('')+'</div>'+
+  '</div>';
+  document.querySelector('.footer-bar').style.display='flex';
+  document.getElementById('foot-label').textContent='Recipes';
+}
 function openRecipeScreen(viewId){
   var s=RECIPE_SCREENS.filter(function(x){return x.view===viewId;})[0];
   if(!s) return;
@@ -2255,28 +2285,29 @@ function openRecipeScreen(viewId){
     if(!v.firstChild){
       var bar=document.createElement('div');
       bar.className='rcp-bar';
-      // On the book, the strip is the way to the other screens - it is the front door,
-      // so there is nothing behind it to go back to. On any of those screens it is one
-      // button back to the book, which is the screen they were opened from.
-      bar.innerHTML=(s.view===RECIPE_HOME
-        ? '<span class="rcp-bar-name">'+escHtml(s.name)+'</span>'+
-          RECIPE_SCREENS.filter(function(x){return x.view!==RECIPE_HOME;}).map(function(x){
-            return '<button class="home-btn" type="button" data-rcp="'+x.view+'" '+
-              'aria-label="Open '+escHtml(x.name)+'">'+escHtml(x.name)+'</button>';
-          }).join('')
-        : '<button class="home-btn" onclick="openRecipes()">&lsaquo; Recipe book</button>'+
-          '<span class="rcp-bar-name">'+escHtml(s.name)+'</span>');
+      bar.innerHTML='<button class="home-btn" onclick="openRecipes()">&lsaquo; Recipes</button>'+
+        '<span class="rcp-bar-name">'+escHtml(s.name)+'</span>';
       var f=document.createElement('iframe');
       f.src=s.page; f.title=s.name; f.loading='eager';
       f.style.cssText='display:block;width:100%;flex:1 1 auto;min-height:0;border:none;background:var(--sabbia)';
       v.appendChild(bar); v.appendChild(f);
     }
     v.style.display='flex';
-    // The door used to be "Create new recipes", so opening it a second time had to force
-    // a blank sheet or it showed whatever was last on screen. The door is the BOOK now,
-    // and a book that forgets where you were is a worse book - coming back to the dish
-    // you were in the middle of is the point. Starting a new one is the "+ New recipe"
-    // button inside it, which still parks anything unsaved first.
+    // The page is built once and then left alone, so tapping "Create new recipes" a
+    // second time showed whatever was last on the screen - a workbook he had opened, a
+    // half-written sheet - instead of a new recipe. The tile has to mean what it says.
+    // The page drops anything unsaved into its own Unsaved work list first, so a clean
+    // start never costs him what he had.
+    //
+    // The Recipe book is deliberately NOT reset this way. A book that forgets where you
+    // were is a worse book: coming back to the menu you were reading is the point, and
+    // starting a new recipe from in there is its own button.
+    if(s.code==='RCP'){
+      var fr=v.querySelector('iframe');
+      var go=function(){ try{ if(fr.contentWindow&&fr.contentWindow.__rcpNew) fr.contentWindow.__rcpNew(); }catch(e){} };
+      if(fr){ if(fr.contentWindow&&fr.contentWindow.__rcpNew) go();
+              else fr.addEventListener('load',go,{once:true}); }
+    }
   }
   document.querySelector('.footer-bar').style.display='flex';
   document.getElementById('foot-label').textContent=s.name;
@@ -2288,7 +2319,7 @@ function openRecipeScreen(viewId){
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -2310,7 +2341,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';

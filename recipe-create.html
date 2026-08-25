@@ -10940,9 +10940,11 @@ function backStep(){
   if (s === 'sheet'){
     if (S.imported && S.found && S.found.recipes.length > 1) return { to:'found' };
     if (S.back && S.back !== 'sheet') return { to:S.back };
-    /* opened cold — from ?new=1, or the very first recipe of a visit. The book is the
-       only screen genuinely behind it. */
-    return { to:'saved' };
+    /* Opened cold — the "Create new recipes" door, or ?new=1. There is genuinely nothing
+       behind a blank sheet, and the app's own bar is what leaves. Sending him to the
+       recipe book here would be inventing a screen he was never on, which is the whole
+       fault this rewrite is fixing. */
+    return null;
   }
   return null;
 }
