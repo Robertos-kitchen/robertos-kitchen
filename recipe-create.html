@@ -974,6 +974,11 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
    same weight as the dish's own name. Hover does not exist on the pass screen or a phone,
    so it is legible sitting still and only firms up when he goes near it or tabs to it. */
 .srm.quiet{font-size:10px;opacity:.4;padding:8px 6px;color:var(--vino-light)}
+/* Micros is not quiet. Quiet is what Remove is, because Remove takes a recipe away and
+   should not invite a tap. Sending a dish to the till is work they do every week, so it
+   is legible sitting still, at full colour, on a phone as much as on the pass screen. */
+.srm.smic{opacity:1;color:var(--vino);font-size:11px;font-weight:600;padding:6px 8px}
+.srm.smic:hover,.srm.smic:focus{text-decoration:underline}
 .srow:hover .srm.quiet{opacity:.8}
 .srm.quiet:hover,.srm.quiet:focus{opacity:1;color:var(--vino);text-decoration:underline}
 /* measured, not guessed — the pass screen is a thumb */
@@ -1369,13 +1374,13 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
          found later, further down a page he may never scroll to. -->
     <select class="bsec" id="bmn" style="display:none"></select></div>
   <div style="display:flex;align-items:center;gap:14px">
-    <span class="lnk" id="tosaved">Saved recipes</span>
+    <span class="lnk" id="tosaved">The recipe book</span>
     <span class="lnk" id="tolist">Aung's list</span>
     <!-- A tab, not a module. It was briefly a tile in the Recipes menu, which
          gave the app a whole door for one screen and put a second dark bar on
          top of the module's own. It belongs here beside the other two ways out
          of this sheet — the page it opens is gated by its own PIN. -->
-    <span class="lnk" id="tobook">Check the book</span>
+    <span class="lnk" id="tobook">Check the wording</span>
     <button class="act off" id="act">Next</button>
   </div>
 </div>
@@ -1731,6 +1736,10 @@ var S = { step:'sheet', kind:'main', name:'', text:'', rows:blankRows(6), price:
              so it is not saved, not in sig(), and starts empty on every sheet. */
           sel:[],
           id:null, section:'', makesQty:null, makesUnit:null, saved:[], sq:'', listErr:null, menus:[],
+      /* the "pour a whole list in" fold on the sheet, and its own box. Its own, and not
+         S.text, because S.text is the sheet written out and this one only ever ADDS —
+         see bulkHTML(). Both start empty and the fold starts shut. */
+          bulk:false, btext:'',
       /* put away by default: writing a recipe is reading the rows, and the sheet
          being whole matters more than a number he looks at when he prices it */
       footShut:(function(){ try{ return localStorage.getItem('rcpFoot') !== 'open'; }catch(x){ return true; } })(),
@@ -1798,7 +1807,7 @@ function kindStashNow(){
   return { price:S.price, makesQty:S.makesQty, makesUnit:S.makesUnit,
            section:S.section, menus:(S.menus || []).slice() };
 }
-function canAskKind(){ return !!S.kind && (S.step === 'write' || S.step === 'sheet'); }
+function canAskKind(){ return !!S.kind && S.step === 'sheet'; }
 function askKind(){
   if (!canAskKind()) return;
   S.kindAsk = S.kind === 'main' ? 'batch' : 'main';
@@ -2650,7 +2659,7 @@ function unparkAt(i){
     if (sr.waste != null) r.waste = sr.waste;
   });
   S.pendingGo = null;
-  S.step = S.rows.length ? 'sheet' : 'write';
+  S.step = 'sheet';
 }
 /* Everything half written, in one place, on the screen a new recipe starts from.
    Each one comes back or goes in the bin — his call, never the app's. */
@@ -2707,10 +2716,13 @@ function newRecipe(){
      There were two screens in front of the work: "main or batch?", then a box to type
      the ingredients into so the app could split them up. Antonio, 24 Aug: "I believe we
      can remove the first page and start directly with the one I sent." Both are off the
-     way in. Neither is gone from the app — Back walks out through them, the badge in the
-     bar changes main to batch, and the box that takes a whole list at once is one tap
-     from the sheet. */
+     way in, and on 25 Aug the ingredients page went altogether — Danilo and Antonio,
+     who were reading its Back button as the way out of the recipe. Nothing it did is
+     gone: the badge in the bar changes main to batch, and the box that takes a whole
+     list at once is a fold on the sheet itself. */
   S.price=null; S.makesQty=null; S.makesUnit=null; S.step='sheet';
+  /* the fold on the sheet belongs to the recipe that has just left the screen */
+  S.bulk=false; S.btext='';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
   /* the printed dish this was started from belongs to the sheet that has just left */
   S.fromItem = null;
@@ -3594,6 +3606,11 @@ function micApplyNew(){
 /* Starting one from nothing. Everything about the LAST request has to go, or the new
    one quietly inherits a draft id and overwrites it. */
 function micReset(){
+  /* which screen opened this request. Left unset it is the list of requests, which is
+     the door the module used to have. Opened off a card or a menu in the book it is the
+     book — Back has to be the screen he was actually on, not the one the request would
+     have been reached through a week ago. */
+  MICREQ.from = null;
   MICREQ.reqId = null; MICREQ.sent = 0; MICREQ.confirm = false;
   MICREQ.search = ''; MICREQ.onlyNew = true; MICREQ.rows = []; MICREQ.ready = false;
   MICREQ.missing = [];
@@ -4705,6 +4722,9 @@ function openRecipe(id){
     S.id = rec.id; S.kind = rec.kind; S.name = rec.name || ''; S.section = rec.section || '';
     S.makesQty = rec.makes_qty; S.makesUnit = rec.makes_unit;
     S.price = rec.menu_price; S.text = '';
+    /* the fold on the sheet is per-recipe — it must not open on the next one carrying
+       half a list somebody poured into the last one */
+    S.bulk = false; S.btext = '';
     S.method = normMethod(rec.method);
     S.photos = Array.isArray(rec.photos) ? rec.photos.filter(function(p){ return p && p.u; }) : [];
     S.bigPhoto = null;
@@ -5350,7 +5370,7 @@ function readAnyFile(file){
   });
 }
 
-/* put a read recipe into the write screen, exactly as if it had been typed */
+/* put a read recipe onto the sheet, exactly as if it had been typed */
 function useImported(f){
   S.kind    = f.kind || S.kind || 'main';
   S.name    = f.name || S.name;
@@ -5366,10 +5386,11 @@ function useImported(f){
                  makes:(f.makesQty!=null ? f.makesQty+' '+f.makesUnit : null), price:f.price||null };
   /* Straight to the sheet. The screen in between asked him to check the split of a list
      the file had just written for him — a stop with no work in it, and the sheet IS the
-     split, line for line. Back still goes there if he wants to retype the words. */
+     split, line for line. That screen is gone now; what it read out is said on the sheet
+     by importedNote(). */
   S.rows = splitLine(S.text).map(function(p){ return mkRow(p); }); S.sel = [];
   S.lastRm = null;
-  S.step = S.rows.length ? 'sheet' : 'write';
+  S.step = 'sheet';
 }
 
 /* ═════════ bringing a whole workbook in at once ═════════
@@ -5590,6 +5611,11 @@ function runWorkbook(){
    heading reads off that particular photograph — measured against the Cortina screen,
    never guessed. Add a step here and it has a room; leave it out and it has sabbia. */
 var ROOMS = {
+  /* The book deliberately has NO room. It was given the terrace when it became the front
+     door of Recipes, and a screenshot of it settled the question: the rooms work on the
+     short screens, where the words sit on a block of paper. The book is a search box, six
+     buttons and a long list, none of which is on paper — over a photograph the buttons
+     came out dark red on a dark window and could not be read at all. Paper wins here. */
   type:   { img:'venue-cortina.jpg',  scrim:1 },      /* What are you making? */
   todo:   { img:'venue-longroom.jpg', scrim:1.05 },   /* Needs finishing */
   /* The room is on the Micros FRONT DOOR — the list of requests — and not on the two
@@ -5612,7 +5638,7 @@ function render(){
   $('foot').style.display = S.step==='sheet' ? 'block' : 'none';
   if (S.step !== 'sheet') document.body.style.paddingBottom = '';   /* only the sheet sits under the bar */
   $('tolist').textContent  = S.step==='list'  ? 'Back to the recipe' : "Aung's list";
-  $('tosaved').textContent = S.step==='saved' ? 'Back to the recipe' : 'Saved recipes';
+  $('tosaved').textContent = S.step==='saved' ? 'Back to the recipe' : 'The recipe book';
   $('bty').style.display = S.kind ? 'inline-block' : 'none';
   /* The kind can be changed from here while a recipe is open — so the badge says so
      rather than leaving a tap to be discovered. Everywhere else it is still the label
@@ -5626,9 +5652,21 @@ function render(){
   else { $('bty').removeAttribute('role'); $('bty').removeAttribute('tabindex'); $('bty').title = ''; }
   $('bnm').textContent = S.name || (S.kind ? (S.kind==='batch'?'New batch recipe':'New main recipe') : 'New recipe');
   drawBack();          /* shown, hidden and labelled from the one place that knows */
+  /* Save belongs to the sheet and to nothing else. Every other screen turned it off and
+     left it there — a greyed "Save" in the corner of the recipe book, which is now the
+     first screen anybody sees. Off with a reason is right ON the sheet, where it says
+     what is missing; anywhere else it is a dead control asking to be tapped. */
+  b.style.display = S.step === 'sheet' ? '' : 'none';
+  /* And the same for the recipe's name. The bar named whatever recipe was in memory on
+     every screen, so the recipe book — the first thing anybody sees now — opened under a
+     heading that read "New main recipe", naming a blank sheet nobody had asked for. The
+     name belongs on the two screens that ARE the recipe: the sheet and the floor's half. */
+  var onDish = S.step === 'sheet' || S.step === 'foh';
+  $('bnm').style.display = onDish ? '' : 'none';
+  $('bty').style.display = (onDish && S.kind) ? 'inline-block' : 'none';
 
   /* Section lives next to the name — set it when you write it, change it any time after */
-  var bs = $('bsc'), onRecipe = S.kind && (S.step==='write' || S.step==='sheet');
+  var bs = $('bsc'), onRecipe = S.kind && S.step==='sheet';
   bs.style.display = onRecipe ? 'inline-block' : 'none';
   if (onRecipe){
     bs.innerHTML = '<option value="">Which section?</option>' +
@@ -5810,6 +5848,18 @@ function render(){
            archives the recipe on the first tap when nothing depends on it — and the
            handler writes '…' into the button as its working state, which against a ⋯ is
            no change at all. Nothing that destroys something may be unlabelled. */
+        /* ── the Micros request, on the card ──
+           It was a door of its own on the Recipes page, which meant that asking for one
+           dish to be put in the till started with leaving the dish. It starts here now:
+           the request opens on this dish's menu with this dish ticked and nothing else.
+           Only on a main that is actually on a menu — a batch never goes to the till,
+           and a request is built from a menu, so a dish on none has no request to make. */
+        (!r.archived && r.kind === 'main' && menusOf(r).length
+          ? '<button class="srm smic" data-micone="'+r.id+'" ' +
+              'aria-label="Micros request for ‘'+esc(r.name)+'’"' +
+              (r.pos_key ? ' title="Already in the till — code '+esc(r.pos_key)+'"' : '') + '>' +
+              (r.pos_key ? 'In the till' : 'Micros') + '</button>'
+          : '') +
         (r.archived ? '<button class="srm" data-undo="'+r.id+'">Put it back</button>'
                     : '<button class="srm quiet" data-rmr="'+r.id+'" ' +
                         'aria-label="Remove ‘'+esc(r.name)+'’">Remove</button>') +
@@ -5942,6 +5992,16 @@ function render(){
                ' across '+gs.length+' sections' + stateSummary(rs2) + '</div>' +
                '<div class="folds">' + gs.map(sbtn).join('') + '</div>';
       }
+      /* ── the whole menu to Aung, from inside the menu ──
+         Build a menu, put the dishes on it, send the lot as one request. That is how a
+         new menu actually goes to the till, and until now the last step was on a
+         different screen that opened on a menu picker — so the menu you were standing
+         in was something you had to find again. The request screen still asks which of
+         them go: what has already been sent comes up unticked, with the count and a
+         button to put them back on. */
+      if (S.fmenu && S.fmenu.indexOf('__') !== 0)
+        body = '<button class="newr" id="micmenu1" data-micmenu="'+esc(S.fmenu)+'" ' +
+                 'style="margin:0 0 12px">Send this menu to ' + esc(micWho()) + ' →</button>' + body;
     }
 
     w.innerHTML = '<div class="pane">' + parkedNote(true) +
@@ -5950,7 +6010,7 @@ function render(){
         : !S.saved.length
           ? '<div class="q">Nothing saved yet</div><div class="sub">The first recipe you save shows up here.</div>' +
             '<button class="newr" id="newr">＋ Start a new recipe</button>'
-          : '<div class="q">Saved recipes</div>' +
+          : '<div class="q">The recipe book</div>' +
             howto('saved', 'Open one to change it — the sheet comes back exactly as you left it, ' +
               'and Save puts the changes on the same recipe. Costs are worked out fresh off the ' +
               'FMC article catalogue every time, so nothing here is a frozen price.', 'Opening and costs') +
@@ -5963,9 +6023,13 @@ function render(){
               '<span class="scount">'+(S.sq
                  ? live.length + ' of ' + nlive
                  : nlive + ' saved')+'</span></div>' +
-            '<button class="newr" id="newr">＋ Start a new recipe</button>' +
+            /* Making a menu is the same kind of act as making a recipe, so it is offered
+               in the same breath — Danilo and Antonio had to know that "Menus" was a
+               screen before they could find out a menu was a thing they could make. */
+            '<button class="newr" id="newr">＋ New recipe</button>' +
+            '<button class="newr" id="newmenu">＋ New menu</button>' +
             '<button class="newr" id="tomenus">Menus</button>' +
-            (MENUS.length ? '<button class="newr" id="tomicros">Micros request for Aung</button>' : '') +
+            (MENUS.length ? '<button class="newr" id="tomicros">Micros requests</button>' : '') +
             /* the count is on the button, so he can see from here whether it is worth
                opening — a door labelled "Needs finishing" with nothing behind it is noise */
             (function(){
@@ -6608,26 +6672,15 @@ function render(){
     w.innerHTML = '<div class="pane" id="planpane">' + planInner() + '</div>';
   }
 
-  else if (S.step === 'write'){
-    b.textContent='Make the sheet'; gate();
-    w.innerHTML = '<div class="pane">' + parkedNote(true) +
-      '<div class="kindbar" id="kindbar"></div>' +
-      '<input class="name" id="nm" placeholder="Octopus" value="'+esc(S.name)+'">' +
-      '<div class="q" style="font-size:21px">What goes in it?</div>' +
-      howto('write', 'However you like — one line, spaces or commas. The app sorts them out.',
-        'How to write them') +
-      '<textarea class="dumpbox" id="dp" rows="4" placeholder="olive oil lemon garlic parsley salt black pepper"></textarea>' +
-      importedNote() + bringHTML(true) +
-      '<div class="split" id="sp"></div></div>';
-    drawKindBar();
-    var nm=$('nm'), dp=$('dp');
-    dp.value = S.text;
-    (S.name ? dp : nm).focus();
-    nm.addEventListener('input', function(){
-      S.name=this.value; $('bnm').textContent=this.value||'New '+S.kind+' recipe'; gate(); });
-    dp.addEventListener('input', function(){ S.text=this.value; reflow(); });
-    reflow();
-  }
+  /* The ingredients page is gone — 25 Aug 2026, Danilo and Antonio. It asked for the
+     name and the lines on a screen of its own and then handed both to the sheet, which
+     asks for exactly the same two things. Two screens for one thought, and the Back off
+     the sheet said "to the ingredients", which is a screen nobody wanted to be on.
+
+     Nothing it did is lost: the name is the sheet's own first field, and the box that
+     takes several at once — typed, off a file, off a folder, or spoken — is now a fold
+     on the sheet itself (see bulkHTML). `write` no longer exists as a step; anything
+     that used to send him there sends him to the sheet. */
 
   else if (S.step === 'sheet'){
     /* There is always one line at the bottom waiting to be written on — on a new recipe,
@@ -6658,6 +6711,9 @@ function render(){
           'and the costing all print.',
           'Working the sheet') + '</div>' +
       parkedNote(true) +
+      /* what a file put on this sheet, and what it could not — it used to be read out on
+         the screen in front of the sheet, and that screen is gone */
+      importedNote() +
       '<div class="savebar" id="savebar"></div>' +
       '<div class="kindbar" id="kindbar"></div>' +
       whoBar() +
@@ -6705,8 +6761,7 @@ function render(){
          screens off the way in must not take these off the app: a file, a folder, saying
          it out loud, and the box that swallows a whole list at once are all still here,
          one tap from the work. */
-      '<div class="alsoin">' + bringHTML() +
-        '<button class="lnk" id="towrite">Or write the whole list into one box ›</button></div>' +
+      '<div class="alsoin">' + bringHTML(true) + bulkHTML() + '</div>' +
       methodHTML();
       rows(); swapbar(); wireMethod(); drawSaveBar(); drawKindBar(); drawUndo();
     /* the same box, and the same wiring, the ingredients page had — it is on the sheet
@@ -6728,9 +6783,7 @@ function render(){
         (!hadFocus || hadFocus === document.body || hadFocus === document.documentElement)) nmS.focus();
     var addBlank = $('addblank');
     if (addBlank) addBlank.addEventListener('click', function(){ addBlankLine(true); });
-    var toWrite = $('towrite');
-    if (toWrite) toWrite.addEventListener('click', function(){
-      S.step = 'write'; render(); window.scrollTo(0,0); });
+    wireBulk();
     var kf = $('kindflip');
     if (kf) kf.addEventListener('click', function(){
       /* Nothing written on the sheet yet, so this is still a choice and it is one tap.
@@ -6912,7 +6965,7 @@ function bringHTML(withVoice){
 function importedNote(){
   var im = S.imported; if (!im) return '';
   return '<div class="imp"><b>Read from '+esc(im.how)+(im.where?' — '+esc(im.where):'')+'.</b> ' +
-    'Check the split below, then make the sheet as usual.' +
+    'Every line it read is on the sheet below — check them and pick the ingredients.' +
     (im.costing
       ? '<br>This sheet carries Aung\'s codes, so those lines are matched exactly rather than guessed.' +
         (im.makes ? ' It makes <b>'+esc(im.makes)+'</b>.' : '') +
@@ -6924,6 +6977,75 @@ function importedNote(){
       ? '<br><span class="warn">'+im.noUnit.map(esc).join(', ')+' had no real measurement in the file' +
         ' (a pinch is not a weight), so '+(im.noUnit.length===1?'it has':'they have')+' no quantity. Put one in, or leave it.</span>'
       : '') + '</div>';
+}
+
+/* ── the whole list in one box, on the sheet ──
+   This is what the ingredients page was for, and it is the only part of that page the
+   sheet did not already have: a box you can pour a list into and SEE how it split
+   before any of it becomes a line. It folds away because most days the row you want is
+   the one at the bottom of the sheet, not thirty at once.
+
+   It ADDS. The old page rebuilt the whole list from the text, which is fine when the
+   text is the only thing there is and wrong on a sheet where lines already carry a
+   picked ingredient, a quantity and a trim. Nothing already on the sheet is touched. */
+function bulkHTML(){
+  if (!S.bulk)
+    return '<button class="lnk" id="bulkopen">Or pour a whole list into one box ›</button>';
+  var parts = splitLine(S.btext || '');
+  return '<div class="bulkbox">' +
+    '<div class="q" style="font-size:19px;margin:0 0 2px">Pour in a whole list</div>' +
+    howto('write', 'However you like — one line, spaces or commas. The app sorts them out, ' +
+      'and you see the split below before anything is added to the sheet.', 'How to write them') +
+    '<textarea class="dumpbox" id="dp" rows="4" ' +
+      'placeholder="olive oil lemon garlic parsley salt black pepper">' + esc(S.btext || '') + '</textarea>' +
+    '<div class="split" id="sp"></div>' +
+    '<button class="addb" id="bulkadd"' + (parts.length ? '' : ' disabled') + '>' +
+      (parts.length ? '＋ Add ' + parts.length + ' to the sheet' : 'Write some in first') + '</button>' +
+    '<button class="lnk" id="bulkshut" style="margin-left:10px">Close this ›</button></div>';
+}
+function wireBulk(){
+  var op = $('bulkopen');
+  if (op) op.addEventListener('click', function(){
+    S.bulk = true; render(); window.setTimeout(function(){ var d = $('dp'); if (d) d.focus(); }, 0); });
+  var sh = $('bulkshut');
+  if (sh) sh.addEventListener('click', function(){ S.bulk = false; S.btext = ''; render(); });
+  var dp = $('dp');
+  if (dp) dp.addEventListener('input', function(){ S.btext = this.value; bulkReflow(); });
+  var ad = $('bulkadd');
+  if (ad) ad.addEventListener('click', function(){
+    var parts = splitLine(S.btext || '');
+    if (!parts.length) return;
+    parts.forEach(function(x){ S.rows.push(mkRow(x)); });
+    S.btext = '';
+    /* the sheet's own text has to learn about it, the same as ＋ Add ingredient does */
+    syncText(); rows(); foot(); fitBar(); render();
+    flash(parts.length + (parts.length===1 ? ' ingredient' : ' ingredients') +
+      ' added — pick ' + (parts.length===1?'it':'them') + ' at the bottom of the sheet.');
+  });
+  bulkReflow();
+}
+/* the same preview the ingredients page drew, reading its own box — it never writes
+   S.rows, so a redraw of it cannot disturb a line already on the sheet */
+function bulkReflow(){
+  var sp = $('sp'); if (!sp) return;
+  var parts = splitLine(S.btext || '');
+  var ad = $('bulkadd');
+  if (ad){
+    ad.disabled = !parts.length;
+    ad.textContent = parts.length ? '＋ Add ' + parts.length + ' to the sheet' : 'Write some in first';
+  }
+  if (!parts.length){ sp.innerHTML = ''; return; }
+  var tmp = parts.map(function(p){ return mkRow(p); });
+  sp.innerHTML = '<div class="lab">' + parts.length + ' ingredient' + (parts.length===1?'':'s') + ' found</div>' +
+    '<div class="chips">' + tmp.map(function(r){
+      var n = r.opts.length, fix = n ? null : didYouMean(r.word);
+      var qs = r.qty!=null ? '<span class="n">'+r.qty+(r.unit||'')+'</span>' : '';
+      return '<span class="chip'+(n?'':' warn')+'">'+qs+'<b>'+esc(r.word)+'</b>' +
+        '<span class="n">'+(n ? n+(n===1?' option':' options') : 'not on the list')+'</span>' +
+        (fix ? '<span class="fix" data-bfix="'+esc(r.word)+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') +
+        '</span>';
+    }).join('') + '</div>' +
+    '<div class="tip">Split them wrong? Put a <b>comma</b> between the ones it joined — commas always win.</div>';
 }
 
 /* live preview of the split, so you see it before you commit */
@@ -8018,7 +8140,14 @@ function platingInner(){
     '</div>';
 }
 function methodHTML(){
-  return (S.kind === 'main' ? '<div class="mnu" id="mnubox">' + menuInner() + '</div>' : '') +
+  /* "On which menus" used to be a whole block of chips down here, and the bar at the top
+     of the sheet has carried the same question — the same menus, the same ticks — since
+     the picker went in. Two controls for one fact: tick a chip and the bar changed, tick
+     the bar and the chips changed, and Danilo and Antonio read it as two different
+     settings that might disagree. Removed 25 Aug 2026; the bar is the one that stays,
+     because it is on the screen wherever you have scrolled to. menuInner() is still what
+     draws it if anything ever puts the box back — the refreshers below all check. */
+  return
          '<div class="alg" id="alg">' + algInner() + '</div>' +
          '<div class="mth" id="mth">' + methodInner() + '</div>' +
          (S.kind === 'main' ? '<div class="pss" id="pssbox">' + platingInner() + '</div>' : '') +
@@ -8186,7 +8315,7 @@ function barMenuLabel(){
 }
 function drawBarMenu(){
   var bm = $('bmn'); if (!bm) return;
-  var show = S.kind === 'main' && (S.step === 'write' || S.step === 'sheet');
+  var show = S.kind === 'main' && S.step === 'sheet';
   bm.style.display = show ? 'inline-block' : 'none';
   if (!show){ var p = $('bmnew'); if (p) p.classList.remove('on'); return; }
   var on = S.menus || [];
@@ -9402,7 +9531,7 @@ document.addEventListener('click', function(e){
   }
   /* straight back to the sheet he was on — nothing is cleared, nothing is re-read */
   if (e.target.closest('#holdback')){
-    S.step = (S.rows && S.rows.length) ? 'sheet' : 'write';
+    S.step = 'sheet';
     render(); window.scrollTo(0,0);
     return;
   }
@@ -9432,7 +9561,7 @@ document.addEventListener('click', function(e){
     if (S.id) newRecipe();
     if (!S.method) S.method = emptyMethod();
     /* it lands on the sheet now, not on the box in front of it */
-    S.kind=k.dataset.k; S.step='sheet';
+    S.kind=k.dataset.k; S.back='type'; S.step='sheet';
     if (!realRows().length) S.rows = blankRows(BLANKLINES);
     /* The very first recipe of a visit never went through newRecipe(), so it was the
        one dish that started on no menu at all — and a dish on no menu shows on no
@@ -9443,6 +9572,18 @@ document.addEventListener('click', function(e){
       S.menus = runm ? [runm.id] : [];
     }
     render(); return;
+  }
+  /* the same spelling fix, in the box on the sheet. It rewrites the word in the BOX, not
+     on the sheet — nothing has been added yet, which is the whole point of the preview. */
+  var bf = e.target.closest('[data-bfix]');
+  if (bf){
+    var was = bf.dataset.bfix, to2 = bf.dataset.to;
+    S.btext = splitLine(S.btext || '').map(function(p){
+      var nm2 = (p.name === was) ? to2 : p.name;
+      return (p.qty!=null ? p.qty+(p.unit||'')+' ' : '') + nm2;
+    }).join(', ');
+    var db = $('dp'); if (db) db.value = S.btext;
+    bulkReflow(); return;
   }
   var cf = e.target.closest('[data-fix]');                   /* accept a spelling fix, on the write screen */
   if (cf){
@@ -9500,7 +9641,7 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'writebatch'){
     var wname = plainBatch(S.offer && S.offer.name);
     guard(function(){
-      newRecipe(); S.kind = 'batch'; S.name = wname; S.step = 'write'; S.offer = null;
+      newRecipe(); S.kind = 'batch'; S.name = wname; S.step = 'sheet'; S.offer = null;
       render(); window.scrollTo(0,0);
     });
     return;
@@ -9730,9 +9871,14 @@ document.addEventListener('click', function(e){
     if (parkCurrent()) flash(parkedFlash());
     var btn = document.querySelector('[data-open="'+openId+'"]');
     var fromTodo = S.step === 'todo';
+    /* the screen he is actually leaving, so Back off the sheet returns to it — see
+       backStep(). Without this, opening a dish out of the book and pressing Back sent
+       him to "main or batch", which is the one screen that wipes what he just opened. */
+    var cameFromStep = S.step;
     if (btn && !fromTodo) btn.textContent = 'Opening…';
     openRecipe(openId).then(function(){
       /* the promise on that screen is "you come back here afterwards", so keep the way back */
+      S.back = cameFromStep;
       S.fromTodo = fromTodo; markClean(); render(); window.scrollTo(0,0);
       /* after the sheet is drawn and the pinned bands have published their heights */
       if (openSec) setTimeout(function(){ fitBar(); jumpTo(openSec); }, 60); })
@@ -10025,6 +10171,62 @@ document.addEventListener('click', function(e){
       openRecipe(rid).then(function(){ wait.remove(); S.back = 'menus'; S.step = 'sheet';
         render(); rows(); foot(); window.scrollTo(0,0); })
         .catch(function(ex){ wait.remove(); flash('That recipe could not be opened — ' + ex.message, true); });
+    });
+    return;
+  }
+
+  /* ── a menu, made from where the recipes are ── */
+  if (e.target.id === 'newmenu'){
+    openMenus();
+    /* the box is on the menus screen and it is what he came for — put the cursor in it
+       rather than leaving him to find it below the list of menus he already has */
+    setTimeout(function(){
+      var mi = $('manew');
+      if (mi){ mi.focus(); if (mi.scrollIntoView) mi.scrollIntoView({ block:'center' }); }
+    }, 120);
+    return;
+  }
+
+  /* ── one dish to the till, from its card in the book ── */
+  var m1 = e.target.closest('[data-micone]');
+  if (m1){
+    var rid1 = m1.dataset.micone;
+    var rec1 = (S.saved || []).filter(function(x){ return x.id === rid1; })[0];
+    var mids = rec1 ? menusOf(rec1) : [];
+    if (!mids.length){ flash('That dish is on no menu, so there is no request to build from.', true); return; }
+    /* the menu that is running, if the dish is on it — that is the one a request means
+       today. Otherwise the first menu it is on. */
+    var runm1 = MENUS.filter(function(m){ return m.running && mids.indexOf(m.id) > -1; })[0];
+    var mid1  = runm1 ? runm1.id : mids[0];
+    guard(function(){
+      S.back = 'saved';
+      micReset();
+      MICREQ.from = 'saved';          /* Back goes to the book, which is where he is */
+      /* he has named the dish by tapping it — micApplyNew unticking it because it went
+         once before would be the app arguing with the tap */
+      MICREQ.onlyNew = false;
+      micOpenBuilder(mid1).then(function(){
+        MICREQ.rows.forEach(function(r){ r.take = (r.id === rid1); });
+        if (S.step === 'micros') render();
+        var gone1 = micSentBefore(mid1)[rid1];
+        if (gone1) flash((rec1 ? rec1.name : 'That dish') + ' already went to ' + micWho() + ' ' +
+          micWhen(gone1.sent_at, true) + ' — it is ticked, so send it again only if it has changed.');
+      });
+    });
+    return;
+  }
+
+  /* ── the whole menu to Aung, from inside the menu in the book ── */
+  var mm1 = e.target.closest('[data-micmenu]');
+  if (mm1){
+    var mid2 = mm1.dataset.micmenu;
+    guard(function(){
+      S.back = 'saved';
+      /* a fresh request, so onlyNew stays on: everything already sent comes up unticked
+         and the screen says how many, with one button to put them back */
+      micReset();
+      MICREQ.from = 'saved';          /* Back goes to the menu he is standing in */
+      micOpenBuilder(mid2);
     });
     return;
   }
@@ -10374,7 +10576,6 @@ document.addEventListener('click', function(e){
   }
 });
 $('act').addEventListener('click', function(){
-  if (S.step==='write'){ S.step='sheet'; render(); window.scrollTo(0,0); return; }
   if (S.step!=='sheet') return;
   /* The name is not optional, and it is not the database's job to say so. The page that
      used to guarantee it is off the way in, so it is guaranteed here — by name, in his
@@ -10561,10 +10762,17 @@ var MIC = null;
 function toggleMic(){
   var btn = $('mic'), st = $('brs');
   if (MIC){ MIC.stop(); return; }
+  /* Speaking has to have somewhere to land. On the sheet the box is a fold, and it can
+     be shut — so open it first, or the words go into a textarea that is not on the page
+     and the mic looks broken. */
+  if (S.step === 'sheet' && !S.bulk){ S.bulk = true; render(); btn = $('mic'); st = $('brs'); }
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   MIC = new SR();
   MIC.lang = 'en-GB'; MIC.continuous = true; MIC.interimResults = true;
-  var settled = S.text;
+  /* which box is being spoken into: the fold on the sheet has its own text and only
+     ever adds, everywhere else it is still the sheet's own text */
+  var onSheet = S.step === 'sheet';
+  var settled = onSheet ? (S.btext || '') : S.text;
   MIC.onresult = function(ev){
     var live = '';
     for (var i = ev.resultIndex; i < ev.results.length; i++){
@@ -10572,9 +10780,10 @@ function toggleMic(){
       if (ev.results[i].isFinal) settled = (settled ? settled.replace(/,\s*$/,'') + ',\n' : '') + t.trim();
       else live += t;
     }
-    S.text = settled + (live ? (settled ? ',\n' : '') + live : '');
-    var dp = $('dp'); if (dp) dp.value = S.text;
-    reflow();
+    var val = settled + (live ? (settled ? ',\n' : '') + live : '');
+    if (onSheet) S.btext = val; else S.text = val;
+    var dp = $('dp'); if (dp) dp.value = val;
+    if (onSheet) bulkReflow(); else reflow();
   };
   MIC.onerror = function(ev){
     if (st){ st.className='brn bad';
@@ -10666,9 +10875,9 @@ $('tolist').addEventListener('click', function(){
 
    `null` means there is genuinely nowhere behind: the first screen, and the Micros
    request when it is opened as its own module, where the module's own bar goes back. */
-var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recipe',
+var STEPNAME = { type:'main or batch', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
-                 list:"Aung's list", saved:'Saved recipes', foh:'the floor’s half',
+                 list:"Aung's list", saved:'the recipe book', foh:'the floor’s half',
                  micros:'the Micros request', menus:'the menus', todo:'what needs finishing',
                  micreqs:'the Micros requests', micpast:'the request' };
 /* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
@@ -10678,9 +10887,11 @@ var STEPNAME = { type:'main or batch', write:'the ingredients', sheet:'the recip
    if there is one, then to the ingredients, then to the first screen. */
 function notSelf(to){
   if (to && to !== S.step) return to;
-  if (S.id || (S.rows||[]).length) return 'sheet';
-  if (S.kind) return 'write';
-  return 'type';
+  /* realRows(), not S.rows — a sheet nobody has touched still carries six blank lines,
+     so counting S.rows says "there is a recipe open" on a cold start and Back lands on
+     an empty sheet nobody asked for. */
+  if (S.id || realRows().length) return 'sheet';
+  return 'saved';
 }
 function backStep(){
   var s = S.step;
@@ -10695,7 +10906,9 @@ function backStep(){
     if (S.fsec)  return { to:'saved', clearSec:true,  name:menuNameOf(S.fmenu) === 'A menu that is no longer there'
                                                             ? 'the sections' : menuNameOf(S.fmenu) };
     if (S.fmenu) return { to:'saved', clearMenu:true, name:'all the menus' };
-    return { to: notSelf(S.back) };
+    /* the book is the front door now — the app's own bar is what leaves Recipes, the
+       same as it is on the Micros and Needs-finishing doors */
+    return S.back === 'saved' ? null : { to: notSelf(S.back) };
   }
   /* inside a menu, Back is out of it to the list — not off the screen altogether */
   if (s === 'menus')   return MENUADM.open ? { to:'menus', openNull:true } : { to: notSelf(S.back) };
@@ -10711,20 +10924,26 @@ function backStep(){
   /* opened by tapping a dish name on a Micros screen, Back goes to the screen he was
      actually on — not down the type → ingredients → recipe chain */
   if (s === 'sheet' && S.micReturn) return { to:S.micReturn, clearMicReturn:true };
-  if (s === 'micros')  return { to:'micreqs' };
+  if (s === 'micros')  return { to: MICREQ.from || 'micreqs' };
   if (s === 'micpast') return { to:'micreqs' };
   if (s === 'micreqs') return S.back === 'micreqs' ? null : { to: notSelf(S.back || 'saved') };
-  /* Only if the recipe on the screen actually CAME out of that file. Backing out of a
-     workbook, tapping Main recipes to start something of his own and pressing Back put
-     him straight back on the file list — a loop with no way out, because a blank recipe
-     he typed himself has nothing to do with a workbook he opened ten minutes ago. */
-  if (s === 'write' && S.imported && S.found && S.found.recipes.length > 1) return { to:'found' };
-  var o = ['type','write','sheet'], i = o.indexOf(s);
-  /* This used to be guarded, because going back rebuilt the rows from the typed text and
-     every ingredient picked by hand was lost. It does not any more: the sheet and the
-     text are kept in step, and reflow() keeps a row that is already there rather than
-     making a new one. Nothing is lost by stepping back, so nothing needs asking. */
-  if (i > 0) return { to:o[i-1] };
+  /* ── the sheet: back is the screen he came from, and nothing else ──
+     25 Aug 2026, Danilo and Antonio. This used to walk a fixed chain — sheet, then the
+     ingredients page, then "main or batch" — so the button said "Back to the ingredients"
+     no matter where he had actually come from, and two taps of it landed on the one
+     screen that takes the open recipe off the screen. There is no chain now. The sheet
+     goes back to whatever screen sent him here, which is what a Back button means.
+
+     Only if the recipe on the screen actually CAME out of that file: backing out of a
+     workbook, starting something of his own and pressing Back put him on the file list,
+     which has nothing to do with the recipe he just typed. */
+  if (s === 'sheet'){
+    if (S.imported && S.found && S.found.recipes.length > 1) return { to:'found' };
+    if (S.back && S.back !== 'sheet') return { to:S.back };
+    /* opened cold — from ?new=1, or the very first recipe of a visit. The book is the
+       only screen genuinely behind it. */
+    return { to:'saved' };
+  }
   return null;
 }
 function drawBack(){
@@ -10896,10 +11115,21 @@ fitBar();
 /* `?todo=1` opens what needs finishing as a door of its own, for the same reason the
    Micros request has one: a chef checking whether anything is half written should not
    have to go into Create new recipes, then into Saved recipes, to find out. */
-var MICSOLO = Q.get('micros') === '1', TODOSOLO = Q.get('todo') === '1';
+/* `?saved=1` opens the recipe book — 25 Aug 2026. Danilo and Antonio asked for a recipe
+   book, not a module: what they want first is the dishes that are already written, and
+   the book is that screen. It is now what Recipes opens on, so this is the ordinary way
+   in and a blank sheet is something you ask for. */
+var MICSOLO = Q.get('micros') === '1', TODOSOLO = Q.get('todo') === '1',
+    SAVEDSOLO = Q.get('saved') === '1';
 if (TODOSOLO){
   S.back = 'todo'; S.step = 'todo'; render();
   Promise.all([loadSaved(), loadBatches()]).then(function(){ if (S.step==='todo') render(); });
+}
+if (SAVEDSOLO && !TODOSOLO && !MICSOLO && !Q.get('id') && Q.get('new') !== '1'){
+  /* 'saved' as its own back means Back off the book is hidden — the app's own bar is
+     what leaves Recipes, exactly as it is on the Micros and Needs-finishing doors */
+  S.back = 'saved'; S.step = 'saved'; render();
+  loadSaved().then(function(){ if (S.step==='saved') render(); });
 }
 loadMenus().then(function(){
   if (MICSOLO){
