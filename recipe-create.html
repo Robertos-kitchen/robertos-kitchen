@@ -7053,10 +7053,17 @@ function rowHTML(r, i){
              before you may carry on. It is not one: the words are kept, the line saves,
              and the only thing that changes is that the cost underneath is a floor. Say
              that on the line, so nobody abandons a recipe over a bottle FMC does not
-             sell — which is what happened on 25 Aug 2026. */
+             sell — which is what happened on 25 Aug 2026.
+
+             This box is ONE clipped line by design, and a half-sentence about the cost
+             is worse than none — the first wording ran to 365px against 290px of cell
+             and ended at "the cost below is …" on every laptop width measured (1024,
+             1280, 1440, 1728). This one is 274px and fits all four. And when there IS
+             a did-you-mean it takes the room instead: a word he can tap to fix the line
+             beats a sentence about what the total is doing. */
           : r.opts.length===0  ? '<i class="many">not on the list' +
-                                (fix ? ' — <span class="fix" data-rowfix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') +
-                                ' — your words are kept, the cost below is short by this line</i>'
+                                (fix ? ' — <span class="fix" data-rowfix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>'
+                                     : ' — your words are kept, the cost is short') + '</i>'
           : r.opts.length===1  ? '<i class="one">only one — picked</i>'
           : need               ? '<i class="many">'+r.opts.length+' to choose from</i>'
           /* only while the tick is ON. Kept-but-not-counting numbers say so in the Trim
