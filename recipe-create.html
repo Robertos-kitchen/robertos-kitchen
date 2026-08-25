@@ -3621,11 +3621,6 @@ function micApplyNew(){
 /* Starting one from nothing. Everything about the LAST request has to go, or the new
    one quietly inherits a draft id and overwrites it. */
 function micReset(){
-  /* which screen opened this request. Left unset it is the list of requests, which is
-     the door the module used to have. Opened off a card or a menu in the book it is the
-     book — Back has to be the screen he was actually on, not the one the request would
-     have been reached through a week ago. */
-  MICREQ.from = null;
   MICREQ.reqId = null; MICREQ.sent = 0; MICREQ.confirm = false;
   MICREQ.search = ''; MICREQ.onlyNew = true; MICREQ.rows = []; MICREQ.ready = false;
   MICREQ.missing = [];
@@ -5641,6 +5636,8 @@ var ROOMS = {
 
 /* ───────── render ───────── */
 function render(){
+  /* file the screen before anything is drawn — Back reads this and nothing else */
+  noteScreen();
   var w = $('wrap'), b = $('act');
   /* the room, on the three screens that are a door of their own — see body.roomstep
      above. A different room on each: the same photograph twice reads as one screen. */
@@ -10268,12 +10265,7 @@ document.addEventListener('click', function(e){
     var runm1 = MENUS.filter(function(m){ return m.running && mids.indexOf(m.id) > -1; })[0];
     var mid1  = runm1 ? runm1.id : mids[0];
     guard(function(){
-      /* Back off the request goes to whichever screen asked for it — the sheet when the
-         button on the recipe was used, the book when the card's was. */
-      var cameFrom = (S.step === 'sheet') ? 'sheet' : 'saved';
-      if (cameFrom !== 'sheet') S.back = 'saved';
       micReset();
-      MICREQ.from = cameFrom;
       /* he has named the dish by tapping it — micApplyNew unticking it because it went
          once before would be the app arguing with the tap */
       MICREQ.onlyNew = false;
@@ -10297,7 +10289,6 @@ document.addEventListener('click', function(e){
       /* a fresh request, so onlyNew stays on: everything already sent comes up unticked
          and the screen says how many, with one button to put them back */
       micReset();
-      MICREQ.from = 'saved';          /* Back goes to the menu he is standing in */
       micOpenBuilder(mid2);
     });
     return;
@@ -10939,116 +10930,127 @@ $('tolist').addEventListener('click', function(){
   S.offer = null; S.find = null;
   S.back = S.step; S.step = 'list'; render(); window.scrollTo(0,0);
 });
-/* ── one step back, from anywhere ──
-   Every screen in this module now knows the screen behind it, in ONE place. The label
-   on the button and what the button does are read from the same answer, so a Back that
-   says "to the recipe" cannot land somewhere else — the old version worked this out
-   twice and only in the click.
+/* ── Back is a HISTORY, not a guess ──
+   25 Aug 2026, Danilo and Antonio, and this is the third go at it. The first version
+   walked a fixed chain (recipe → ingredients → main-or-batch), so the button said "Back
+   to the ingredients" wherever you had come from. The second read S.back — one slot,
+   overwritten by whatever moved last — so opening the batch inside a dish and pressing
+   Back offered "the recipe book", a screen he had never been on, while the dish he
+   actually came from sat behind an unrelated button further down the page.
 
-   `null` means there is genuinely nowhere behind: the first screen, and the Micros
-   request when it is opened as its own module, where the module's own bar goes back. */
+   There is no destination to work out any more. Every screen this module shows is
+   recorded as it is shown, and Back pops the last one. That is what a Back button means,
+   and it is now the same on every screen in the module — the sheet, the book, a menu,
+   Aung's list, the Micros request, what needs finishing, the floor's half.
+
+   The screen is identified by WHAT IS ON IT, not just which step it is: sheet:<recipe id>
+   and saved:<menu>/<section> are different screens, so stepping into a folder or opening
+   a batch out of a dish is a move you can come back from. The search box deliberately is
+   NOT part of that — typing in it would file one screen per keystroke — so a search is
+   cleared by the first Back, in place, before the button leaves the screen at all. */
 var STEPNAME = { type:'main or batch', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
                  list:"Aung's list", saved:'the recipe book', foh:'the floor’s half',
                  micros:'the Micros request', menus:'the menus', todo:'what needs finishing',
                  micreqs:'the Micros requests', micpast:'the request' };
-/* Where Saved recipes and Aung's list go back to is whatever screen sent them there,
-   held in S.back. Opening the Micros request from Saved recipes overwrites S.back with
-   'saved' — so coming back off Micros landed on Saved recipes pointing at ITSELF, and
-   Back stopped working. A step never goes back to itself: fall through to the recipe
-   if there is one, then to the ingredients, then to the first screen. */
-function notSelf(to){
-  if (to && to !== S.step) return to;
-  /* realRows(), not S.rows — a sheet nobody has touched still carries six blank lines,
-     so counting S.rows says "there is a recipe open" on a cold start and Back lands on
-     an empty sheet nobody asked for. */
-  if (S.id || realRows().length) return 'sheet';
-  return 'saved';
+var HIST = [], LASTSNAP = null, NAVBACK = false;
+/* what makes this a different SCREEN from the last one */
+function screenKey(){
+  var s = S.step;
+  if (s === 'sheet')   return 'sheet:'   + (S.id || 'new');
+  if (s === 'saved')   return 'saved:'   + (S.fmenu || '') + '/' + (S.fsec || '');
+  if (s === 'micros')  return 'micros:'  + (MICREQ.menuId || '');
+  if (s === 'micpast') return 'micpast:' + ((MICREQ.open && MICREQ.open.id) || '');
+  if (s === 'menus')   return 'menus:'   + (MENUADM.open || '');
+  if (s === 'list')    return 'list:'    + (S.find || '');
+  return s;
+}
+/* enough to put that screen back on the glass */
+function snapshot(){
+  return { step:S.step, key:screenKey(), id:S.id, name:S.name,
+           fmenu:S.fmenu || null, fsec:S.fsec || null, sq:S.sq || '', find:S.find || null,
+           micMenu:MICREQ.menuId || null, menuOpen:MENUADM.open || null };
+}
+/* Called by render(), which runs after every move in the module — so nothing has to
+   remember to file anything, and a screen reached by a route nobody thought about is
+   recorded exactly like the rest. */
+/* A door opens ON its screen. The module boots with the sheet as its default step and
+   the door then switches, so without this the first thing filed is a blank sheet nobody
+   asked for — and Back on the recipe book offered "the recipe". */
+function resetHist(){ HIST.length = 0; LASTSNAP = snapshot(); NAVBACK = false; }
+function noteScreen(){
+  var k = screenKey();
+  if (LASTSNAP && LASTSNAP.key === k){ LASTSNAP = snapshot(); return; }
+  if (LASTSNAP && !NAVBACK){
+    HIST.push(LASTSNAP);
+    if (HIST.length > 40) HIST.shift();     /* a whole shift's wandering, then the oldest goes */
+  }
+  NAVBACK = false;
+  LASTSNAP = snapshot();
+}
+/* the words on the button: what he will actually land on, named the way he would name it */
+function histName(h){
+  if (h.step === 'sheet') return h.name ? '“' + h.name + '”' : 'the recipe';
+  if (h.step === 'saved'){
+    /* the name of the screen he LANDS on, not the one above it: a section screen is
+       called by its section, a menu's sections list by the menu */
+    if (h.fsec)  return h.fsec;
+    if (h.fmenu) return menuNameOf(h.fmenu) === 'A menu that is no longer there'
+                        ? 'all the menus' : menuNameOf(h.fmenu);
+    return 'the recipe book';
+  }
+  if (h.step === 'menus' && h.menuOpen) return 'that menu';
+  return STEPNAME[h.step] || 'the screen before';
 }
 function backStep(){
-  var s = S.step;
-  if (s === 'list') return { to: notSelf(S.back) };
-  /* opened as its own door there is nothing behind it — the module's bar goes back */
-  if (s === 'todo') return S.back === 'todo' ? null : { to: notSelf(S.back) };
-  /* Saved recipes is now folders, so Back comes out of them one layer at a time —
-     out of the search first, then out of the section, then out of the menu, and only
-     then off the screen. Backing straight out of an open folder loses your place. */
-  if (s === 'saved'){
-    if (S.sq)    return { to:'saved', clearSq:true,   name:'the folders' };
-    if (S.fsec)  return { to:'saved', clearSec:true,  name:menuNameOf(S.fmenu) === 'A menu that is no longer there'
-                                                            ? 'the sections' : menuNameOf(S.fmenu) };
-    if (S.fmenu) return { to:'saved', clearMenu:true, name:'all the menus' };
-    /* the book is the front door now — the app's own bar is what leaves Recipes, the
-       same as it is on the Micros and Needs-finishing doors */
-    return S.back === 'saved' ? null : { to: notSelf(S.back) };
-  }
-  /* inside a menu, Back is out of it to the list — not off the screen altogether */
-  if (s === 'menus')   return MENUADM.open ? { to:'menus', openNull:true } : { to: notSelf(S.back) };
-  if (s === 'found')   return { to:'type' };
-  /* once they are created, going back to a screen offering to create them again
-     is a trap — send him to the list of what is now saved instead */
-  if (s === 'bringall') return S.planRan ? { to:'saved', clearPlan:true, setBack:'type' }
-                                         : { to:'found' };
-  if (s === 'foh')     return { to:'sheet' };
-  /* Building one and reviewing one both go back to the list of requests — that is the
-     screen behind them whichever door was used to get in. The list itself is the front
-     door when it is opened as its own module, and then the module's own bar goes back. */
-  /* opened by tapping a dish name on a Micros screen, Back goes to the screen he was
-     actually on — not down the type → ingredients → recipe chain */
-  if (s === 'sheet' && S.micReturn) return { to:S.micReturn, clearMicReturn:true };
-  if (s === 'micros')  return { to: MICREQ.from || 'micreqs' };
-  if (s === 'micpast') return { to:'micreqs' };
-  if (s === 'micreqs') return S.back === 'micreqs' ? null : { to: notSelf(S.back || 'saved') };
-  /* ── the sheet: back is the screen he came from, and nothing else ──
-     25 Aug 2026, Danilo and Antonio. This used to walk a fixed chain — sheet, then the
-     ingredients page, then "main or batch" — so the button said "Back to the ingredients"
-     no matter where he had actually come from, and two taps of it landed on the one
-     screen that takes the open recipe off the screen. There is no chain now. The sheet
-     goes back to whatever screen sent him here, which is what a Back button means.
-
-     Only if the recipe on the screen actually CAME out of that file: backing out of a
-     workbook, starting something of his own and pressing Back put him on the file list,
-     which has nothing to do with the recipe he just typed. */
-  if (s === 'sheet'){
-    if (S.imported && S.found && S.found.recipes.length > 1) return { to:'found' };
-    if (S.back && S.back !== 'sheet') return { to:S.back };
-    /* Opened cold — the "Create new recipes" door, or ?new=1. There is genuinely nothing
-       behind a blank sheet, and the app's own bar is what leaves. Sending him to the
-       recipe book here would be inventing a screen he was never on, which is the whole
-       fault this rewrite is fixing. */
-    return null;
-  }
-  return null;
+  /* a search is a state of the screen you are on, not a screen of its own */
+  if (S.sq && S.step === 'saved') return { clearSq:true, name:'the folders' };
+  var h = HIST[HIST.length - 1];
+  return h ? { hist:h, name:histName(h) } : null;
 }
 function drawBack(){
   var b = $('back'), w = $('backw'); if (!b) return;
   var t = backStep();
   b.classList.toggle('hide', !t);
   if (!t) return;
-  var name = t.name ? t.name : t.openNull ? 'all menus' : (STEPNAME[t.to] || 'the last screen');
-  if (w) w.textContent = 'Back to ' + name;
-  b.title = 'Back to ' + name;
-  b.setAttribute('aria-label', 'Back to ' + name);
+  if (w) w.textContent = 'Back to ' + t.name;
+  b.title = 'Back to ' + t.name;
+  b.setAttribute('aria-label', 'Back to ' + t.name);
 }
 function goBack(){
   var t = backStep(); if (!t) return;
+  if (t.clearSq){ S.sq = ''; render(); window.scrollTo(0,0); return; }
+  var h = HIST[HIST.length - 1]; if (!h) return;
   var move = function(){
-    if (t.clearPlan) S.plan = null;
-    if (t.setBack) S.back = t.setBack;
-    if (t.openNull) MENUADM.open = null;
-    if (t.clearSq)   S.sq = '';
-    if (t.clearSec)  S.fsec = null;
-    if (t.clearMenu){ S.fmenu = null; S.fsec = null; }
-    if (t.clearMicReturn) S.micReturn = null;
+    HIST.pop();
+    NAVBACK = true;                      /* this move is a return — do not file it */
+    S.fmenu = h.fmenu; S.fsec = h.fsec; S.sq = h.sq; S.find = h.find;
+    MENUADM.open = h.menuOpen;
+    if (h.micMenu) MICREQ.menuId = h.micMenu;
     /* coming back onto the requests, read them again — a draft kept a moment ago, or a
        request that has just gone, has to be on the list he lands on */
-    if (t.to === 'micreqs'){
+    if (h.step === 'micreqs'){
       MICREQ.open = null; MICREQ.del = null;
       micLoadList().then(function(){ if (S.step === 'micreqs') render(); });
     }
-    S.step = t.to; render(); window.scrollTo(0,0);
+    /* The sheet is the one screen whose contents can have been REPLACED since he was on
+       it — opening a batch out of a dish puts the batch on it. This is the case that made
+       Back wrong for Antonio: the dish has to come back, not the screen's name. */
+    if (h.step === 'sheet' && h.id && h.id !== S.id){
+      var wait = flash('Opening ' + (h.name || 'the recipe') + '…');
+      openRecipe(h.id).then(function(){
+        wait.remove(); S.step = 'sheet'; render(); rows(); foot(); window.scrollTo(0,0);
+      }).catch(function(err){
+        wait.remove();
+        flash('That recipe could not be reopened — ' + plain(err.message), true);
+        S.step = h.step; render(); window.scrollTo(0,0);
+      });
+      return;
+    }
+    S.step = h.step; render(); window.scrollTo(0,0);
   };
-  if (t.guarded) guard(move); else move();
+  /* half-written work is never dropped by going back: guard parks it and asks */
+  guard(move);
 }
 $('back').addEventListener('click', goBack);
 $('back').addEventListener('keydown', function(e){
@@ -11196,13 +11198,13 @@ fitBar();
 var MICSOLO = Q.get('micros') === '1', TODOSOLO = Q.get('todo') === '1',
     SAVEDSOLO = Q.get('saved') === '1';
 if (TODOSOLO){
-  S.back = 'todo'; S.step = 'todo'; render();
+  S.back = 'todo'; S.step = 'todo'; render(); resetHist();
   Promise.all([loadSaved(), loadBatches()]).then(function(){ if (S.step==='todo') render(); });
 }
 if (SAVEDSOLO && !TODOSOLO && !MICSOLO && !Q.get('id') && Q.get('new') !== '1'){
   /* 'saved' as its own back means Back off the book is hidden — the app's own bar is
      what leaves Recipes, exactly as it is on the Micros and Needs-finishing doors */
-  S.back = 'saved'; S.step = 'saved'; render();
+  S.back = 'saved'; S.step = 'saved'; render(); resetHist();
   loadSaved().then(function(){ if (S.step==='saved') render(); });
 }
 loadMenus().then(function(){
@@ -11213,7 +11215,7 @@ loadMenus().then(function(){
     var run = MENUS.filter(function(m){ return m.running; })[0];
     MICREQ.menuId = MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
     MICREQ.today  = new Date().toISOString().slice(0,10);
-    S.back = 'micreqs'; S.step = 'micreqs'; render();
+    S.back = 'micreqs'; S.step = 'micreqs'; render(); resetHist();
     micLoadList().then(function(){ if (S.step==='micreqs') render(); });
     return;
   }
