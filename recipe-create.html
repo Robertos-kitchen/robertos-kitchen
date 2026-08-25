@@ -1038,6 +1038,18 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
    A strip on the sheet, never a dialog. When he tries to leave it becomes the
    question, in place, with the work still in front of him. */
 .savebar:empty{display:none}
+/* ───── the way to the till, on the sheet ─────
+   Solid, not dashed: the dashed buttons on this screen add another line or bring a file
+   in — small, repeatable things. Sending a dish to Aung is neither, and it should not
+   look like "+ Empty line". Off, it keeps the word and states the one thing in the way,
+   the same as Save does on an unnamed sheet. */
+.micwrap:empty{display:none}
+.micask2{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+.micask2 .newr{margin:0;border-style:solid;font-weight:600;flex:0 0 auto}
+.micask2 .newr.off{opacity:.45;cursor:not-allowed;border-style:dashed;font-weight:400}
+.micask2 .newr.off:hover{background:none;border-style:dashed}
+.micask2 .brn{opacity:.72;line-height:1.5}
+@media (pointer:coarse){ .micask2 .newr{padding:13px 16px} }
 .sb1{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--attn-soft);
   border:1px solid var(--attn);border-radius:6px;padding:10px 13px;margin:0 0 10px}
 .sb1.ask{background:rgba(122,18,24,.09);border-color:var(--vino)}
@@ -2492,7 +2504,10 @@ function guard(go){
   else drawSaveBar();
   var b = $('savebar'); if (b && b.scrollIntoView) b.scrollIntoView({ block:'center' });
 }
-function drawSaveBar(){ var b = $('savebar'); if (b) b.innerHTML = saveBarInner(); }
+function drawSaveBar(){ var b = $('savebar'); if (b) b.innerHTML = saveBarInner(); drawMicBar(); }
+/* Saved / dirty / on-a-menu are exactly what the Micros button reads, and drawSaveBar is
+   already called on every one of those. Redrawn together so the two can never disagree. */
+function drawMicBar(){ var m = $('micwrap'); if (m) m.innerHTML = micBarHTML(); }
 function saveBarInner(){
   if (!isDirty()) return '';
   if (!S.pendingGo)
@@ -6715,6 +6730,9 @@ function render(){
          the screen in front of the sheet, and that screen is gone */
       importedNote() +
       '<div class="savebar" id="savebar"></div>' +
+      /* the way to the till, from the dish. Redrawn by drawMicBar() on save, on a menu
+         change and whenever the sheet goes clean or dirty — the three things it reads. */
+      '<div class="micwrap" id="micwrap">' + micBarHTML() + '</div>' +
       '<div class="kindbar" id="kindbar"></div>' +
       whoBar() +
       (S.cameFrom ? '<button class="newr" id="backto" style="margin:0 0 10px">‹ Back to the dish that uses this</button>' : '') +
@@ -6977,6 +6995,50 @@ function importedNote(){
       ? '<br><span class="warn">'+im.noUnit.map(esc).join(', ')+' had no real measurement in the file' +
         ' (a pinch is not a weight), so '+(im.noUnit.length===1?'it has':'they have')+' no quantity. Put one in, or leave it.</span>'
       : '') + '</div>';
+}
+
+/* ── the Micros request, on the recipe itself ──
+   25 Aug 2026, [[Francesco]]: "here i need a button for micros request once the recipe is
+   completed." The card in the book has one, but the moment you actually know a dish is
+   ready to go to the till is the moment you finish writing it — and from here that meant
+   saving, leaving the sheet, finding the dish again in the book and pressing the button
+   on its card.
+
+   It is never hidden on a main recipe. A button that appears only when everything is
+   right cannot tell you what is wrong, and "why is there no Micros button on this one"
+   is a question the screen should answer rather than pose. So it is shown, off, with the
+   one thing standing in the way — the same way Save behaves on an unnamed sheet.
+
+   The order of the checks is the order they bite: saved before dirty before on-a-menu.
+   The request is built from what is SAVED — sending what is only on this screen would
+   put a price in Aung's file that the recipe does not have. */
+function micReady(){
+  if (S.kind !== 'main') return null;              /* a batch never goes to the till */
+  if (!S.id)      return { stop:'Save it first — a request is built from the saved recipe.' };
+  if (isDirty())  return { stop:'Save the changes first — Aung is sent what is saved, not what is on the screen.' };
+  if (!(S.menus || []).length)
+    return { stop:'Put it on a menu first — a request is built from a menu. Use the menu box in the bar.' };
+  /* Not blockers: the request screen shows both, loudly, and a dish can legitimately go
+     to Aung for him to price. Named here so it is not a surprise one screen later. */
+  var thin = [];
+  if (S.price == null) thin.push('no menu price');
+  if (!S.section)      thin.push('no section, so no Micros family');
+  return { ok:true, thin:thin };
+}
+function micBarHTML(){
+  var m = micReady();
+  if (!m) return '';
+  if (m.stop)
+    return '<div class="micask2"><button class="newr off" id="tomicsheet" disabled>' +
+      'Micros request</button><span class="brn">' + m.stop + '</span></div>';
+  return '<div class="micask2"><button class="newr" id="tomicsheet">Micros request for ' +
+    esc(micWho()) + ' &rarr;</button>' +
+    '<span class="brn">' +
+      (m.thin.length
+        ? 'It will go out with <b>' + esc(m.thin.join('</b> and <b>')) + '</b> — fix that first, or send it as it is.'
+        : 'This dish on its own, ticked, on ' +
+          esc((S.menus || []).map(menuName)[0] || 'its menu') + '.') +
+    '</span></div>';
 }
 
 /* ── the whole list in one box, on the sheet ──
@@ -10188,20 +10250,30 @@ document.addEventListener('click', function(e){
   }
 
   /* ── one dish to the till, from its card in the book ── */
-  var m1 = e.target.closest('[data-micone]');
+  /* The same request, asked for from the sheet instead of from the card. The recipe on
+     the screen IS the dish, so it does not go looking for it in a list that may not even
+     be loaded on this door. */
+  var m1 = e.target.closest('[data-micone]') ||
+           (e.target.id === 'tomicsheet' && S.id ? { dataset:{ micone:S.id } } : null);
   if (m1){
     var rid1 = m1.dataset.micone;
     var rec1 = (S.saved || []).filter(function(x){ return x.id === rid1; })[0];
-    var mids = rec1 ? menusOf(rec1) : [];
+    /* off the sheet the menus are the ones on the screen, which are also the ones just
+       saved — S.saved can be empty here and menusOf() would answer "on no menu" */
+    var mids = (rid1 === S.id && (S.menus || []).length) ? S.menus.slice()
+             : rec1 ? menusOf(rec1) : [];
     if (!mids.length){ flash('That dish is on no menu, so there is no request to build from.', true); return; }
     /* the menu that is running, if the dish is on it — that is the one a request means
        today. Otherwise the first menu it is on. */
     var runm1 = MENUS.filter(function(m){ return m.running && mids.indexOf(m.id) > -1; })[0];
     var mid1  = runm1 ? runm1.id : mids[0];
     guard(function(){
-      S.back = 'saved';
+      /* Back off the request goes to whichever screen asked for it — the sheet when the
+         button on the recipe was used, the book when the card's was. */
+      var cameFrom = (S.step === 'sheet') ? 'sheet' : 'saved';
+      if (cameFrom !== 'sheet') S.back = 'saved';
       micReset();
-      MICREQ.from = 'saved';          /* Back goes to the book, which is where he is */
+      MICREQ.from = cameFrom;
       /* he has named the dish by tapping it — micApplyNew unticking it because it went
          once before would be the app arguing with the tap */
       MICREQ.onlyNew = false;
@@ -10209,7 +10281,7 @@ document.addEventListener('click', function(e){
         MICREQ.rows.forEach(function(r){ r.take = (r.id === rid1); });
         if (S.step === 'micros') render();
         var gone1 = micSentBefore(mid1)[rid1];
-        if (gone1) flash((rec1 ? rec1.name : 'That dish') + ' already went to ' + micWho() + ' ' +
+        if (gone1) flash((rec1 ? rec1.name : (S.name || 'That dish')) + ' already went to ' + micWho() + ' ' +
           micWhen(gone1.sent_at, true) + ' — it is ticked, so send it again only if it has changed.');
       });
     });
