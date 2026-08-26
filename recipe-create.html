@@ -8206,8 +8206,12 @@ function methodHTML(){
      settings that might disagree. Removed 25 Aug 2026; the bar is the one that stays,
      because it is on the screen wherever you have scrolled to. menuInner() is still what
      draws it if anything ever puts the box back — the refreshers below all check. */
-  return
-         '<div class="alg" id="alg">' + algInner() + '</div>' +
+  /* The expression starts on THIS line and it has to. A bare `return` with the value
+     on the next one is a semicolon as far as JavaScript is concerned, and this whole
+     function then returns undefined — which is exactly what happened on 25 Aug when the
+     menus block was taken off the front of it: allergens, method, plating and the
+     floor's half all vanished off the sheet and Andrea reported the method missing. */
+  return '<div class="alg" id="alg">' + algInner() + '</div>' +
          '<div class="mth" id="mth">' + methodInner() + '</div>' +
          (S.kind === 'main' ? '<div class="pss" id="pssbox">' + platingInner() + '</div>' : '') +
          (S.kind === 'main' ? '<div class="foh" id="fohbox">' + fohInner() + '</div>' : '');
