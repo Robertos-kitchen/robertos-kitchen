@@ -7107,25 +7107,14 @@ function bulkReflow(){
     '<div class="tip">Split them wrong? Put a <b>comma</b> between the ones it joined — commas always win.</div>';
 }
 
-/* live preview of the split, so you see it before you commit */
-function reflow(){
-  var parts = splitLine(S.text);
-  var old = {}; S.rows.forEach(function(r){ old[r.raw] = r; });
-  S.rows = parts.map(function(p){ return old[p.raw] || mkRow(p); }); S.sel = [];
-  var sp = $('sp'); if (!sp) return;
-  if (!parts.length){ sp.innerHTML=''; gate(); return; }
-  sp.innerHTML = '<div class="lab">' + parts.length + ' ingredient' + (parts.length===1?'':'s') + ' found</div>' +
-    '<div class="chips">' + S.rows.map(function(r,i){
-      var n = r.opts.length, fix = n ? null : didYouMean(r.word);
-      var qs = r.qty!=null ? '<span class="n">'+r.qty+(r.unit||'')+'</span>' : '';
-      return '<span class="chip'+(n?'':' warn')+'">'+qs+'<b>'+esc(r.word)+'</b>' +
-        '<span class="n">'+(n ? n+(n===1?' option':' options') : 'not on the list')+'</span>' +
-        (fix ? '<span class="fix" data-fix="'+i+'" data-to="'+esc(fix)+'">'+esc(fix)+'?</span>' : '') +
-        '</span>';
-    }).join('') + '</div>' +
-    '<div class="tip">Split them wrong? Put a <b>comma</b> between the ones it joined — commas always win.</div>';
-  gate();
-}
+/* reflow() lived here and is gone, 26 Aug 2026. It was the ingredients page's preview:
+   it REBUILT S.rows out of S.text, which is right when the text is the only thing there
+   is. That page is deleted, and its box and preview (#dp / #sp) now sit on the SHEET —
+   where the rows already carry a picked ingredient, a quantity and a trim. Left in place
+   it was a loaded gun: one call on the sheet and every one of those is thrown away and
+   rebuilt from a string. It had no reachable caller left, so it is deleted rather than
+   guarded. bulkReflow() is the version that belongs on a sheet — it only ever draws the
+   preview, and adding is a separate, deliberate press. */
 
 /* ═════════ adding up the lines he taps ═════════
    Antonio's question is a plain one — "what do THESE weigh?" — and it is asked about a
@@ -9648,16 +9637,6 @@ document.addEventListener('click', function(e){
     var db = $('dp'); if (db) db.value = S.btext;
     bulkReflow(); return;
   }
-  var cf = e.target.closest('[data-fix]');                   /* accept a spelling fix, on the write screen */
-  if (cf){
-    var idx = +cf.dataset.fix, to = cf.dataset.to;
-    var parts = splitLine(S.text);
-    S.text = parts.map(function(p,k){
-      var nm = k===idx ? to : p.name;
-      return (p.qty!=null ? p.qty+(p.unit||'')+' ' : '') + nm;
-    }).join(', ');
-    $('dp').value = S.text; reflow(); return;
-  }
   var rf = e.target.closest('[data-rowfix]');                /* …or on the sheet */
   if (rf){
     var j = +rf.dataset.rowfix, r = S.rows[j];
@@ -10850,7 +10829,7 @@ function toggleMic(){
     var val = settled + (live ? (settled ? ',\n' : '') + live : '');
     if (onSheet) S.btext = val; else S.text = val;
     var dp = $('dp'); if (dp) dp.value = val;
-    if (onSheet) bulkReflow(); else reflow();
+    bulkReflow();          /* the box is only ever the fold on the sheet now */
   };
   MIC.onerror = function(ev){
     if (st){ st.className='brn bad';
