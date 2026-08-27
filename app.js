@@ -2113,10 +2113,13 @@ function kevPrepRows(e){
 function kevDraftTag(e){ return e && e.confirmed === false ? '<span class="kev-draft">Draft &mdash; not confirmed</span>' : ''; }
 function kevTodayCard(e){
   var meta = [ (e.guests!=null?('<b>'+e.guests+' guests</b>'):''), [e.time_from,e.time_to].filter(Boolean).join('–'), kevEsc(e.area||'') ].filter(Boolean).join(' · ');
-  return '<div class="kev-today"><div class="kev-today-top"><div><span class="kev-chip">Event today</span>'+
-    '<div class="kev-name">'+kevEsc(e.name)+kevDraftTag(e)+'</div><div class="kev-meta">'+meta+'</div></div>'+
-    '<button class="kev-print" onclick="kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
-    '<div class="kev-prep" id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>';
+  // The menu starts CLOSED, like every upcoming event. Several events on one
+  // day opened expanded one under the other, so reaching the second one meant
+  // scrolling past the whole first menu. Tap the card to open it.
+  return '<div class="kev-today"><div class="kev-today-top clickable" onclick="kevToggle(\''+e.id+'\',this)"><div><span class="kev-chip">Event today</span>'+
+    '<div class="kev-name">'+kevEsc(e.name)+kevDraftTag(e)+' <span class="kev-chev">&#9662;</span></div><div class="kev-meta">'+meta+'</div></div>'+
+    '<button class="kev-print" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
+    '<div class="kev-prep" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div></div>';
 }
 function kevUpRow(e){
   var d = kevDate(e.date);
