@@ -395,6 +395,23 @@ tr.drop td{background:var(--sabbia-light) !important;padding:11px 14px 13px}
 .lstat{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:5px;padding:8px 12px;min-width:96px}
 .lstat .k{font-size:8.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--vino-light)}
 .lstat .v{font-family:var(--serif);font-size:21px;color:var(--vino);line-height:1.15;margin-top:1px}
+/* --- our cost against FMC --- */
+.lstat.tap{cursor:pointer}
+.lstat.tap:hover,.lstat.tap:focus{background:var(--cream);border-color:var(--vino);outline:none}
+.lstat.tap .v{font-size:16px;padding-top:3px}
+.fxsec{padding:16px 16px 6px}
+.fxsec h3{font-family:var(--serif);font-size:18px;color:var(--vino);margin:0 0 3px}
+.fxsec .sub{font-size:12.5px;line-height:1.5;color:var(--ink);opacity:.82;margin-bottom:10px;max-width:78ch}
+.fxg{font-size:12px;color:var(--ink);opacity:.78}
+/* the weight carries this as well as the colour: a percentage a cost controller acts on
+   must not depend on hue alone. Measured on the cream, not guessed at: warm 7.32:1,
+   hot 8.37:1. The amber started at #7a4a00 and read fine — it was 6.44:1. */
+.fxgap{font-weight:700}
+.fxgap.warm{color:#704200}
+.fxgap.hot{color:#8a0f14}
+.fxdate{font-size:11.5px;color:var(--ink);opacity:.7;white-space:nowrap}
+.fxopen{text-align:left}
+.fxfoot{padding:6px 16px 22px;font-size:12px;line-height:1.5;color:var(--ink);opacity:.72;max-width:78ch}
 .lfilt{display:flex;gap:9px;padding:11px 16px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark);flex-wrap:wrap}
 .lfilt input,.lfilt select{border:1px solid var(--sabbia-dark);border-radius:5px;padding:9px 11px;font-size:14px;font-family:var(--sans);background:#fff;outline:none;min-width:150px}
 .lfilt input:focus,.lfilt select:focus{border-color:var(--vino)}
@@ -2908,6 +2925,82 @@ function pickable(){ return MYB.length ? ING.concat(MYB.filter(function(b){ retu
 function isMine(code){ return typeof code === 'string' && code.indexOf('R:') === 0; }
 function idOf(code){ return String(code).slice(2); }
 
+/* ═════ OUR COST AGAINST FMC'S ════════════════════════════════════
+   28 Aug 2026. Aung found a dish where FMC and this app disagreed by 5.85, and the
+   only thing that caught it was Aung reading a sheet. Two systems hold the same
+   recipes and NOTHING compared them, so drift could only ever be found by a person
+   noticing. This is that comparison, and it is deliberately narrow about what it
+   will claim.
+
+   IT COMPARES BATCH RECIPES, NOT DISHES, and it says so on the glass. Batches work
+   because FMC carries every one as an `RF ... (PA)` article with a price and we
+   mirror those. Dishes do not: Fiore Zucca is 10807 in Materials Control, no 10807
+   exists in `fmc_articles` -- the mirror holds articles, not menu recipes -- and no
+   recipe here carries an FMC dish code. A screen that quietly showed fewer rows than
+   the reader expected would be the same class of mistake it was built to catch, so
+   the limit is written at the top of it.
+
+   IT MATCHES ON AN EXACT NAME AND NOTHING ELSE, after 'RF ' and '(PA)' come off --
+   batchKey(), the same key the rest of this file uses on Aung's lines. A near match
+   is offered as a QUESTION and never as a pair: "Rice cream" scores .82 against
+   "RF Garlic Cream (PA)", "Cauliflower clean" scores .78 against "RF Cauliflower
+   Caramel (PA)". Pairing those on their own would print a confident cost gap between
+   two different things.
+
+   THE DATE IS HALF THE ANSWER. A gap can mean our recipe differs from theirs, or that
+   FMC's price is from January. This screen never decides which. It puts the date on
+   the row and lets the reader see it. */
+function fmcArts(){
+  return ING.filter(function(i){ return i.group === 'Batch Recipe (Food)'; });
+}
+function fmcCompare(){
+  var arts = fmcArts(), byKey = {};
+  arts.forEach(function(a){ var k = batchKey(a.name); (byKey[k] = byKey[k] || []).push(a); });
+  var out = { pairs:[], units:[], nocost:[], nopair:[], twins:[], arts:arts.length };
+  MYB.filter(function(b){ return !b.away; }).forEach(function(b){
+    var k = batchKey(b.name), hits = byKey[k] || [];
+    /* walked here and now, never read off MYB's stored answer. MYB is built when the
+       batches land and that read races the catalogue -- see rebuildMYB(). This screen
+       is the one place a wrong "we cannot cost it" would be read as a finding about
+       the recipe instead of a finding about the load order, so it does the walk. */
+    var fresh = b.away ? { problem:'it has been removed from the saved recipes' } : batchCost(idOf(b.code));
+    var ours  = fresh.problem ? null : fresh.per;
+    var row = { id:idOf(b.code), name:b.name, ours:ours, unit:b.unit, why:fresh.problem || null };
+    /* a recipe this app cannot cost is not a disagreement with FMC -- it is a hole on
+       our side, and it belongs in its own list with the reason on it */
+    if (fresh.problem){ out.nocost.push(row); return; }
+    /* Aung's list carries the same thing twice often enough to matter (Cacio e Pepe is
+       two articles). Two candidates is not a match; taking the first would be a coin
+       toss printed as a fact. */
+    if (hits.length > 1){ row.hits = hits; out.twins.push(row); return; }
+    if (!hits.length){
+      row.guesses = arts.map(function(a){ return { a:a, s:simName(k, batchKey(a.name)) }; })
+                        .filter(function(x){ return x.s >= 0.7; })
+                        .sort(function(x, y){ return y.s - x.s; }).slice(0, 3);
+      out.nopair.push(row); return;
+    }
+    var a = hits[0], bp = basePrice(a), ourBase = parseUnit(b.unit).base;
+    row.fmcName = a.name; row.code = a.code; row.paid = a.paidAt;
+    /* "makes 20 pcs" here against a price per kilo there is not a gap, it is two
+       different questions. Subtracting them would invent a number. */
+    if (!bp || !ourBase || bp.base !== ourBase){
+      row.theirBase = bp ? bp.base : null; row.theirs = bp ? bp.v : null;
+      out.units.push(row); return;
+    }
+    row.theirs = bp.v; row.base = bp.base;
+    row.pct = bp.v ? ((ours - bp.v) / bp.v * 100) : null;
+    out.pairs.push(row);
+  });
+  out.pairs.sort(function(x, y){ return Math.abs(y.pct || 0) - Math.abs(x.pct || 0); });
+  return out;
+}
+function fmcBand(p){ p = Math.abs(p || 0); return p >= 25 ? ' hot' : p >= 10 ? ' warm' : ''; }
+function fmcPct(p){ return (p > 0 ? '+' : '') + Math.round(p) + '%'; }
+function goFmc(){
+  if (S.step === 'fmc'){ S.step = S.back || 'list'; render(); return; }
+  S.back = S.step; S.step = 'fmc'; render(); window.scrollTo(0, 0);
+}
+
 /* Main recipes, shaped exactly like a batch so the SAME cost walk works on them.
    Kept apart from BATCH on purpose: anything in BATCH becomes pickable as a batch,
    and a dish must never be linkable inside another dish. */
@@ -2958,6 +3051,38 @@ function usesBatch(id, target, stack){
   });
 }
 
+/* Costing a batch is a WALK, not a lookup, and it can only be walked once everything it
+   might reach is in hand. This used to happen exactly once, inside loadBatches(), and
+   at boot that read races the other one:
+
+       loadArticles().then(loadMine).then(...)     <- the catalogue, then his own items
+       loadBatches().then(...)                     <- starts at the same moment
+
+   Whichever came back first won, and when the batches won, every batch holding a
+   user-added ingredient -- water, sparkling water, ice -- was frozen as "an ingredient
+   in it is no longer in the catalogue". Measured on 28 Aug 2026: 45 of 57 live batches
+   read as having no cost at all, on a page where ING had 1,446 items and every one of
+   those 45 costed correctly the moment it was walked again.
+
+   It was invisible because the words are so plausible. "No longer in the catalogue" is a
+   real thing that really happens, so the screen looked like it was telling the truth
+   about the recipes rather than about its own load order.
+
+   So the build is its own function, and it is run again when the thing that lost the
+   race arrives. Cheap -- no query, just the walk. */
+function rebuildMYB(){
+  /* whichever of the two reads finishes first calls this, so it can be reached before the
+     batches have landed at all. Rebuilding over an empty BATCH would empty MYB — briefly,
+     but long enough to blank the catalogue screen somebody is already looking at. */
+  if (!Object.keys(BATCH).length) return;
+  MYB = Object.keys(BATCH).map(function(id){
+    var b = BATCH[id], c = b.archived ? { problem:'it has been removed from the saved recipes' } : batchCost(id);
+    return { code:'R:'+id, name:b.name, group:'Our batch recipes',
+             unit:b.makesUnit, price: c.problem ? null : c.per,
+             units: c.problem ? [] : [{ unit:b.makesUnit, price:c.per }],
+             myBatch:true, problem:c.problem||null, makes:b.makesQty, away:b.archived };
+  });
+}
 function loadBatches(){
   return Promise.all([
     /* removed batches are loaded too — a recipe that still links one must keep the link
@@ -2976,13 +3101,7 @@ function loadBatches(){
                       archived:!!r.archived, allergens:r.allergens||[], lines:[] };
     });
     (both[1]||[]).forEach(function(l){ if (BATCH[l.recipe_id]) BATCH[l.recipe_id].lines.push(l); });
-    MYB = Object.keys(BATCH).map(function(id){
-      var b = BATCH[id], c = b.archived ? { problem:'it has been removed from the saved recipes' } : batchCost(id);
-      return { code:'R:'+id, name:b.name, group:'Our batch recipes',
-               unit:b.makesUnit, price: c.problem ? null : c.per,
-               units: c.problem ? [] : [{ unit:b.makesUnit, price:c.per }],
-               myBatch:true, problem:c.problem||null, makes:b.makesQty, away:b.archived };
-    });
+    rebuildMYB();
   }).catch(function(e){ MYB = []; BATCH = {}; });
 }
 
@@ -3496,6 +3615,7 @@ function fromArticle(a){
            unit:a.store_unit || a.unit || '',
            price:(a.price != null ? a.price : a.price_per_base_unit),
            units:units,
+           paidAt: a.price_paid_at || null,
            orderable: !!a.on_assortment && !a.retiring };
 }
 var ING_ERR = null;
@@ -3508,7 +3628,12 @@ function loadArticles(){
   var got = [];
   function page(from){
     return sb('fmc_articles?select=code,name,item_group,unit,base_unit,store_unit,'
-            + 'price,price_per_base_unit,on_assortment,retiring'
+            /* price_paid_at joined the select on 28 Aug 2026, for the FMC comparison.
+               A batch article's price is a MIRROR of what Materials Control last told
+               us and some were last priced in January, so "our recipe differs from
+               theirs" and "their number is old" look identical without it. Read on one
+               screen; costs nothing anywhere else. */
+            + 'price,price_per_base_unit,price_paid_at,on_assortment,retiring'
             + '&order=code&limit=' + ING_PAGE + '&offset=' + from)
       .then(function(list){
         list = list || [];
@@ -5959,6 +6084,112 @@ function render(){
   }
   drawBarMenu();
 
+  if (S.step === 'fmc'){
+    b.classList.add('off');
+    var X = fmcCompare();
+    var money = function(v){ return v == null ? '—' : fmt(v); };
+    var perU  = function(u){ return u === 'pcs' ? 'each' : (u || '—'); };
+    var dateC = function(d){ return '<span class="fxdate">' + esc(d ? String(d) : 'no date') + '</span>'; };
+    var openC = function(id, nm){
+      /* data-open, not a handler of our own: the document already has one, and it does
+         the things a bare openRecipe() would skip — it parks a half-written sheet
+         instead of losing it, and says so. */
+      return '<button class="lnk fxopen" data-open="' + esc(id) + '">' + esc(nm) + '</button>'; };
+    w.innerHTML =
+      '<div class="listhd"><div class="m">Our cost against FMC</div>' +
+        '<div class="s">Every <b>batch recipe</b> written here, next to what <b>FMC</b> charges for the same ' +
+        'one. Nothing compared the two before, so the only way a difference was ever found was somebody ' +
+        'noticing — which is how the Fiore di Zucca gap reached us, from the cost controller.' +
+        '<br><br><b>Batches only, and that is a limit rather than an oversight.</b> FMC carries every batch ' +
+        'as an <i>RF … (PA)</i> article with a price, so those can be compared. Dishes cannot be: a dish ' +
+        'is a Materials Control recipe number, none of them are in the article list, and no recipe here ' +
+        'carries one. A dish is checked by checking the batches inside it.' +
+        '<br><br><b>Read the date before believing a gap.</b> FMC\u2019s price is a mirror of what Materials ' +
+        'Control last told us, and some were last priced in January. A difference can mean our recipe ' +
+        'differs from theirs — or that their number is old. This screen does not guess which; it puts the ' +
+        'date on the row.</div>' +
+        '<div class="lstats">' +
+          '<div class="lstat"><div class="k">Compared</div><div class="v">' + X.pairs.length + '</div></div>' +
+          '<div class="lstat"><div class="k">Differ 10%+</div><div class="v">' +
+            X.pairs.filter(function(r){ return Math.abs(r.pct || 0) >= 10; }).length + '</div></div>' +
+          '<div class="lstat"><div class="k">No FMC article</div><div class="v">' + X.nopair.length + '</div></div>' +
+          '<div class="lstat"><div class="k">We cannot cost</div><div class="v">' + X.nocost.length + '</div></div>' +
+        '</div></div>' +
+
+      (X.pairs.length ?
+        '<div class="fxsec"><h3>Both hold it — and here is the difference</h3>' +
+        '<div class="sub">Biggest disagreement first. The percentage is ours against theirs: a plus means ' +
+        'we cost it higher than FMC does.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th>FMC article</th><th class="n">Ours</th>' +
+          '<th class="n">FMC</th><th>Per</th><th class="n">Difference</th><th>FMC last priced</th></tr><tbody>' +
+        X.pairs.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="fxg">' + esc(r.fmcName) + '</td>' +
+            '<td class="n">' + money(r.ours) + '</td><td class="n">' + money(r.theirs) + '</td>' +
+            '<td>' + esc(perU(r.base)) + '</td>' +
+            '<td class="n fxgap' + fmcBand(r.pct) + '">' + (r.pct == null ? '—' : fmcPct(r.pct)) + '</td>' +
+            '<td>' + dateC(r.paid) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.units.length ?
+        '<div class="fxsec"><h3>Cannot be compared — different units</h3>' +
+        '<div class="sub">We say what these make in one unit and FMC prices them in another. Subtracting ' +
+        'the two would invent a number, so it is not done. Say what the batch makes in the unit FMC uses ' +
+        'and the row moves up into the table above.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th>FMC article</th><th class="n">Ours</th>' +
+          '<th>We make it in</th><th class="n">FMC</th><th>They price it in</th></tr><tbody>' +
+        X.units.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="fxg">' + esc(r.fmcName) + '</td>' +
+            '<td class="n">' + money(r.ours) + '</td><td>' + esc(perU(r.unit)) + '</td>' +
+            '<td class="n">' + money(r.theirs) + '</td><td>' + esc(perU(r.theirBase)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.twins.length ?
+        '<div class="fxsec"><h3>FMC has this name twice</h3>' +
+        '<div class="sub">Two articles carry the same name once <i>RF</i> and <i>(PA)</i> come off, so there ' +
+        'is no way to know which one this recipe is. Taking the first would be a coin toss printed as a fact.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th class="n">Ours</th>' +
+          '<th>The articles it could be</th></tr><tbody>' +
+        X.twins.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="n">' + money(r.ours) + '</td>' +
+            '<td class="fxg">' + r.hits.map(function(a){ return esc(a.code) + ' · ' + esc(a.name); }).join('<br>') +
+            '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.nocost.length ?
+        '<div class="fxsec"><h3>We cannot cost these yet</h3>' +
+        '<div class="sub">Nothing to do with FMC — these are holes on our side, and each one is also a dish ' +
+        'somewhere costing less than it should. The reason is on the row.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th>What is missing</th></tr><tbody>' +
+        X.nocost.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="fxg">' + esc(r.why || '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.nopair.length ?
+        '<div class="fxsec"><h3>No FMC article with this name</h3>' +
+        '<div class="sub">Most of these are ours alone — pastry and prep FMC has never carried — and that ' +
+        'is a normal answer, not a fault. Where a name is close it is shown as a <b>question</b> and never ' +
+        'matched: <i>Rice cream</i> scores well against <i>RF Garlic Cream (PA)</i> and they are not the ' +
+        'same thing. Nothing here counts as a disagreement.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th class="n">Ours</th><th>Per</th>' +
+          '<th>Anything in FMC close to the name?</th></tr><tbody>' +
+        X.nopair.map(function(r){
+          var g = (r.guesses || []).length
+            ? r.guesses.map(function(x){
+                var bp = basePrice(x.a);
+                return esc(x.a.name) + ' — ' + (bp ? fmt(bp.v) + ' per ' + perU(bp.base) : 'no price');
+              }).join('<br>')
+            : '<i>nothing close</i>';
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="n">' + money(r.ours) + '</td>' +
+            '<td>' + esc(perU(r.unit)) + '</td><td class="fxg">' + g + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      '<div class="fxfoot">Read live every time this screen is opened — our side from the recipes, FMC\u2019s ' +
+      'from the article mirror the Article Catalogue updates. Nothing here is stored, so nothing here can ' +
+      'go stale on its own.</div>';
+
+    return;
+  }
+
   if (S.step === 'list'){
     b.classList.add('off');
     var groups = []; ING.forEach(function(i){ if(groups.indexOf(i.group)<0) groups.push(i.group); }); groups.sort();
@@ -5978,6 +6209,12 @@ function render(){
         '<div class="lstats">' +
           '<div class="lstat"><div class="k">Ingredients</div><div class="v">'+(ING.length-batches)+'</div></div>' +
           '<div class="lstat"><div class="k">Batches</div><div class="v">'+batches+'</div></div>' +
+          /* the way in to the comparison. It belongs on this screen because this is the
+             one that already says where the prices come from, and the next honest
+             question about a price is whether FMC still agrees with it. */
+          '<div class="lstat tap" id="tofmc" role="button" tabindex="0" ' +
+            'title="Compare every batch recipe against FMC&#39;s price for it">' +
+            '<div class="k">Against FMC</div><div class="v">compare ›</div></div>' +
           
           
 
@@ -11689,6 +11926,17 @@ $('tosaved').addEventListener('click', function(){
 $('tobook').addEventListener('click', function(){
   location.href = 'writing-review.html' + (Q.get('embed') === '1' ? '?embed=1' : '');
 });
+/* the comparison's door is drawn with the catalogue screen rather than sitting in the
+   page from the start, so it is bound on the document instead of on the element */
+document.addEventListener('click', function(e){
+  var t = e.target && e.target.closest ? e.target.closest('#tofmc') : null;
+  if (t) goFmc();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var t = e.target && e.target.closest ? e.target.closest('#tofmc') : null;
+  if (t){ e.preventDefault(); goFmc(); }
+});
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
   /* opening the list on its own is not about any one batch */
@@ -11718,7 +11966,8 @@ var STEPNAME = { type:'main or batch', sheet:'the recipe',
                  list:"Aung's list", saved:'the recipe book', foh:'the floor’s half',
                  micros:'the Micros request', menus:'the menus', todo:'what needs finishing',
                  printed:'the printed menu',
-                 micreqs:'the Micros requests', micpast:'the request' };
+                 micreqs:'the Micros requests', micpast:'the request',
+                 fmc:'our cost against FMC' };
 var HIST = [], LASTSNAP = null, NAVBACK = false;
 /* what makes this a different SCREEN from the last one */
 function screenKey(){
@@ -11994,11 +12243,20 @@ loadMenus().then(function(){
   drawBarMenu();
 });
 loadArticles().then(loadMine).then(function(){
+  /* the batches were very likely costed before this line existed -- see rebuildMYB().
+     Walk them again now that the catalogue AND his own items are both in hand. */
+  rebuildMYB();
   refreshOpts();
   if (S.step === 'sheet'){ rows(); foot(); }
-  if (S.step === 'list') render();
+  if (S.step === 'list' || S.step === 'fmc') render();
 });
-loadBatches().then(function(){ if (S.step==='sheet'){ rows(); } foot(); });
+loadBatches().then(function(){
+  if (S.step==='sheet'){ rows(); }
+  /* these two screens ARE the batch list. Landing on either before the batches arrive
+     used to leave it drawn empty until you navigated away and back. */
+  if (S.step==='list' || S.step==='fmc') render();
+  foot();
+});
 /* what was half written last time is still half written. Read it back BEFORE the first
    screen is drawn, or the list is in hand and the panel is not on the page. */
 loadPark();
