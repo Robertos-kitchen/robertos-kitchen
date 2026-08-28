@@ -1139,6 +1139,51 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
 .mnew input:focus{border-color:var(--vino)}
 .msub.bad{color:#8d1f1f}
+/* ── the printed menu, edited ──
+   Reuses the menus screen’s card and row so it reads as the same place. Only the form
+   itself is new: a label above every box, because "Crudo Bar" and "Crudo" are two
+   different answers and an unlabelled pair of boxes is a guess. */
+.pmrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;text-align:left;
+  background:#fff;border:1px solid rgba(64,2,7,.12);border-radius:3px;padding:9px 13px;
+  margin-bottom:5px;cursor:pointer;font:inherit;min-height:44px}
+.pmrow:hover{border-color:var(--vino)}
+.pmrow .pn{font-family:var(--serif);font-size:17px;color:var(--vino);flex:1 1 170px;
+  min-width:0;overflow-wrap:break-word;line-height:1.2}
+/* not a whisper: the price, the folder and whether a recipe exists are the three
+   things this row is FOR, and .55 opacity put them under 4.5:1 on white */
+.pmrow .pd{font-family:var(--sans);font-size:12px;line-height:1.4;color:var(--vino-light);
+  flex:0 1 auto;min-width:0}
+.pmrow .pe{font-family:var(--sans);font-size:12px;color:var(--vino-light);font-weight:600;
+  margin-left:auto;white-space:nowrap}
+.pmed{border-color:var(--vino);border-left-width:4px}
+.pmf{margin-bottom:12px}
+.pmf label{display:block;font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;opacity:.55;margin-bottom:5px}
+.pmf .maren{width:100%;flex:none;box-sizing:border-box}
+.pmf .pmhint{font-family:var(--sans);font-size:11.5px;color:var(--vino-light);
+  line-height:1.5;margin-top:5px}
+.pmerr{display:block;font-family:var(--sans);font-size:12.5px;color:#8d1f1f;
+  line-height:1.5;margin-top:9px}
+.pmsecw{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:20px 0 7px}
+.pmsecw .shd{margin:0}
+.pmoffrow{opacity:.7}
+/* the section headings on Needs finishing are the way in: tapping "Crudo Bar" opens
+   the printed menu at Crudo Bar, which is the question that was actually asked */
+.nssec.gopm{background:none;border:none;padding:6px 0;cursor:pointer;
+  font-family:var(--sans);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  margin:14px 0 3px;color:var(--vino-light);text-align:left;display:block;min-height:34px}
+.nssec.gopm .goa{margin-left:9px;color:var(--vino);font-weight:700;
+  border-bottom:1px dashed rgba(65,2,7,.55);padding-bottom:1px}
+.nssec.gopm:hover .goa{border-bottom-style:solid}
+/* A thumb, not a mouse. The module already sizes .okb and .newr up under
+   pointer:coarse; the boxes and the two new controls are not in that list and were
+   34–39px measured on a 390px screen. */
+@media (pointer:coarse){
+  .pmf .maren{min-height:44px}
+  .nssec.gopm{min-height:44px;padding:9px 0}
+  .pmrow{min-height:48px}
+  .maoff{min-height:44px}
+}
 .alg{padding:24px 16px 22px;background:var(--cream);border-top:1.5px solid var(--sabbia-dark)}
 .achips{display:flex;flex-wrap:wrap;gap:8px}
 .ach{font-family:var(--sans);font-size:13.5px;line-height:1.2;background:#fff;color:var(--ink);
@@ -6187,7 +6232,9 @@ function render(){
           ? '<div class="shd">Not started · '+notStarted.length+'</div>' +
             '<div class="nsnote">On the menu, no recipe written. Tap one to start it.</div>' +
             bySec.map(function(g){
-              return '<div class="nssec">'+esc(g.k)+' · '+g.rows.length+'</div>' +
+              /* the heading is the door Antonio looked for: “how do I update the menu
+                 of this section?” is asked standing on the section itself */
+              return '<button class="nssec gopm" data-pmsecgo="'+esc(g.k)+'">'+esc(g.k)+ ' · '+g.rows.length+'<span class="goa">change what is printed here</span></button>' +
                      g.rows.map(nsrow).join('');
             }).join('')
           : '');
@@ -6236,7 +6283,8 @@ function render(){
             'section, its price, its allergens and a menu.' +
             /* saying "nothing needs finishing" above a box full of unsaved work is a lie */
             (parkedList().length ? ' <b>What is in Unsaved work above has not been saved yet</b>, so it is not counted here.' : '') +
-            '</div>'
+            '</div>' +
+            '<button class="newr" id="toprinted">The printed menu — add, correct, take off</button>'
           : '<div class="q">Needs finishing</div>' +
             '<div class="sub">' +
             /* The sentence reads in the order the screen is stacked, or it sends him
@@ -6250,6 +6298,7 @@ function render(){
                  (notStarted.length===1?'has':'have') + ' no recipe at all. '
                : '') +
             'Tap one to put it right; you come back here afterwards.</div>' +
+            '<button class="newr" id="toprinted">The printed menu — add, correct, take off</button>' +
             /* The heading is read off the room; the list is not. Forty dishes to fix is
                work, and work goes on paper. */
             '<div class="onpaper">' +
@@ -6270,6 +6319,20 @@ function render(){
         var n2 = $('linkq'); if (n2){ n2.focus(); try{ n2.setSelectionRange(at2,at2); }catch(_){} }
       });
     }
+  }
+
+  else if (S.step === 'printed'){
+    b.classList.add('off');
+    w.innerHTML = printedInner();
+    /* land on the section he tapped, not at the top of fifty-two dishes */
+    if (PM.jump){
+      var jt = $('pmsec-' + pmSlug(PM.jump)); PM.jump = null;
+      if (jt) try { jt.scrollIntoView({ block:'start' }); } catch(_){ jt.scrollIntoView(); }
+    }
+    /* the first box wants the cursor when a form has just opened, and nowhere else —
+       stealing focus on every redraw would fight the typing it is meant to receive */
+    if (PM.focus){ PM.focus = false; var fe = $('pmname'); if (fe){ fe.focus();
+      try { fe.setSelectionRange(fe.value.length, fe.value.length); } catch(_){} } }
   }
 
   else if (S.step === 'menus'){
@@ -8266,6 +8329,337 @@ function patchMenu(id, body){
 }
 function menuRow(id){ return MENUADM.all.filter(function(m){ return m.id === id; })[0]; }
 
+/* ═════════ the printed menu ═════════
+   `menu_items` is the list of dishes we PRINT, and Needs finishing counts against it:
+   a dish on it with no recipe is "not started", and the progress line at the top is
+   measured against its length. Every one of those numbers was read-only. Nothing in
+   the app could add a dish, correct a name, move it to another section or take one off
+   — the rows had only ever been loaded in by hand — so when the menu changed, the one
+   screen whose job is to say what is not done went on asking for dishes we no longer
+   sell and stayed silent about the ones we had just put on. Antonio asked how to update
+   it (26 Aug 2026) and the honest answer was that he could not. This is the door.
+
+   Taking a dish off ARCHIVES it. It is never deleted: a dish taken off by mistake is
+   still there under "taken off the menu" and comes back with one press, long after any
+   message about it has gone. */
+var PM = { menu:null, open:null, adding:false, addSec:null, ask:null, busy:false,
+           draft:null, err:null, off:null, offErr:null, showOff:false, jump:null };
+
+/* the dishes taken off, read only when he asks for them — they are not needed to draw
+   the screen and reading them with everything else would slow the door for nothing */
+function pmLoadOff(){
+  PM.offErr = null;
+  return sb('menu_items?archived=is.true&select=id,menu_id,name,section,recipe_section,price' +
+            ',menu_letters,recipe_id,position&order=section,position')
+    .then(function(rows){ PM.off = rows || []; })
+    .catch(function(e){ PM.off = []; PM.offErr = e.message; });
+}
+
+/* which menu the screen is showing. The one carrying the most printed dishes, because
+   that is the one being worked on; a menu with nothing on it is not a useful landing. */
+function pmMenu(){
+  if (PM.menu) return PM.menu;
+  var count = {};
+  (MENUITEMS || []).forEach(function(mi){ count[mi.menu_id] = (count[mi.menu_id] || 0) + 1; });
+  var best = null;
+  Object.keys(count).forEach(function(id){ if (!best || count[id] > count[best]) best = id; });
+  if (!best){
+    var live = SAVEDMENUS.filter(function(m){ return !m.archived; });
+    best = live.length ? live[0].id : null;
+  }
+  PM.menu = best;
+  return best;
+}
+function pmMenuName(id){
+  var m = SAVEDMENUS.filter(function(x){ return x.id === id; })[0];
+  return m ? m.name : 'a menu that is no longer there';
+}
+/* every section already used on this menu, so the box offers them instead of asking him
+   to spell "Secondi di Pesce" the same way twice — one typo is a section of one dish */
+function pmSections(menuId, key){
+  var seen = {}, out = [];
+  (MENUITEMS || []).forEach(function(mi){
+    if (menuId && mi.menu_id !== menuId) return;
+    var v = mi[key]; if (!v || seen[v]) return; seen[v] = 1; out.push(v);
+  });
+  out.sort(function(a, b){ return a.localeCompare(b); });
+  return out;
+}
+function pmPriceLabel(p){ return p == null ? 'market price' : String(p); }
+function pmSlug(s2){ return String(s2 || 'none').toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
+
+/* what the boxes hold right now. render() rebuilds the form on every chip tap, so the
+   typing has to be taken off the screen BEFORE it is redrawn or a half-typed name is
+   thrown away by pressing a letter — the same trap the search box has. */
+function pmHarvest(){
+  if (!PM.draft) return;
+  var g = function(id){ var el = $(id); return el ? el.value : null; };
+  var v;
+  v = g('pmname');  if (v !== null) PM.draft.name = v;
+  v = g('pmsec');   if (v !== null) PM.draft.section = v;
+  v = g('pmrsec');  if (v !== null) PM.draft.recipe_section = v;
+  v = g('pmprice'); if (v !== null) PM.draft.price = v;
+}
+function pmDraftFrom(mi){
+  return { name: mi ? mi.name || '' : '',
+           section: mi ? mi.section || '' : (PM.addSec || ''),
+           recipe_section: mi ? mi.recipe_section || '' : '',
+           price: mi && mi.price != null ? String(mi.price) : '',
+           letters: (mi && mi.menu_letters ? mi.menu_letters.slice() : []) };
+}
+
+/* the form, used unchanged for a new dish and for correcting one */
+function pmForm(mi){
+  var d = PM.draft || (PM.draft = pmDraftFrom(mi));
+  var menuId = pmMenu();
+  var secs  = pmSections(menuId, 'section');
+  var rsecs = pmSections(null, 'recipe_section');
+  var dl = function(id, list){
+    return '<datalist id="' + id + '">' +
+      list.map(function(v){ return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>';
+  };
+  return '<div class="macard pmed">' +
+    '<div class="matop"><span class="mahd">' +
+      (mi ? esc(mi.name || 'This dish') : 'A dish to add') + '</span></div>' +
+    '<div class="pmf" style="margin-top:13px"><label>What the card says</label>' +
+      '<input class="maren" id="pmname" value="' + esc(d.name) + '" autocomplete="off" ' +
+      'placeholder="Rombo sul Sale Aromatico">' +
+      '<div class="pmhint">Exactly as it is printed. The recipe keeps its own name — they ' +
+      'do not have to match.</div></div>' +
+    '<div class="pmf"><label>The section it is printed under</label>' +
+      '<input class="maren" id="pmsec" list="pmsecs" value="' + esc(d.section) + '" ' +
+      'autocomplete="off" placeholder="Secondi di Pesce">' + dl('pmsecs', secs) +
+      '<div class="pmhint">The heading on the printed card. It is what groups this screen ' +
+      'and the Not started list.</div></div>' +
+    '<div class="pmf"><label>The folder its recipe goes in</label>' +
+      '<input class="maren" id="pmrsec" list="pmrsecs" value="' + esc(d.recipe_section) + '" ' +
+      'autocomplete="off" placeholder="Secondi">' + dl('pmrsecs', rsecs) +
+      '<div class="pmhint">Not the same thing: the card says <b>Crudo Bar</b> and the recipe ' +
+      'is filed under <b>Crudo</b>. This is the section the recipe starts with when somebody ' +
+      'taps <b>start it</b>. Leave it empty and the recipe starts with none — which Needs ' +
+      'finishing then counts as something left to do.</div></div>' +
+    '<div class="pmf"><label>Price</label>' +
+      '<input class="maren" id="pmprice" inputmode="decimal" value="' + esc(d.price) + '" ' +
+      'autocomplete="off" placeholder="Leave it empty for market price">' +
+      '<div class="pmhint">Numbers only, no AED. Empty means the card prints market price.</div></div>' +
+    '<div class="pmf"><label>The letters the card prints</label><div class="achips">' +
+      Object.keys(MENULETTER).map(function(k){
+        var on = d.letters.indexOf(k) > -1;
+        return '<button class="ach' + (on ? ' on' : '') + '" data-pmlet="' + k + '">' +
+               k + ' · ' + esc(MENULETTER[k]) + '</button>';
+      }).join('') + '</div>' +
+      '<div class="pmhint">These are the card’s own letters, not the fourteen allergens the ' +
+      'recipe ticks.</div></div>' +
+    '<div class="maacts">' +
+      '<button class="okb" data-pmsave="1"' + (PM.busy ? ' disabled' : '') + '>' +
+        (PM.busy ? 'Saving…' : (mi ? 'Save it' : 'Put it on the menu')) + '</button>' +
+      '<button class="newr" style="margin:0" data-pmcancel="1">Cancel</button>' +
+      (mi && PM.ask !== mi.id
+        ? '<button class="newr" style="margin:0" data-pmaskoff="' + mi.id + '">Take it off the menu</button>'
+        : '') +
+    '</div>' +
+    (mi && PM.ask === mi.id
+      ? '<div class="maask"><b>Take ‘' + esc(mi.name) + '’ off the printed menu?</b> ' +
+        'It stops being counted here' +
+        (mi.recipe_id ? '. The recipe stays exactly where it is — only the printed dish goes.' : '.') +
+        ' Nothing is deleted: it comes back from <b>Show the ones taken off</b> at the bottom ' +
+        'of this screen, whenever you want it.' +
+        '<div class="maaskb"><button class="okb" data-pmoff="' + mi.id + '"' +
+          (PM.busy ? ' disabled' : '') + '>' + (PM.busy ? 'Taking it off…' : 'Yes, take it off') + '</button>' +
+        '<button class="newr" style="margin:0" data-pmnooff="1">Keep it</button></div></div>'
+      : '') +
+    (PM.err ? '<span class="pmerr">' + esc(PM.err) + '</span>' : '') +
+  '</div>';
+}
+
+function pmItem(id){
+  return (MENUITEMS || []).filter(function(x){ return x.id === id; })[0] || null;
+}
+/* the one place a price is turned into a number. A box holding "98 aed" must not become
+   NaN in the database and print as nothing on the card — it is refused, and said so. */
+function pmPrice(raw){
+  var t = String(raw == null ? '' : raw).trim().replace(/^aed\s*/i, '').replace(/,/g, '');
+  if (!t) return { ok:true, value:null };
+  if (!/^\d+(\.\d+)?$/.test(t)) return { ok:false };
+  var n = parseFloat(t);
+  if (!isFinite(n) || n < 0) return { ok:false };
+  return { ok:true, value:n };
+}
+function pmSave(){
+  if (PM.busy) return;
+  pmHarvest();
+  var d = PM.draft || {}, mi = PM.open ? pmItem(PM.open) : null;
+  var menuId = pmMenu();
+  var name = String(d.name || '').trim();
+  var sec  = String(d.section || '').trim();
+  var rsec = String(d.recipe_section || '').trim();
+  PM.err = null;
+  if (!name){ PM.err = 'It needs the name the card prints.'; render(); return; }
+  var pr = pmPrice(d.price);
+  if (!pr.ok){
+    PM.err = 'The price has to be a number, or empty for market price — “' +
+             String(d.price).trim() + '” is not one.';
+    render(); return;
+  }
+  /* the same dish twice is two rows in every count on Needs finishing, and nothing on
+     the screen would say which was which */
+  var clash = (MENUITEMS || []).filter(function(x){
+    return x.menu_id === menuId && (!mi || x.id !== mi.id) &&
+           String(x.name).trim().toLowerCase() === name.toLowerCase(); })[0];
+  if (clash){
+    PM.err = '‘' + name + '’ is already on ‘' + pmMenuName(menuId) + '’' +
+             (clash.section ? ', under ' + clash.section : '') + '. Correct that one instead.';
+    render(); return;
+  }
+  if (!menuId){ PM.err = 'There is no menu to put it on yet.'; render(); return; }
+  var body = { name:name, section: sec || null, recipe_section: rsec || null,
+               price: pr.value, menu_letters: (d.letters || []).slice(),
+               updated_at: new Date().toISOString() };
+  PM.busy = true; render();
+  var job;
+  if (mi){
+    job = sb('menu_items?id=eq.' + mi.id, { method:'PATCH', prefer:'return=minimal', body:body });
+  } else {
+    /* at the end of its OWN section, not at the end of the menu — the list is read in
+       position order and a new Antipasto belongs with the antipasti */
+    var sib = (MENUITEMS || []).filter(function(x){
+      return x.menu_id === menuId && (x.section || '') === sec; });
+    var pos = 0;
+    sib.forEach(function(x){ if ((x.position || 0) + 1 > pos) pos = (x.position || 0) + 1; });
+    if (!sib.length){
+      (MENUITEMS || []).forEach(function(x){
+        if (x.menu_id === menuId && (x.position || 0) + 1 > pos) pos = (x.position || 0) + 1; });
+    }
+    body.menu_id = menuId; body.position = pos; body.archived = false;
+    job = sb('menu_items', { method:'POST', prefer:'return=minimal', body:[body] });
+  }
+  job.then(function(){ return loadSaved(); })
+    .then(function(){
+      PM.busy = false; PM.open = null; PM.adding = false; PM.ask = null;
+      PM.draft = null; PM.err = null; PM.jump = sec || 'No section';
+      render();
+      flash(mi ? '‘' + name + '’ is saved on the printed menu.'
+               : '‘' + name + '’ is on ‘' + pmMenuName(menuId) + '’ now, and Needs finishing ' +
+                 'is asking for its recipe.');
+    })
+    .catch(function(err){
+      PM.busy = false;
+      PM.err = 'Nothing was saved — ' + plain(err.message);
+      render();
+    });
+}
+/* off the menu and back on. Both are the same one-column write, and neither deletes. */
+function pmArchive(id, away){
+  if (PM.busy) return;
+  var mi = away ? pmItem(id) : (PM.off || []).filter(function(x){ return x.id === id; })[0];
+  var nm = mi ? mi.name : 'That dish';
+  PM.busy = true; render();
+  sb('menu_items?id=eq.' + id, { method:'PATCH', prefer:'return=minimal',
+       body:{ archived: !!away, updated_at: new Date().toISOString() } })
+    .then(function(){ return Promise.all([loadSaved(), PM.off == null ? null : pmLoadOff()]); })
+    .then(function(){
+      PM.busy = false; PM.ask = null; PM.open = null; PM.draft = null; PM.err = null;
+      render();
+      flash(away
+        ? '‘' + nm + '’ is off the printed menu. It is kept — Show the ones taken off ' +
+          'puts it back whenever you want.'
+        : '‘' + nm + '’ is back on the printed menu.');
+    })
+    .catch(function(err){
+      PM.busy = false;
+      PM.err = 'Nothing changed — ' + plain(err.message);
+      render();
+      flash('That could not be done — ' + plain(err.message), true);
+    });
+}
+
+function printedInner(){
+  if (MENUITEMS == null)
+    return '<div class="pane"><div class="q">The printed menu</div>' +
+      '<div class="todo"><b>The printed menu could not be read, so nothing here can be ' +
+      'changed.</b> Nothing is wrong with it — press below and it will try afresh.</div>' +
+      '<button class="newr" id="pmretry">Try reading it again</button></div>';
+
+  var menuId = pmMenu();
+  var mine = (MENUITEMS || []).filter(function(mi){ return mi.menu_id === menuId; });
+  var counts = {};
+  (MENUITEMS || []).forEach(function(mi){ counts[mi.menu_id] = (counts[mi.menu_id] || 0) + 1; });
+  var liveMenus = SAVEDMENUS.filter(function(m){ return !m.archived || counts[m.id]; });
+
+  var bySec = [], secOf = {};
+  mine.forEach(function(mi){
+    var k = mi.section || 'No section';
+    if (!secOf[k]) { secOf[k] = { k:k, rows:[] }; bySec.push(secOf[k]); }
+    secOf[k].rows.push(mi);
+  });
+
+  var row = function(mi){
+    if (PM.open === mi.id) return pmForm(mi);
+    return '<button class="pmrow" data-pmopen="' + mi.id + '">' +
+      '<span class="pn">' + esc(mi.name) + '</span>' +
+      '<span class="pd">' + esc(pmPriceLabel(mi.price)) +
+        (mi.recipe_section ? ' · recipe files under ' + esc(mi.recipe_section) : ' · no recipe folder') +
+        (mi.recipe_id ? ' · recipe written' : ' · no recipe yet') + '</span>' +
+      '<span class="pe">Correct it</span>' +
+    '</button>';
+  };
+
+  var offBlock = '';
+  if (PM.showOff){
+    var offMine = (PM.off || []).filter(function(mi){ return mi.menu_id === menuId; });
+    offBlock = PM.offErr
+      ? '<div class="todo"><b>The ones taken off could not be read.</b> ' + esc(plain(PM.offErr)) + '</div>'
+      : PM.off == null
+        ? '<div class="tip">Reading them…</div>'
+        : offMine.length
+          ? '<div class="shd">Taken off ' + esc(pmMenuName(menuId)) + ' · ' + offMine.length + '</div>' +
+            offMine.map(function(mi){
+              return '<div class="marow pmoffrow">' +
+                '<span class="manm" style="cursor:default">' + esc(mi.name) + '</span>' +
+                '<span class="pd">' + esc(mi.section || 'No section') + ' · ' + esc(pmPriceLabel(mi.price)) + '</span>' +
+                '<button class="maoff" data-pmback="' + mi.id + '"' + (PM.busy ? ' disabled' : '') +
+                  '>Put it back on</button></div>';
+            }).join('')
+          : '<div class="tip">Nothing has been taken off ' + esc(pmMenuName(menuId)) + '.</div>';
+  }
+
+  return '<div class="pane">' +
+    '<div class="q">The printed menu</div>' +
+    '<div class="sub">The dishes we print, and the list <b>Needs finishing</b> is measured ' +
+      'against. <b>' + mine.length + '</b> dish' + (mine.length === 1 ? '' : 'es') + ' on ‘' +
+      esc(pmMenuName(menuId)) + '’. Tap one to correct it, or add what is missing at the ' +
+      'bottom of its section.</div>' +
+    howto('printedmenu',
+      'This is the printed card, not the recipes. Changing a dish here changes what the ' +
+      'kitchen is <b>asked</b> for; it never touches a recipe that is already written.<br>' +
+      '<b>A dish added here shows up straight away in Needs finishing</b> as one nobody has ' +
+      'started, which is the point — that is how the new menu becomes work.<br>' +
+      '<b>Taking a dish off does not delete anything.</b> It stops being counted, and it ' +
+      'comes back from the bottom of this screen.',
+      'What this changes') +
+    (liveMenus.length > 1
+      ? '<div class="achips" style="margin:0 0 18px">' + liveMenus.map(function(m){
+          return '<button class="ach' + (m.id === menuId ? ' on' : '') + '" data-pmmenu="' + m.id + '">' +
+            esc(m.name) + ' · ' + (counts[m.id] || 0) + '</button>';
+        }).join('') + '</div>'
+      : '') +
+    (PM.adding ? pmForm(null) : '') +
+    (bySec.length
+      ? bySec.map(function(g){
+          return '<div class="pmsecw" id="pmsec-' + pmSlug(g.k) + '">' +
+            '<div class="shd">' + esc(g.k) + ' · ' + g.rows.length + '</div></div>' +
+            g.rows.map(row).join('') +
+            '<button class="newr" data-pmadd="' + esc(g.k) + '">Add a dish to ' + esc(g.k) + '</button>';
+        }).join('')
+      : '<div class="tip">Nothing is printed on ‘' + esc(pmMenuName(menuId)) + '’ yet.</div>') +
+    '<div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(64,2,7,.16)">' +
+      '<button class="newr" data-pmadd="">Add a dish in a new section</button> ' +
+      '<button class="newr" id="pmshowoff">' + (PM.showOff ? 'Hide' : 'Show') +
+        ' the ones taken off</button>' +
+    '</div>' + offBlock +
+  '</div>';
+}
+
 function menusInner(){
   if (MENUADM.err)
     return '<div class="pane"><div class="q">Menus</div>' +
@@ -10152,6 +10546,67 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'tomenus'){ openMenus(); return; }
+  /* ── the printed menu ── */
+  if (e.target.id === 'toprinted' || e.target.closest('[data-pmsecgo]')){
+    var gsec = e.target.closest('[data-pmsecgo]');
+    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null;
+    PM.jump = gsec ? gsec.dataset.pmsecgo : null;
+    S.step = 'printed'; render();
+    if (!gsec) window.scrollTo(0, 0);
+    /* read it again on the way in: he is here BECAUSE the list is out of date */
+    loadSaved().then(function(){ if (S.step === 'printed') render(); });
+    return;
+  }
+  if (e.target.id === 'pmretry'){
+    loadSaved().then(function(){ if (S.step === 'printed') render(); });
+    return;
+  }
+  var pmm = e.target.closest('[data-pmmenu]');
+  if (pmm){
+    PM.menu = pmm.dataset.pmmenu; PM.open = null; PM.adding = false;
+    PM.draft = null; PM.err = null; PM.ask = null;
+    render(); window.scrollTo(0, 0); return;
+  }
+  if (e.target.id === 'pmshowoff'){
+    PM.showOff = !PM.showOff;
+    if (PM.showOff && PM.off == null){ render(); pmLoadOff().then(function(){
+      if (S.step === 'printed') render(); }); return; }
+    render(); return;
+  }
+  var pmo = e.target.closest('[data-pmopen]');
+  if (pmo){
+    PM.open = pmo.dataset.pmopen; PM.adding = false; PM.ask = null; PM.err = null;
+    PM.draft = pmDraftFrom(pmItem(PM.open)); PM.focus = true;
+    render(); return;
+  }
+  var pma = e.target.closest('[data-pmadd]');
+  if (pma){
+    PM.adding = true; PM.open = null; PM.ask = null; PM.err = null;
+    PM.addSec = pma.dataset.pmadd || null;
+    PM.draft = pmDraftFrom(null); PM.focus = true;
+    render(); window.scrollTo(0, 0); return;
+  }
+  if (e.target.closest('[data-pmcancel]')){
+    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null;
+    render(); return;
+  }
+  var pml = e.target.closest('[data-pmlet]');
+  if (pml){
+    pmHarvest();
+    var lk = pml.dataset.pmlet, at = PM.draft.letters.indexOf(lk);
+    if (at > -1) PM.draft.letters.splice(at, 1); else PM.draft.letters.push(lk);
+    PM.draft.letters.sort();
+    render(); return;
+  }
+  if (e.target.closest('[data-pmsave]')){ pmSave(); return; }
+  var pmask = e.target.closest('[data-pmaskoff]');
+  if (pmask){ pmHarvest(); PM.ask = pmask.dataset.pmaskoff; PM.err = null; render(); return; }
+  if (e.target.closest('[data-pmnooff]')){ PM.ask = null; render(); return; }
+  var pmoff = e.target.closest('[data-pmoff]');
+  if (pmoff){ pmArchive(pmoff.dataset.pmoff, true); return; }
+  var pmbk = e.target.closest('[data-pmback]');
+  if (pmbk){ pmArchive(pmbk.dataset.pmback, false); return; }
+
   if (e.target.id === 'mabk'){ MENUADM.open = null; render(); window.scrollTo(0,0); return; }
   if (e.target.id === 'mashow'){ MENUADM.showOff = !MENUADM.showOff; render(); return; }
   if (e.target.id === 'manewok'){
@@ -10935,6 +11390,7 @@ var STEPNAME = { type:'main or batch', sheet:'the recipe',
                  found:'the recipes found', bringall:'bringing them all in',
                  list:"Aung's list", saved:'the recipe book', foh:'the floor’s half',
                  micros:'the Micros request', menus:'the menus', todo:'what needs finishing',
+                 printed:'the printed menu',
                  micreqs:'the Micros requests', micpast:'the request' };
 var HIST = [], LASTSNAP = null, NAVBACK = false;
 /* what makes this a different SCREEN from the last one */

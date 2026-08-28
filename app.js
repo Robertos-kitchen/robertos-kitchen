@@ -2276,6 +2276,21 @@ function openRecipes(){
   document.querySelector('.footer-bar').style.display='flex';
   document.getElementById('foot-label').textContent='Recipes';
 }
+// The recipe screens are separate HTML files shown in an iframe, and nothing versioned
+// them. GitHub Pages serves .html with max-age=600, so a change to recipe-create.html
+// could sit invisible for ten minutes after a deploy while index.html had already
+// reloaded itself and reported the new build. They ride on app.js's own ?v= — which is
+// the build stamp, and is bumped on every deploy anyway, so there is no second number
+// for anybody to remember.
+function rcpV(){
+  try{ var t=document.querySelector('script[src^="app.js"]');
+       var m=t&&/[?&]v=([^&]+)/.exec(t.getAttribute('src')||'');
+       return m?m[1]:''; }catch(e){ return ''; }
+}
+function rcpPage(p){
+  var v=rcpV();
+  return v ? p + (p.indexOf('?')>-1?'&':'?') + 'v=' + encodeURIComponent(v) : p;
+}
 function openRecipeScreen(viewId){
   var s=RECIPE_SCREENS.filter(function(x){return x.view===viewId;})[0];
   if(!s) return;
@@ -2291,7 +2306,7 @@ function openRecipeScreen(viewId){
       bar.innerHTML='<button class="home-btn" onclick="openRecipes()">&lsaquo; Recipes</button>'+
         '<span class="rcp-bar-name">'+escHtml(s.name)+'</span>';
       var f=document.createElement('iframe');
-      f.src=s.page; f.title=s.name; f.loading='eager';
+      f.src=rcpPage(s.page); f.title=s.name; f.loading='eager';
       f.style.cssText='display:block;width:100%;flex:1 1 auto;min-height:0;border:none;background:var(--sabbia)';
       v.appendChild(bar); v.appendChild(f);
     }
