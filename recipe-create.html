@@ -957,6 +957,40 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .trow .ti em.go{cursor:pointer;text-decoration:underline;text-underline-offset:2px;
   text-decoration-color:rgba(64,2,7,.3);min-height:44px;display:inline-flex;align-items:center}
 .trow .ti em.go:hover{background:var(--vino);color:var(--cream);text-decoration-color:transparent}
+/* ── "not needed" ──
+   The tag sits ON the thing it is about, joined to it, so there is no doubt which of six
+   chips it would set aside. Quieter than the issue itself and louder than nothing: a
+   control nobody can see is a control nobody has. */
+.tp{display:inline-flex;align-items:stretch;max-width:100%}
+.tp > em:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.trow .ti em.wv{border-top-left-radius:0;border-bottom-left-radius:0;cursor:pointer;
+  background:rgba(64,2,7,.07);color:var(--vino);border-left:1px solid rgba(64,2,7,.18);
+  min-height:44px;display:inline-flex;align-items:center;white-space:nowrap;font-weight:600}
+.trow .ti em.wv:hover{background:var(--vino);color:var(--cream)}
+/* Set aside is never a disappearance. The strip stays on the row for good, and it is
+   deliberately readable rather than a ghost — it is the only record that somebody made a
+   judgement here, and the only way back. */
+.tsa{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px;
+  padding-top:6px;border-top:1px dashed rgba(64,2,7,.16)}
+.tsa .sal{font-family:var(--sans);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--vino-light);margin-right:2px}
+.tsa em{font-style:normal;font-family:var(--sans);font-size:11px;padding:2px 7px;border-radius:3px;
+  background:rgba(75,81,40,.12);color:#3c4120}
+.tsa em.wb{cursor:pointer;background:none;color:var(--vino);text-decoration:underline;
+  text-underline-offset:2px;min-height:44px;display:inline-flex;align-items:center;font-weight:600}
+.tsa em.wb:hover{background:var(--vino);color:var(--cream);text-decoration-color:transparent}
+/* the pile at the bottom: dishes with nothing left open BECAUSE somebody answered it */
+.trow.sa{border-left-style:solid;border-left-color:var(--oliva);background:rgba(75,81,40,.05)}
+.sanote{font-family:var(--sans);font-size:12px;color:var(--vino-light);line-height:1.5;margin:0 0 10px}
+.mpsa{font-family:var(--sans);font-size:11.5px;color:var(--vino-light);margin-top:7px;line-height:1.5}
+@media (pointer:coarse){ .trow .ti em.wv, .tsa em.wb{padding:0 11px} }
+/* MEASURED 1.06:1 on the deployed file, 28 Aug 2026 — invisible, and not only on the new
+   pane. `body.roomstep .q` turns every heading near-white so it can be read over the room
+   photograph, and these panes have their own cream card UNDER that heading: cream on
+   cream. It has been that way on “Which recipe is ‘Ricciola’?” since the link picker
+   shipped. A card with its own background gets its own colour back. */
+body.roomstep .linkp .q{color:var(--vino)}
+body.roomstep .linkp .sub{color:var(--vino-light)}
 /* .srow does not wrap, so a 100% basis inside it pushes the row past the screen
    instead of dropping to a second line — it has to be told it may wrap first */
 @media(max-width:640px){
@@ -2976,8 +3010,13 @@ function loadSaved(){
        is not done. Failing is fine and says so — a missing list must never be shown as
        "nothing left to write". */
     sb('menu_items?archived=is.false&select=id,menu_id,name,section,recipe_section,price,menu_letters' +
-       ',recipe_id,position&order=position').catch(function(){ return null; })
+       ',recipe_id,position&order=position').catch(function(){ return null; }),
+    /* read alongside, not after: what is set aside decides which recipes are even ON
+       the list, so a screen drawn before it lands shows work that is already answered */
+    sb('recipe_waivers?select=recipe_id,issue_key,who,created_at').catch(function(){ return null; })
   ]).then(function(res){
+    if (res[5]) applyWaiverRows(res[5]);
+    else WAIVERR = WAIVERR || 'the set-aside list could not be read';
     S.saved = res[0] || []; S.listErr = null;
     S.foldErr = !res[1] || !res[2];
     S.tally = null;
@@ -3034,7 +3073,7 @@ function dishAllergens(r){
    somebody to find the box themselves is half a job — and the box for a menu price is
    inside the costing, which is shut, so "find it yourself" meant opening a panel he had
    no reason to know was the right one. `sec` is a key in JUMPAT below. */
-function issuesOf(r){
+function allIssuesOf(r){
   if (!S.tally) return [];                      /* the count did not load — claim nothing */
   var t = S.tally[r.id], out = [];
   /* what stops it costing comes first — those are the ones that quietly make a dish
@@ -3057,9 +3096,9 @@ function issuesOf(r){
        A dish with none is — the pass has nothing to cook from, and the Food Bible page
        the floor reads comes out blank. */
     var m = normMethod(r.method);
-    if (!hasMethod(m)) out.push({ sec:'method', s:'no method — nothing for the pass to cook from' });
+    if (!hasMethod(m)) out.push({ key:'method', sec:'method', s:'no method — nothing for the pass to cook from' });
     if (!FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
-      out.push({ sec:'floor', s:'nothing for the floor — the Food Bible page is blank' });
+      out.push({ key:'floor', sec:'floor', s:'nothing for the floor — the Food Bible page is blank' });
     /* Plating, the pass and the crockery were saved and printed and never once checked, so
        a dish with no plating instruction was reported as FINISHED. It is not a small gap:
        the recipe card gives plating its own box and numbers it from 1, because plating and
@@ -3069,17 +3108,17 @@ function issuesOf(r){
        These are the kitchen's own card, not the floor's page: the Food Bible reads none
        of the three. */
     if (!String(m.plating || '').trim())
-      out.push({ sec:'plating', s:'no plating — the card prints the box empty' });
+      out.push({ key:'plating', sec:'plating', s:'no plating — the card prints the box empty' });
     if (!String(m.crockery || '').trim())
-      out.push({ sec:'crockery', s:'doesn’t say what it goes out on' });
+      out.push({ key:'crockery', sec:'crockery', s:'doesn’t say what it goes out on' });
     /* Worded as a question, not a fault, and deliberately last. The box's own hint says
        "empty if it does not wait", so a blank here can honestly mean the dish goes
        straight out — this says nobody has answered, which is true either way. */
     if (!String(m.pass || '').trim())
-      out.push({ sec:'pass', s:'nobody has said how long it can stand on the pass' });
-    if (r.makes_qty == null)  out.push({ sec:'makes',   s:'doesn’t say how many portions' });
-    if (!r.section)           out.push({ sec:'section', s:'no section — Aung’s form needs one' });
-    if (r.menu_price == null) out.push({ sec:'price',   s:'no menu price' });
+      out.push({ key:'pass', sec:'pass', s:'nobody has said how long it can stand on the pass' });
+    if (r.makes_qty == null)  out.push({ key:'portions', sec:'makes',   s:'doesn’t say how many portions' });
+    if (!r.section)           out.push({ key:'section', sec:'section', s:'no section — Aung’s form needs one' });
+    if (r.menu_price == null) out.push({ key:'price', sec:'price',   s:'no menu price' });
     else {
       /* The printed card and the recipe each carry a price, and until now nothing ever
          held them against each other — menu_items was BUILT promising this check ("when
@@ -3091,9 +3130,9 @@ function issuesOf(r){
       var mip = MENUITEMS && MENUITEMS.filter(function(x){
         return x.recipe_id === r.id && x.price != null; })[0];
       if (mip && Number(mip.price) !== Number(r.menu_price))
-        out.push({ sec:'price', s:'the card prints ' + mip.price + ', this recipe says ' + r.menu_price });
+        out.push({ key:'pricegap', sec:'price', s:'the card prints ' + mip.price + ', this recipe says ' + r.menu_price });
     }
-    if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ sec:'menu', s:'not on a menu' });
+    if (S.rmenus && !(S.rmenus[r.id] || []).length) out.push({ key:'menu', sec:'menu', s:'not on a menu' });
     /* Everything else on this list is money or a blank box. This one is the only thing
        here that can hurt somebody, and it was never checked: a dish with nothing ticked
        prints "no allergens" to the floor, and a waiter reads that as "there are none",
@@ -3102,7 +3141,7 @@ function issuesOf(r){
     if (!dishAllergens(r).length){
       var mi = MENUITEMS && MENUITEMS.filter(function(x){ return x.recipe_id === r.id; })[0];
       var lt = mi && (mi.menu_letters || []).filter(function(k){ return 'RVH'.indexOf(k) < 0; });
-      out.push({ hard:false, sec:'allerg',
+      out.push({ key:'allerg', hard:false, sec:'allerg',
         s: lt && lt.length
              ? 'no allergens ticked — the card prints ' +
                lt.map(function(k){ return MENULETTER[k] || k; }).join(', ')
@@ -3111,6 +3150,94 @@ function issuesOf(r){
   }
   return out;
 }
+/* ═════════ "not needed" ═════════
+   Some of what Needs finishing lists is not missing at all. A dish that is not sold has
+   no menu price; an amuse that goes straight out has no pass time; a plain grilled
+   vegetable has no allergens to tick. Those dishes sat on the list for ever, and a list
+   with permanent residents on it is a list people stop reading — which costs more than
+   the thing it was nagging about. Antonio asked for a way to close them, 28 Aug 2026.
+
+   ⚠ ONLY what does not touch the money. Every issue marked `hard` — a line with no
+   ingredient, a line with no amount, a batch that has been removed, a batch that never
+   said how much it makes — carries NO key, and no key means no way to set it aside.
+   Each of those makes the dish cost less than it really does, and nothing in this module
+   may ever make a dish read cheaper than it is. Set aside answers a question about a
+   dish; it is not a lid for a hole in its cost.
+
+   It is a CLAIM, not a fact, so it is never a disappearance: the row goes on showing
+   every set-aside item, muted, with the name of whoever said so and the day they said
+   it, and one tap puts it back. A dish whose last open issue is set aside leaves the
+   list — and lands in "Set aside" at the bottom of the same screen, so it is still
+   somewhere he can find it and change his mind long after any message about it has gone. */
+var WAIVERS = {};          /* recipe id → { key: {who, at} }  — {} until it loads */
+var WAIVERR = null;
+/* one builder, used by the read that comes in with the recipe list and by the re-read
+   after a change, so the two can never disagree about the shape */
+function applyWaiverRows(rows){
+  var m = {};
+  (rows || []).forEach(function(w){
+    (m[w.recipe_id] = m[w.recipe_id] || {})[w.issue_key] = { who:w.who, at:w.created_at };
+  });
+  WAIVERS = m; WAIVERR = null;
+}
+function loadWaivers(){
+  return sb('recipe_waivers?select=recipe_id,issue_key,who,created_at')
+    .then(applyWaiverRows)
+    /* a read that failed must NOT read as "nothing is set aside" — that would put every
+       closed item back on the list at once and look like somebody had undone the lot */
+    .catch(function(e){ WAIVERR = e.message; });
+}
+function waivedAt(id, key){ var w = key && WAIVERS[id]; return (w && w[key]) || null; }
+/* what may be set aside: it has a key, and it is not one of the hard ones */
+function canWaive(i){ return !!i.key && !i.hard; }
+/* still to do — what every caller of issuesOf() has always meant */
+function issuesOf(r){
+  return allIssuesOf(r).filter(function(i){ return !(canWaive(i) && waivedAt(r.id, i.key)); });
+}
+/* and the ones somebody has answered "not needed" to */
+function waivedOf(r){
+  return allIssuesOf(r).filter(function(i){ return canWaive(i) && waivedAt(r.id, i.key); });
+}
+function waivedDay(iso){
+  if (!iso) return '';
+  var d = new Date(iso); if (isNaN(d)) return '';
+  if (d.toDateString() === new Date().toDateString()) return 'today';
+  return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+}
+function waivedBy(id, key){
+  var w = waivedAt(id, key); if (!w) return '';
+  var day = waivedDay(w.at);
+  return (w.who || 'somebody') + (day ? ', ' + day : '');
+}
+
+/* ── setting one aside, and putting it back ──
+   Optimistic on purpose: the row answers the tap immediately and the write follows. If
+   the write fails the row goes straight back to how it was and says so — a screen that
+   has moved on from a change the database never took is the worse of the two. */
+function waiveSet(id, key, on){
+  var was = waivedAt(id, key);
+  var w = whoOnScreen() || WHO;
+  if (on) (WAIVERS[id] = WAIVERS[id] || {})[key] = { who:(w && w.name) || null, at:new Date().toISOString() };
+  else if (WAIVERS[id]) delete WAIVERS[id][key];
+  render();
+  var undo = function(err){
+    if (on){ if (WAIVERS[id]) delete WAIVERS[id][key]; }
+    else if (was) (WAIVERS[id] = WAIVERS[id] || {})[key] = was;
+    render();
+    flash('That did not save, so nothing has changed — ' + plain(err.message), true);
+  };
+  if (on){
+    return sb('recipe_waivers?on_conflict=recipe_id,issue_key',
+      { method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
+        body:[{ recipe_id:id, issue_key:key, who:(w && w.name) || null,
+                who_emp_id:(w && w.emp_id) || null }] })
+      .then(function(){ return loadWaivers(); }).then(render).catch(undo);
+  }
+  return sb('recipe_waivers?recipe_id=eq.' + id + '&issue_key=eq.' + encodeURIComponent(key),
+    { method:'DELETE', prefer:'return=minimal' })
+    .then(function(){ return loadWaivers(); }).then(render).catch(undo);
+}
+
 /* ───── three marks instead of the sentence ─────
    Every dish needs the same things written, so the list can show WHICH rather than spell
    it out per row. On a list of thirty, the same fourteen-word sentence printed twenty-two
@@ -3128,8 +3255,12 @@ function marksOf(r){
   var out = [{ k:'Ingredients', on: !!(t && t.lines && !t.noIng && !t.noQty) }];
   if (r.kind === 'main'){
     var m = normMethod(r.method);
-    out.push({ k:'Method', on: hasMethod(m) });
-    out.push({ k:'Floor',  on: FSEC.some(function(f){ return String(m[f.k] || '').trim(); }) });
+    /* a mark reads finished when the thing is written OR when somebody has said it is
+       not needed on this dish — otherwise the row and the list disagree with each other,
+       and the row is the one he is standing in front of */
+    out.push({ k:'Method', on: hasMethod(m) || !!waivedAt(r.id, 'method') });
+    out.push({ k:'Floor',  on: FSEC.some(function(f){ return String(m[f.k] || '').trim(); })
+                               || !!waivedAt(r.id, 'floor') });
   } else {
     out.push({ k:'Makes', on: r.makes_qty != null });
   }
@@ -3223,6 +3354,75 @@ function stateSummary(rs){
   if (n.part)  bits.push('<b class="ss part">'+n.part+' started</b>');
   if (n.empty) bits.push('<b class="ss empty">'+n.empty+' not begun</b>');
   return bits.length ? ' · ' + bits.join(' · ') : '';
+}
+/* one chip, and the tag that closes it. A top-level function rather than a local inside
+   the todo branch, because the pile at the bottom of that screen draws its dishes with
+   exactly the same two helpers. */
+function issueChip(r, i){
+  var chip = '<em class="'+(i.hard?'h ':'')+(i.sec?'go':'')+'"'+(i.sec?' data-sec="'+i.sec+'"':'')+
+    (i.sec?' title="Open ‘'+esc(r.name)+'’ where this is fixed"':'')+'>'+esc(i.s)+'</em>';
+  if (!canWaive(i)) return chip;
+  return '<span class="tp">' + chip +
+    '<em class="wv" data-wv="'+i.key+'" data-wvr="'+r.id+'" ' +
+    'title="Set this aside — it is not needed on ‘'+esc(r.name)+'’">not needed</em></span>';
+}
+/* Kept on the row for good. A message that says "undone in one tap" and then takes itself
+   away after nine seconds is not an undo. This is. */
+function waivedStrip(r){
+  var w = waivedOf(r); if (!w.length) return '';
+  return '<span class="tsa"><span class="sal">Not needed on this dish</span>' +
+    w.map(function(i){
+      return '<em>'+esc(i.s)+' · '+esc(waivedBy(r.id, i.key))+'</em>' +
+        '<em class="wb" data-wb="'+i.key+'" data-wbr="'+r.id+'" ' +
+        'title="Put ‘'+esc(i.s)+'’ back on the list">put it back</em>';
+    }).join('') + '</span>';
+}
+/* the same three names the sheet offers, and the same box for anybody else */
+function waiveNames(){
+  if (!STAFF) return '<div class="msub">Getting the names…</div>';
+  return '<div class="wholist">' +
+    STAFF.map(function(p, i2){
+      return '<button data-wvwho="'+i2+'">' + esc(p.name || '') +
+        (p.designation ? '<span>'+esc(p.designation)+'</span>' : '') + '</button>';
+    }).join('') +
+    '<div class="wsay">Somebody else? Type the name.</div>' +
+    '<input id="wvtype" placeholder="Their name" style="font-family:var(--sans);font-size:14px;' +
+      'padding:11px 12px;min-height:44px;border:1px solid var(--sabbia-dark);border-radius:4px;' +
+      'background:#fff;color:var(--ink);width:100%;box-sizing:border-box">' +
+    '<button id="wvtypeok">Use this name</button></div>';
+}
+/* The one question worth stopping for. Everything else on this list is a blank box, and
+   setting a blank box aside costs nothing if it turns out to be wrong. This one is not,
+   and the code already said so: a dish with nothing ticked prints "no allergens" to the
+   floor, and a waiter reads that as "there are none". So it is asked as the claim it
+   actually is, in words. The name is asked here too the first time in a session — a
+   judgement with nobody's name on it is the thing this module was built to stop. */
+function waivePane(){
+  if (!S.waiveAsk) return '';
+  var a = S.waiveAsk;
+  var r = S.saved.filter(function(x){ return x.id === a.id; })[0];
+  var i = r && allIssuesOf(r).filter(function(y){ return y.key === a.key; })[0];
+  if (!r || !i){ S.waiveAsk = null; return ''; }
+  var w = WHO;
+  return '<div class="pane linkp">' +
+    '<div class="q">Not needed on ‘' + esc(r.name) + '’?</div>' +
+    '<div class="msub">' + esc(i.s) + '</div>' +
+    (a.key === 'allerg'
+      ? '<div class="todo"><b>This one says you have checked the dish, not that nobody has ' +
+        'looked.</b> The Food Bible prints “no allergens” to the floor either way, and a waiter ' +
+        'reads that as “there are none”. Set it aside only if you know there are none in it — ' +
+        'including everything the batches inside it carry.</div>'
+      : '<div class="msub">It stays on the row with your name on it, and one tap puts it back ' +
+        'whenever you want.</div>') +
+    (w && w.name
+      ? '<div class="msub">As <b>' + esc(w.name) + '</b> · ' +
+        '<em style="font-style:normal;text-decoration:underline;cursor:pointer" id="wvwho">not you?</em></div>'
+      : '<div class="msub bad">Who is saying so? It goes on the row, so somebody reading it in ' +
+        'a month knows who to ask.</div>' + waiveNames()) +
+    '<div class="maaskb">' +
+      (w && w.name ? '<button class="okb" id="wvok">Yes — not needed on this dish</button>' : '') +
+      '<button class="newr" style="margin:0" id="wvcx">Cancel</button>' +
+    '</div></div>';
 }
 function needsWork(r){
   var is = issuesOf(r); if (!is.length) return '';
@@ -6166,9 +6366,8 @@ function render(){
         /* Each one is the way into the box that fixes it. The row is already a button, so
            these cannot be buttons too — they carry the destination and the row's handler
            reads which one was actually hit. Tapping the row anywhere still just opens it. */
-        '<span class="ti">'+x.is.map(function(i){
-          return '<em class="'+(i.hard?'h ':'')+(i.sec?'go':'')+'"'+(i.sec?' data-sec="'+i.sec+'"':'')+
-                 (i.sec?' title="Open ‘'+esc(r.name)+'’ where this is fixed"':'')+'>'+esc(i.s)+'</em>'; }).join('') + '</span>' +
+        '<span class="ti">'+x.is.map(function(i){ return issueChip(r, i); }).join('') + '</span>' +
+        waivedStrip(r) +
       '</button>';
     };
     var mainsBad = bad.filter(function(x){ return x.r.kind === 'main'; });
@@ -6250,6 +6449,28 @@ function render(){
         '<button class="newr" id="linkcancel">Close</button>' +
       '</div>';
     };
+    /* ── the ones that are done because somebody answered ──
+       A recipe whose last open thing was set aside leaves the list above, and it has to
+       land somewhere: a screen whose only way back is remembering which dish it was is a
+       screen with a one-way door in it. */
+    var closed = live2.filter(function(r){
+      return waivedOf(r).length && !issuesOf(r).length; });
+    closed.sort(function(a, b2){ return String(a.name).localeCompare(String(b2.name)); });
+    var saRow = function(r){
+      return '<button class="trow sa" data-open="'+r.id+'">' +
+        '<span class="tn">'+esc(r.name)+'</span>' +
+        '<span class="tk">'+(r.kind==='batch'?'batch':'main')+
+          (r.section?' · '+esc(r.section):'')+'</span>' +
+        waivedStrip(r) +
+      '</button>';
+    };
+    var saBlock = closed.length
+      ? '<div class="shd">Set aside · ' + closed.length + '</div>' +
+        '<div class="sanote">Nothing is left open on these — what was on them, somebody said is ' +
+        'not needed on that dish. Put any of it back and the dish comes straight back to the ' +
+        'list above.</div>' + closed.map(saRow).join('')
+      : '';
+
     var nsBlock = MENUITEMS == null
       /* a list that did not load must never be shown as an empty one: "nothing left to
          write" is the most dangerous sentence this screen could print by accident */
@@ -6274,11 +6495,12 @@ function render(){
        are not in it: they are not dishes we sell. */
     var prog = '';
     if (MENUITEMS && MENUITEMS.length){
-      var pReady = 0, pPart = 0;
+      var pReady = 0, pPart = 0, pSaid = 0;
       MENUITEMS.forEach(function(mi){
         var rec = mi.recipe_id && liveById[mi.recipe_id];
         if (!rec) return;
-        if (issuesOf(rec).length) pPart++; else pReady++;
+        if (issuesOf(rec).length) pPart++;
+        else { pReady++; if (waivedOf(rec).length) pSaid++; }
       });
       var pTot = MENUITEMS.length, pNone = pTot - pReady - pPart;
       var w100 = function(n){ return (n * 100 / pTot).toFixed(2) + '%'; };
@@ -6294,12 +6516,27 @@ function render(){
           (pReady ? '<span><i class="p-ok"></i>'+pReady+' ready</span>' : '') +
           (pPart  ? '<span><i class="p-part"></i>'+pPart+' started</span>' : '') +
           (pNone  ? '<span><i class="p-none"></i>'+pNone+' not started</span>' : '') +
-        '</div></div>';
+        '</div>' +
+        /* A dish counted ready because somebody said the rest is not needed is ready on
+           somebody's word, and the bar must not quietly pass that off as written work. */
+        (pSaid ? '<div class="mpsa"><b>'+pSaid+'</b> of those '+(pSaid===1?'is':'are')+
+           ' ready because somebody said what was left is not needed on '+
+           (pSaid===1?'that dish':'those dishes')+' — listed under <b>Set aside</b> below, ' +
+           'with the name on each one.</div>' : '') +
+        '</div>';
     }
     /* Unsaved work belongs here more than anywhere: it IS unfinished work, and this is
        the door he opens to ask "is anything not done?". He could not find it before
        because it only ever showed on the What are you making? screen. */
-    w.innerHTML = '<div class="pane">' + parkedNote(true) + prog +
+    /* If the set-aside list did not load, everything anybody has closed is back on the
+       screen and nothing says why — which reads exactly like somebody having undone the
+       lot. Say it, or the next twenty minutes go on re-answering answered questions. */
+    var waiveErr = WAIVERR
+      ? '<div class="todo"><b>What has been set aside could not be read, so anything closed ' +
+        'as “not needed” is showing again.</b> Nothing has been undone — open Needs finishing ' +
+        'again and it will try afresh. ' + esc(plain(WAIVERR)) + '</div>'
+      : '';
+    w.innerHTML = '<div class="pane">' + parkedNote(true) + waiveErr + prog +
       (!S.tally
         ? '<div class="todo"><b>Could not read the lines, so nothing can be checked.</b> ' +
           'Nothing is wrong with the recipes — open Saved recipes again and it will try afresh.</div>'
@@ -6335,9 +6572,9 @@ function render(){
                forty-eight at the top buried the four that could actually be closed. */
             (mainsBad.length ? '<div class="shd">Main recipes · '+mainsBad.length+'</div>' + mainsBad.map(trow).join('') : '') +
             (batsBad.length  ? '<div class="shd">Batch recipes · '+batsBad.length+'</div>' + batsBad.map(trow).join('')  : '') +
-            nsBlock +
+            nsBlock + saBlock +
             '</div>'
-      ) + linkBlock() + '</div>';
+      ) + linkBlock() + waivePane() + '</div>';
     /* same caret dance as the saved-recipes search: render() rebuilds on every key */
     var lqEl = $('linkq');
     if (lqEl){
@@ -10320,6 +10557,69 @@ document.addEventListener('click', function(e){
     S.fromTodo = true; S.step = 'sheet';
     render(); window.scrollTo(0,0);
     flash('Started ' + mi.name + ' — the allergens are yours to tick.');
+    return;
+  }
+  /* ── not needed on this dish ──
+     These sit BEFORE the row's own [data-open] handler on purpose: the tag lives inside
+     the row button, and the row's job is to open the recipe — so which of the two was
+     actually hit has to be settled before anything opens. */
+  var wv = e.target.closest('[data-wv]');
+  if (wv){
+    var wvId = wv.dataset.wvr, wvKey = wv.dataset.wv;
+    /* Straight through when we already know who is standing here and the item is an
+       ordinary blank box. Antonio asked to be able to CLOSE these; a confirm box on every
+       one of six chips is the thing that would stop him bothering. The allergens are the
+       one exception, and the first one of a session asks the name. */
+    if (wvKey !== 'allerg' && WHO && WHO.name){
+      var wr = S.saved.filter(function(x){ return x.id === wvId; })[0];
+      var wi = wr && allIssuesOf(wr).filter(function(y){ return y.key === wvKey; })[0];
+      waiveSet(wvId, wvKey, true);
+      flash('“' + (wi ? wi.s : 'That') + '” is set aside on ‘' + (wr ? wr.name : 'that dish') +
+            '’. It stays on the row — “put it back” undoes it whenever you want.');
+      return;
+    }
+    S.waiveAsk = { id:wvId, key:wvKey };
+    if (!STAFF) loadStaff().then(function(){ if (S.step === 'todo') render(); });
+    render();
+    /* the question is drawn at the bottom of a long list, so go to it */
+    setTimeout(function(){
+      var pn = document.querySelector('.linkp');
+      if (pn) try { pn.scrollIntoView({ block:'center' }); } catch(_){ pn.scrollIntoView(); }
+    }, 30);
+    return;
+  }
+  var wb = e.target.closest('[data-wb]');
+  if (wb){
+    var wbId = wb.dataset.wbr, wbKey = wb.dataset.wb;
+    var br = S.saved.filter(function(x){ return x.id === wbId; })[0];
+    var bi = br && allIssuesOf(br).filter(function(y){ return y.key === wbKey; })[0];
+    waiveSet(wbId, wbKey, false);
+    flash('“' + (bi ? bi.s : 'That') + '” is back on the list for ‘' +
+          (br ? br.name : 'that dish') + '’.');
+    return;
+  }
+  if (e.target.id === 'wvcx'){ S.waiveAsk = null; render(); return; }
+  if (e.target.id === 'wvwho'){ WHO = null; render(); return; }
+  var wvp = e.target.closest('[data-wvwho]');
+  if (wvp){
+    var pk = STAFF && STAFF[+wvp.dataset.wvwho];
+    if (pk) rememberWho(pk);
+    render(); return;
+  }
+  if (e.target.id === 'wvtypeok'){
+    var wvt = $('wvtype'), wvnm = wvt ? wvt.value.trim() : '';
+    if (!wvnm){ if (wvt) wvt.focus(); return; }
+    rememberWho({ emp_id:null, name:wvnm });
+    render(); return;
+  }
+  if (e.target.id === 'wvok'){
+    var ask = S.waiveAsk; if (!ask) return;
+    var ar = S.saved.filter(function(x){ return x.id === ask.id; })[0];
+    var ai = ar && allIssuesOf(ar).filter(function(y){ return y.key === ask.key; })[0];
+    S.waiveAsk = null;
+    waiveSet(ask.id, ask.key, true);
+    flash('“' + (ai ? ai.s : 'That') + '” is set aside on ‘' + (ar ? ar.name : 'that dish') +
+          '’, as ' + ((WHO && WHO.name) || 'you') + '. “Put it back” on the row undoes it.');
     return;
   }
   var op = e.target.closest('[data-open]');
