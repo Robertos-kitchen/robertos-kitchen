@@ -412,6 +412,16 @@ tr.drop td{background:var(--sabbia-light) !important;padding:11px 14px 13px}
 .fxdate{font-size:11.5px;color:var(--ink);opacity:.7;white-space:nowrap}
 .fxopen{text-align:left}
 .fxfoot{padding:6px 16px 22px;font-size:12px;line-height:1.5;color:var(--ink);opacity:.72;max-width:78ch}
+.fxwarn{margin-top:11px;padding:10px 12px;border-radius:5px;background:var(--sabbia-light);
+        border:1px solid var(--vino);font-size:12.5px;line-height:1.5;color:var(--ink);max-width:78ch}
+.fxguess{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:3px 0}
+.fxguess+.fxguess{border-top:1px solid var(--sabbia-dark)}
+.fxguess>span{flex:1 1 auto;min-width:150px}
+.fxnone>span{opacity:.75}
+/* 44px so it is a real target on the tablet at the pass, not only under a mouse */
+.fxpick{flex:0 0 auto;min-height:44px;padding:0 12px;font-size:11px;letter-spacing:1.1px;white-space:nowrap}
+.fxsaid{margin-top:3px;font-size:11.5px;opacity:.8}
+.fxundo{white-space:nowrap}
 .lfilt{display:flex;gap:9px;padding:11px 16px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark);flex-wrap:wrap}
 .lfilt input,.lfilt select{border:1px solid var(--sabbia-dark);border-radius:5px;padding:9px 11px;font-size:14px;font-family:var(--sans);background:#fff;outline:none;min-width:150px}
 .lfilt input:focus,.lfilt select:focus{border-color:var(--vino)}
@@ -2953,19 +2963,89 @@ function idOf(code){ return String(code).slice(2); }
 function fmcArts(){
   return ING.filter(function(i){ return i.group === 'Batch Recipe (Food)'; });
 }
+
+/* ── the answers a person has given ───────────────────────────────────────
+   Ten batches match FMC on the name alone. Another ten are nearly right — "Chocolate
+   sorbet" against "RF Chocolate Sorbert (PA)" — and a score cannot decide them, because
+   the same score puts "Rice cream" next to "RF Garlic Cream (PA)". A person answers
+   once and it is kept, in four columns on `recipes` shaped exactly like the ones
+   `order_items` has carried since Match to FMC shipped.
+
+   READ ON ITS OWN, AND ALLOWED TO FAIL. If those columns are not on this database yet
+   the request 400s, and it must take NOTHING with it — not the recipe book, not the
+   costing, not this screen. So it is its own call, its own catch, and the screen says
+   plainly that answers cannot be kept yet rather than showing an empty result as if
+   nobody had ever answered. LNK stays null in that case; {} means "read fine, nobody
+   has answered yet", and those two must never look the same. */
+var LNK = null, LNK_ERR = null, LNK_BUSY = null;
+function loadFmcLinks(){
+  return sb('recipes?kind=eq.batch&select=id,fmc_code,fmc_none,fmc_verified_at,fmc_verified_by')
+    .then(function(rows){
+      var m = {};
+      (rows || []).forEach(function(r){
+        if (!r.fmc_verified_at) return;
+        m[r.id] = { code:r.fmc_code || null, none:!!r.fmc_none,
+                    at:r.fmc_verified_at, by:r.fmc_verified_by || null };
+      });
+      LNK = m; LNK_ERR = null;
+    })
+    .catch(function(e){ LNK = null; LNK_ERR = e.message || 'the answers could not be read'; });
+}
+/* One answer, written and kept. `code` null with none=true is "a person looked and there
+   is no FMC article" — a real answer, the thing that stops it being asked again. */
+function fmcAnswer(id, code, none){
+  if (LNK === null) return;                 /* nowhere to keep it — the screen says so */
+  LNK_BUSY = id; render();
+  var w = WHO || {};
+  return sb('recipes?id=eq.' + id, { method:'PATCH', prefer:'return=minimal', body:{
+      fmc_code: code || null, fmc_none: !!none,
+      fmc_verified_at: new Date().toISOString(), fmc_verified_by: w.emp_id || null } })
+    .then(function(){
+      LNK[id] = { code:code || null, none:!!none, at:new Date().toISOString(), by:w.emp_id || null };
+      LNK_BUSY = null; render();
+      flash(none ? 'Noted — no FMC article for that one. It stops being asked.'
+                 : 'Paired. It is compared from now on, and the cost gap is real.');
+    })
+    .catch(function(e){ LNK_BUSY = null; render(); flash('That did not save — ' + e.message, true); });
+}
+/* taking an answer back: it goes to unanswered, not to a different answer */
+function fmcUnanswer(id){
+  if (LNK === null) return;
+  LNK_BUSY = id; render();
+  return sb('recipes?id=eq.' + id, { method:'PATCH', prefer:'return=minimal', body:{
+      fmc_code:null, fmc_none:false, fmc_verified_at:null, fmc_verified_by:null } })
+    .then(function(){ delete LNK[id]; LNK_BUSY = null; render(); flash('Back to being asked.'); })
+    .catch(function(e){ LNK_BUSY = null; render(); flash('That did not save — ' + e.message, true); });
+}
 function fmcCompare(){
   var arts = fmcArts(), byKey = {};
   arts.forEach(function(a){ var k = batchKey(a.name); (byKey[k] = byKey[k] || []).push(a); });
-  var out = { pairs:[], units:[], nocost:[], nopair:[], twins:[], arts:arts.length };
+  var out = { pairs:[], units:[], nocost:[], nopair:[], twins:[], gone:[], none:[], arts:arts.length };
   MYB.filter(function(b){ return !b.away; }).forEach(function(b){
     var k = batchKey(b.name), hits = byKey[k] || [];
+    /* a person's answer beats the name, both ways: it pairs a batch whose name never
+       would have, and it un-pairs one the name matched by accident */
+    var said = LNK && LNK[idOf(b.code)];
+    if (said){
+      if (said.none) hits = [];
+      else if (said.code){
+        var picked = arts.filter(function(a){ return a.code === said.code; });
+        hits = picked;                       /* even if empty — see 'gone' below */
+      }
+    }
     /* walked here and now, never read off MYB's stored answer. MYB is built when the
        batches land and that read races the catalogue -- see rebuildMYB(). This screen
        is the one place a wrong "we cannot cost it" would be read as a finding about
        the recipe instead of a finding about the load order, so it does the walk. */
     var fresh = b.away ? { problem:'it has been removed from the saved recipes' } : batchCost(idOf(b.code));
     var ours  = fresh.problem ? null : fresh.per;
-    var row = { id:idOf(b.code), name:b.name, ours:ours, unit:b.unit, why:fresh.problem || null };
+    var row = { id:idOf(b.code), name:b.name, ours:ours, unit:b.unit, why:fresh.problem || null,
+                said:said || null };
+    /* answered "it is article X" and X is not in the catalogue any more. Silently
+       falling back to the name would hide that the answer has rotted. */
+    if (said && said.code && !hits.length){
+      row.gone = said.code; out.gone.push(row); return;
+    }
     /* a recipe this app cannot cost is not a disagreement with FMC -- it is a hole on
        our side, and it belongs in its own list with the reason on it */
     if (fresh.problem){ out.nocost.push(row); return; }
@@ -2974,6 +3054,8 @@ function fmcCompare(){
        toss printed as a fact. */
     if (hits.length > 1){ row.hits = hits; out.twins.push(row); return; }
     if (!hits.length){
+      /* answered, and the answer was "there is none". It is not a question any more. */
+      if (said && said.none){ out.none.push(row); return; }
       row.guesses = arts.map(function(a){ return { a:a, s:simName(k, batchKey(a.name)) }; })
                         .filter(function(x){ return x.s >= 0.7; })
                         .sort(function(x, y){ return y.s - x.s; }).slice(0, 3);
@@ -6108,6 +6190,15 @@ function render(){
         'Control last told us, and some were last priced in January. A difference can mean our recipe ' +
         'differs from theirs — or that their number is old. This screen does not guess which; it puts the ' +
         'date on the row.</div>' +
+        /* the store either exists or it does not, and the difference must be on the
+           glass. An empty result where answers should be reads as "nobody has answered",
+           which is a different fact from "there is nowhere to put an answer". */
+        (LNK === null
+          ? '<div class="fxwarn"><b>Pairings cannot be saved on this database yet.</b> ' +
+            'Everything below is still true and still read live — but a near name stays a ' +
+            'question, because there is nowhere to keep the answer. ' +
+            '<span class="fxg">' + esc(LNK_ERR || '') + '</span></div>'
+          : '') +
         '<div class="lstats">' +
           '<div class="lstat"><div class="k">Compared</div><div class="v">' + X.pairs.length + '</div></div>' +
           '<div class="lstat"><div class="k">Differ 10%+</div><div class="v">' +
@@ -6123,7 +6214,10 @@ function render(){
         '<table class="sheet"><thead><tr><th>Batch</th><th>FMC article</th><th class="n">Ours</th>' +
           '<th class="n">FMC</th><th>Per</th><th class="n">Difference</th><th>FMC last priced</th></tr><tbody>' +
         X.pairs.map(function(r){
-          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="fxg">' + esc(r.fmcName) + '</td>' +
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="fxg">' + esc(r.fmcName) +
+            (r.said && r.said.code ? '<div class="fxsaid">paired by hand · ' +
+              '<button class="lnk fxundo" data-fmcundo="' + esc(r.id) + '">not the same thing</button></div>' : '') +
+            '</td>' +
             '<td class="n">' + money(r.ours) + '</td><td class="n">' + money(r.theirs) + '</td>' +
             '<td>' + esc(perU(r.base)) + '</td>' +
             '<td class="n fxgap' + fmcBand(r.pct) + '">' + (r.pct == null ? '—' : fmcPct(r.pct)) + '</td>' +
@@ -6173,20 +6267,73 @@ function render(){
         '<table class="sheet"><thead><tr><th>Batch</th><th class="n">Ours</th><th>Per</th>' +
           '<th>Anything in FMC close to the name?</th></tr><tbody>' +
         X.nopair.map(function(r){
+          var busy = (LNK_BUSY === r.id);
           var g = (r.guesses || []).length
             ? r.guesses.map(function(x){
                 var bp = basePrice(x.a);
-                return esc(x.a.name) + ' — ' + (bp ? fmt(bp.v) + ' per ' + perU(bp.base) : 'no price');
-              }).join('<br>')
+                return '<div class="fxguess"><span>' + esc(x.a.name) + ' — ' +
+                  (bp ? fmt(bp.v) + ' per ' + perU(bp.base) : 'no price') + '</span>' +
+                  (LNK === null ? '' :
+                    '<button class="okb fxpick"' + (busy ? ' disabled' : '') +
+                    ' data-fmcpick="' + esc(r.id) + '" data-fmccode="' + esc(x.a.code) + '">' +
+                    (busy ? '…' : 'this is the one') + '</button>') + '</div>';
+              }).join('')
             : '<i>nothing close</i>';
+          /* "there is no article" has to be sayable, or the 24 with nothing close come
+             back round every single time this screen is opened and it never gets shorter */
+          var nope = (LNK === null) ? '' :
+            '<div class="fxguess fxnone"><span>Not an FMC batch at all?</span>' +
+            '<button class="okb fxpick"' + (busy ? ' disabled' : '') +
+            ' data-fmcnone="' + esc(r.id) + '">' + (busy ? '…' : 'say so, and stop asking') + '</button></div>';
           return '<tr><td>' + openC(r.id, r.name) + '</td><td class="n">' + money(r.ours) + '</td>' +
-            '<td>' + esc(perU(r.unit)) + '</td><td class="fxg">' + g + '</td></tr>';
+            '<td>' + esc(perU(r.unit)) + '</td><td class="fxg">' + g + nope + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.none.length ?
+        '<div class="fxsec"><h3>Answered — FMC has no article for these</h3>' +
+        '<div class="sub">Somebody looked and there is nothing to find, so they are not asked ' +
+        'about again. That is the only thing separating them from the list above.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th class="n">Ours</th><th>Per</th>' +
+          '<th></th></tr><tbody>' +
+        X.none.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="n">' + money(r.ours) + '</td>' +
+            '<td>' + esc(perU(r.unit)) + '</td>' +
+            '<td class="fxg"><button class="lnk fxundo" data-fmcundo="' + esc(r.id) + '">' +
+            'ask about it again</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '') +
+
+      (X.gone.length ?
+        '<div class="fxsec"><h3>Paired to an article that is no longer in the catalogue</h3>' +
+        '<div class="sub">Somebody paired these by hand and the article has since gone from FMC. ' +
+        'Quietly falling back to the name would hide that the answer has rotted, so it is said ' +
+        'instead.</div>' +
+        '<table class="sheet"><thead><tr><th>Batch</th><th class="n">Ours</th>' +
+          '<th>Was paired to code</th><th></th></tr><tbody>' +
+        X.gone.map(function(r){
+          return '<tr><td>' + openC(r.id, r.name) + '</td><td class="n">' + money(r.ours) + '</td>' +
+            '<td class="fxg">' + esc(r.gone) + '</td>' +
+            '<td class="fxg"><button class="lnk fxundo" data-fmcundo="' + esc(r.id) + '">' +
+            'unpair it</button></td></tr>';
         }).join('') + '</tbody></table></div>' : '') +
 
       '<div class="fxfoot">Read live every time this screen is opened — our side from the recipes, FMC\u2019s ' +
       'from the article mirror the Article Catalogue updates. Nothing here is stored, so nothing here can ' +
       'go stale on its own.</div>';
 
+    /* bound to the screen that draws them rather than to the document: these three do
+       something that WRITES, and a stray delegated handler that outlives its screen is
+       how a click on one thing saves an answer about another */
+    Array.prototype.forEach.call(w.querySelectorAll('[data-fmcpick]'), function(el){
+      el.addEventListener('click', function(){
+        fmcAnswer(el.getAttribute('data-fmcpick'), el.getAttribute('data-fmccode'), false); });
+    });
+    Array.prototype.forEach.call(w.querySelectorAll('[data-fmcnone]'), function(el){
+      el.addEventListener('click', function(){
+        fmcAnswer(el.getAttribute('data-fmcnone'), null, true); });
+    });
+    Array.prototype.forEach.call(w.querySelectorAll('[data-fmcundo]'), function(el){
+      el.addEventListener('click', function(){ fmcUnanswer(el.getAttribute('data-fmcundo')); });
+    });
     return;
   }
 
@@ -12250,6 +12397,7 @@ loadArticles().then(loadMine).then(function(){
   if (S.step === 'sheet'){ rows(); foot(); }
   if (S.step === 'list' || S.step === 'fmc') render();
 });
+loadFmcLinks().then(function(){ if (S.step === 'fmc') render(); });
 loadBatches().then(function(){
   if (S.step==='sheet'){ rows(); }
   /* these two screens ARE the batch list. Landing on either before the batches arrive
