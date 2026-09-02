@@ -4083,6 +4083,16 @@ function micOpenBuilder(menuId){
   var run = MENUS.filter(function(m){ return m.running; })[0];
   MICREQ.menuId = menuId || MICREQ.menuId || (run ? run.id : (MENUS[0]||{}).id);
   MICREQ.today  = new Date().toISOString().slice(0,10);
+  /* Read the addresses HERE too — found 2 Sep 2026 by driving this door rather than
+     reading it. micLoadSettings() only ever rode along with micLoadList(), which runs
+     on the REQUESTS screen; this door skips that screen entirely. So a request started
+     from the recipe book, or off a dish's own card, had MICREQ.def still null and every
+     address fell back to the hardcoded MICMAIL: change the default on the admin panel,
+     then send a menu from the book, and it goes to the OLD address with nothing on
+     screen saying so. It has never bitten because the stored row and MICMAIL still say
+     the same thing. It matters more now the IT team is read from that same row —
+     emptying that box has to switch IT off on EVERY door, not just one of them. */
+  micLoadSettings().then(function(){ if (S.step === 'micros') render(); });
   S.step = 'micros'; render(); window.scrollTo(0,0);
   return loadMicros(MICREQ.menuId).then(function(){
     micApplyNew();
@@ -4222,6 +4232,18 @@ function micReqsInner(){
             '<input id="admto" value="'+esc(MICREQ.adminTo)+'"'+(MICREQ.defErr?' disabled':'')+'>' +
             '<label for="admcc">Copy to</label>' +
             '<input id="admcc" value="'+esc(MICREQ.adminCc)+'"'+(MICREQ.defErr?' disabled':'')+'>' +
+            '<label for="admit">IT team — copied on every request</label>' +
+            '<input id="admit" value="'+esc(MICREQ.adminIt||'')+'"'+
+              ((MICREQ.defErr||!micItSettable())?' disabled':'')+'>' +
+          '</div>' +
+          '<div class="tip" style="margin:8px 0 0">The IT team is copied on top of the copy line, ' +
+            'and the mail asks them which section can <b>see</b> and which can <b>modify</b> each dish ' +
+            'on <b>Annoncer</b>. Empty this box and nobody from IT is copied and the question is not ' +
+            'asked — that is the way to turn it off.' +
+            (!micItSettable() && !MICREQ.defErr ?
+              ' <b>The column is not in the database yet</b>, so requests are copying ' +
+              esc(MICIT.join(', ')) + ' and this box cannot be changed. Run ' +
+              '<b>micros-it-cc-schema.sql</b> once and it starts working.' : '') +
           '</div>' +
           '<div class="micaskb"><button class="okb" id="admsave"'+(MICREQ.defErr?' disabled':'')+'>' +
             (MICREQ.defErr ? 'The setting is not there yet' : 'Save who they go to') + '</button>' +
@@ -5127,6 +5149,66 @@ var MICMAIL = { to:'ahtwe@robertos.ae',
                     'amohamed@robertos.ae','fguarracino@robertos.ae'],
                 who:'Aung', ccWho:'Danilo, Antonio, Andrea, Asarudeen and you' };
 
+/* ── the IT team, copied on every request ──
+   Antonio, 2 Sep 2026: a dish that goes into Micros has to appear on the Annoncer kitchen
+   display too, on the right section — and only IT can say which section SEES it and which
+   section may MODIFY it. Chasing that afterwards is a second conversation about the same
+   dish, so IT rides on the request itself and the mail asks the question naming the
+   sections THIS request actually touches.
+
+   Kept in `micros_settings` like every other address. A list hardcoded here is the thing
+   that keeps mailing somebody who left — MICIT is the fallback for a database that has not
+   been given the column yet, never the source. An empty `it_cc` means "nobody", and is
+   obeyed: it is how you turn this off without a deploy. */
+var MICIT = ['mmansoor@skelmore.com','nahamed@skelmore.com'];
+function micItCc(){
+  var d = MICREQ.def;
+  if (!d || d.it_cc === undefined) return MICIT.slice();   /* column not there, or unread */
+  if (d.it_cc === null) return [];                         /* deliberately nobody */
+  return d.it_cc.slice();
+}
+/* can the admin panel write it? Only once the column exists — a PATCH naming a column
+   PostgREST has never heard of fails the WHOLE save, including the addresses that do work. */
+function micItSettable(){ return !!(MICREQ.def && MICREQ.def.it_cc !== undefined); }
+/* one list, no duplicate: IT is often already on the copy line by hand, and a name twice
+   on a CC is how a request starts looking automated and wrong */
+function micAllCc(base){
+  var out = [], seen = {};
+  (base||[]).concat(micItCc()).forEach(function(a){
+    var v = String(a==null?'':a).trim(), k = v.toLowerCase();
+    if (!v || seen[k]) return; seen[k] = 1; out.push(v);
+  });
+  return out;
+}
+/* the sections THIS request touches. The question is per section, so asking it against a
+   fixed list would be asking IT about sections no dish here belongs to. */
+function micItSections(rows){
+  var out = [], seen = {};
+  (rows||[]).forEach(function(r){
+    var v = String(r.section || 'No section').trim(), k = v.toLowerCase();
+    if (!v || seen[k]) return; seen[k] = 1; out.push(v);
+  });
+  return out.sort(function(a,b){ return a.localeCompare(b); });
+}
+/* the block that goes in the email. Empty when nobody from IT is copied — a question
+   addressed to people who are not on the mail is worse than no question. */
+function micItHtml(rows){
+  if (!micItCc().length) return '';
+  var secs = micItSections(rows), one = secs.length === 1;
+  return '<div style="border:1px solid #e1d3c2;background:#faf6ef;padding:13px 15px;margin-top:16px">' +
+    '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;margin:0 0 7px">' +
+      'For the IT team — Annoncer</div>' +
+    '<p style="font-size:14px;line-height:1.6;margin:0 0 8px">' +
+      ((rows||[]).length === 1 ? 'This dish goes' : 'These dishes go') + ' on the <b>Annoncer</b> ' +
+      'kitchen display as well as the till. For ' + (one ? 'the menu section' : 'each menu section') +
+      ' below, please confirm <b>which section can see it on Annoncer</b> and ' +
+      '<b>which section can modify it</b>:</p>' +
+    '<ul style="font-size:14px;line-height:1.6;margin:0 0 8px;padding-left:20px">' +
+      secs.map(function(x){ return '<li><b>' + esc(x) + '</b></li>'; }).join('') + '</ul>' +
+    '<p style="font-size:14px;line-height:1.6;margin:0">Replying to this email keeps the answer ' +
+      'with the request.</p></div>';
+}
+
 function micSend(btn){
   var st = $('micsendst');
   var take = MICREQ.rows.filter(function(r){ return r.take; });
@@ -5135,7 +5217,9 @@ function micSend(btn){
   if (st){ st.className = 'brn'; st.textContent = 'Building the form…'; }
   /* read once, up front. The screen goes back to the default the moment it lands, and
      what gets written down has to be where it actually went. */
-  var addr = { to: micTo(), cc: micCc() }, who = micWho();
+  /* micAllCc, not micCc: IT is merged HERE and not at the fetch, so the row written
+     down afterwards records the addresses the mail really went to. */
+  var addr = { to: micTo(), cc: micAllCc(micCc()) }, who = micWho();
   micBuild().then(function(file){
     if (st) st.textContent = 'Sending to ' + who + '…';
     var menu = file.menu;
@@ -5153,6 +5237,7 @@ function micSend(btn){
         'dish written out ingredient by ingredient with quantity, unit price and line cost — and ' +
         '<b>Batches</b>, every batch inside them written out the same way. One row per ingredient, ' +
         'real numbers, ready to copy straight into the inventory system.</p>' +
+      micItHtml(take) +
       '<div style="font-size:11px;color:#8a7a55;border-top:1px solid #e1d3c2;padding-top:10px;margin-top:16px">' +
         'Sent from Roberto\'s Kitchen App · Recipes</div></div>';
     return fetch(SB_URL + '/functions/v1/send-stock-take', {
@@ -7212,6 +7297,13 @@ function render(){
               '<b>Who requests go to</b> on the requests screen.' +
               '<button class="newr" id="micdefback" style="margin:9px 0 0">Put the usual back</button>' +
               '</div>' : '') +
+            /* said BEFORE the send, not discovered in the sent folder: this mail now goes
+               to people the copy line does not show, and a surprise recipient is the kind
+               of thing that makes somebody stop using the button. */
+            (micItCc().length ? '<div class="tip" style="margin:9px 0 0">The <b>IT team</b> is copied on ' +
+              'every request — <b>'+esc(micItCc().join(', '))+'</b> — and asked which section can ' +
+              '<b>see</b> and which can <b>modify</b> each of these dishes on <b>Annoncer</b>. Change who ' +
+              'that is under <b>Who requests go to</b> on the requests screen.</div>' : '') +
             (over.length ? '<div class="micaskw">'+over.length+' till name'+(over.length===1?' is':'s are')+
               ' still over 16 characters — Micros will cut '+(over.length===1?'it':'them')+' off.</div>' : '') +
             (noPrice.length ? '<div class="micaskw">'+noPrice.length+' '+(noPrice.length===1?'dish goes':'dishes go')+
@@ -11462,6 +11554,7 @@ document.addEventListener('click', function(e){
     if (MICREQ.admin){                     /* always opens on what is actually set now */
       MICREQ.adminTo = micDefTo();
       MICREQ.adminCc = micDefCc().join(', ');
+      MICREQ.adminIt = micItCc().join(', ');
     }
     render(); return;
   }
@@ -11481,14 +11574,25 @@ document.addEventListener('click', function(e){
       if (ast){ ast.className = 'brn bad'; ast.textContent = 'That is not an email address: ' + badCc[0]; }
       return;
     }
+    var itV = micCcList($('admit') ? $('admit').value : '');
+    var badIt = itV.filter(function(x){ return !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(x); });
+    if (badIt.length){
+      if (ast){ ast.className = 'brn bad'; ast.textContent = 'That is not an email address: ' + badIt[0]; }
+      return;
+    }
     var aw = (typeof WHO !== 'undefined' && WHO && WHO.name) ? WHO.name : null;
     ab.disabled = true; var awas = ab.textContent; ab.textContent = 'Saving…';
     if (ast){ ast.className = 'brn'; ast.textContent = ''; }
-    sb('micros_settings?id=eq.1', { method:'PATCH', body:{
-        send_to: toV, send_cc: ccV, updated_at: new Date().toISOString(), updated_by_name: aw } })
+    /* it_cc only when the column is really there — naming a column PostgREST does not know
+       fails the whole PATCH, and the addresses that DO work would go down with it */
+    var abody = { send_to: toV, send_cc: ccV,
+                  updated_at: new Date().toISOString(), updated_by_name: aw };
+    if (micItSettable()) abody.it_cc = itV;
+    sb('micros_settings?id=eq.1', { method:'PATCH', body: abody })
       .then(function(){ return micLoadSettings(); })
       .then(function(){
         MICREQ.adminTo = micDefTo(); MICREQ.adminCc = micDefCc().join(', ');
+        MICREQ.adminIt = micItCc().join(', ');
         render();
         var a2 = $('admst');
         if (a2){ a2.className = 'brn';
