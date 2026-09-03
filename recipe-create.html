@@ -820,6 +820,10 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .mk.on{background:rgba(75,81,40,.15);border-color:var(--oliva);color:var(--oliva);opacity:1}
 .mk.on:hover,.mk.on:focus{border-color:var(--oliva);color:var(--oliva);background:rgba(75,81,40,.28)}
 @media (pointer:coarse){ .mk{padding:9px 10px;font-size:9.5px} }
+/* Copy sits after the three marks, in the same pill, at full colour — it is not a mark,
+   it is the thing they do every week: start a dish from one that already exists. */
+.mk.cp{opacity:1;color:var(--vino);border-color:rgba(64,2,7,.4);background:#fff}
+.mk.cp:hover,.mk.cp:focus{background:rgba(64,2,7,.08);border-color:var(--vino)}
 /* where he landed, said out loud for a moment — a page that only moves leaves him
    hunting for what changed */
 @keyframes jumped{ 0%{box-shadow:0 0 0 3px rgba(186,155,2,.55)} 100%{box-shadow:0 0 0 3px rgba(186,155,2,0)} }
@@ -1026,6 +1030,7 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
   /* the marks drop to their own line rather than pushing the row off the screen —
      a row you have to drag sideways to read is a row nobody reads */
   .srow .mks{order:4;flex:1 0 100%;margin-top:2px}
+  .srow .cpw{flex:0 0 auto}          /* beside the marks, not a line of its own */
   .srow .sd{order:6}
   .srow .srm{order:7;margin-left:auto}
 }
@@ -2863,6 +2868,73 @@ function newRecipe(){
   /* a fresh recipe has nothing to do with the Micros screen somebody came off an hour
      ago — leaving it set sends Back on THIS recipe to a request he is not making */
   S.micReturn = null;
+}
+
+/* ═════════ a copy — the same sheet, as a new recipe ═════════
+   Antonio, 3 Sep 2026: most new dishes are an old one with one thing changed, and
+   retyping forty lines to swap one of them is how a recipe ends up saved twice under
+   nearly the same name. So a saved recipe can be copied. The sheet stays exactly as it
+   is — every line, the method, the photos, the allergens, the menus it is on — and stops
+   being the old recipe. The old one is not touched. Two things are deliberately NOT
+   carried: the floor's dish code names one dish in the till, and who wrote it is whoever
+   is copying, not whoever wrote the original. */
+function asCopy(){
+  var from = (S.name || '').trim();
+  S.id = null; S.whole = true;               /* a whole sheet, never saved — see saveRecipe */
+  S.name = from + ' (copy)';
+  if (S.method) S.method.code = '';          /* the till code belongs to the recipe it came from */
+  S.fromItem = null; S.fromTodo = false; S.fromPlan = false; S.plan = null;
+  S.cameFrom = null; S.micReturn = null;
+  S.who = WHO ? { emp_id:WHO.emp_id, name:WHO.name } : null;
+  S.whoUpd = null; S.whoAt = null; S.whoOpen = false; S.whoAsked = false;
+  S.clean = null;                            /* isDirty(): no id and lines on it = all at risk */
+  S.step = 'sheet';
+  return from;
+}
+/* on the sheet of a saved recipe, where the kind line sits on a new one */
+function copyLine(){
+  return '<div class="kindline">Need one like this with something changed? ' +
+    '<button class="lnk" id="rcopy">Copy it as a new recipe</button> — this one stays as it is.</div>';
+}
+function copiedFlash(from){
+  return 'A new recipe, copied from “' + from + '” — which is unchanged. ' +
+         'Give this one its own name, change what differs, then Save.';
+}
+/* the name is the one thing every copy has to change, so the caret goes there — except
+   on a phone, where a focused box pops the keyboard over a sheet he has not read yet */
+function nameCopy(){
+  var nm = $('nm'); if (!nm) return;
+  if (window.matchMedia && matchMedia('(pointer:coarse)').matches) return;
+  nm.focus();
+  try { nm.setSelectionRange(nm.value.length, nm.value.length); } catch(e){}
+}
+/* from the open sheet — the sheet as it stands, unsaved changes included. They were made
+   on this sheet and they go with it; the saved recipe underneath keeps what it had. */
+function copyHere(){
+  if (!S.id) return;
+  var from = asCopy();
+  render(); window.scrollTo(0,0);
+  flash(copiedFlash(from));
+  nameCopy();
+}
+/* from the book — read the recipe whole, the way Open does, then let go of its id */
+function copyFromBook(btn){
+  var id = btn.dataset.copy, was = btn.textContent;
+  if (parkCurrent()) flash(parkedFlash());
+  var cameFromStep = S.step;
+  btn.textContent = 'Copying…';
+  openRecipe(id).then(function(){
+    var from = asCopy();
+    S.back = cameFromStep;
+    render(); window.scrollTo(0,0);
+    flash(copiedFlash(from));
+    nameCopy();
+  }).catch(function(err){
+    btn.textContent = was;
+    var row = $('row-'+id);
+    if (row) row.insertAdjacentHTML('beforeend',
+      '<span class="sm">Could not copy it — '+esc(plain(err.message))+'</span>');
+  });
 }
 
 /* ───────── the two things both called a batch ─────────
@@ -6596,6 +6668,12 @@ function render(){
             (r.created_by_name ? ' · '+esc(r.created_by_name) : '')+'</span>' +
         '</button>' +
         (r.archived ? needsWork(r) : marksHTML(r)) +
+        /* Antonio, 3 Sep: "add next to ingredients a copy one that will duplicate the
+           recipe". A removed one is put back first — a copy of it would be a way of
+           having it without saying so. */
+        (r.archived ? '' : '<span class="mks cpw"><button class="mk cp" data-copy="'+r.id+'" ' +
+           'aria-label="Copy ‘'+esc(r.name)+'’ as a new recipe" ' +
+           'title="Start a new recipe from ‘'+esc(r.name)+'’ — it is not changed">Copy</button></span>') +
         '<span class="sd">'+new Date(r.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>' +
         /* Quieter, but it keeps the WORD. A bare ⋯ reads as "more options" and this one
            archives the recipe on the first tap when nothing depends on it — and the
@@ -7649,7 +7727,7 @@ function gate(){ $('act').classList.toggle('off', !(S.name.trim() && realRows().
    saved recipe it says nothing: the badge in the bar owns the change by then, because by
    then it is a conversion with consequences and it explains them first. */
 function newKindLine(){
-  if (S.id) return '';
+  if (S.id) return copyLine();
   var other = S.kind === 'batch' ? 'main' : 'batch';
   return '<div class="kindline">This is a <b>' + kindWord(S.kind) + '</b>. ' +
     '<button class="lnk" id="kindflip">Make it a ' + kindWord(other) + ' instead</button></div>';
@@ -11133,6 +11211,10 @@ document.addEventListener('click', function(e){
     render();
     return;
   }
+  /* ── a copy ── from the sheet, or from a row of the book */
+  if (e.target.id === 'rcopy'){ copyHere(); return; }
+  var cpb = e.target.closest('[data-copy]');
+  if (cpb){ copyFromBook(cpb); return; }
   var wp = e.target.closest('[data-who]');
   if (wp){ whoPicked(STAFF && STAFF[+wp.dataset.who]); return; }
   if (e.target.id === 'whotypeok'){
