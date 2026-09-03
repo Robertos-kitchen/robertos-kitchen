@@ -2320,6 +2320,14 @@ function openRecipeScreen(viewId){
     // The Recipe book is deliberately NOT reset this way. A book that forgets where you
     // were is a worse book: coming back to the menu you were reading is the point, and
     // starting a new recipe from in there is its own button.
+    // The card and the Food Bible are built once and kept, so their front page is
+    // whatever the database said when they were FIRST opened. Coming back is the moment
+    // to ask again: a dish written since then has to be there without a reload
+    // (3 Sep 2026 - two new dishes missing on the screen that had the card open).
+    if(s.code==='PASS'||s.code==='FOH'){
+      var ff=v.querySelector('iframe');
+      try{ if(ff&&ff.contentWindow&&ff.contentWindow.__rcpFreshen) ff.contentWindow.__rcpFreshen(); }catch(e){}
+    }
     if(s.code==='RCP'){
       var fr=v.querySelector('iframe');
       var go=function(){ try{ if(fr.contentWindow&&fr.contentWindow.__rcpNew) fr.contentWindow.__rcpNew(); }catch(e){} };

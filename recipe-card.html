@@ -668,7 +668,8 @@ function stampsOf(){
   return o;
 }
 function tick(){
-  if (view === 'home' || !R || movedAt || document.hidden) return;
+  if (view === 'home'){ freshen(); return; }
+  if (!R || movedAt || document.hidden) return;
   var have = stampsOf(), ids = Object.keys(have);
   if (!ids.length) return;
   sb('recipes?id=in.(' + ids.join(',') + ')&select=id,name,updated_at')
@@ -685,6 +686,36 @@ function watch(){
   if (watching) clearInterval(watching);
   watching = setInterval(tick, WATCH_MS);
 }
+/* ── the front page notices a dish that was not there when it opened ──
+   The list was read once, when this frame was first built, and never again — and the
+   module around it keeps the frame alive for the whole session. So a dish written on
+   the create screen at 17:40 was still missing from this page at 18:40 on the laptop
+   that had the card open, and present on the laptop that opened it fresh
+   (3 Sep 2026: Bavetta and Costata di Wagyu, Andrea's screen).
+   A light probe — ids and stamps only — every WATCH_MS while the front page is showing,
+   and again the moment the screen is reopened or the tab comes back. The full re-read
+   happens only when a dish appeared, went, or moved. It never redraws under somebody
+   typing in the search box: the next probe does it once they have stopped. */
+var freshening = false, menuSig = '';
+function listSig(rows){
+  return (rows||[]).map(function(r){ return r.id + '@' + (r.updated_at||''); }).sort().join('|');
+}
+function freshen(){
+  if (view !== 'home' || busy || freshening || document.hidden) return;
+  freshening = true;
+  sb('recipes?kind=eq.main&archived=is.false&select=id,updated_at')
+    .then(function(rows){
+      if (listSig(rows) === menuSig) return;
+      return loadMenu().then(function(){
+        var el = document.activeElement;
+        if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)){ menuSig = ''; return; }
+        if (view === 'home') render();
+      });
+    })
+    .catch(function(){})                 /* a dropped probe is not news — the next one asks again */
+    .then(function(){ freshening = false; });
+}
+window.__rcpFreshen = freshen;           /* the module pokes this when the screen is reopened */
 /* Coming back to the card is the moment he is about to act on it. A phone locked in
    an apron pocket stops the timer, and waiting out another full interval after he
    looks again is the whole window in which he cooks the old one. */
@@ -731,7 +762,7 @@ function gather(ids, acc){
    here, once, off two extra reads. */
 function loadMenu(){
   return Promise.all([
-    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,menu_price,method,allergens,photos&order=section,name'),
+    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,menu_price,method,allergens,photos,updated_at&order=section,name'),
     sb('recipes?select=id,allergens'),
     sb('recipe_lines?select=recipe_id,child_recipe_id'),
     /* the menus, and what is on them. A dish carries its menus so the front page can
@@ -742,6 +773,7 @@ function loadMenu(){
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; })
   ]).then(function(res){
     MENUS = res[3] || [];
+    menuSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
     /* the menu that is running is what the page opens on; if nobody has said which,
@@ -1814,7 +1846,7 @@ document.addEventListener('click', function(e){
   if (b && b.id==='reopen'){ var keep = R && R.id; if (keep) openDish(keep); return; }
   /* the search survives going into a dish and coming back — you are usually opening
      two or three of the same five, and re-typing it every time is the annoyance */
-  if (b && b.id==='home'){ view='home'; render(); window.scrollTo(0,0); return; }
+  if (b && b.id==='home'){ view='home'; render(); window.scrollTo(0,0); freshen(); return; }
   if (b && b.dataset.v){ view=layout=b.dataset.v; render(); window.scrollTo(0,0); return; }
 
   if (b && b.dataset.p){ portions=Math.max(1,Math.min(50,portions+(+b.dataset.p))); render(); return; }
@@ -1875,7 +1907,7 @@ if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
 busy = true; render();
 loadMenu()
   .then(function(){
-    busy = false;
+    busy = false; watch();
     /* ?make=12 opens straight onto the production sheet for twelve. It is how the sheet
        gets a link of its own — bookmarked at the section, sent to the pastry chef, or
        opened and printed without walking through the card first. */

@@ -693,6 +693,7 @@ function load(){
       if (l.child_recipe_id) (LINKS[l.recipe_id] = LINKS[l.recipe_id] || []).push(l.child_recipe_id);
     });
     MENUS = res[3] || [];
+    dishSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
     if (!MENUS.length) menuPick = '';
@@ -871,7 +872,49 @@ function when(iso){
    It does NOT swap the page under you. Somebody halfway through reading an allergen
    list should not have it change mid-sentence — it says so and waits to be told. */
 var WATCH_MS = 90000, changed = null, watching = null;
+/* ── the walk notices a dish that was not there when the page opened ──
+   Same fault as the recipe card: the list was read once, when the frame was first
+   built, and the module keeps the frame alive all session — a dish written after that
+   was not in the walk or the picker until the whole app reloaded. A light probe every
+   WATCH_MS and on every reopen; the full re-read only when a dish appeared, went, or
+   moved. The dish being read is NEVER swapped under the reader: if it moved too, the
+   old page stays and the banner says so, exactly as tick() does. */
+var freshening = false, dishSig = '';
+function listSig(rows){
+  return (rows||[]).map(function(r){ return r.id + '@' + (r.updated_at||''); }).sort().join('|');
+}
+function stampOf(rows, id){
+  var r = (rows||[]).filter(function(x){ return x.id === id; })[0];
+  return r && r.updated_at;
+}
+function freshen(){
+  if (busy || freshening || document.hidden || PH_STATE) return;
+  freshening = true;
+  sb('recipes?kind=eq.main&archived=is.false&select=id,updated_at')
+    .then(function(rows){
+      if (listSig(rows) === dishSig) return;
+      var el = document.activeElement;
+      if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;      /* mid-search: the next probe */
+      var cur = DISHES[idx], keep = cur && cur.id, keepAt = cur && cur.at;
+      return load().then(function(){
+        var at = -1;
+        DISHES.forEach(function(x,i){ if (x.id === keep) at = i; });
+        if (at > -1){
+          idx = at;
+          if (cur && !cur.isSample && DISHES[at].at !== keepAt){
+            DISHES[at] = cur;
+            changed = changed || stampOf(rows, keep) || DISHES[at].at;
+          }
+        } else idx = Math.min(idx, DISHES.length - 1);
+        render();
+      });
+    })
+    .catch(function(){})
+    .then(function(){ freshening = false; });
+}
+window.__rcpFreshen = freshen;           /* the module pokes this when the screen is reopened */
 function tick(){
+  freshen();
   var d = DISHES[idx];
   if (!d || !d.id || d.isSample || document.hidden || changed) return;
   sb('recipes?id=eq.'+d.id+'&select=updated_at')
