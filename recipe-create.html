@@ -1681,14 +1681,37 @@ function num(x){ x=String(x).replace(/\s+/g,"");
   return parseFloat(x); }
 /* "00 flour", "tipo 00" — a leading-zero number is part of a name, not a count */
 function isCount(raw){ return !/^0\d/.test(String(raw).trim()); }
+/* ───── a thousand, written the way half this kitchen writes it ─────
+   Andrea put the size of a tin of pelati into a batch on 12 Sep 2026 — "1.800" — and
+   parseFloat read it as 1.8 GRAMS. The sheet then said "All 1 done" over a cost of
+   0.01 AED where the real one is 15.00, and nothing moved when he filled in Makes,
+   which is how he came to report it. A comma is worse: parseFloat("1,800") stops at
+   the comma and answers 1.
+   Both readings are real. 1.800 is one tin to the man typing it and one and eight
+   tenths to the machine, and taking either one on his behalf is how a recipe gets
+   costed at a thousandth of what it costs. So the line ASKS, and carries no amount
+   until he has answered — the costing already knows how to say a number is short,
+   and it has no way at all to say one is wrong. */
+function thousandsAsk(text){
+  var t = String(text == null ? '' : text).trim();
+  var m = t.match(/^(\d{1,3})[.,](\d{3})$/);
+  if (!m) return null;
+  return { typed:t, big:parseFloat(m[1] + m[2]), small:parseFloat(m[1] + '.' + m[2]) };
+}
+/* Everything that is NOT that shape. A comma here is a decimal point — 1,5 is one and
+   a half to anyone who learnt to write numbers in Italy, and parseFloat answered 1. */
+function readAmt(text){
+  var n = parseFloat(String(text == null ? '' : text).trim().replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
 function parseQty(text){
   var t = String(text).trim().replace(/\s+/g," "), m;
   m = t.match(new RegExp("^("+NUM+")\\s*("+UNITRE+")?\\s+(.+)$","i"));      /* 200 gr sugar */
   if (m && isCount(m[1]))
-    return { qty:num(m[1]), unit:m[2]?UNITWORDS[m[2].toLowerCase()]:null, name:m[3].trim() };
+    return { qty:num(m[1]), rawQty:m[1], unit:m[2]?UNITWORDS[m[2].toLowerCase()]:null, name:m[3].trim() };
   m = t.match(new RegExp("^(.+?)\\s+("+NUM+")\\s*("+UNITRE+")?$","i"));      /* seabass 200 gr */
   if (m && isCount(m[2]))
-    return { qty:num(m[2]), unit:m[3]?UNITWORDS[m[3].toLowerCase()]:null, name:m[1].trim() };
+    return { qty:num(m[2]), rawQty:m[2], unit:m[3]?UNITWORDS[m[3].toLowerCase()]:null, name:m[1].trim() };
   return { qty:null, unit:null, name:t };
 }
 /* ═════════ the words in brackets ═════════
@@ -1724,7 +1747,7 @@ function splitLine(text){
         var p = p0.replace(//g, ',').replace(//g, ';');
         if (!p.trim()) return;
         var n = takeNote(p.trim()), q = parseQty(n.text);
-        out.push({ raw:p.trim(), name:q.name, qty:q.qty, unit:q.unit, note:n.note });
+        out.push({ raw:p.trim(), name:q.name, qty:q.qty, rawQty:q.rawQty, unit:q.unit, note:n.note });
       });
       return;
     }
@@ -1754,7 +1777,7 @@ function splitLine(text){
          parsley salt"), and that has no quantity in front of it, so use that as the
          line: with a number, take the rest whole; without one, split. */
       if (p.qty != null){
-        out.push({ raw:seg.trim(), name:p.name, qty:p.qty, unit:p.unit });
+        out.push({ raw:seg.trim(), name:p.name, qty:p.qty, rawQty:p.rawQty, unit:p.unit });
         return;
       }
       while (i < toks.length){
@@ -1768,7 +1791,8 @@ function splitLine(text){
         }
         if (!took){ took = toks[i]; i += 1; }
         out.push({ raw:seg.trim()+"#"+i, name:took,
-                   qty: first ? p.qty : null, unit: first ? p.unit : null });
+                   qty: first ? p.qty : null, rawQty: first ? p.rawQty : null,
+                   unit: first ? p.unit : null });
         first = false;
       }
     });
@@ -1972,7 +1996,7 @@ function applyKind(to){
        so a dish left sitting in it reaches his Micros form with no family at all */
     if (S.section === 'Prep') S.section = (was.section && was.section !== 'Prep') ? was.section : '';
   }
-  S.makesQty = (was.makesQty != null) ? was.makesQty : null;
+  S.makesQty = (was.makesQty != null) ? was.makesQty : null; S.mkAsk = null;
   S.kindAsk = null; S.kindStop = null; S.kindBusy = false;
   render();
   flash('Now a ' + kindWord(S.kind) + '. Everything you wrote is still here — say what it makes, then Save.');
@@ -2846,7 +2870,7 @@ function newRecipe(){
      who were reading its Back button as the way out of the recipe. Nothing it did is
      gone: the badge in the bar changes main to batch, and the box that takes a whole
      list at once is a fold on the sheet itself. */
-  S.price=null; S.makesQty=null; S.makesUnit=null; S.step='sheet';
+  S.price=null; S.makesQty=null; S.mkAsk=null; S.makesUnit=null; S.step='sheet';
   /* the fold on the sheet belongs to the recipe that has just left the screen */
   S.bulk=false; S.btext='';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
@@ -5445,6 +5469,10 @@ function mkRow(part){
             code: (!loose && opts.length === 1) ? opts[0].code : null,   /* auto only when there's no choice to make */
             qty:part.qty, unit:null, yield:100, waste:0, adj:false };
   var it = itemOf(r);
+  /* "1.800 g pelati" poured into the box is the same ambiguity as 1.800 typed into the
+     amount column — same question, same answer: ask on the line. See thousandsAsk(). */
+  r.amtAsk = thousandsAsk(part.rawQty);
+  if (r.amtAsk) r.qty = null;
   r.typedUnit = part.unit || null;      /* what he actually wrote, checked again once he picks */
   if (part.unit === '?'){               /* a tablespoon / a clove / a pinch is not a measurement */
     r.noMeasure = true; r.qty = null; r.unit = null;
@@ -7690,7 +7718,7 @@ function render(){
         var kb = $('kindbar'); if (kb && kb.scrollIntoView) kb.scrollIntoView({ block:'center' });
         return; }
       S.kind = S.kind === 'main' ? 'batch' : 'main';
-      S.price = null; S.makesQty = null; S.makesUnit = null;
+      S.price = null; S.makesQty = null; S.mkAsk = null; S.makesUnit = null;
       if (S.section && sectionList().indexOf(S.section) < 0) S.section = '';
       if (S.kind === 'main' && !(S.menus||[]).length){
         var runm = MENUS.filter(function(m){ return m.running; })[0];
@@ -8079,7 +8107,15 @@ function rowHTML(r, i){
   /* one short line, never a paragraph — the sheet must read at a glance.
      An empty line says nothing at all: it is not "not on the list", it is not written
      on yet, and six lines of warnings on a fresh sheet is a sheet that looks broken. */
-  var sub = isBlankRow(r)    ? ''
+  /* first, above everything — including the blank test. The line has no amount until
+     the question is answered, so isBlankRow() calls it blank and would have swallowed
+     the question on exactly the line that is being written: an amount typed before the
+     ingredient. Nothing else the meta line can say matters as much as this. */
+  var sub = r.amtAsk         ? '<i class="many">'+esc(r.amtAsk.typed)+' — is that ' +
+                               '<span class="fix" data-amt="'+i+'" data-amtv="'+r.amtAsk.big+'">'+r.amtAsk.big+'</span> or ' +
+                               '<span class="fix" data-amt="'+i+'" data-amtv="'+r.amtAsk.small+'">'+r.amtAsk.small+'</span>' +
+                               (r.unit ? ' '+esc(r.unit) : '')+'?</i>'
+          : isBlankRow(r)    ? ''
           : (twice > 1 && onPurpose)
                              ? '<i class="one">on this sheet ' + (twice===2?'twice':twice+' times') +
                                ', on purpose — both lines are counted in the cost</i>'
@@ -8162,7 +8198,9 @@ function rowHTML(r, i){
           ' or the cost is wrong</i></span>'
         : '') + '</td>' +
     '<td>'+sel+'</td>' +
-    '<td><input class="cell qty" data-i="'+i+'" data-f="qty" inputmode="decimal" value="'+(r.qty==null?'':r.qty)+'" placeholder="—"></td>' +
+    /* while the question stands the box holds what he TYPED, not an empty cell — a line
+       asking about "1.800" over a blank amount box reads as the app losing his number */
+    '<td><input class="cell qty" data-i="'+i+'" data-f="qty" inputmode="decimal" value="'+(r.amtAsk?esc(r.amtAsk.typed):(r.qty==null?'':r.qty))+'" placeholder="—"></td>' +
     /* The unit is drawn as real text that is always in the page, with the select laid
        over it and made invisible. A select with appearance:none draws its own value
        inside its content box and nowhere else — and that box had been squeezed to zero,
@@ -10471,7 +10509,11 @@ function foot(){
                   : t.noPrice ? t.noPrice + ' with no price'
                   : t.noProd ? t.noProd + ' without an ingredient'
                   : '';
-  var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(S.makesQty==null?'':S.makesQty)+'">';
+  /* Same box, same sentence of the same report: he typed the tin into the amount
+     column and then 1 kg here. "1.800" in THIS box divides the whole batch, so it is
+     asked the same way — and while it is unanswered the box holds his own words. */
+  var mkAsk = (S.makesQty == null) ? (S.mkAsk || null) : null;
+  var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(mkAsk?esc(mkAsk.typed):(S.makesQty==null?'':S.makesQty))+'">';
   var muSel = '<select class="mu" id="mu">' + ['kg','L','pcs'].map(function(u){
                 return '<option value="'+u+'"'+(mu===u?' selected':'')+'>'+u+'</option>'; }).join('') + '</select>';
   /* ── out of the way while he works ──
@@ -10506,6 +10548,12 @@ function foot(){
       : '<div><div class="l">Makes</div><div class="v">'+mkIn+' '+muSel+'</div></div>' +
         '<div><div class="l">Per '+mu.replace('pcs','piece')+'</div><div class="v">'+(each==null?'—':least(fmt(each)))+' <small>AED</small></div></div>') +
     '</div>' +
+    (mkAsk
+      ? '<div class="todo"><b>'+esc(mkAsk.typed)+' — is that ' +
+        '<span class="fix" data-mkamt="'+mkAsk.big+'">'+mkAsk.big+'</span> or ' +
+        '<span class="fix" data-mkamt="'+mkAsk.small+'">'+mkAsk.small+'</span> '+esc(mu)+'?</b> ' +
+        'Until you say, this has no “makes” — and “makes” is what every cost here is divided by.</div>'
+      : '') +
     (mk==null
       ? '<div class="todo">'+(S.kind==='batch'
           ? '<b>Say how much this batch makes.</b> Without it nothing can use it — a recipe that links this batch would have no cost for the line.'
@@ -10528,8 +10576,11 @@ function foot(){
     '<button class="sshut" id="footshut">Put it away ▲</button>' +
     '</div>';
   padForFoot();
-  liveInput('pr', function(v){ S.price   = parseFloat(v)||null; });
-  liveInput('mk', function(v){ S.makesQty = parseFloat(v)||null; });
+  liveInput('pr', function(v){ S.price   = readAmt(v)||null; });
+  liveInput('mk', function(v){
+    S.mkAsk = thousandsAsk(v);
+    S.makesQty = S.mkAsk ? null : (readAmt(v)||null);
+  });
   var ms = $('mu');
   if (ms) ms.addEventListener('change', function(){ S.makesUnit = this.value; foot(); });
   /* picking or dropping a batch changes what the dish contains — the allergen line
@@ -10591,6 +10642,26 @@ document.addEventListener('change', function(e){
     }
     redrawRow(+i); foot(); return;
   }
+  if (t.dataset.f === 'qty'){
+    /* Only now — the number is finished. See thousandsAsk(). The row is redrawn only
+       when the question appears or goes away, and whatever he had tabbed to on this
+       line is handed straight back: a redraw that eats the unit box mid-keyboard is
+       how a chef ends up typing the unit into nothing. */
+    var ask = thousandsAsk(t.value);
+    if (!ask && !r.amtGone) return;
+    r.amtAsk = ask || null; r.amtGone = false;
+    if (ask) r.qty = null;
+    /* after the focus has actually landed. On `change` it is still in the air: redraw
+       here and the unit box he just tabbed to is thrown away under him and he is left
+       standing on the body with nothing selected. */
+    setTimeout(function(){
+      var fx = document.activeElement;
+      var ff = (fx && fx.dataset && fx.dataset.i === String(i)) ? fx.dataset.f : null;
+      redrawRow(+i); foot();
+      if (ff){ var nb = document.querySelector('[data-i="'+i+'"][data-f="'+ff+'"]'); if (nb) nb.focus(); }
+    }, 0);
+    return;
+  }
   if (t.dataset.f === 'adj'){
     r.adj = t.checked;
     /* NOTHING is wiped. Untick stops the numbers counting towards the cost — it does
@@ -10616,7 +10687,15 @@ document.addEventListener('input', function(e){
   var r = S.rows[+i];
   if (f==='anm'){ r.addName  = t.value; return; }        /* the add form holds text, not numbers */
   if (f==='apr'){ r.addPrice = t.value; return; }
-  r[f] = t.value === '' ? (f==='qty' ? null : (f==='yield' ? 100 : 0)) : parseFloat(t.value)||0;
+  r[f] = t.value === '' ? (f==='qty' ? null : (f==='yield' ? 100 : 0)) : readAmt(t.value)||0;
+  /* the thousands question is asked when he LEAVES the box, never on the keystroke that
+     makes the shape — redrawing the row mid-number takes the box out from under him and
+     the rest of the number is typed into nothing (the same trap as the mismatch branch
+     below). Any edit clears a standing question: he is answering it by hand. `amtGone`
+     is how the line remembers to take the question OFF when he leaves; without it the
+     row is never redrawn and the meta line goes on asking about a number he has
+     already replaced. */
+  if (f==='qty' && r.amtAsk){ r.amtAsk = null; r.amtGone = true; }
   /* A minus sign must never reach a cost. Left unchecked it SUBTRACTS from the dish,
      so the total looks smaller and more believable than a zero would. */
   if (f==='qty'   && r.qty   != null && r.qty   < 0){ r.qty   = null; t.value = ''; }
@@ -10848,6 +10927,14 @@ document.addEventListener('click', function(e){
     }).join(', ');
     var db = $('dp'); if (db) db.value = S.btext;
     bulkReflow(); return;
+  }
+  var mka = e.target.closest('[data-mkamt]');          /* …the same question, on "makes" */
+  if (mka){ S.makesQty = parseFloat(mka.dataset.mkamt); S.mkAsk = null; foot(); return; }
+  var am = e.target.closest('[data-amt]');             /* which thousand he meant */
+  if (am){
+    var ai = +am.dataset.amt, ar = S.rows[ai];
+    if (ar){ ar.qty = parseFloat(am.dataset.amtv); ar.amtAsk = null; redrawRow(ai); foot(); }
+    return;
   }
   var rf = e.target.closest('[data-rowfix]');                /* …or on the sheet */
   if (rf){
