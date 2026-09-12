@@ -296,6 +296,61 @@ input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
 #crkcount{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--vino-light);
   letter-spacing:.05em}
 #crkgrid{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 16px 16px}
+/* ---- managing the shelf ---- */
+.crkhdtop{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
+.crkmode{flex:0 0 auto;font-family:var(--sans);font-size:12.5px;font-weight:700;
+  letter-spacing:.04em;background:rgba(245,237,224,.14);color:var(--cream);
+  border:1px solid rgba(245,237,224,.5);border-radius:3px;padding:0 12px;min-height:40px;
+  cursor:pointer;white-space:nowrap}
+.crkmode:hover{background:rgba(245,237,224,.26)}
+.crkmode:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.crkabar{display:flex;flex-wrap:wrap;gap:10px;padding:12px 0 4px}
+.crkok{background:var(--cream);border-left:3px solid var(--oliva);color:var(--ink);
+  font-size:13.5px;line-height:1.5;padding:11px 13px;margin:12px 0 2px;border-radius:0 3px 3px 0}
+.crkarow{display:flex;align-items:center;gap:12px;background:#fff;
+  border:1px solid var(--sabbia-dark);border-radius:4px;padding:9px;margin-bottom:8px}
+.crkarow.off{background:var(--sabbia-light);opacity:.82}
+.crkarow img,.crkarow .crkno{width:62px;height:62px;flex:0 0 auto;object-fit:contain;
+  background:var(--sabbia-light);border-radius:3px}
+.crkatxt{flex:1 1 auto;min-width:0}
+.crkan{font-size:14.5px;font-weight:600;color:var(--ink);line-height:1.3}
+.crkam{font-size:11.5px;color:var(--vino-light);margin-top:3px;line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis}
+.crkoffpill{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+  color:var(--cream);background:var(--vino-light);border-radius:2px;padding:2px 6px;
+  vertical-align:2px}
+.crkabtns{flex:0 0 auto;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.crkcx{font-family:var(--sans);font-size:13px;font-weight:600;background:#fff;
+  color:var(--vino);border:1px solid var(--sabbia-dark);border-radius:3px;padding:0 14px;
+  min-height:44px;cursor:pointer;white-space:nowrap}
+.crkcx:hover{border-color:var(--vino)}
+.crkcx:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.crkcx.warn{color:var(--vino);border-color:rgba(65,2,7,.45)}
+.crkcx.warn:hover{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.crkform{background:#fff;border:2px solid var(--vino);border-radius:4px;padding:14px;
+  margin:10px 0 12px}
+.crkfhd{font-family:var(--serif);font-size:21px;color:var(--vino);margin-bottom:12px}
+.crkfrow{display:flex;gap:16px;flex-wrap:wrap}
+.crkfpic{flex:0 0 auto;width:168px;display:flex;flex-direction:column;gap:9px}
+.crkfpic img{width:168px;height:140px;object-fit:contain;background:var(--sabbia-light);
+  border:1px solid var(--sabbia-dark);border-radius:3px}
+.crkfpic .crkno{width:168px;height:140px;display:flex;align-items:center;justify-content:center;
+  background:var(--sabbia-light);border:1px dashed var(--sabbia-dark);border-radius:3px;
+  font-size:12px;color:var(--vino-light);font-style:italic}
+.crkfbtn{font-family:var(--sans);font-size:13px;font-weight:600;background:var(--sabbia-light);
+  color:var(--vino);border:1px solid var(--sabbia-dark);border-radius:3px;min-height:44px;
+  cursor:pointer;padding:0 10px}
+.crkfbtn:hover{border-color:var(--vino)}
+.crkfbtn:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.crkffields{flex:1 1 260px;min-width:0}
+.crkffields .ml{margin-top:11px}
+.crkffields .ml:first-child{margin-top:0}
+.crkfin{display:block;width:100%;font-family:var(--sans);font-size:15px;color:var(--ink);
+  background:#fff;border:1px solid var(--sabbia-dark);border-radius:3px;padding:10px 12px;
+  min-height:44px}
+.crkfin:focus{border-color:var(--vino);outline:none}
+.crkfact{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.crkdone[disabled]{opacity:.6;cursor:default}
 .crkgh{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--vino-light);
   font-weight:700;padding:14px 0 8px;position:sticky;top:0;background:var(--sabbia-light);
   z-index:1}
@@ -323,6 +378,13 @@ input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
 .crkdone:hover{background:var(--vino-mid)}
 .crkdone:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
 @media(max-width:560px){
+  .crkhdtop{flex-wrap:wrap}
+  .crkmode{width:100%}
+  .crkarow{flex-wrap:wrap}
+  .crkatxt{flex:1 1 140px}
+  .crkabtns{flex:1 1 100%;justify-content:stretch}
+  .crkabtns .crkcx{flex:1 1 0}
+  .crkfpic,.crkfpic img,.crkfpic .crkno{width:100%}
   .crkrow{flex-wrap:wrap}
   .crkbtn{flex:1 1 100%}
   .crkbox{max-height:100vh;border-radius:0}
@@ -1623,15 +1685,23 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 <!-- the whole folder in one go: his à la carte year is sixty workbooks in one place -->
 <input type="file" id="fd" webkitdirectory directory multiple style="display:none">
 <input type="file" id="pf" style="display:none" accept="image/*" multiple>
+<!-- one photograph of one piece of crockery. `capture` makes the phone offer its camera
+     first; on a laptop it is an ordinary file picker, which is what Andrea has. -->
+<input type="file" id="crkf" style="display:none" accept="image/*" capture="environment">
 <!-- The crockery shelf. Outside .wrap on purpose: .wrap is redrawn wholesale every
      time the sheet is drawn, and a dialog that disappears mid-scroll because something
      else repainted is worse than no dialog. -->
 <div id="crkovl" role="dialog" aria-modal="true" aria-labelledby="crkttl">
   <div class="crkbox">
     <div class="crkhd">
-      <h3 id="crkttl">What does it go out on?</h3>
-      <p>Everything we own, photographed. Tap the ones this dish uses &mdash; the words
-         fill themselves in, and the recipe card carries the picture.</p>
+      <div class="crkhdtop">
+        <h3 id="crkttl">What does it go out on?</h3>
+        <!-- the way into managing the shelf is HERE, in the dialog, because the moment
+             you find out a plate is missing is the moment you go looking for it -->
+        <button type="button" class="crkmode" id="crkmode" data-crkmode="1">Manage the shelf</button>
+      </div>
+      <p id="crksub">Everything we own, photographed. Tap the ones this dish uses &mdash; the
+         words fill themselves in, and the recipe card carries the picture.</p>
     </div>
     <div class="crktools">
       <input id="crksrch" placeholder="Search &mdash; wasabi, copper, 27&hellip;"
@@ -1639,7 +1709,7 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
       <span id="crkcount">Nothing picked yet</span>
     </div>
     <div id="crkgrid"></div>
-    <div class="crkft"><button type="button" class="crkdone" data-crkdone="1">Done</button></div>
+    <div class="crkft" id="crkft"><button type="button" class="crkdone" data-crkdone="1">Done</button></div>
   </div>
 </div>
 
@@ -2222,16 +2292,55 @@ var CUTLERY = ['Starter fork','Starter knife','Main fork','Main knife','Molluscs
 
    Loaded the first time the shelf is opened and not before - seventy-six thumbnails is
    a third of a megabyte, and a chef who never opens it should never pay for it. */
-var CRK = { ready:false, busy:false, err:'', all:[], q:'', on:false };
+/* `mode` is which half of this dialog you are in: picking a plate for the recipe, or
+   managing the shelf itself. One dialog, not two screens, because you find out something
+   is missing from the shelf at the exact moment you go looking for it. */
+var CRK = { ready:false, busy:false, err:'', all:[], q:'', on:false, mode:'pick',
+            edit:null, form:null, saving:false, note:'', showOff:false,
+            use:null, useErr:'' };
 function crockLoad(){
   if (CRK.ready || CRK.busy) return Promise.resolve();
   CRK.busy = true; CRK.err = '';
-  return sb('crockery?select=id,name,code,source,thumb&archived=is.false' +
+  /* the RETIRED ones come too, and are filtered out of the picking grid rather than left
+     out of the fetch: bringing one back has to be possible without another round trip,
+     and a recipe that already picked a piece must still be able to draw it */
+  return sb('crockery?select=id,name,code,source,thumb,archived,sort_order' +
             '&venue_id=eq.robertos-difc&order=source,sort_order')
     .then(function(r){ CRK.all = r || []; CRK.ready = true; CRK.busy = false; })
     .catch(function(e){ CRK.err = e.message || 'the shelf did not answer';
                         CRK.busy = false; });
 }
+/* Reread after every write. The list is small and the alternative - patching the copy in
+   memory to match what we think the database did - is how a screen starts disagreeing
+   with the table it is showing. */
+function crockReload(){
+  CRK.ready = false; CRK.busy = false;
+  return crockLoad().then(function(){ drawCrockGrid(); drawCrock(); });
+}
+
+/* ───────── who is using what ─────────
+   Retiring a plate three dishes are plated on is a decision, not a tidy-up, so the row
+   says so before the button is pressed. One read of the recipes, once, when the managing
+   half is first opened: 32 recipes is a small fetch and it is never asked for by somebody
+   who only came here to pick a plate. */
+function crockUsage(){
+  if (CRK.use || CRK.useBusy) return Promise.resolve();
+  CRK.useBusy = true; CRK.useErr = '';
+  return sb('recipes?select=id,name,method,archived&venue_id=eq.robertos-difc&kind=eq.main')
+    .then(function(rows){
+      var by = {};
+      (rows || []).forEach(function(r){
+        if (r.archived) return;
+        var ids = (r.method && r.method.crock) || [];
+        if (!Array.isArray(ids)) return;
+        ids.forEach(function(id){ (by[id] = by[id] || []).push(r.name || 'a recipe'); });
+      });
+      CRK.use = by; CRK.useBusy = false;
+    })
+    .catch(function(e){ CRK.useErr = e.message || 'could not read the recipes';
+                        CRK.use = {}; CRK.useBusy = false; });
+}
+function crockUsedBy(id){ return (CRK.use && CRK.use[id]) || []; }
 function crockById(id){
   for (var i=0;i<CRK.all.length;i++) if (CRK.all[i].id === id) return CRK.all[i];
   return null;
@@ -9316,8 +9425,11 @@ function crockGridHTML(){
   if (!CRK.ready) return '<div class="crknote">Getting the shelf&hellip;</div>';
   var q = CRK.q.trim().toLowerCase();
   var on = (S.method && S.method.crock) || [];
+  /* a retired piece is one we no longer have, so it is not offered - but if this recipe
+     already picked it, it is still drawn as a chip under the box, and still on the card */
   var list = CRK.all.filter(function(it){
-    return !q || (it.name+' '+it.code+' '+it.source).toLowerCase().indexOf(q) > -1; });
+    return !it.archived &&
+      (!q || (it.name+' '+it.code+' '+it.source).toLowerCase().indexOf(q) > -1); });
   if (!list.length) return '<div class="crknote">Nothing on the shelf matches ' +
     '&ldquo;' + esc(CRK.q) + '&rdquo;. Close this and type it &mdash; the box still ' +
     'takes any words you like.</div>';
@@ -9341,14 +9453,264 @@ function crockGridHTML(){
   });
   return out + (last !== null ? '</div>' : '');
 }
+/* ───────── managing the shelf ─────────
+   Add a piece, correct one, replace a photograph, retire one, bring one back. The same
+   rule the menus screen already follows: there is no delete. A piece is RETIRED, which
+   takes it off the picking grid and leaves every recipe that ever used it exactly as it
+   was - a plate is what a card tells somebody to fetch, and deleting one would quietly
+   empty a box a chef is reading at the pass. */
+function crockGroups(){
+  var seen = {}, out = [];
+  CRK.all.forEach(function(it){
+    if (it.source && !seen[it.source]){ seen[it.source] = 1; out.push(it.source); } });
+  return out;
+}
+function crockBlankForm(){
+  return { id:null, name:'', code:'', source:crockGroups()[0] || '', thumb:'', photo:'',
+           newphoto:false, err:'' };
+}
+function crockFormHTML(f){
+  var isNew = !f.id;
+  return '<div class="crkform">' +
+    '<div class="crkfhd">' + (isNew ? 'A new piece on the shelf' : 'Correct this piece') + '</div>' +
+    '<div class="crkfrow">' +
+      '<div class="crkfpic">' +
+        (f.thumb ? '<img src="' + esc(f.thumb) + '" alt="">'
+                 : '<span class="crkno">no photo</span>') +
+        '<button type="button" class="crkfbtn" data-crkpic="1">' +
+          (f.thumb ? 'Replace the photo' : 'Take the photo') + '</button>' +
+      '</div>' +
+      '<div class="crkffields">' +
+        '<label class="ml" for="crkf-name">What it is called</label>' +
+        '<input class="crkfin" id="crkf-name" value="' + esc(f.name) + '" ' +
+          'placeholder="Round wave starter plate" autocomplete="off">' +
+        '<label class="ml" for="crkf-code">Code on the inventory</label>' +
+        '<input class="crkfin" id="crkf-code" value="' + esc(f.code) + '" ' +
+          'placeholder="leave empty if it has none" autocomplete="off">' +
+        '<label class="ml" for="crkf-src">Where it is counted</label>' +
+        '<input class="crkfin" id="crkf-src" value="' + esc(f.source) + '" ' +
+          'list="crkgroups" placeholder="B3 store" autocomplete="off">' +
+        '<datalist id="crkgroups">' + crockGroups().map(function(g){
+          return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>' +
+      '</div>' +
+    '</div>' +
+    (f.err ? '<div class="crknote bad">' + esc(f.err) + '</div>' : '') +
+    '<div class="crkfact">' +
+      '<button type="button" class="crkdone" data-crksave="1"' +
+        (CRK.saving ? ' disabled' : '') + '>' +
+        (CRK.saving ? 'Saving\u2026' : (isNew ? 'Put it on the shelf' : 'Save the change')) +
+      '</button>' +
+      '<button type="button" class="crkcx" data-crkcx="1">Cancel</button>' +
+    '</div>' +
+  '</div>';
+}
+function crockAdminHTML(){
+  if (CRK.err) return '<div class="crknote bad">The shelf did not load &mdash; ' +
+    esc(CRK.err) + '.</div>';
+  if (!CRK.ready) return '<div class="crknote">Getting the shelf&hellip;</div>';
+  var out = '';
+  if (CRK.note) out += '<div class="crkok">' + CRK.note + '</div>';
+  out += '<div class="crkabar">' +
+    '<button type="button" class="crkdone" data-crknew="1">+ Add a piece</button>' +
+    '<button type="button" class="crkcx" data-crkoff2="1">' +
+      (CRK.showOff ? 'Hide the retired ones' : 'Show the retired ones') + '</button>' +
+  '</div>';
+  if (CRK.form && !CRK.form.id) out += crockFormHTML(CRK.form);
+
+  var q = CRK.q.trim().toLowerCase();
+  var list = CRK.all.filter(function(it){
+    if (it.archived && !CRK.showOff) return false;
+    return !q || (it.name+' '+it.code+' '+it.source).toLowerCase().indexOf(q) > -1;
+  });
+  if (!list.length) return out + '<div class="crknote">Nothing here matches ' +
+    (CRK.q ? '&ldquo;' + esc(CRK.q) + '&rdquo;' : 'that') + '.</div>';
+  var last = null;
+  list.forEach(function(it){
+    if (it.source !== last){ last = it.source;
+      out += '<div class="crkgh">' + esc(last || 'No group') + '</div>'; }
+    if (CRK.form && CRK.form.id === it.id){ out += crockFormHTML(CRK.form); return; }
+    var used = crockUsedBy(it.id);
+    out += '<div class="crkarow' + (it.archived ? ' off' : '') + '">' +
+      (it.thumb ? '<img src="' + esc(it.thumb) + '" alt="" loading="lazy">'
+                : '<span class="crkno"></span>') +
+      '<div class="crkatxt">' +
+        '<div class="crkan">' + esc(it.name) +
+          (it.archived ? ' <span class="crkoffpill">retired</span>' : '') + '</div>' +
+        '<div class="crkam">' + (it.code ? esc(it.code) + ' &middot; ' : '') +
+          (CRK.use
+            ? (used.length
+                ? 'on ' + used.length + ' recipe' + (used.length===1?'':'s') + ': ' +
+                  esc(used.slice(0,3).join(', ')) + (used.length>3 ? '\u2026' : '')
+                : 'on no recipe yet')
+            : 'counting the recipes\u2026') +
+        '</div>' +
+      '</div>' +
+      '<div class="crkabtns">' +
+        '<button type="button" class="crkcx" data-crkedit="' + esc(it.id) + '">Correct</button>' +
+        (it.archived
+          ? '<button type="button" class="crkcx" data-crkback="' + esc(it.id) + '">Bring back</button>'
+          : '<button type="button" class="crkcx warn" data-crkretire="' + esc(it.id) + '">Retire</button>') +
+      '</div>' +
+    '</div>';
+  });
+  return out;
+}
 function drawCrockGrid(){
-  var g = $('crkgrid'); if (g) g.innerHTML = crockGridHTML();
+  /* Anything that redraws this grid REBUILDS the form's inputs from CRK.form, so whatever
+     has been typed since the last read would be thrown away. Found on a phone: type the
+     name, then take the photograph, and the name was gone - because the photo landing is
+     itself a redraw. Read first, here, at the one place every redraw goes through, rather
+     than remembering to do it at each of the six callers. */
+  if (CRK.form && $('crkf-name')) crockReadForm();
+  var g = $('crkgrid');
+  if (g) g.innerHTML = (CRK.mode === 'admin') ? crockAdminHTML() : crockGridHTML();
   var c = $('crkcount');
-  if (c){ var n = ((S.method && S.method.crock) || []).length;
-    c.textContent = n ? (n + ' picked') : 'Nothing picked yet'; }
+  if (c){
+    if (CRK.mode === 'admin'){
+      var live = CRK.all.filter(function(x){ return !x.archived; }).length;
+      c.textContent = CRK.ready ? (live + ' on the shelf') : '';
+    } else {
+      var n = ((S.method && S.method.crock) || []).length;
+      c.textContent = n ? (n + ' picked') : 'Nothing picked yet';
+    }
+  }
+  var t = $('crkmode');
+  if (t) t.textContent = (CRK.mode === 'admin') ? '\u2039 Back to picking' : 'Manage the shelf';
+  var h = $('crkttl');
+  if (h) h.textContent = (CRK.mode === 'admin') ? 'The shelf' : 'What does it go out on?';
+  var sub = $('crksub');
+  if (sub) sub.innerHTML = (CRK.mode === 'admin')
+    ? 'Everything we own. Add what is missing, correct a name or a photograph, retire what ' +
+      'we no longer have. <b>Nothing is ever deleted</b> &mdash; a retired piece comes off ' +
+      'the picking list and stays on every recipe that already uses it.'
+    : 'Everything we own, photographed. Tap the ones this dish uses &mdash; the words fill ' +
+      'themselves in, and the recipe card carries the picture.';
+  var sb = $('crksrch');
+  if (sb) sb.placeholder = (CRK.mode === 'admin')
+    ? 'Search the shelf\u2026' : 'Search \u2014 wasabi, copper, 27\u2026';
+  var ft = $('crkft');
+  if (ft) ft.style.display = (CRK.mode === 'admin') ? 'none' : '';
+}
+
+function crockMode(m){
+  CRK.mode = m; CRK.form = null; CRK.note = ''; CRK.q = '';
+  var sb = $('crksrch'); if (sb) sb.value = '';
+  if (m === 'admin') crockUsage().then(function(){ if (CRK.mode === 'admin') drawCrockGrid(); });
+  drawCrockGrid();
+  var g = $('crkgrid'); if (g) g.scrollTop = 0;
+}
+
+/* A photograph off the phone, or a file off the laptop - the same input either way; the
+   phone offers its camera because of `capture`. Shrunk here rather than sent whole: a
+   4MB kitchen photo in a row every screen reads is a slow app for everybody. */
+function crockShrink(file){
+  return new Promise(function(res, rej){
+    var url = URL.createObjectURL(file), im = new Image();
+    im.onload = function(){
+      URL.revokeObjectURL(url);
+      var w = im.naturalWidth, h = im.naturalHeight;
+      if (!w || !h) return rej(new Error('that image could not be read'));
+      var mk = function(max, q){
+        var sc = Math.min(1, max/Math.max(w,h));
+        var c = document.createElement('canvas');
+        c.width = Math.round(w*sc); c.height = Math.round(h*sc);
+        var cx = c.getContext('2d', { willReadFrequently:true });
+        cx.drawImage(im, 0, 0, c.width, c.height);
+        /* the same backdrop levelling the recipe photos get. It takes itself out on
+           anything that is not a pale seamless ground, which most of these are not. */
+        try { levelGround(cx, c.width, c.height); } catch(e){}
+        return c.toDataURL('image/jpeg', q);
+      };
+      res({ thumb: mk(220, 0.72), photo: mk(900, 0.8) });
+    };
+    im.onerror = function(){ URL.revokeObjectURL(url);
+      rej(new Error('that is not an image the app can open')); };
+    im.src = url;
+  });
+}
+function crockReadForm(){
+  var f = CRK.form; if (!f) return null;
+  var g = function(id){ var e = $(id); return e ? e.value : ''; };
+  f.name = g('crkf-name').trim();
+  f.code = g('crkf-code').trim();
+  f.source = g('crkf-src').trim();
+  return f;
+}
+function crockSaveForm(){
+  var f = crockReadForm(); if (!f || CRK.saving) return;
+  f.err = '';
+  if (!f.name){ f.err = 'It needs a name \u2014 that is what a chef reads on the card.';
+                drawCrockGrid(); return; }
+  /* two plates with the same name is the thing this whole shelf exists to stop */
+  var clash = CRK.all.filter(function(x){
+    return x.id !== f.id && String(x.name).toLowerCase() === f.name.toLowerCase(); })[0];
+  if (clash){
+    f.err = 'There is already a piece called \u201c' + clash.name + '\u201d' +
+      (clash.archived ? ' (retired \u2014 bring that one back instead).' : '.') +
+      ' Two with one name is what this shelf is for.';
+    drawCrockGrid(); return;
+  }
+  if (!f.id && !f.thumb){
+    f.err = 'A piece with no photograph is a description again. Take the photo first.';
+    drawCrockGrid(); return;
+  }
+  CRK.saving = true; drawCrockGrid();
+  var body = { name:f.name, code:f.code, source:f.source,
+               updated_at:new Date().toISOString() };
+  if (f.newphoto){ body.thumb = f.thumb; body.photo = f.photo; }
+  var req;
+  if (f.id){
+    req = sb('crockery?id=eq.' + f.id, { method:'PATCH', prefer:'return=minimal', body:body });
+  } else {
+    /* a new piece lands at the end of its own group, which is where the eye looks for
+       the thing that was just added */
+    var mx = 0;
+    CRK.all.forEach(function(x){ if (x.source === f.source && x.sort_order > mx) mx = x.sort_order; });
+    body.venue_id = 'robertos-difc';
+    body.sort_order = mx + 10;
+    /* whoSeed() fills this in from whoever this screen already remembers, so adding a
+       plate does not become a second "say who" ask on a screen that has one. */
+    try { whoSeed(); } catch(e){}
+    var w = null; try { w = whoOnScreen(); } catch(e){}
+    body.created_by = (w && w.name) || (S.who && S.who.name) || '';
+    req = sb('crockery', { method:'POST', prefer:'return=minimal', body:[body] });
+  }
+  var was = f.id, nm = f.name;
+  req.then(function(){
+    CRK.saving = false; CRK.form = null;
+    CRK.note = was ? ('Saved \u2014 <b>' + esc(nm) + '</b>.')
+                   : ('<b>' + esc(nm) + '</b> is on the shelf.');
+    CRK.use = null; CRK.useBusy = false;
+    return crockReload().then(function(){ return crockUsage(); }).then(drawCrockGrid);
+  }).catch(function(e){
+    CRK.saving = false;
+    var ff = CRK.form; if (ff) ff.err = 'Not saved \u2014 ' + (e.message || 'the write was refused') +
+      '. Nothing was lost; what you typed is still here.';
+    drawCrockGrid();
+  });
+}
+function crockArchive(id, off){
+  var it = crockById(id); if (!it) return;
+  CRK.note = '';
+  sb('crockery?id=eq.' + id, { method:'PATCH', prefer:'return=minimal',
+      body:{ archived:off, updated_at:new Date().toISOString() } })
+    .then(function(){
+      /* the undo is a BUTTON on the row, not a message that expires: show the retired
+         ones and Bring back is sitting there for as long as anyone needs it */
+      CRK.note = off
+        ? ('<b>' + esc(it.name) + '</b> is retired. It is off the picking list and still on ' +
+           'every recipe that uses it. <b>Show the retired ones</b> to bring it back.')
+        : ('<b>' + esc(it.name) + '</b> is back on the shelf.');
+      if (off) CRK.showOff = true;
+      return crockReload();
+    })
+    .catch(function(e){
+      CRK.note = '<b>Not changed.</b> ' + esc(e.message || 'the write was refused');
+      drawCrockGrid();
+    });
 }
 function openCrock(){
-  CRK.on = true; CRK.q = '';
+  CRK.on = true; CRK.q = ''; CRK.mode = 'pick'; CRK.form = null; CRK.note = '';
   var o = $('crkovl'); if (o) o.classList.add('on');
   var s = $('crksrch'); if (s) s.value = '';
   document.body.style.overflow = 'hidden';
@@ -10602,8 +10964,28 @@ function crockWire(){
   if (CRKWIRED) return; CRKWIRED = true;
   var s = $('crksrch');
   if (s) s.addEventListener('input', function(){ CRK.q = this.value; drawCrockGrid(); });
+  var pf = $('crkf');
+  if (pf) pf.addEventListener('change', function(){
+    var f = this.files && this.files[0]; if (!f || !CRK.form) return;
+    CRK.form.err = 'Reading the photo\u2026'; drawCrockGrid();
+    crockShrink(f).then(function(im){
+      if (!CRK.form) return;
+      CRK.form.thumb = im.thumb; CRK.form.photo = im.photo;
+      CRK.form.newphoto = true; CRK.form.err = ''; drawCrockGrid();
+    }).catch(function(err){
+      if (!CRK.form) return;
+      CRK.form.err = 'That photo could not be read \u2014 ' + (err.message || 'try another');
+      drawCrockGrid();
+    });
+  });
   document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape' && CRK.on){ e.preventDefault(); closeCrock(); }
+    if (e.key !== 'Escape' || !CRK.on) return;
+    e.preventDefault();
+    /* one press undoes one thing: the form first, then the managing half, then the
+       dialog. Escape out of a half-typed new piece must not also shut the shelf. */
+    if (CRK.form){ CRK.form = null; drawCrockGrid(); return; }
+    if (CRK.mode === 'admin'){ crockMode('pick'); return; }
+    closeCrock();
   });
 }
 function drawFohState(){
@@ -11641,13 +12023,45 @@ document.addEventListener('click', function(e){
   /* --- the crockery shelf --- */
   if (e.target.closest('[data-crkopen]')){ openCrock(); return; }
   if (e.target.closest('[data-crkdone]')){ closeCrock(); return; }
+  /* --- managing it --- */
+  if (e.target.closest('[data-crkmode]')){
+    crockMode(CRK.mode === 'admin' ? 'pick' : 'admin'); return; }
+  if (e.target.closest('[data-crknew]')){
+    CRK.form = crockBlankForm(); CRK.note = ''; drawCrockGrid();
+    var nf = $('crkf-name'); if (nf) nf.focus(); return; }
+  if (e.target.closest('[data-crkoff2]')){
+    CRK.showOff = !CRK.showOff; drawCrockGrid(); return; }
+  var ced = e.target.closest('[data-crkedit]');
+  if (ced){
+    var ei = crockById(ced.dataset.crkedit); if (!ei) return;
+    /* the big photograph is not in the list in memory - only the thumbnail is - so the
+       form shows the thumbnail and only sends a photo if a NEW one is taken. Replacing
+       the thumbnail and leaving the old big photo behind would put two different plates
+       on one row. */
+    CRK.form = { id:ei.id, name:ei.name, code:ei.code||'', source:ei.source||'',
+                 thumb:ei.thumb||'', photo:'', newphoto:false, err:'' };
+    CRK.note = ''; drawCrockGrid();
+    var ef = $('crkf-name'); if (ef) ef.focus(); return;
+  }
+  if (e.target.closest('[data-crkcx]')){ CRK.form = null; drawCrockGrid(); return; }
+  if (e.target.closest('[data-crksave]')){ crockSaveForm(); return; }
+  if (e.target.closest('[data-crkpic]')){
+    crockReadForm();                       /* keep what is typed while the picker is open */
+    var fi = $('crkf'); if (fi){ fi.value = ''; fi.click(); } return; }
+  var cre = e.target.closest('[data-crkretire]');
+  if (cre){ crockArchive(cre.dataset.crkretire, true); return; }
+  var crb = e.target.closest('[data-crkback]');
+  if (crb){ crockArchive(crb.dataset.crkback, false); return; }
   var cpk = e.target.closest('[data-crkpick]');
   if (cpk){ crockToggle(cpk.dataset.crkpick); return; }
   var cof = e.target.closest('[data-crkoff]');
   if (cof){ crockToggle(cof.dataset.crkoff); return; }
   /* the dark ground behind the shelf closes it; a press INSIDE the box must not,
      which is why this tests the overlay itself rather than "not the box" */
-  if (e.target.id === 'crkovl'){ closeCrock(); return; }
+  if (e.target.id === 'crkovl'){
+    if (CRK.form) return;              /* never throw away a half-written piece */
+    closeCrock(); return;
+  }
   var cut = e.target.closest('[data-cut]');
   if (cut){
     if (!S.method) S.method = emptyMethod();
