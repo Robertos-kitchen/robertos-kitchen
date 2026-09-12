@@ -316,6 +316,7 @@ input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
 .crkan{font-size:14.5px;font-weight:600;color:var(--ink);line-height:1.3}
 .crkam{font-size:11.5px;color:var(--vino-light);margin-top:3px;line-height:1.4;
   overflow:hidden;text-overflow:ellipsis}
+.crknoprice{color:var(--vino);font-weight:700}
 .crkoffpill{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
   color:var(--cream);background:var(--vino-light);border-radius:2px;padding:2px 6px;
   vertical-align:2px}
@@ -2304,7 +2305,7 @@ function crockLoad(){
   /* the RETIRED ones come too, and are filtered out of the picking grid rather than left
      out of the fetch: bringing one back has to be possible without another round trip,
      and a recipe that already picked a piece must still be able to draw it */
-  return sb('crockery?select=id,name,code,source,thumb,archived,sort_order' +
+  return sb('crockery?select=id,name,code,source,thumb,price,archived,sort_order' +
             '&venue_id=eq.robertos-difc&order=source,sort_order')
     .then(function(r){ CRK.all = r || []; CRK.ready = true; CRK.busy = false; })
     .catch(function(e){ CRK.err = e.message || 'the shelf did not answer';
@@ -9466,8 +9467,8 @@ function crockGroups(){
   return out;
 }
 function crockBlankForm(){
-  return { id:null, name:'', code:'', source:crockGroups()[0] || '', thumb:'', photo:'',
-           newphoto:false, err:'' };
+  return { id:null, name:'', code:'', source:crockGroups()[0] || '', price:'',
+           thumb:'', photo:'', newphoto:false, err:'' };
 }
 function crockFormHTML(f){
   var isNew = !f.id;
@@ -9490,6 +9491,16 @@ function crockFormHTML(f){
         '<label class="ml" for="crkf-src">Where it is counted</label>' +
         '<input class="crkfin" id="crkf-src" value="' + esc(f.source) + '" ' +
           'list="crkgroups" placeholder="B3 store" autocomplete="off">' +
+        /* What one costs. Only 20 of the 76 came with a price - the inventory
+           workbooks priced one sheet and not the other two - so it is optional
+           and the crockery count says out loud how many lines it cannot value.
+           Fill one in here and that piece is priced from then on. */
+        '<label class="ml" for="crkf-price">What one costs (AED)</label>' +
+        '<input class="crkfin" id="crkf-price" value="' + esc(f.price === '' || f.price == null ? '' : f.price) + '" ' +
+          'inputmode="decimal" placeholder="leave empty if we do not know" autocomplete="off">' +
+        '<div class="mhint" style="margin-top:5px">Used by the Crockery Count to work ' +
+          'out what a month\u2019s breakage cost. Empty is fine \u2014 the count still ' +
+          'works, it just cannot price this line.</div>' +
         '<datalist id="crkgroups">' + crockGroups().map(function(g){
           return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>' +
       '</div>' +
@@ -9537,6 +9548,8 @@ function crockAdminHTML(){
         '<div class="crkan">' + esc(it.name) +
           (it.archived ? ' <span class="crkoffpill">retired</span>' : '') + '</div>' +
         '<div class="crkam">' + (it.code ? esc(it.code) + ' &middot; ' : '') +
+          (it.price != null ? 'AED ' + it.price + ' &middot; '
+                            : '<b class="crknoprice">no price</b> &middot; ') +
           (CRK.use
             ? (used.length
                 ? 'on ' + used.length + ' recipe' + (used.length===1?'':'s') + ': ' +
@@ -9634,6 +9647,7 @@ function crockReadForm(){
   f.name = g('crkf-name').trim();
   f.code = g('crkf-code').trim();
   f.source = g('crkf-src').trim();
+  f.price = g('crkf-price').trim();
   return f;
 }
 function crockSaveForm(){
@@ -9654,8 +9668,18 @@ function crockSaveForm(){
     f.err = 'A piece with no photograph is a description again. Take the photo first.';
     drawCrockGrid(); return;
   }
+  /* a price is a number or it is nothing. "about 160" saved as 160 would be a
+     made-up figure in a money column nobody would ever question again. */
+  var pr = null;
+  if (String(f.price).trim() !== ''){
+    pr = Number(String(f.price).replace(/[^\d.]/g, ''));
+    if (!isFinite(pr) || pr <= 0){
+      f.err = 'The price has to be a number of dirhams, or empty.';
+      drawCrockGrid(); return;
+    }
+  }
   CRK.saving = true; drawCrockGrid();
-  var body = { name:f.name, code:f.code, source:f.source,
+  var body = { name:f.name, code:f.code, source:f.source, price:pr,
                updated_at:new Date().toISOString() };
   if (f.newphoto){ body.thumb = f.thumb; body.photo = f.photo; }
   var req;
@@ -12039,6 +12063,7 @@ document.addEventListener('click', function(e){
        the thumbnail and leaving the old big photo behind would put two different plates
        on one row. */
     CRK.form = { id:ei.id, name:ei.name, code:ei.code||'', source:ei.source||'',
+                 price:(ei.price == null ? '' : ei.price),
                  thumb:ei.thumb||'', photo:'', newphoto:false, err:'' };
     CRK.note = ''; drawCrockGrid();
     var ef = $('crkf-name'); if (ef) ef.focus(); return;
