@@ -447,6 +447,13 @@ img.ph{width:190px;height:130px;object-fit:cover;border-radius:6px;border:1px so
 .pqv small{font-family:var(--sans);font-size:11px;letter-spacing:1px;color:var(--vino-light)}
 .pqv.sm{font-family:var(--sans);font-size:14.5px;font-weight:600;line-height:1.45;color:var(--ink)}
 .pqv i{font-family:var(--sans);font-size:12px;font-style:italic;font-weight:400;color:var(--vino-light);opacity:.85}
+/* the plates themselves, under their names. On screen only - this card is measured to
+   one A4 and a row of thumbnails is how it becomes two. The words print; they always
+   did, and they are what the box is for. */
+.crkph{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.crkph img{width:56px;height:56px;object-fit:contain;border-radius:3px;
+  border:1px solid var(--sabbia-dark);background:var(--sabbia-light)}
+@media print{ .crkph{display:none} }
 .alg.none{background:none;border-left-color:var(--sabbia-dark)}
 .alg.none .algv{display:block;font-size:12.5px;color:#8a7a62;font-weight:400}
 .alg.none .algl{color:#8a7a62}
@@ -599,6 +606,39 @@ function local(path){
 
 var R = null, SUBS = {}, MENU = [], loadErr = null, busy = false;
 
+/* --------- what it goes out on, in a photograph ---------
+   Andrea asked for the photographs on the create screen so the crockery could be picked
+   instead of described. The pass is where that description is actually USED - a commis
+   reads "Round wave starter plate" and fetches whichever round plate he can see - so the
+   picture belongs here too, next to the words, on the card he is holding.
+
+   Fetched by id, only the ones this dish uses, and only if it uses any. A recipe written
+   before the shelf existed asks for nothing and this whole block costs it a boolean. */
+var CROCKPH = {};
+function loadCrockPhotos(ids){
+  var want = (ids || []).filter(function(i){ return i && !(i in CROCKPH); });
+  if (!want.length) return Promise.resolve(false);
+  /* PostgREST's in.() takes a bare comma list; a uuid needs no quoting */
+  return sb('crockery?select=id,name,thumb&id=in.(' + want.join(',') + ')')
+    .then(function(rows){
+      (rows || []).forEach(function(r){ CROCKPH[r.id] = r; });
+      /* a row that did not come back is remembered as absent, or every redraw asks
+         again for a plate somebody archived */
+      want.forEach(function(i){ if (!(i in CROCKPH)) CROCKPH[i] = null; });
+      return true;
+    })
+    .catch(function(){ want.forEach(function(i){ CROCKPH[i] = null; }); return false; });
+}
+function crockPhotos(ids){
+  var have = (ids || []).map(function(i){ return CROCKPH[i]; })
+    .filter(function(r){ return r && r.thumb; });
+  if (!have.length) return '';
+  return '<span class="crkph">' + have.map(function(r){
+    return '<img src="' + esc(r.thumb) + '" alt="' + esc(r.name) + '" title="' +
+           esc(r.name) + '">';
+  }).join('') + '</span>';
+}
+
 /* The method is four boxes of typed text on the create screen. A step is a line.
    Nothing is inferred beyond that — a blank line is not a step, and a section the
    chef left empty simply does not appear. */
@@ -636,6 +676,11 @@ function shape(rec, lines){
        sees them at all. */
     pass:(rec.method && rec.method.pass) || '',
     crockery:(rec.method && rec.method.crockery) || '',
+    /* the crockery PICKED off the shelf on the create screen - ids into the crockery
+       table. The words above are still what the card says and still what prints; these
+       are only the photographs, so a card whose recipe predates the shelf, or whose
+       chef typed instead of picking, is exactly the card it was before. */
+    crock:(rec.method && Array.isArray(rec.method.crock)) ? rec.method.crock : [],
     /* a batch's own fact, carried the same way and for the same reason: it is not a step,
        so toSteps never sees it, and anything left out of this object does not exist on
        the card or on any sheet printed off it */
@@ -1136,7 +1181,8 @@ function passSquare(key){
       '<div class="pq"><span class="pqk">On the pass</span>' +
         '<span class="pqv">' + (mins ? esc(mins) + ' <small>min</small>' : '<i>not said</i>') + '</span></div>' +
       '<div class="pq"><span class="pqk">Crockery</span>' +
-        '<span class="pqv sm">' + (crock ? esc(crock) : '<i>not said</i>') + '</span></div>' +
+        '<span class="pqv sm">' + (crock ? esc(crock) : '<i>not said</i>') + '</span>' +
+        crockPhotos(R.crock) + '</div>' +
       '<div class="pq"><span class="pqk">Allergens</span>' +
         '<span class="pqv sm">' + (alg.length
           ? alg.map(function(x){ return esc(algName(x.k)); }).join(' · ')
@@ -1755,6 +1801,11 @@ function render(){
   if (view === 'loading'){ root.innerHTML = '<div class="front"><div class="load">Opening the recipe…</div></div>'; return; }
   if (view === 'home'){ root.innerHTML = viewHome(); return; }
   var cur = VIEWS.filter(function(v){ return v.k===view; })[0];
+  /* asked for here rather than in the loader: this is the one place that knows the
+     recipe is on screen, and it is the same pattern the photos already use - draw what
+     is known, fill in the picture when it lands. Only ever one fetch per plate. */
+  if (R && R.crock && R.crock.length)
+    loadCrockPhotos(R.crock).then(function(got){ if (got && R) render(); });
   root.innerHTML =
     '<div class="top"><button class="home" id="home">&larr; All dishes</button>' +
       '<div class="sw">'+VIEWS.map(function(v){

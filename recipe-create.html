@@ -250,6 +250,88 @@ input.pick:focus{background-color:#fff;box-shadow:inset 0 0 0 2px var(--vino)}
 /* nothing picked yet: the same colour the dropdown used to say it with */
 input.pick.empty{color:var(--attn);font-weight:600}
 input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
+/* ---- the crockery shelf ----
+   The box and the button on one line, the plates picked underneath it, and the shelf
+   itself over the top of everything when it is opened. Tiles are 128px on a laptop and
+   fill to 3-across on a phone: big enough to tell a coupe from a wave at arm's length,
+   which is the whole point of asking for photographs. */
+.crkrow{display:flex;gap:8px;align-items:stretch}
+.crkrow .pnum.wide{flex:1 1 auto;width:auto;min-width:0}
+.crkbtn{flex:0 0 auto;font-family:var(--sans);font-size:13px;font-weight:600;
+  background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:3px;
+  padding:0 14px;min-height:44px;cursor:pointer;line-height:1.2}
+.crkbtn:hover{background:var(--vino-mid)}
+.crkbtn:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.crkchips{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.crkchip{display:flex;align-items:center;gap:8px;background:#fff;
+  border:1px solid var(--sabbia-dark);border-radius:3px;padding:5px 5px 5px 5px;
+  font-family:var(--sans);font-size:13px;color:var(--ink);max-width:100%}
+.crkchip img{width:40px;height:40px;object-fit:contain;border-radius:2px;
+  background:var(--sabbia-light);flex:0 0 auto}
+.crkchip .crkno{width:40px;height:40px;border-radius:2px;background:var(--sabbia-light);
+  flex:0 0 auto}
+.crkchip .crkcn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:220px}
+.crkchip.pend{color:var(--vino-light);font-style:italic;padding:9px 11px}
+.crkx{border:0;background:none;color:var(--vino-light);font-size:20px;line-height:1;
+  cursor:pointer;padding:0 6px;min-width:32px;min-height:32px;border-radius:3px}
+.crkx:hover{background:var(--sabbia-light);color:var(--vino)}
+.crkx:focus-visible{outline:3px solid var(--oro);outline-offset:1px}
+
+#crkovl{position:fixed;inset:0;z-index:700;display:none;background:rgba(43,10,15,.55);
+  align-items:center;justify-content:center;padding:16px;font-family:var(--sans)}
+#crkovl.on{display:flex}
+.crkbox{background:var(--sabbia-light);border-radius:5px;width:100%;max-width:880px;
+  max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 18px 48px rgba(43,10,15,.4)}
+.crkhd{flex:0 0 auto;background:var(--vino);color:var(--cream);padding:14px 16px}
+.crkhd h3{font-family:var(--serif);font-size:24px;margin:0 0 2px;font-weight:600}
+.crkhd p{margin:0;font-size:12.5px;color:rgba(245,237,224,.85);line-height:1.45}
+.crktools{flex:0 0 auto;display:flex;gap:10px;align-items:center;padding:11px 16px;
+  background:#fff;border-bottom:1px solid var(--sabbia-dark)}
+#crksrch{flex:1 1 auto;min-width:0;font-family:var(--sans);font-size:15px;color:var(--ink);
+  background:#fff;border:1px solid var(--sabbia-dark);border-radius:3px;
+  padding:10px 12px;min-height:44px}
+#crksrch:focus{border-color:var(--vino);outline:none}
+#crkcount{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--vino-light);
+  letter-spacing:.05em}
+#crkgrid{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 16px 16px}
+.crkgh{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--vino-light);
+  font-weight:700;padding:14px 0 8px;position:sticky;top:0;background:var(--sabbia-light);
+  z-index:1}
+.crkg{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px}
+.crktile{display:block;text-align:left;background:#fff;border:2px solid var(--sabbia-dark);
+  border-radius:4px;padding:7px;cursor:pointer;font-family:var(--sans);color:var(--ink);
+  position:relative}
+.crktile img,.crktile .crkno{display:block;width:100%;height:96px;object-fit:contain;
+  background:var(--sabbia-light);border-radius:2px;margin-bottom:6px}
+.crktile .crktn{display:block;font-size:12.5px;line-height:1.3;font-weight:600}
+.crktile .crktc{display:block;font-size:10.5px;color:var(--vino-light);margin-top:2px}
+.crktile:hover{border-color:var(--vino-light)}
+.crktile:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.crktile.on{border-color:var(--vino);background:var(--cream)}
+.crktile.on::after{content:'\2713';position:absolute;top:5px;right:5px;width:26px;height:26px;
+  border-radius:99px;background:var(--vino);color:var(--cream);font-size:15px;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.crknote{padding:22px 4px;font-size:14px;color:var(--vino-light);line-height:1.55}
+.crknote.bad{color:var(--vino);font-weight:600}
+.crkft{flex:0 0 auto;display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;
+  background:#fff;border-top:1px solid var(--sabbia-dark)}
+.crkdone{font-family:var(--sans);font-size:15px;font-weight:600;background:var(--vino);
+  color:var(--cream);border:1px solid var(--vino);border-radius:3px;padding:0 26px;
+  min-height:46px;cursor:pointer}
+.crkdone:hover{background:var(--vino-mid)}
+.crkdone:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+@media(max-width:560px){
+  .crkrow{flex-wrap:wrap}
+  .crkbtn{flex:1 1 100%}
+  .crkbox{max-height:100vh;border-radius:0}
+  #crkovl{padding:0}
+  .crkg{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+  .crktile img,.crktile .crkno{height:80px}
+  .crkchip .crkcn{max-width:150px}
+}
+
 #cbpop{position:fixed;z-index:400;display:none;background:#fff;border:1px solid var(--vino);
   border-radius:4px;box-shadow:0 12px 28px rgba(43,10,15,.24);max-height:52vh;overflow-y:auto;
   font-family:var(--sans);-webkit-overflow-scrolling:touch}
@@ -1541,6 +1623,26 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 <!-- the whole folder in one go: his à la carte year is sixty workbooks in one place -->
 <input type="file" id="fd" webkitdirectory directory multiple style="display:none">
 <input type="file" id="pf" style="display:none" accept="image/*" multiple>
+<!-- The crockery shelf. Outside .wrap on purpose: .wrap is redrawn wholesale every
+     time the sheet is drawn, and a dialog that disappears mid-scroll because something
+     else repainted is worse than no dialog. -->
+<div id="crkovl" role="dialog" aria-modal="true" aria-labelledby="crkttl">
+  <div class="crkbox">
+    <div class="crkhd">
+      <h3 id="crkttl">What does it go out on?</h3>
+      <p>Everything we own, photographed. Tap the ones this dish uses &mdash; the words
+         fill themselves in, and the recipe card carries the picture.</p>
+    </div>
+    <div class="crktools">
+      <input id="crksrch" placeholder="Search &mdash; wasabi, copper, 27&hellip;"
+             autocomplete="off" aria-label="Search the crockery">
+      <span id="crkcount">Nothing picked yet</span>
+    </div>
+    <div id="crkgrid"></div>
+    <div class="crkft"><button type="button" class="crkdone" data-crkdone="1">Done</button></div>
+  </div>
+</div>
+
 <div class="wrap" id="wrap"></div>
 
 <!-- DEV-site write protection. THE ONLY COPY, shared with index.html. Must load
@@ -2102,6 +2204,66 @@ var MSEC = [
    sheet. Better to say so while he is typing than to find it in the binder. */
 var CUTLERY = ['Starter fork','Starter knife','Main fork','Main knife','Molluscs fork',
   'Steak knife','Big spoon','Starter spoon','Small spoon'];
+
+/* --------- the crockery shelf ---------
+   Andrea, 12 Sep 2026: "I think we should have a list of photo of our crockery to choose
+   with for the recipe. As description may vary from person to person and might not be
+   clear."  He was right, and the recipes proved it - twenty-five dishes had crockery
+   written on them in twenty-five different ways: "Pizza plate" and "Pizza Plate",
+   "Soup Plate" and "soup plate", "Rhomboidal salad plate" and "rhomboidal shape plate".
+   Nothing was ever picked twice, so the words meant whatever the chef who typed them
+   meant, and the person carrying the plate had to guess.
+
+   The shelf is a TABLE, not a list in this file: it came off the three inventory
+   workbooks and it changes every time something is broken or bought, and a list written
+   here would need a deploy to say so. The photographs are the inventory photographs,
+   carried as data urls the same way a recipe photo is, so there is no bucket to
+   configure and nothing to go missing.
+
+   Loaded the first time the shelf is opened and not before - seventy-six thumbnails is
+   a third of a megabyte, and a chef who never opens it should never pay for it. */
+var CRK = { ready:false, busy:false, err:'', all:[], q:'', on:false };
+function crockLoad(){
+  if (CRK.ready || CRK.busy) return Promise.resolve();
+  CRK.busy = true; CRK.err = '';
+  return sb('crockery?select=id,name,code,source,thumb&archived=is.false' +
+            '&venue_id=eq.robertos-difc&order=source,sort_order')
+    .then(function(r){ CRK.all = r || []; CRK.ready = true; CRK.busy = false; })
+    .catch(function(e){ CRK.err = e.message || 'the shelf did not answer';
+                        CRK.busy = false; });
+}
+function crockById(id){
+  for (var i=0;i<CRK.all.length;i++) if (CRK.all[i].id === id) return CRK.all[i];
+  return null;
+}
+/* The words and the pictures are kept in step by NAME, and deliberately by hand rather
+   than by regenerating the box. A chef who typed "copper pan, BB plate" and then picks
+   one plate off the shelf must keep "copper pan" - the shelf is not everything in this
+   kitchen and it never will be. So: picking adds a name, unpicking takes that same name
+   away, and whatever else he wrote is never touched. */
+function crockParts(t){
+  return String(t||'').split(',').map(function(x){ return x.trim(); })
+    .filter(function(x){ return x; });
+}
+function crockSetText(parts){
+  var e = $('m-crockery'), t = parts.join(', ');
+  mth().crockery = t; if (e) e.value = t;
+}
+function crockToggle(id){
+  var m = mth(); if (!Array.isArray(m.crock)) m.crock = [];
+  var it = crockById(id); if (!it) return;
+  var i = m.crock.indexOf(id), parts = crockParts(m.crockery);
+  var at = -1, j;
+  for (j=0;j<parts.length;j++)
+    if (parts[j].toLowerCase() === it.name.toLowerCase()){ at = j; break; }
+  if (i > -1){ m.crock.splice(i,1); if (at > -1) parts.splice(at,1); }
+  else {
+    if (m.crock.length >= 12) return;          /* a plate, not a stock list */
+    m.crock.push(id); if (at < 0) parts.push(it.name);
+  }
+  crockSetText(parts);
+  drawCrock(); drawCrockGrid();
+}
 var FSEC = [
   /* `h` is a caption, not a lesson — the placeholder in the box already shows the shape
      of the answer, and the word count sitting next to this line already says how long it
@@ -2125,7 +2287,8 @@ var FSEC = [
 ];
 function emptyMethod(){
   return { mise:'', method:'', order:'', plating:'', pass:'', crockery:'', store:'',
-           foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', diet:'', cutlery:[] };
+           foh:'', say:'', story:'', ing:'', garnish:'', more:'', code:'', diet:'',
+           cutlery:[], crock:[] };
 }
 
 /* ───────── allergens ─────────
@@ -2203,6 +2366,14 @@ function normMethod(m){
        write and is dropped rather than printed on a waiter's page */
     if (Array.isArray(m.cutlery)) out.cutlery = m.cutlery.filter(function(c){
       return CUTLERY.indexOf(c) > -1; });
+    /* `crock` is the crockery PICKED off the shelf - ids into the crockery table, kept
+       so the card can show the photograph. `crockery` above is still the words, and it
+       is still what prints: twenty-five recipes were written before this shelf existed
+       and not one of them may lose what its chef typed. The ids are the picture, the
+       words are the answer. Anything that is not an id is dropped rather than sent to
+       PostgREST, where a malformed uuid is a 400 on the whole save. */
+    if (Array.isArray(m.crock)) out.crock = m.crock.filter(function(c){
+      return typeof c === 'string' && /^[0-9a-f-]{36}$/i.test(c); }).slice(0,12);
   }
   /* same rule as the cutlery: only the two words the chips can actually say. Anything
      else came from a bad write, and a made-up word here would print on a waiter's page */
@@ -9100,12 +9271,100 @@ function platingInner(){
       '</div>' +
       '<div class="pcell wide">' +
         '<label class="ml" for="m-crockery">Crockery</label>' +
-        '<input class="pnum wide" id="m-crockery" data-m="crockery" ' +
-          'placeholder="Copper pan" value="' + esc(m.crockery || '') + '">' +
-        '<div class="mhint">The plate, pan or board — not the cutlery.</div>' +
+        '<div class="crkrow">' +
+          '<input class="pnum wide" id="m-crockery" data-m="crockery" ' +
+            'placeholder="Copper pan" value="' + esc(m.crockery || '') + '">' +
+          '<button type="button" class="crkbtn" data-crkopen="1">' +
+            'Pick off the shelf</button>' +
+        '</div>' +
+        '<div class="crkwrap" id="crkwrap">' + crockChips() + '</div>' +
+        '<div class="mhint">The plate, pan or board &mdash; not the cutlery. ' +
+          'Pick it off the shelf and the card carries the photograph; anything ' +
+          'not on the shelf you can still type.</div>' +
       '</div>' +
     '</div>';
 }
+/* What is picked, shown as the plates themselves. A name under each one because a
+   thumbnail of a white plate is a white plate - the picture says which shape, the word
+   says which of the four sizes. Both, or it is a guessing game again. */
+function crockChips(){
+  var ids = (S.method && S.method.crock) || [];
+  if (!ids.length) return '';
+  return '<div class="crkchips">' + ids.map(function(id){
+    var it = crockById(id);
+    /* picked before the shelf was loaded this session - the id is real, the picture
+       simply is not here yet. Say it is held rather than draw a broken tile. */
+    if (!it) return '<span class="crkchip pend"><span class="crkcn">' +
+      'picked &mdash; open the shelf to see it</span></span>';
+    return '<span class="crkchip">' +
+      (it.thumb ? '<img src="' + esc(it.thumb) + '" alt="">' : '<span class="crkno"></span>') +
+      '<span class="crkcn">' + esc(it.name) + '</span>' +
+      '<button type="button" class="crkx" data-crkoff="' + esc(it.id) + '" ' +
+        'aria-label="Take ' + esc(it.name) + ' off this recipe">&times;</button>' +
+    '</span>';
+  }).join('') + '</div>';
+}
+function drawCrock(){ var w = $('crkwrap'); if (w) w.innerHTML = crockChips(); }
+
+/* --------- the shelf ---------
+   Everything the restaurant owns, as photographs, filed by where it was counted. A
+   search box because seventy-six tiles is two scrolls on a laptop and six on a phone,
+   and the word he half-remembers - "wasabi", "copper", "27" - is the fastest way in. */
+function crockGridHTML(){
+  if (CRK.err) return '<div class="crknote bad">The shelf did not load &mdash; ' +
+    esc(CRK.err) + '. Type the crockery instead; nothing is lost.</div>';
+  if (!CRK.ready) return '<div class="crknote">Getting the shelf&hellip;</div>';
+  var q = CRK.q.trim().toLowerCase();
+  var on = (S.method && S.method.crock) || [];
+  var list = CRK.all.filter(function(it){
+    return !q || (it.name+' '+it.code+' '+it.source).toLowerCase().indexOf(q) > -1; });
+  if (!list.length) return '<div class="crknote">Nothing on the shelf matches ' +
+    '&ldquo;' + esc(CRK.q) + '&rdquo;. Close this and type it &mdash; the box still ' +
+    'takes any words you like.</div>';
+  /* filed by where it was counted, and each group closes its own grid so the heading
+     sits on its own line rather than in a cell */
+  var out = '', last = null;
+  list.forEach(function(it){
+    if (it.source !== last){
+      if (last !== null) out += '</div>';
+      last = it.source;
+      out += '<div class="crkgh">' + esc(last) + '</div><div class="crkg">';
+    }
+    out += '<button type="button" class="crktile' + (on.indexOf(it.id) > -1 ? ' on' : '') +
+      '" data-crkpick="' + esc(it.id) + '" aria-pressed="' +
+      (on.indexOf(it.id) > -1 ? 'true' : 'false') + '">' +
+      (it.thumb ? '<img src="' + esc(it.thumb) + '" alt="" loading="lazy">'
+                : '<span class="crkno"></span>') +
+      '<span class="crktn">' + esc(it.name) + '</span>' +
+      (it.code ? '<span class="crktc">' + esc(it.code) + '</span>' : '') +
+    '</button>';
+  });
+  return out + (last !== null ? '</div>' : '');
+}
+function drawCrockGrid(){
+  var g = $('crkgrid'); if (g) g.innerHTML = crockGridHTML();
+  var c = $('crkcount');
+  if (c){ var n = ((S.method && S.method.crock) || []).length;
+    c.textContent = n ? (n + ' picked') : 'Nothing picked yet'; }
+}
+function openCrock(){
+  CRK.on = true; CRK.q = '';
+  var o = $('crkovl'); if (o) o.classList.add('on');
+  var s = $('crksrch'); if (s) s.value = '';
+  document.body.style.overflow = 'hidden';
+  drawCrockGrid();
+  crockLoad().then(function(){ if (CRK.on) drawCrockGrid(); });
+  if (s) setTimeout(function(){ try{ s.focus(); }catch(e){} }, 30);
+}
+function closeCrock(){
+  CRK.on = false;
+  var o = $('crkovl'); if (o) o.classList.remove('on');
+  document.body.style.overflow = '';
+  /* the chips under the box are drawn from the shelf, and the shelf may only have
+     arrived while it was open */
+  drawCrock();
+}
+
 function methodHTML(){
   /* "On which menus" used to be a whole block of chips down here, and the bar at the top
      of the sheet has carried the same question — the same menus, the same ticks — since
@@ -10325,6 +10584,7 @@ function wireMethod(){
      So: every box is read the moment the sheet is drawn. Free, offline, and it
      still shows nothing when there is nothing to say. */
   whScanAll();
+  crockWire();
   ['pass','crockery'].forEach(function(k){
     var e = $('m-'+k); if (!e) return;
     e.addEventListener('input', function(){
@@ -10332,6 +10592,18 @@ function wireMethod(){
       mth()[k] = (k === 'pass') ? this.value.replace(/[^\d.]/g,'') : this.value;
       if (k === 'pass' && this.value !== mth()[k]) this.value = mth()[k];
     });
+  });
+}
+/* Bound once. drawMethod() runs on every redraw of the sheet, so a listener added
+   there would be added again, and again, and the search box would filter four times
+   per keystroke by the end of writing a recipe. */
+var CRKWIRED = false;
+function crockWire(){
+  if (CRKWIRED) return; CRKWIRED = true;
+  var s = $('crksrch');
+  if (s) s.addEventListener('input', function(){ CRK.q = this.value; drawCrockGrid(); });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && CRK.on){ e.preventDefault(); closeCrock(); }
   });
 }
 function drawFohState(){
@@ -11366,6 +11638,16 @@ document.addEventListener('click', function(e){
   }
 
   /* ── what to set on the table ── */
+  /* --- the crockery shelf --- */
+  if (e.target.closest('[data-crkopen]')){ openCrock(); return; }
+  if (e.target.closest('[data-crkdone]')){ closeCrock(); return; }
+  var cpk = e.target.closest('[data-crkpick]');
+  if (cpk){ crockToggle(cpk.dataset.crkpick); return; }
+  var cof = e.target.closest('[data-crkoff]');
+  if (cof){ crockToggle(cof.dataset.crkoff); return; }
+  /* the dark ground behind the shelf closes it; a press INSIDE the box must not,
+     which is why this tests the overlay itself rather than "not the box" */
+  if (e.target.id === 'crkovl'){ closeCrock(); return; }
   var cut = e.target.closest('[data-cut]');
   if (cut){
     if (!S.method) S.method = emptyMethod();
