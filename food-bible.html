@@ -437,6 +437,26 @@ function sb(path){
     return local(path);
   });
 }
+
+/* Every read of a WHOLE table goes through here, never through sb() alone. PostgREST hands
+   back 1,000 rows per request and says nothing when it stops: on 14 Sep 2026 recipe_lines
+   passed 1,000, and every dish written after that point lost its batches here. So the
+   pages are asked for until one comes back short; the order ends on `id` so a page can
+   neither skip a row nor repeat one. The snapshot is already whole - if the page freezes
+   part-way, its answer replaces the live pages rather than being added to them. */
+var SB_PAGE = 1000;
+function sbAll(path){
+  var out = [], sep = path.indexOf('?') < 0 ? '?' : '&';
+  function page(off){
+    return sb(path + sep + 'limit=' + SB_PAGE + '&offset=' + off).then(function(rows){
+      rows = rows || [];
+      if (frozen) return rows;
+      out = out.concat(rows);
+      return rows.length < SB_PAGE ? out : page(off + SB_PAGE);
+    });
+  }
+  return page(0);
+}
 /* Answers exactly the handful of queries this page asks, and nothing else. */
 function local(path){
   var q = path.split('?'), table = q[0], p = {};
@@ -680,7 +700,7 @@ function load(){
   return Promise.all([
     sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,method,allergens,photos,updated_at&order=section,name'),
     sb('recipes?select=id,allergens'),
-    sb('recipe_lines?select=recipe_id,child_recipe_id'),
+    sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. This is the whole point for the floor: a waiter
        training on the à la carte opens the à la carte and sees nothing else. */
     sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position&order=position,name')

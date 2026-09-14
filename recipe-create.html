@@ -2573,6 +2573,26 @@ function sb(path, opts){
     });
 }
 
+/* Every read of a WHOLE table goes through here, never through sb() alone. PostgREST hands
+   back 1,000 rows per request and says nothing when it stops: on 14 Sep 2026 recipe_lines
+   passed 1,000 (1,158), and every dish written after that point - Branzino, Capesante,
+   Ricciola, 22 in all - read as having no ingredients at all, painted "not done" on a
+   recipe that was finished. So the pages are asked for until one comes back short. The
+   order must end on `id`: paging a sort that ties can skip a row or repeat one. A page
+   that fails fails the whole read - half a table is the bug this exists to stop. */
+var SB_PAGE = 1000;
+function sbAll(path){
+  var out = [], sep = path.indexOf('?') < 0 ? '?' : '&';
+  function page(off){
+    return sb(path + sep + 'limit=' + SB_PAGE + '&offset=' + off).then(function(rows){
+      rows = rows || [];
+      out = out.concat(rows);
+      return rows.length < SB_PAGE ? out : page(off + SB_PAGE);
+    });
+  }
+  return page(0);
+}
+
 function linesFor(recipeId, rowsArr){
   return rowsArr.map(function(r,i){
     var it = itemOf(r), mineB = isMine(r.code);
@@ -3551,8 +3571,8 @@ function loadBatches(){
        a line whose code has since dropped off the stock take still has to show the
        chef's own words rather than an empty cell. `order` so the sheet reads in the
        order the recipe was written, not whatever the database hands back. */
-    sb('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
-       'trim_on,yield_pct,waste_pct,position&order=position')
+    sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+       'trim_on,yield_pct,waste_pct,position&order=position,id')
   ]).then(function(both){
     BATCH = {};
     (both[0]||[]).forEach(function(r){
@@ -3582,7 +3602,7 @@ function loadSaved(){
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
-    sb('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty').catch(function(){ return null; }),
+    sbAll('recipe_lines?select=recipe_id,stock_code,child_recipe_id,qty&order=id').catch(function(){ return null; }),
     /* The dishes we PRINT. Needs finishing could only ever see recipes that exist, so a
        dish nobody has started was invisible to the one screen whose job is to say what
        is not done. Failing is fine and says so — a missing list must never be shown as
@@ -4739,8 +4759,8 @@ function loadMicros(menuId){
   return Promise.all([
     sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price,pos_key'),
     sb('recipe_menus?menu_id=eq.' + menuId + '&select=recipe_id'),
-    sb('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
-       'trim_on,yield_pct,waste_pct,position&order=position'),
+    sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+       'trim_on,yield_pct,waste_pct,position&order=position,id'),
     MYB.length ? Promise.resolve(null) : loadBatches()
   ]).then(function(res){
     var on = {}; (res[1]||[]).forEach(function(r){ on[r.recipe_id] = 1; });
