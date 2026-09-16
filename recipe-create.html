@@ -6647,7 +6647,12 @@ function render(){
   bs.style.display = onRecipe ? 'inline-block' : 'none';
   if (onRecipe){
     bs.innerHTML = '<option value="">Which section?</option>' +
-      sectionList().map(function(s){ return '<option'+(S.section===s?' selected':'')+'>'+esc(s)+'</option>'; }).join('');
+      sectionList().map(function(s){ return '<option'+(S.section===s?' selected':'')+'>'+esc(s)+'</option>'; }).join('') +
+      /* Chef Andrea asked here, 16 Sep 2026, to add or rename "the section for the à la
+         carte". These are Aung's Micros families and stay fixed; the headings the card
+         prints — Crudo Bar, Dal Banco, Josper — are named on the printed menu. This is
+         the door to them from the place the question was asked. */
+      '<option value="__printed">✎ À la carte headings — add, rename…</option>';
     bs.className = 'bsec' + (S.section ? '' : ' none');
   }
   drawBarMenu();
@@ -7424,7 +7429,7 @@ function render(){
             /* saying "nothing needs finishing" above a box full of unsaved work is a lie */
             (parkedList().length ? ' <b>What is in Unsaved work above has not been saved yet</b>, so it is not counted here.' : '') +
             '</div>' +
-            '<button class="newr" id="toprinted">The printed menu — add, correct, take off</button>'
+            '<button class="newr" id="toprinted">The printed menu — add, correct, rename a section, take off</button>'
           : '<div class="q">Needs finishing</div>' +
             '<div class="sub">' +
             /* The sentence reads in the order the screen is stacked, or it sends him
@@ -7438,7 +7443,7 @@ function render(){
                  (notStarted.length===1?'has':'have') + ' no recipe at all. '
                : '') +
             'Tap one to put it right; you come back here afterwards.</div>' +
-            '<button class="newr" id="toprinted">The printed menu — add, correct, take off</button>' +
+            '<button class="newr" id="toprinted">The printed menu — add, correct, rename a section, take off</button>' +
             /* The heading is read off the room; the list is not. Forty dishes to fix is
                work, and work goes on paper. */
             '<div class="onpaper">' +
@@ -9864,7 +9869,81 @@ function menuRow(id){ return MENUADM.all.filter(function(m){ return m.id === id;
    still there under "taken off the menu" and comes back with one press, long after any
    message about it has gone. */
 var PM = { menu:null, open:null, adding:false, addSec:null, ask:null, busy:false,
-           draft:null, err:null, off:null, offErr:null, showOff:false, jump:null };
+           draft:null, err:null, off:null, offErr:null, showOff:false, jump:null,
+           ren:null, renNone:false, renErr:null, renTo:null };
+
+/* ── renaming a section ──
+   Chef Andrea, 16 Sep 2026: "is there any possibility to add or change the name of the
+   section for the a la carte menu?" Adding one was already there (Add a dish in a new
+   section). Renaming was not: the heading is not a row of its own, it is the words
+   written on every dish under it, so the only way to change it was to open each dish and
+   retype it — and a section half-renamed is two sections on the card.
+
+   So it is one write for the whole heading, on THIS menu only (Burrata's section on the
+   Christmas menu is not the à la carte's business). Dishes taken off under the old name
+   move too, or "Put it back on" would bring back the old heading with one dish in it.
+   Typing the name of a section already on the menu joins the two — which is what a
+   rename to that name means. Recipes are never touched: their section is Aung's Micros
+   family, a different answer. */
+function pmRenameSection(){
+  if (PM.busy || PM.ren == null) return;
+  var el = $('pmrenin');
+  if (el) PM.renTo = el.value;
+  var to = String(PM.renTo == null ? '' : PM.renTo).trim().replace(/\s+/g, ' ');
+  var from = PM.ren, none = PM.renNone, menuId = pmMenu();
+  PM.renErr = null;
+  if (!to){ PM.renErr = 'It needs a name — type the heading the card should print.'; render(); return; }
+  if (!none && to === from){ PM.renErr = 'That is the name it already has.'; render(); return; }
+  if (!menuId){ PM.renErr = 'There is no menu to rename it on.'; render(); return; }
+  /* "crudo bar" when "Crudo Bar" is already there is the same heading, not a new one */
+  var same = pmSections(menuId, 'section').filter(function(v){
+    return v !== from && v.toLowerCase() === to.toLowerCase(); })[0];
+  if (same) to = same;
+  var q = 'menu_items?menu_id=eq.' + encodeURIComponent(menuId) + '&' +
+          (none ? 'section=is.null' : 'section=eq.' + encodeURIComponent(from)) + '&select=id';
+  PM.busy = true; render();
+  sb(q, { method:'PATCH', prefer:'return=representation',
+          body:{ section: to, updated_at: new Date().toISOString() } })
+    .then(function(rows){
+      /* a 200 that changed nothing is not a rename — say so, never flash success */
+      if (!rows || !rows.length)
+        throw new Error('no dish on this menu is under ‘' + (none ? 'No section' : from) +
+                        '’ any more — somebody may have just changed it');
+      return Promise.all([loadSaved(), PM.off == null ? null : pmLoadOff()]).then(function(){ return rows.length; });
+    })
+    .then(function(){
+      /* the number said is the one read back from the database, not the one we meant */
+      var n = (MENUITEMS || []).filter(function(x){ return x.menu_id === menuId && x.section === to; }).length;
+      PM.busy = false; PM.ren = null; PM.renNone = false; PM.renErr = null; PM.renTo = null; PM.jump = to;
+      render();
+      flash((none ? 'Those dishes are' : '‘' + from + '’ is') + ' ‘' + to + '’ now — ' + n +
+            ' dish' + (n === 1 ? '' : 'es') + ' on ‘' + pmMenuName(menuId) + '’ print under it.');
+    })
+    .catch(function(err){
+      PM.busy = false;
+      PM.renErr = 'Nothing was renamed — ' + plain(err.message);
+      render();
+    });
+}
+function pmRenForm(g, menuId){
+  return '<div class="macard pmed">' +
+    '<div class="pmf" style="margin-bottom:6px"><label>' +
+      (g.none ? 'The section these dishes print under' : 'New name for ' + esc(g.k)) + '</label>' +
+      '<input class="maren" id="pmrenin" value="' + esc(PM.renTo != null ? PM.renTo : (g.none ? '' : g.k)) + '" autocomplete="off" ' +
+      'placeholder="Secondi di Pesce"></div>' +
+    '<div class="pmhint" style="font-family:var(--sans);font-size:11.5px;color:var(--vino-light);line-height:1.5">' +
+      'All <b>' + g.rows.length + '</b> dish' + (g.rows.length === 1 ? '' : 'es') + ' under ' +
+      '<b>' + esc(g.k) + '</b> on ‘' + esc(pmMenuName(menuId)) + '’ move to the new name together, ' +
+      'and so do any taken off under it. Type a section that is already on the menu and they join it. ' +
+      'Recipes are not touched.</div>' +
+    '<div class="maacts">' +
+      '<button class="okb" data-pmrensave="1"' + (PM.busy ? ' disabled' : '') + '>' +
+        (PM.busy ? 'Renaming…' : 'Rename it') + '</button>' +
+      '<button class="newr" style="margin:0" data-pmrencancel="1">Cancel</button>' +
+    '</div>' +
+    (PM.renErr ? '<span class="pmerr">' + esc(PM.renErr) + '</span>' : '') +
+  '</div>';
+}
 
 /* the dishes taken off, read only when he asks for them — they are not needed to draw
    the screen and reading them with everything else would slow the door for nothing */
@@ -10110,7 +10189,7 @@ function printedInner(){
   var bySec = [], secOf = {};
   mine.forEach(function(mi){
     var k = mi.section || 'No section';
-    if (!secOf[k]) { secOf[k] = { k:k, rows:[] }; bySec.push(secOf[k]); }
+    if (!secOf[k]) { secOf[k] = { k:k, none:!mi.section, rows:[] }; bySec.push(secOf[k]); }
     secOf[k].rows.push(mi);
   });
 
@@ -10167,8 +10246,13 @@ function printedInner(){
     (PM.adding ? pmForm(null) : '') +
     (bySec.length
       ? bySec.map(function(g){
+          var renOn = PM.ren === g.k;
           return '<div class="pmsecw" id="pmsec-' + pmSlug(g.k) + '">' +
-            '<div class="shd">' + esc(g.k) + ' · ' + g.rows.length + '</div></div>' +
+            '<div class="shd">' + esc(g.k) + ' · ' + g.rows.length + '</div>' +
+            (renOn ? '' : '<button class="maoff" data-pmren="' + esc(g.k) + '" data-pmrennone="' +
+              (g.none ? '1' : '') + '">' + (g.none ? 'Give these a section' : 'Rename this section') +
+              '</button>') + '</div>' +
+            (renOn ? pmRenForm(g, menuId) : '') +
             g.rows.map(row).join('') +
             '<button class="newr" data-pmadd="' + esc(g.k) + '">Add a dish to ' + esc(g.k) + '</button>';
         }).join('')
@@ -10323,6 +10407,15 @@ function openNewMenu(){
 }
 function closeNewMenu(){ var p = $('bmnew'); if (p) p.classList.remove('on'); }
 /* the way in to the menus screen, from anywhere that offers it */
+function openPrinted(){
+  guard(function(){
+    closeNewMenu();
+    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null;
+    PM.ren = null; PM.renErr = null; PM.jump = null;
+    S.step = 'printed'; render(); window.scrollTo(0, 0);
+    loadSaved().then(function(){ if (S.step === 'printed') render(); });
+  });
+}
 function openMenus(){
   guard(function(){
     closeNewMenu();
@@ -12291,7 +12384,7 @@ document.addEventListener('click', function(e){
   /* ── the printed menu ── */
   if (e.target.id === 'toprinted' || e.target.closest('[data-pmsecgo]')){
     var gsec = e.target.closest('[data-pmsecgo]');
-    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null;
+    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null; PM.ren = null;
     PM.jump = gsec ? gsec.dataset.pmsecgo : null;
     S.step = 'printed'; render();
     if (!gsec) window.scrollTo(0, 0);
@@ -12305,7 +12398,7 @@ document.addEventListener('click', function(e){
   }
   var pmm = e.target.closest('[data-pmmenu]');
   if (pmm){
-    PM.menu = pmm.dataset.pmmenu; PM.open = null; PM.adding = false;
+    PM.menu = pmm.dataset.pmmenu; PM.open = null; PM.adding = false; PM.ren = null;
     PM.draft = null; PM.err = null; PM.ask = null;
     render(); window.scrollTo(0, 0); return;
   }
@@ -12317,12 +12410,24 @@ document.addEventListener('click', function(e){
   }
   var pmo = e.target.closest('[data-pmopen]');
   if (pmo){
-    PM.open = pmo.dataset.pmopen; PM.adding = false; PM.ask = null; PM.err = null;
+    PM.open = pmo.dataset.pmopen; PM.adding = false; PM.ask = null; PM.err = null; PM.ren = null;
     PM.draft = pmDraftFrom(pmItem(PM.open)); PM.focus = true;
     render(); return;
   }
+  var pmrn = e.target.closest('[data-pmren]');
+  if (pmrn){
+    pmHarvest();
+    PM.ren = pmrn.dataset.pmren; PM.renNone = pmrn.dataset.pmrennone === '1'; PM.renErr = null; PM.renTo = null;
+    PM.open = null; PM.adding = false; PM.ask = null; PM.draft = null; PM.err = null;
+    render();
+    var ri = $('pmrenin'); if (ri){ ri.focus(); try { ri.select(); } catch(_){} }
+    return;
+  }
+  if (e.target.closest('[data-pmrensave]')){ pmRenameSection(); return; }
+  if (e.target.closest('[data-pmrencancel]')){ PM.ren = null; PM.renErr = null; PM.renTo = null; render(); return; }
   var pma = e.target.closest('[data-pmadd]');
   if (pma){
+    PM.ren = null;
     PM.adding = true; PM.open = null; PM.ask = null; PM.err = null;
     PM.addSec = pma.dataset.pmadd || null;
     PM.draft = pmDraftFrom(null); PM.focus = true;
@@ -13074,6 +13179,11 @@ $('bmnn').addEventListener('keydown', function(e){
 window.addEventListener('resize', fitBarMenu);
 
 $('bsc').addEventListener('change', function(){
+  if (this.value === '__printed'){
+    /* never a section: put the pick back to what the recipe really has, then go */
+    this.value = S.section || '';
+    openPrinted(); return;
+  }
   S.section = this.value;
   this.className = 'bsec' + (S.section ? '' : ' none');
   if (!S.id) return;                       /* not saved yet — it goes with the recipe on Save */
