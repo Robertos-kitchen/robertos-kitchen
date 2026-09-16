@@ -1555,8 +1555,19 @@ function mlRenderRows(days){
                  onpointerdown="mlGripDown(event,${it.id})"
                  onkeydown="mlGripKey(event,${it.id})"
                  onclick="event.stopPropagation()">⠿</span>`;
+      // Antonio, 16 Sep 2026: with only one supplier there is no choice to
+      // make, so name it on the row instead of making him open the line. Two
+      // or more stays as it was — the editor is where that choice lives.
+      // Counted by supplier, not by quote: one supplier in two pack sizes is
+      // still one supplier. Not drawn when that one is not the supplier the
+      // line stores — the order would go elsewhere, and the ▾/warning says so.
+      const sOne = mlSupplierState(it);
+      const sNames = sOne.opts.map(function(o){ return o.supplier; })
+        .filter(function(s, i, a){ return a.indexOf(s) === i; });
+      const onlySup = (sNames.length === 1 && sOne.ok) ? sNames[0] : '';
+      const supTag = onlySup ? ` · <span class="ml-unit-sup">${mlEsc(onlySup)}</span>` : '';
       html += `<div class="ml-row ml-row-tap" data-id="${it.id}" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div>${quick}</div>
+        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit${onlySup?' has-sup':''}"${onlySup?` title="Only supplier: ${mlEsc(onlySup)}"`:''}>${mlUnitFor(it)}${supTag}</div></div>${quick}</div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -1692,6 +1703,11 @@ function mlInjectCss(){
     // a flex child refuses to be clipped below its content width without it.
     '.ml-row-tap .ml-cell-name{display:flex;align-items:center;gap:8px}',
     '.ml-nametext{flex:1;min-width:0}',
+    // .ml-unit is lowercased for "kilogram"; a supplier is a name and keeps its capitals.
+    // One line, always: "Simply Gourmet Foodstuff Trading L.L.C." on a phone
+    // would otherwise wrap and make that row taller than its neighbours.
+    '.ml-unit.has-sup{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.ml-unit-sup{text-transform:none;font-weight:600}',
     // Fixed height + line-height, never padding: a padding-sized box collapsed
     // to zero content height on laptops once before (memory
     // `pointer-coarse-masks-laptop-defects`), and only on laptops.
