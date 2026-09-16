@@ -230,6 +230,7 @@ function ivsInjectCss(){
     '.ivfind{position:relative;margin-top:10px}',
     '.ivfind input{width:100%;box-sizing:border-box;font-family:"DM Sans",sans-serif;font-size:15px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:var(--isl);padding:0 38px 0 10px;color:var(--ik)}',
     '.ivfind input:focus{outline:3px solid var(--igo);outline-offset:1px;background:#fff}',
+    '.ivfind input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}',   // ours is the one clear button
     '.ivfind button{position:absolute;right:2px;top:1px;width:44px;height:44px;border:0;background:none;color:var(--ivl);font-size:20px;cursor:pointer}',
     '.ivfindn{font-size:12px;color:#6b5a48;margin-top:6px}',
     '.ivcand small{display:block;font-size:11.5px;font-weight:400;color:#6b5a48;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
