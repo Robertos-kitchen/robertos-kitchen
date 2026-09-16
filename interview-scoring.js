@@ -20,7 +20,13 @@
 // scored. Until then the board says "In progress" and shows how many are
 // left — a half-scored candidate never ranks above a finished one.
 //
-// Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation.
+// CVs (16 Sep 2026): Word, PDF or a photo of a paper CV, per candidate, stored
+// in the database behind the same passcode and opened IN the app — PDF drawn
+// page by page with the app's own pdf.js (an iPhone iframe shows page 1 only),
+// .docx turned into readable text by mammoth. An old .doc cannot be read in a
+// browser, so it says so and offers the download instead of a blank panel.
+//
+// Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad().
 // ══════════════════════════════════════════════════════════════════════════
 
 var IVS_KEY   = '__interviews__';
@@ -61,6 +67,10 @@ var ivsErr   = '';
 var ivsTimer = null;
 var ivsPending = {};      // id -> number of saves in flight (the poll leaves those rows alone)
 var ivsNameT = null, ivsNotesT = null;
+var ivsCvs = [];          // CV metadata for this event (never the file bytes)
+var ivsCvBusy = null;     // candidate id with an upload in flight
+var IVS_CV_MAX = 8 * 1024 * 1024;
+var IVS_MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';
 
 function ivsEsc(s){ return String(s==null?'':s)
   .replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -156,6 +166,32 @@ function ivsInjectCss(){
     '.ivbar{display:inline-block;width:80px;height:6px;background:var(--isl);border-radius:3px;vertical-align:middle;margin-right:8px;overflow:hidden}',
     '.ivbar i{display:block;height:100%;background:var(--iv)}',
     '.ivsync{font-size:11.5px;color:#6b5a48;text-align:right;margin-top:10px}',
+    '.ivcvs{background:var(--icr);border:1px solid var(--isd);border-radius:6px;padding:10px 12px;margin:10px 0 2px}',
+    '.ivcvs .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+    '.ivcvs .hd b{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl)}',
+    '.ivcvup{margin-left:auto;display:inline-flex;align-items:center;font-size:14px;font-weight:600;background:var(--iv);color:var(--icr);border-radius:4px;padding:0 16px;min-height:46px;cursor:pointer}',
+    '.ivcvup input{display:none}',
+    '.ivcvup.busy{opacity:.6;pointer-events:none}',
+    '.ivcvf{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--isd);border-radius:5px;padding:6px 8px;margin-top:8px}',
+    '.ivcvf .nm{flex:1 1 160px;min-width:0;font-size:14px;font-weight:600;overflow-wrap:anywhere}',
+    '.ivcvf .nm span{display:block;font-size:11.5px;font-weight:400;color:#6b5a48}',
+    '.ivcvf button{min-height:44px;padding:0 14px;border-radius:4px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:14px}',
+    '.ivcvf .v{background:var(--iv);color:#fff;border:1px solid var(--iv)}',
+    '.ivcvf .x{background:#fff;color:var(--iv);border:1px solid var(--isd)}',
+    '.ivcvnone{font-size:13px;color:#6b5a48;margin-top:6px}',
+    '.ivcand .cv{font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--iol);border:1px solid var(--iol);border-radius:3px;padding:1px 4px}',
+    '#ivs-viewer{position:fixed;inset:0;z-index:9000;background:rgba(20,10,5,.72);display:flex;flex-direction:column}',
+    '#ivs-viewer .bar{display:flex;align-items:center;gap:8px;background:#410207;color:#f5ede0;padding:8px 10px;font-family:"DM Sans",sans-serif}',
+    '#ivs-viewer .bar b{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '#ivs-viewer .bar a,#ivs-viewer .bar button{min-height:44px;display:inline-flex;align-items:center;padding:0 14px;border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;font-family:"DM Sans",sans-serif}',
+    '#ivs-viewer .bar a{background:#f5ede0;color:#410207;border:0}',
+    '#ivs-viewer .bar button{background:transparent;color:#f5ede0;border:1px solid rgba(245,237,224,.6)}',
+    '#ivs-viewer .body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px}',
+    '#ivs-viewer .page{display:block;max-width:900px;width:100%;height:auto;margin:0 auto 12px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.3)}',
+    '#ivs-viewer .doc{max-width:820px;margin:0 auto;background:#fff;padding:22px 20px;border-radius:4px;font-family:"DM Sans",sans-serif;font-size:15px;line-height:1.55;color:#2a1a10;overflow-wrap:anywhere}',
+    '#ivs-viewer .doc img{max-width:100%;height:auto}',
+    '#ivs-viewer .doc table{border-collapse:collapse;max-width:100%}#ivs-viewer .doc td{border:1px solid #ddd;padding:4px 6px;vertical-align:top}',
+    '#ivs-viewer .msg{max-width:520px;margin:40px auto;background:#fff;padding:20px;border-radius:6px;font-family:"DM Sans",sans-serif;font-size:15px;line-height:1.5;color:#2a1a10}',
     '@media(max-width:760px){',
     '  .ivgrid{grid-template-columns:1fr}',
     '  .ivstats{width:100%}.ivstat{flex:1;min-width:0}',
@@ -206,7 +242,12 @@ document.addEventListener('visibilitychange', async function(){
 });
 
 async function ivsLoad(quiet){
-  var r = await sb.rpc('interview_list', { p_code: ivsCode, p_event: IVS_EVENT });
+  var both = await Promise.all([
+    sb.rpc('interview_list',    { p_code: ivsCode, p_event: IVS_EVENT }),
+    sb.rpc('interview_cv_list', { p_code: ivsCode, p_event: IVS_EVENT })
+  ]);
+  var r = both[0];
+  if (!both[1].error) ivsCvs = both[1].data || [];
   if (r.error){
     if (/passcode/i.test(r.error.message || '')){
       ivsCode = null; try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
@@ -248,7 +289,7 @@ async function ivsUnlock(){
   ivsStartPoll();
 }
 function ivsLock(){
-  ivsCode = null; ivsRows = []; ivsSel = null;
+  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsViewerClose();
   try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
   if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
   ivsRender();
@@ -329,6 +370,7 @@ async function ivsDelete(){
   var r = await sb.rpc('interview_delete', { p_code: ivsCode, p_id: row.id });
   if (r.error){ kToast('Not deleted — ' + (r.error.message || 'no connection'), true); return; }
   ivsRows = ivsRows.filter(function(x){ return x.id !== row.id; });
+  ivsCvs = ivsCvs.filter(function(x){ return x.candidate_id !== row.id; });
   ivsSel = null;
   ivsRender();
 }
@@ -357,7 +399,7 @@ function ivsListHtml(){
     var c = ivsCalc(r);
     h += '<button class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
       '<span class="ivdot'+(c.done?' done':(c.scored?' part':''))+'"></span>'+
-      '<b>'+ivsEsc(ivsCandLabel(r))+'</b><i>'+(c.done ? c.final : (c.scored ? c.scored+'/15' : '—'))+'</i></button>';
+      '<b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(ivsCvsFor(r.id).length?'<span class="cv">CV</span>':'')+'<i>'+(c.done ? c.final : (c.scored ? c.scored+'/15' : '—'))+'</i></button>';
   });
   return h;
 }
@@ -387,7 +429,7 @@ function ivsEditorHtml(){
       IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===(r.wave||'')?' selected':'')+'>'+(w||'Unassigned')+'</option>'; }).join('')+
     '</select>'+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
-  '</div>' + ivsSumHtml(r);
+  '</div>' + ivsSumHtml(r) + ivsCvsHtml(r);
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
@@ -400,6 +442,145 @@ function ivsEditorHtml(){
   h += '<div class="ivsec">Notes</div>'+
     '<textarea id="ivs-notes" class="ivnotes" placeholder="Anything worth remembering — knife confidence, attitude, timing issues…" oninput="ivsNotes(this)">'+ivsEsc(r.notes)+'</textarea>';
   return h;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CVs
+// ══════════════════════════════════════════════════════════════════════════
+function ivsCvsFor(id){ return ivsCvs.filter(function(c){ return c.candidate_id === id; }); }
+function ivsKb(n){ return n >= 1048576 ? (n/1048576).toFixed(1)+' MB' : Math.max(1, Math.round(n/1024))+' KB'; }
+function ivsCvKind(name, mime){
+  var n = String(name||'').toLowerCase(), m = String(mime||'').toLowerCase();
+  if (/\.pdf$/.test(n) || m === 'application/pdf') return 'pdf';
+  if (/\.docx$/.test(n) || m.indexOf('wordprocessingml') >= 0) return 'docx';
+  if (/\.doc$/.test(n) || m === 'application/msword') return 'doc';
+  if (/\.(jpe?g|png|webp|heic|heif)$/.test(n) || m.indexOf('image/') === 0) return 'image';
+  return '';
+}
+
+function ivsCvsHtml(r){
+  var list = ivsCvsFor(r.id), busy = ivsCvBusy === r.id;
+  var h = '<div class="ivcvs" id="ivs-cvs"><div class="hd"><b>CV</b>'+
+    '<label class="ivcvup'+(busy?' busy':'')+'">'+(busy ? 'Uploading…' : (list.length ? '+ Add another' : 'Upload CV'))+
+    '<input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" onchange="ivsCvUpload(this,\''+r.id+'\')"></label></div>';
+  if (!list.length) h += '<div class="ivcvnone">No CV yet — Word, PDF, or a photo of a paper CV.</div>';
+  list.forEach(function(c){
+    h += '<div class="ivcvf"><div class="nm">'+ivsEsc(c.filename)+'<span>'+ivsKb(c.size_bytes)+'</span></div>'+
+      '<button class="v" onclick="ivsCvView(\''+c.id+'\')">Open</button>'+
+      '<button class="x" onclick="ivsCvDelete(\''+c.id+'\')">Remove</button></div>';
+  });
+  return h + '</div>';
+}
+function ivsCvRefresh(){
+  var r = ivsRow(ivsSel), el = document.getElementById('ivs-cvs');
+  if (r && el) el.outerHTML = ivsCvsHtml(r);
+  ivsRenderList();
+}
+
+function ivsCvUpload(input, candId){
+  var f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  if (!ivsCvKind(f.name, f.type)){ kToast('That file type cannot be opened here. Use Word, PDF or a photo.', true); return; }
+  if (f.size > IVS_CV_MAX){ kToast(f.name+' is '+ivsKb(f.size)+'. The limit is 8 MB — save it smaller or take a photo.', true); return; }
+  var rd = new FileReader();
+  rd.onerror = function(){ kToast('Could not read that file on this device.', true); };
+  rd.onload = async function(){
+    var b64 = String(rd.result).split(',')[1] || '';
+    ivsCvBusy = candId; ivsCvRefresh();
+    var r = await sb.rpc('interview_cv_add', { p_code: ivsCode, p_candidate: candId,
+      p_filename: f.name, p_mime: f.type || '', p_b64: b64 });
+    ivsCvBusy = null;
+    if (r.error){ ivsCvRefresh(); kToast('CV not saved — ' + (r.error.message || 'no connection') + '. Try again.', true); return; }
+    var row = Array.isArray(r.data) ? r.data[0] : r.data;
+    if (row) ivsCvs.push(row);
+    ivsCvRefresh();
+    kToast('CV saved — ' + f.name);
+  };
+  rd.readAsDataURL(f);
+}
+
+async function ivsCvDelete(id){
+  var c = ivsCvs.filter(function(x){ return x.id === id; })[0]; if (!c) return;
+  if (!confirm('Remove ' + c.filename + ' from this candidate?\n\nIt is removed for all four interviewers.')) return;
+  var r = await sb.rpc('interview_cv_delete', { p_code: ivsCode, p_id: id });
+  if (r.error){ kToast('Not removed — ' + (r.error.message || 'no connection'), true); return; }
+  ivsCvs = ivsCvs.filter(function(x){ return x.id !== id; });
+  ivsCvRefresh();
+}
+
+function ivsViewerClose(){
+  var v = document.getElementById('ivs-viewer');
+  if (v){ if (v._url) URL.revokeObjectURL(v._url); v.remove(); }
+  document.removeEventListener('keydown', ivsViewerKey);
+}
+function ivsViewerKey(e){ if (e.key === 'Escape') ivsViewerClose(); }
+
+async function ivsCvView(id){
+  var c = ivsCvs.filter(function(x){ return x.id === id; })[0]; if (!c) return;
+  ivsViewerClose();
+  var kind = ivsCvKind(c.filename, c.mime);
+  var v = document.createElement('div'); v.id = 'ivs-viewer';
+  v.innerHTML = '<div class="bar"><b>'+ivsEsc(c.filename)+'</b><span id="ivs-dl"></span>'+
+    '<button onclick="ivsViewerClose()">Close</button></div><div class="body"><div class="msg">Opening the CV…</div></div>';
+  document.body.appendChild(v);
+  document.addEventListener('keydown', ivsViewerKey);
+  var body = v.querySelector('.body');
+
+  var r = await sb.rpc('interview_cv_get', { p_code: ivsCode, p_id: id });
+  if (!document.body.contains(v)) return;
+  if (r.error){ body.innerHTML = '<div class="msg">Could not open it — '+ivsEsc(r.error.message || 'no connection')+'.</div>'; return; }
+  var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  var mime = c.mime || ({pdf:'application/pdf', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc:'application/msword'})[kind] || 'application/octet-stream';
+  v._url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  v.querySelector('#ivs-dl').innerHTML = '<a href="'+v._url+'" download="'+ivsEsc(c.filename)+'">Download</a>';
+
+  try {
+    if (kind === 'image'){
+      body.innerHTML = '<img class="page" alt="CV" src="'+v._url+'">';
+    } else if (kind === 'pdf'){
+      var P = await ivsLib('lib/pdf.min.js', 'pdfjsLib');
+      try { P.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js'; } catch(e){}
+      var pdf = await P.getDocument({ data: bytes.slice() }).promise;
+      body.innerHTML = '';
+      for (var pg = 1; pg <= pdf.numPages; pg++){
+        if (!document.body.contains(v)) return;
+        var page = await pdf.getPage(pg);
+        var vp = page.getViewport({ scale: 2 });
+        var cv = document.createElement('canvas');
+        cv.className = 'page'; cv.width = vp.width; cv.height = vp.height;
+        body.appendChild(cv);
+        await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      }
+    } else if (kind === 'docx'){
+      var M = await ivsLib(IVS_MAMMOTH, 'mammoth');
+      var out = await M.convertToHtml({ arrayBuffer: bytes.buffer });
+      var d = document.createElement('div'); d.className = 'doc';
+      d.innerHTML = out.value || '<p><i>This Word file has no readable text.</i></p>';
+      d.querySelectorAll('script,iframe,object,embed,link,style').forEach(function(x){ x.remove(); });
+      d.querySelectorAll('*').forEach(function(x){
+        [].slice.call(x.attributes).forEach(function(a){
+          if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) x.removeAttribute(a.name);
+        });
+      });
+      body.innerHTML = ''; body.appendChild(d);
+    } else {
+      body.innerHTML = '<div class="msg"><b>This is an old Word file (.doc).</b> A browser cannot show it. '+
+        'Tap <b>Download</b> above to open it in Word, or ask the candidate for a PDF.</div>';
+    }
+  } catch(e){
+    body.innerHTML = '<div class="msg">This file could not be shown here ('+ivsEsc(e && e.message || 'unknown error')+'). '+
+      'Tap <b>Download</b> above to open it.</div>';
+  }
+}
+
+function ivsLib(src, globalName){
+  if (window[globalName]) return Promise.resolve(window[globalName]);
+  return lazyLoad(src).then(function(){
+    if (!window[globalName]) throw new Error('viewer did not load');
+    return window[globalName];
+  });
 }
 
 function ivsBoardHtml(){
@@ -448,6 +629,8 @@ function ivsRender(fromPoll){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
     if (r && sumEl) sumEl.outerHTML = ivsSumHtml(r);
+    var cvEl = document.getElementById('ivs-cvs');
+    if (r && cvEl) cvEl.outerHTML = ivsCvsHtml(r);
     if (r) document.querySelectorAll('#interviews-view .ivs').forEach(function(g){
       var cur = +((r.scores||{})[g.getAttribute('data-k')]) || 0;
       g.querySelectorAll('button').forEach(function(b, i){ b.classList.toggle('on', cur === i+1); b.setAttribute('aria-pressed', cur === i+1); });
