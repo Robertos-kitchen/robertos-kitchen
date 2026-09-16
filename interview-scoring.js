@@ -31,6 +31,16 @@
 // words the interviewer typed — "4,500 + accommodation" or "1 month" — so the
 // app never turns 4.500 into 4.5. Each field saves on its own, like the name.
 //
+// Bulk CVs + search (16 Sep 2026, Chef Andrea via Tell us): "add in bulk all
+// the cv saved in a folder" and "a window where we can search the candidate".
+// The bulk window takes a whole folder (or many files, or a drag-and-drop),
+// reads each candidate's name off the CV's first page (biggest name-shaped
+// line of a PDF, first name-shaped line of a .docx, else the file name) and
+// shows every name for the chef to correct BEFORE anything is written. A CV
+// already on the board (same file name and size) is skipped, and a name that
+// matches an existing candidate gets the CV attached instead of a duplicate —
+// so running the same folder twice adds nothing.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad().
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -87,6 +97,8 @@ function ivsDetTyping(){ for (var k in ivsDetT) if (ivsDetT[k]) return true; ret
 var ivsCvs = [];          // CV metadata for this event (never the file bytes)
 var ivsCvBusy = null;     // candidate id with an upload in flight
 var IVS_CV_MAX = 8 * 1024 * 1024;
+var ivsQ = '';            // candidate search, kept across re-renders
+var ivsBulk = null;       // the bulk-CV window's state while it is open
 var IVS_MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';
 
 function ivsEsc(s){ return String(s==null?'':s)
@@ -115,7 +127,7 @@ function ivsInjectCss(){
   if (document.getElementById('ivs-css')) return;
   var s = document.createElement('style'); s.id = 'ivs-css';
   s.textContent = [
-    '#interviews-view{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
+    '#interviews-view,#ivs-bulk{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
     '  --ik:#2a1a10;--icr:#f5ede0;--igo:#ba9b02;--iol:#4b5128}',
     '.ivwrap{max-width:1100px;margin:0 auto;padding:14px 14px 90px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
     '.ivhd{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:12px}',
@@ -215,6 +227,39 @@ function ivsInjectCss(){
     '#ivs-viewer .doc img{max-width:100%;height:auto}',
     '#ivs-viewer .doc table{border-collapse:collapse;max-width:100%}#ivs-viewer .doc td{border:1px solid #ddd;padding:4px 6px;vertical-align:top}',
     '#ivs-viewer .msg{max-width:520px;margin:40px auto;background:#fff;padding:20px;border-radius:6px;font-family:"DM Sans",sans-serif;font-size:15px;line-height:1.5;color:#2a1a10}',
+    '.ivfind{position:relative;margin-top:10px}',
+    '.ivfind input{width:100%;box-sizing:border-box;font-family:"DM Sans",sans-serif;font-size:15px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:var(--isl);padding:0 38px 0 10px;color:var(--ik)}',
+    '.ivfind input:focus{outline:3px solid var(--igo);outline-offset:1px;background:#fff}',
+    '.ivfind button{position:absolute;right:2px;top:1px;width:44px;height:44px;border:0;background:none;color:var(--ivl);font-size:20px;cursor:pointer}',
+    '.ivfindn{font-size:12px;color:#6b5a48;margin-top:6px}',
+    '.ivcand small{display:block;font-size:11.5px;font-weight:400;color:#6b5a48;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ivcand .nmw{flex:1;min-width:0}.ivcand .nmw b{display:block}',
+    // the bottom strip stays clear so the "Tell us" pill never sits on the Add button
+    '#ivs-bulk{position:fixed;inset:0;z-index:9000;background:rgba(20,10,5,.72);display:flex;flex-direction:column;padding-bottom:56px;box-sizing:border-box}',
+    '#ivs-bulk .bar{display:flex;align-items:center;gap:8px;background:#410207;color:#f5ede0;padding:8px 10px;font-family:"DM Sans",sans-serif}',
+    '#ivs-bulk .bar b{flex:1;min-width:0;font-size:15px}',
+    '#ivs-bulk .bar button{min-height:44px;padding:0 14px;border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;background:transparent;color:#f5ede0;border:1px solid rgba(245,237,224,.6);font-family:"DM Sans",sans-serif}',
+    '#ivs-bulk .body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px}',
+    '.ivbk{max-width:900px;margin:0 auto;background:#fff;border-radius:6px;padding:16px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
+    '.ivdrop{border:2px dashed var(--isd);border-radius:6px;background:var(--isl);padding:26px 14px;text-align:center}',
+    '.ivdrop.over{border-color:var(--iv);background:var(--icr)}',
+    '.ivdrop p{margin:0 0 14px;font-size:15px;line-height:1.45}',
+    '.ivdrop .btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}',
+    '.ivdrop label{display:inline-flex;align-items:center}.ivdrop input{display:none}',
+    '.ivbkhd{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}',
+    '.ivbkhd .msg{flex:1 1 240px;font-size:14px;line-height:1.4}',
+    '.ivbkr{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;border-top:1px solid var(--isl);padding:9px 0}',
+    '.ivbkr .f{flex:1 1 200px;min-width:0;font-size:12.5px;color:#6b5a48;overflow-wrap:anywhere}',
+    '.ivbkr input{flex:1 1 220px;min-width:0;font-family:"DM Sans",sans-serif;font-size:15px;min-height:44px;border:1px solid var(--isd);border-radius:4px;padding:0 10px;color:var(--ik);background:#fff}',
+    '.ivbkr input:disabled{background:var(--isl);color:#6b5a48}',
+    '.ivbkr .st{flex:0 0 auto;font-size:12px;font-weight:700;border-radius:20px;padding:5px 10px;background:var(--isl);color:#5a4a3a;max-width:100%;overflow-wrap:anywhere}',
+    '.ivbkr .st.new{background:#e3e7d3;color:#2f4a1e}.ivbkr .st.add{background:#f3e9c4;color:#5c4700}',
+    '.ivbkr .st.skip{background:#eee;color:#555}.ivbkr .st.bad{background:#f6dcdc;color:#7a1218}',
+    '.ivbkr .st.ok{background:#2f4a1e;color:#fff}.ivbkr .st.run{background:var(--igo);color:#fff}',
+    '.ivbkr .out{flex:0 0 auto;min-height:44px;background:#fff;border:1px solid var(--isd);color:var(--iv);border-radius:4px;padding:0 10px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif}',
+    '.ivbkft{position:sticky;bottom:-12px;background:#fff;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-top:2px solid var(--isd);padding:12px 0 4px;margin-top:6px}',
+    '.ivbkft .sum{flex:1 1 200px;font-size:13.5px;color:#5a4a3a}',
+    '.ivb:disabled{opacity:.5;cursor:default}',
     '@media(max-width:760px){',
     '  .ivgrid{grid-template-columns:1fr}',
     '  .ivdet{grid-template-columns:1fr}',
@@ -312,7 +357,8 @@ async function ivsUnlock(){
   ivsStartPoll();
 }
 function ivsLock(){
-  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsViewerClose();
+  if (ivsBulk && ivsBulk.running){ kToast('CVs are still uploading — wait for them to finish, then lock.', true); return; }
+  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsQ = ''; ivsViewerClose(); ivsBulkClose(true);
   try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
   if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
   ivsRender();
@@ -353,12 +399,19 @@ async function ivsAdd(){
   var r = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT });
   if (r.error){ kToast('Could not add — ' + (r.error.message || 'no connection'), true); return; }
   ivsRows.push(r.data);
+  ivsQ = '';                                        // a search would hide the new, unnamed row
   ivsSel = r.data.id; ivsTab = 'score';
   ivsRender();
   var n = document.getElementById('ivs-name'); if (n) n.focus();
 }
 
-function ivsPick(id){ ivsSel = id; ivsTab = 'score'; ivsRender(); window.scrollTo(0, 0); }
+function ivsPick(id){
+  ivsSel = id; ivsTab = 'score'; ivsRender();
+  // on a phone the list sits above the sheet — a long list would leave the sheet off-screen
+  var ed = document.getElementById('ivs-editor');
+  if (ed && window.matchMedia('(max-width:760px)').matches) ed.scrollIntoView({ block:'start' });
+  else window.scrollTo(0, 0);
+}
 
 function ivsScore(key, val){
   var row = ivsRow(ivsSel); if (!row) return;
@@ -445,8 +498,11 @@ function ivsStatsHtml(){
   var done = ivsRows.map(ivsCalc).filter(function(c){ return c.done; });
   var avg = done.length ? Math.round(done.reduce(function(a,c){ return a + c.final; }, 0) / done.length) : null;
   var hire = done.filter(function(c){ return c.verdict.hire; }).length;
+  // "Seen" = scoring has started. A CV loaded the night before is a candidate, not someone seen.
+  var seen = ivsRows.filter(function(r){ return ivsCalc(r).scored > 0; }).length;
   return '<div class="ivstats">'+
-    '<div class="ivstat"><b>'+ivsRows.length+'</b><span>Seen</span></div>'+
+    '<div class="ivstat"><b>'+ivsRows.length+'</b><span>Candidates</span></div>'+
+    '<div class="ivstat"><b>'+seen+'</b><span>Seen</span></div>'+
     '<div class="ivstat"><b>'+(avg==null?'—':avg)+'</b><span>Avg score</span></div>'+
     '<div class="ivstat"><b>'+hire+'</b><span>Hire+</span></div>'+
   '</div>';
@@ -454,15 +510,76 @@ function ivsStatsHtml(){
 
 function ivsCandLabel(r){ return r.name && r.name.trim() ? r.name : 'Unnamed candidate'; }
 
+// the buttons and the search box sit OUTSIDE #ivs-list, so a poll redrawing the
+// list never takes the search box out from under the chef's typing
+function ivsListShellHtml(){
+  return '<div class="ivlbl">Candidates</div>'+
+    '<button class="ivb" style="width:100%" onclick="ivsAdd()">+ Add candidate</button>'+
+    '<button class="ivb2" style="width:100%;margin-top:7px" onclick="ivsBulkOpen()">Add CVs in bulk</button>'+
+    '<div class="ivfind"><input id="ivs-search" type="search" placeholder="Search candidates" aria-label="Search candidates" autocomplete="off" value="'+ivsEsc(ivsQ)+'" oninput="ivsSearch(this)" onkeydown="ivsSearchKey(event)">'+
+    (ivsQ ? '<button type="button" aria-label="Clear search" onclick="ivsSearchClear()">&times;</button>' : '')+'</div>'+
+    '<div id="ivs-list">'+ivsListHtml()+'</div>';
+}
+
+// lower-case, accents off, anything that is not a letter or digit becomes a space
+function ivsNorm(s){
+  return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+// every word typed must appear somewhere: name, wave, notes, the candidate details or a CV file name
+function ivsMatches(r, q){
+  var words = ivsNorm(q).split(' ').filter(Boolean);
+  if (!words.length) return true;
+  var hay = ' ' + ivsNorm([ivsCandLabel(r), r.wave, r.notes]
+    .concat(IVS_DETAILS.map(function(d){ return r[d[0]]; }))
+    .concat(ivsCvsFor(r.id).map(function(c){ return c.filename; })).join(' '));
+  return words.every(function(w){ return hay.indexOf(w) >= 0; });
+}
+// a hit that is not in the name says where it was found, or the row looks like a wrong match
+function ivsWhere(r, q){
+  var words = ivsNorm(q).split(' ').filter(Boolean);
+  var nm = ivsNorm(ivsCandLabel(r));
+  if (words.every(function(w){ return nm.indexOf(w) >= 0; })) return '';
+  if (words.some(function(w){ return ivsNorm(r.notes).indexOf(w) >= 0; })) return 'found in notes';
+  if (words.some(function(w){ return ivsNorm(r.wave).indexOf(w) >= 0; })) return r.wave;
+  var det = IVS_DETAILS.filter(function(d){ return words.some(function(w){ return ivsNorm(r[d[0]]).indexOf(w) >= 0; }); })[0];
+  if (det) return det[1] + ': ' + r[det[0]];
+  return 'found in CV file name';
+}
+function ivsFiltered(){ return ivsRows.filter(function(r){ return ivsMatches(r, ivsQ); }); }
+
+function ivsSearch(el){
+  ivsQ = el.value;
+  var el2 = document.getElementById('ivs-list'); if (el2) el2.innerHTML = ivsListHtml();
+  var box = el.parentNode, x = box.querySelector('button');
+  if (ivsQ && !x) box.insertAdjacentHTML('beforeend', '<button type="button" aria-label="Clear search" onclick="ivsSearchClear()">&times;</button>');
+  if (!ivsQ && x) x.remove();
+}
+function ivsSearchKey(e){
+  if (e.key === 'Escape' && ivsQ){ e.preventDefault(); ivsSearchClear(); }
+  if (e.key === 'Enter'){
+    var hits = ivsFiltered();
+    if (hits.length){ e.preventDefault(); e.target.blur(); ivsPick(hits[0].id); }
+  }
+}
+function ivsSearchClear(){
+  ivsQ = '';
+  var el = document.getElementById('ivs-search');
+  if (el){ el.value = ''; ivsSearch(el); el.focus(); }
+}
+
 function ivsListHtml(){
-  var h = '<div class="ivlbl">Candidates</div>'+
-    '<button class="ivb" style="width:100%" onclick="ivsAdd()">+ Add candidate</button>';
-  if (!ivsRows.length) return h + '<div class="ivempty">No candidates yet. Add the first one above.</div>';
-  ivsRows.forEach(function(r){
-    var c = ivsCalc(r);
+  if (!ivsRows.length) return '<div class="ivempty">No candidates yet. Add the first one above, or add a folder of CVs in bulk.</div>';
+  var hits = ivsFiltered(), h = '';
+  if (ivsQ.trim()){
+    h += '<div class="ivfindn">'+(hits.length ? hits.length+' of '+ivsRows.length+' candidates' : 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”')+'</div>';
+  }
+  hits.forEach(function(r){
+    var c = ivsCalc(r), where = ivsQ.trim() ? ivsWhere(r, ivsQ) : '';
     h += '<button class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
       '<span class="ivdot'+(c.done?' done':(c.scored?' part':''))+'"></span>'+
-      '<b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(ivsCvsFor(r.id).length?'<span class="cv">CV</span>':'')+'<i>'+(c.done ? c.final : (c.scored ? c.scored+'/15' : '—'))+'</i></button>';
+      '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(where ? '<small>'+ivsEsc(where)+'</small>' : '')+'</span>'+
+      (ivsCvsFor(r.id).length?'<span class="cv">CV</span>':'')+'<i>'+(c.done ? c.final : (c.scored ? c.scored+'/15' : '—'))+'</i></button>';
   });
   return h;
 }
@@ -638,6 +755,441 @@ async function ivsCvView(id){
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// Bulk CVs — a folder (or a pile of files) in, one candidate per CV out.
+// Nothing is written until the chef has seen every name and pressed Add.
+// ══════════════════════════════════════════════════════════════════════════
+var IVS_NOT_NAME = ['resume','curriculum','vitae','cv','biodata','profile','objective','contact','summary',
+  'personal','details','detail','information','info','experience','education','skills','career','address',
+  'email','phone','mobile','nationality','reference','references','declaration','languages','hobbies',
+  'commis','chef','cook','kitchen','helper','steward','dubai','uae','name','job','new','seeking','position',
+  'application','cover','letter','hotel','restaurant','cuisine','dining','and','the','with','for','exposure'];   // never countries: "Dhanraj Nepal" is a name
+
+function ivsPdf(){
+  return ivsLib('lib/pdf.min.js', 'pdfjsLib').then(function(P){
+    try { P.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js'; } catch(e){}
+    return P;
+  });
+}
+
+// "BHUP BAHADUR" -> "Bhup Bahadur"; initials such as "B.K" or "S." stay as they are
+function ivsTitle(s){
+  var t = String(s||'').replace(/\s+/g, ' ').trim();
+  var letters = t.replace(/[^A-Za-z]/g, '');
+  if (letters !== letters.toUpperCase() && letters !== letters.toLowerCase()) return t;   // already mixed case
+  return t.split(' ').map(function(w){
+    return w.replace(/[^A-Za-z]/g, '').length <= 2 && /[.]/.test(w) ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+}
+// a line that could be a person's name: 2-5 words of letters, no digits, no CV headings
+function ivsNameish(line){
+  var t = String(line||'').replace(/\s+/g, ' ').trim();
+  if (t.length < 4 || t.length > 48) return '';
+  if (!/^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ.'’\- ]+$/.test(t)) return '';
+  var words = t.split(' ');
+  if (words.length < 2 || words.length > 5) return '';
+  if (/[A-Za-z]{3,}\.$/.test(t)) return '';                 // ends like a sentence, not like "S." or "B.K."
+  if (words.some(function(w){ return IVS_NOT_NAME.indexOf(w.toLowerCase().replace(/[^a-z]/g, '')) >= 0; })) return '';
+  return t;
+}
+// "Name: John Doe" beats any guess
+function ivsLabelledName(lines){
+  for (var i = 0; i < lines.length; i++){
+    var m = /^\s*(full\s+)?name\s*[:\-]\s*(.+)$/i.exec(lines[i]);
+    if (m && ivsNameish(m[2])) return ivsNameish(m[2]);
+  }
+  return '';
+}
+// the file name as a last resort: "ResumeJamilKajumba.pdf" -> "Jamil Kajumba"
+function ivsNameFromFile(fn){
+  var t = String(fn||'').replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_\-.,+()\[\]]+/g, ' ').replace(/\d+/g, ' ');
+  t = t.split(/\s+/).filter(function(w){
+    return w && ['resume','cv','curriculum','vitae','final','updated','new','copy','of'].indexOf(w.toLowerCase()) < 0;
+  }).join(' ');
+  t = t.replace(/^(resume|cv)(?=[A-Z])/i, '');
+  return ivsTitle(t);
+}
+
+// How many of the line's words also sit in the file name. "ResumeDhanrajNepal.pdf"
+// backs "DHANRAJ NEPAL" and not the heading "Italian Fine Dining" in bigger type.
+function ivsFileHits(text, fn){
+  var f = ivsNorm(fn).replace(/ /g, '');
+  // 4+ letters: "new" in "Someone new.pdf" must not crown the heading "New Job"
+  return ivsNorm(text).split(' ').filter(function(w){ return w.length >= 4 && f.indexOf(w) >= 0; }).length;
+}
+// most file-name words, then biggest type, then more of the name, then nearest the top
+function ivsBestName(cands, fn){
+  var best = null;
+  cands.forEach(function(c){
+    var t = ivsNameish(c.text); if (!t) return;
+    c.hits = ivsFileHits(t, fn); c.words = t.split(' ').length; c.text = t;
+    if (!best || c.hits > best.hits || (c.hits === best.hits && (c.size > best.size ||
+        (c.size === best.size && (c.words > best.words || (c.words === best.words && c.y > best.y)))))) best = c;
+  });
+  // no line agrees with the file name, but the file name is itself a clean name: trust it
+  var fromFile = ivsNameish(ivsNameFromFile(fn));
+  if (fromFile && (!best || (!best.hits && ivsFileHits(fromFile, fn) >= 2))) return fromFile;
+  return best ? best.text : '';
+}
+
+async function ivsReadName(file, kind){
+  if (kind === 'pdf'){
+    var P = await ivsPdf();
+    var pdf = await P.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    try {
+      var page = await pdf.getPage(1), tc = await page.getTextContent(), byY = {};
+      // one line per baseline, whatever the type size ("YOGENDERA" 15pt + "SINGH" 16pt)
+      tc.items.forEach(function(it){
+        if (!it.str || !it.str.trim()) return;
+        var size = Math.round(Math.hypot(it.transform[2], it.transform[3]) * 2) / 2 || Math.round(it.height);
+        var y = Math.round(it.transform[5]);
+        var L = byY[y] || byY[y-1] || byY[y+1];
+        if (!L){ L = byY[y] = { y: y, size: 0, parts: [] }; }
+        L.size = Math.max(L.size, size);
+        L.parts.push({ x: it.transform[4], s: it.str });
+      });
+      var lines = Object.keys(byY).map(function(k){
+        var L = byY[k];
+        L.text = L.parts.sort(function(a,b){ return a.x - b.x; }).map(function(p){ return p.s; }).join(' ').replace(/\s+/g, ' ').trim();
+        if (/^([A-Za-z] )+[A-Za-z]$/.test(L.text)) L.text = L.text.replace(/ /g, '');   // "J O H N" letter-spaced
+        return L;
+      }).sort(function(a,b){ return b.y - a.y; });
+      var lab = ivsLabelledName(lines.map(function(L){ return L.text; }));
+      if (lab) return ivsTitle(lab);
+      // a name set over two or three lines in the same type: "DHANRAJ" / "NEPAL"
+      var cands = lines.map(function(L){ return { text: L.text, size: L.size, y: L.y }; });
+      lines.forEach(function(L, i){
+        var txt = L.text, last = L, joined = 0;
+        for (var j = i + 1; j < lines.length && joined < 2; j++){
+          var N = lines[j];
+          if (last.y - N.y > L.size * 1.9) break;
+          if (Math.abs(N.size - L.size) > 0.5) continue;   // a phone number in the next column, smaller type
+          if (!/^[A-Za-zÀ-ɏ.'’\- ]+$/.test(N.text) || N.text.split(' ').length > 3) break;
+          txt += ' ' + N.text; last = N; joined++;
+          cands.push({ text: txt, size: L.size, y: L.y });
+        }
+      });
+      var got = ivsBestName(cands, file.name);
+      return got ? ivsTitle(got) : '';
+    } finally { try { pdf.destroy(); } catch(e){} }
+  }
+  if (kind === 'docx'){
+    var M = await ivsLib(IVS_MAMMOTH, 'mammoth');
+    var out = await M.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    var ls = String(out.value || '').split(/\n+/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 20);
+    var l2 = ivsLabelledName(ls);
+    if (l2) return ivsTitle(l2);
+    // no type sizes in raw text: earlier lines rank higher
+    var got2 = ivsBestName(ls.map(function(s, i){ return { text: s, size: 0, y: -i }; }), file.name);
+    return got2 ? ivsTitle(got2) : '';
+  }
+  return '';
+}
+
+// everything a dropped folder holds, subfolders included
+function ivsEntryFiles(entry){
+  return new Promise(function(resolve){
+    if (entry.isFile){
+      entry.file(function(f){
+        try { Object.defineProperty(f, 'ivsPath', { value: (entry.fullPath || f.name).replace(/^\//, '') }); } catch(e){}
+        resolve([f]);
+      }, function(){ resolve([]); });
+      return;
+    }
+    if (!entry.isDirectory){ resolve([]); return; }
+    var rd = entry.createReader(), got = [];
+    (function more(){
+      rd.readEntries(async function(ents){
+        if (!ents.length){
+          var lists = [];
+          for (var i = 0; i < got.length; i++) lists.push(await ivsEntryFiles(got[i]));
+          resolve([].concat.apply([], lists));
+          return;
+        }
+        got = got.concat([].slice.call(ents)); more();
+      }, function(){ resolve([]); });
+    })();
+  });
+}
+
+function ivsBulkOpen(){
+  if (ivsBulk) return;
+  ivsBulk = { rows: [], reading: false, running: false, stopped: false, wave: '', seq: 0 };
+  var v = document.createElement('div'); v.id = 'ivs-bulk';
+  v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Add CVs in bulk');
+  document.body.appendChild(v);
+  document.addEventListener('keydown', ivsBulkKey);
+  ivsBulkRender();
+}
+function ivsBulkKey(e){ if (e.key === 'Escape' && !(e.target && e.target.closest && e.target.closest('.ivbkr'))) ivsBulkClose(); }
+function ivsBulkClose(force){
+  var b = ivsBulk;
+  if (!b) return;
+  if (!force && b.running){
+    if (!confirm('CVs are still uploading.\n\nStop after the one in progress? Those already added stay on the board.')) return;
+    b.stopped = true; return;
+  }
+  if (!force && !b.running && b.rows.some(function(r){ return r.state === 'ready'; }) &&
+      !confirm('Close without adding these CVs?')) return;
+  ivsBulk = null;
+  var v = document.getElementById('ivs-bulk'); if (v) v.remove();
+  document.removeEventListener('keydown', ivsBulkKey);
+  ivsRenderList();
+}
+
+function ivsCvDupe(file){
+  var fn = file.name.toLowerCase();
+  return ivsCvs.filter(function(c){ return String(c.filename).toLowerCase() === fn && +c.size_bytes === file.size; })[0] || null;
+}
+function ivsCandByName(name){
+  var n = ivsNorm(name); if (!n) return null;
+  return ivsRows.filter(function(r){ return ivsNorm(r.name) === n; })[0] || null;
+}
+
+// what will happen to this row if Add is pressed — worked out again every time a name changes
+function ivsBulkPlan(row){
+  if (row.state === 'done' || row.state === 'run' || row.state === 'fail') return;
+  if (row.problem){ row.state = 'bad'; return; }
+  var dupe = ivsCvDupe(row.file);
+  if (dupe){
+    var owner = ivsRow(dupe.candidate_id);
+    row.state = 'skip'; row.note = 'Already on the board' + (owner ? ' — ' + ivsCandLabel(owner) : ''); return;
+  }
+  var twin = ivsBulk.rows.filter(function(o){
+    return o !== row && o.seq < row.seq && !o.problem && o.file.name.toLowerCase() === row.file.name.toLowerCase() && o.file.size === row.file.size;
+  })[0];
+  if (twin){ row.state = 'skip'; row.note = 'Same file twice in this folder'; return; }
+  if (!row.left) {
+    var name = (row.name || '').trim();
+    if (!name){ row.state = 'bad'; row.note = 'Type the candidate’s name'; return; }
+    var ex = ivsCandByName(name);
+    row.state = 'ready';
+    row.note = ex ? 'CV goes to ' + ivsCandLabel(ex) + ' (already on the board)' : 'New candidate';
+    row.cls = ex ? 'add' : 'new';
+  } else { row.state = 'skip'; row.note = 'Left out'; }
+}
+
+async function ivsBulkAddFiles(list){
+  var b = ivsBulk; if (!b || b.running) return;
+  var files = [].slice.call(list || []);
+  if (!files.length) return;
+  files.forEach(function(f){
+    var kind = ivsCvKind(f.name, f.type), row = { seq: ++b.seq, file: f, kind: kind, path: f.ivsPath || f.webkitRelativePath || f.name,
+      name: ivsNameFromFile(f.name), edited: false, reading: !!kind && (kind === 'pdf' || kind === 'docx') && f.size <= IVS_CV_MAX };
+    if (/^\./.test(f.name) || /^~\$/.test(f.name)) return;       // .DS_Store, Word lock files
+    if (!kind) row.problem = 'Not a CV file — skipped';
+    else if (f.size > IVS_CV_MAX) row.problem = 'Over 8 MB (' + ivsKb(f.size) + ') — save it smaller';
+    else if (!f.size) row.problem = 'Empty file';
+    if (row.problem){ row.note = row.problem; row.reading = false; }
+    b.rows.push(row);
+  });
+  b.rows.forEach(ivsBulkPlan);
+  ivsBulkRender();
+  if (b.reading) return;                                  // the loop already running picks the new rows up
+  b.reading = true;
+  for (;;){
+    if (ivsBulk !== b) return;
+    var next = b.rows.filter(function(r){ return r.reading; })[0];
+    if (!next) break;
+    try {
+      var got = await ivsReadName(next.file, next.kind);
+      if (got && !next.edited) next.name = got;
+    } catch(e){ /* unreadable here — the file name stands and the chef can type it */ }
+    next.reading = false;
+    ivsBulkPlan(next);
+    ivsBulkRender();
+  }
+  b.reading = false;
+  b.rows.forEach(ivsBulkPlan);
+  ivsBulkRender();
+}
+
+function ivsBulkPick(input){ var f = input.files; ivsBulkAddFiles(f); input.value = ''; }
+
+async function ivsBulkDrop(e){
+  e.preventDefault();
+  var z = document.getElementById('ivs-drop'); if (z) z.classList.remove('over');
+  var dt = e.dataTransfer; if (!dt) return;
+  var items = dt.items ? [].slice.call(dt.items) : [];
+  var entries = items.map(function(it){ return it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; }).filter(Boolean);
+  if (entries.length){
+    var lists = [];
+    for (var i = 0; i < entries.length; i++) lists.push(await ivsEntryFiles(entries[i]));
+    ivsBulkAddFiles([].concat.apply([], lists));
+  } else ivsBulkAddFiles(dt.files);
+}
+function ivsBulkOver(e, on){
+  e.preventDefault();
+  var z = document.getElementById('ivs-drop'); if (z) z.classList.toggle('over', on);
+}
+
+function ivsBulkName(el, seq){
+  var row = ivsBulk && ivsBulk.rows.filter(function(r){ return r.seq === seq; })[0]; if (!row) return;
+  row.name = el.value; row.edited = true;
+  ivsBulkPlan(row);
+  var st = document.getElementById('ivs-bst-' + seq);
+  if (st){ st.className = 'st ' + ivsBulkCls(row); st.textContent = row.note || ''; }
+  ivsBulkFoot();
+}
+function ivsBulkLeave(seq){
+  var row = ivsBulk && ivsBulk.rows.filter(function(r){ return r.seq === seq; })[0]; if (!row) return;
+  row.left = !row.left;
+  if (!row.left) row.state = '';
+  ivsBulkPlan(row); ivsBulkRender();
+}
+function ivsBulkCls(r){
+  return r.reading ? 'run' : r.state === 'ready' ? (r.cls || 'new') : r.state === 'done' ? 'ok' : r.state === 'run' ? 'run'
+    : r.state === 'fail' || r.state === 'bad' ? 'bad' : 'skip';
+}
+
+function ivsBulkCounts(){
+  var b = ivsBulk, c = { ready:0, newc:0, attach:0, done:0, fail:0, skip:0, bad:0, reading:0 };
+  b.rows.forEach(function(r){
+    if (r.reading) c.reading++;
+    if (r.state === 'ready'){ c.ready++; if (r.cls === 'add') c.attach++; else c.newc++; }
+    else if (r.state === 'done') c.done++;
+    else if (r.state === 'fail') c.fail++;
+    else if (r.state === 'bad') c.bad++;
+    else if (r.state === 'skip') c.skip++;
+  });
+  return c;
+}
+function ivsBulkFoot(){
+  var el = document.getElementById('ivs-bft'); if (!el || !ivsBulk) return;
+  el.outerHTML = ivsBulkFootHtml();
+}
+function ivsBulkFootHtml(){
+  var b = ivsBulk, c = ivsBulkCounts(), bits = [];
+  if (b.running){
+    var total = c.ready + c.done + c.fail + b.rows.filter(function(r){ return r.state === 'run'; }).length;
+    return '<div class="ivbkft" id="ivs-bft"><div class="sum"><b>Uploading '+(c.done + c.fail + 1 > total ? total : c.done + c.fail + 1)+' of '+total+'…</b> Keep this window open.</div>'+
+      '<button class="ivb2" onclick="ivsBulkClose()">Stop</button></div>';
+  }
+  if (c.done) bits.push(c.done + ' added');
+  if (c.fail) bits.push(c.fail + ' failed');
+  if (c.newc) bits.push(c.newc + ' new candidate' + (c.newc === 1 ? '' : 's'));
+  if (c.attach) bits.push(c.attach + ' CV' + (c.attach === 1 ? '' : 's') + ' for candidates already on the board');
+  if (c.skip) bits.push(c.skip + ' skipped');
+  if (c.bad) bits.push(c.bad + ' need' + (c.bad === 1 ? 's' : '') + ' attention');
+  var label = c.reading ? 'Reading names… ' + c.reading + ' left'
+    : c.ready ? 'Add ' + c.ready + ' CV' + (c.ready === 1 ? '' : 's') : (c.done || c.fail ? 'Done' : 'Add');
+  var h = '<div class="ivbkft" id="ivs-bft"><div class="sum">'+ivsEsc(bits.join(' · ') || 'Nothing chosen yet.')+'</div>';
+  if (c.fail) h += '<button class="ivb2" onclick="ivsBulkRetry()">Try the failed ones again</button>';
+  if (!c.ready && (c.done || c.fail)) h += '<button class="ivb" onclick="ivsBulkClose(true)">Close</button>';
+  else h += '<button class="ivb" '+(c.reading || !c.ready ? 'disabled' : '')+' onclick="ivsBulkRun()">'+ivsEsc(label)+'</button>';
+  return h + '</div>';
+}
+
+function ivsBulkRender(){
+  var v = document.getElementById('ivs-bulk'), b = ivsBulk;
+  if (!v || !b) return;
+  var keep = document.activeElement && document.activeElement.id && v.contains(document.activeElement) ? document.activeElement.id : null;
+  var sy = v.querySelector('.body') ? v.querySelector('.body').scrollTop : 0;
+  var folderOk = 'webkitdirectory' in document.createElement('input') && !window.matchMedia('(pointer:coarse)').matches;
+  var accept = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*';
+  var h = '<div class="bar"><b>Add CVs in bulk</b><button onclick="ivsBulkClose()">'+(b.running ? 'Stop' : 'Close')+'</button></div>'+
+    '<div class="body"><div class="ivbk">';
+  if (!b.running){
+    h += '<div class="ivdrop" id="ivs-drop" ondragover="ivsBulkOver(event,true)" ondragenter="ivsBulkOver(event,true)" ondragleave="ivsBulkOver(event,false)" ondrop="ivsBulkDrop(event)">'+
+      '<p><b>'+(b.rows.length ? 'Add more CVs' : 'Choose the folder where the CVs are saved')+'</b><br>'+
+      '<span style="font-size:13.5px;color:#6b5a48">'+(folderOk ? 'Or drag the folder or the files here. ' : 'Select them all at once. ')+'Word, PDF or photos, up to 8 MB each. '+
+      'Each CV becomes one candidate — you check every name before anything is added.</span></p><div class="btns">'+
+      (folderOk ? '<label class="ivb">Choose a folder<input type="file" webkitdirectory directory multiple onchange="ivsBulkPick(this)"></label>' : '')+
+      '<label class="'+(folderOk ? 'ivb2' : 'ivb')+'">Choose files<input type="file" multiple accept="'+accept+'" onchange="ivsBulkPick(this)"></label>'+
+      '</div></div>';
+  }
+  if (b.rows.length){
+    h += '<div class="ivbkhd" style="margin-top:14px"><div class="msg">Check each name — it was read from the CV. Fix any that are wrong.</div>'+
+      '<select class="ivsel" aria-label="Wave for new candidates" '+(b.running?'disabled ':'')+'onchange="ivsBulk.wave=this.value">'+
+      IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===b.wave?' selected':'')+'>'+(w ? 'New candidates: '+w : 'Wave: unassigned')+'</option>'; }).join('')+
+      '</select></div>';
+    b.rows.forEach(function(r){
+      var locked = b.running || r.problem || r.state === 'done' || r.state === 'run' || (r.state === 'skip' && !r.left) || r.left;
+      var canLeave = !b.running && !r.problem && r.state !== 'done' && !(r.state === 'skip' && !r.left);
+      h += '<div class="ivbkr"><div class="f">'+ivsEsc(r.path)+' · '+ivsKb(r.file.size)+'</div>'+
+        '<input id="ivs-bn-'+r.seq+'" value="'+ivsEsc(r.name)+'" placeholder="Candidate name" aria-label="Candidate name for '+ivsEsc(r.file.name)+'" '+
+          (locked ? 'disabled ' : '')+'oninput="ivsBulkName(this,'+r.seq+')" autocomplete="off">'+
+        '<span class="st '+ivsBulkCls(r)+'" id="ivs-bst-'+r.seq+'">'+ivsEsc(r.reading ? 'Reading the name…' : (r.note || ''))+'</span>'+
+        (canLeave ? '<button class="out" onclick="ivsBulkLeave('+r.seq+')">'+(r.left ? 'Put back' : 'Leave out')+'</button>' : '')+
+      '</div>';
+    });
+    h += ivsBulkFootHtml();
+  }
+  h += '</div></div>';
+  v.innerHTML = h;
+  var body = v.querySelector('.body'); if (body) body.scrollTop = sy;
+  if (keep){ var k = document.getElementById(keep); if (k){ k.focus(); try { var n = k.value.length; k.setSelectionRange(n, n); } catch(e){} } }
+}
+
+function ivsB64(file){
+  return new Promise(function(resolve, reject){
+    var rd = new FileReader();
+    rd.onerror = function(){ reject(new Error('could not read the file on this device')); };
+    rd.onload = function(){ resolve(String(rd.result).split(',')[1] || ''); };
+    rd.readAsDataURL(file);
+  });
+}
+
+async function ivsBulkRun(){
+  var b = ivsBulk; if (!b || b.running) return;
+  b.rows.forEach(ivsBulkPlan);
+  if (!b.rows.some(function(r){ return r.state === 'ready'; })) return;
+  b.running = true; b.stopped = false;
+  ivsBulkRender();
+  for (var i = 0; i < b.rows.length; i++){
+    var row = b.rows[i];
+    if (ivsBulk !== b || b.stopped) break;
+    ivsBulkPlan(row);                                  // a candidate added earlier in this run may now own this name
+    if (row.state !== 'ready') continue;
+    row.state = 'run'; row.note = 'Uploading…'; ivsBulkRender();
+    try {
+      if (!row.candId){
+        var ex = ivsCandByName(row.name);
+        if (ex) row.candId = ex.id;
+        else {
+          var a = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT });
+          if (a.error) throw a.error;
+          var patch = { name: row.name.trim() }; if (b.wave) patch.wave = b.wave;
+          ivsPending[a.data.id] = 1;                   // the poll must not show it nameless meanwhile
+          var fresh = Object.assign({}, a.data, patch);
+          ivsRows.push(fresh);
+          row.candId = a.data.id;
+          var p = await sb.rpc('interview_patch', { p_code: ivsCode, p_id: a.data.id, p_patch: patch });
+          delete ivsPending[a.data.id];
+          if (p.error) throw p.error;
+          var k = ivsRows.findIndex(function(x){ return x.id === a.data.id; });
+          if (k >= 0 && p.data) ivsRows[k] = p.data;
+        }
+      }
+      var b64 = await ivsB64(row.file);
+      var r = await sb.rpc('interview_cv_add', { p_code: ivsCode, p_candidate: row.candId,
+        p_filename: row.file.name, p_mime: row.file.type || '', p_b64: b64 });
+      if (r.error) throw r.error;
+      var cvRow = Array.isArray(r.data) ? r.data[0] : r.data;
+      if (cvRow) ivsCvs.push(cvRow);
+      var owner = ivsRow(row.candId);
+      row.state = 'done'; row.note = 'Added' + (owner ? ' — ' + ivsCandLabel(owner) : '');
+    } catch(e){
+      row.state = 'fail'; row.note = 'Not added — ' + ((e && e.message) || 'no connection');
+    }
+    if (ivsBulk === b){ ivsBulkRender(); ivsRenderList(); }
+  }
+  b.running = false;
+  if (ivsBulk !== b) return;
+  if (b.stopped) b.rows.forEach(function(r){ if (r.state === 'ready') { r.state = 'skip'; r.note = 'Not added — stopped'; r.left = true; } });
+  ivsBulkRender(); ivsRenderList();
+  var c = ivsBulkCounts();
+  kToast(c.done + ' CV' + (c.done === 1 ? '' : 's') + ' added' + (c.fail ? ' · ' + c.fail + ' failed' : ''), !!c.fail);
+}
+function ivsBulkRetry(){
+  if (!ivsBulk || ivsBulk.running) return;
+  ivsBulk.rows.forEach(function(r){ if (r.state === 'fail'){ r.state = ''; ivsBulkPlan(r); } });
+  ivsBulkRun();
+}
+
 function ivsLib(src, globalName){
   if (window[globalName]) return Promise.resolve(window[globalName]);
   return lazyLoad(src).then(function(){
@@ -689,7 +1241,7 @@ function ivsRender(fromPoll){
   }
   // while a chef is typing, a poll only refreshes the parts that are not under their thumb
   var ae = document.activeElement;
-  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-notes' || /^ivs-d-/.test(ae.id || ''));
+  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || /^ivs-d-/.test(ae.id || ''));
   if (fromPoll && typing){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
@@ -709,8 +1261,8 @@ function ivsRender(fromPoll){
   }
   var y = window.scrollY;
   var body = ivsTab === 'board' ? ivsBoardHtml()
-    : '<div class="ivgrid"><div class="ivcard" id="ivs-list">'+ivsListHtml()+'</div>'+
-      '<div class="ivcard">'+ivsEditorHtml()+'</div></div>';
+    : '<div class="ivgrid"><div class="ivcard">'+ivsListShellHtml()+'</div>'+
+      '<div class="ivcard" id="ivs-editor">'+ivsEditorHtml()+'</div></div>';
   v.innerHTML = '<div class="ivwrap">'+
     '<div class="ivhd"><div><small>Roberto\'s Dubai · Kitchen</small><h2>Commis Open Day — Live Scoring</h2></div>'+
       '<div id="ivs-stats">'+ivsStatsHtml()+'</div></div>'+
