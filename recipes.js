@@ -5937,7 +5937,7 @@ window.RECIPES = [
       "CAFFÈ o TE’",
       "AED 149",
       "Our Chefs will gladly accommodate any dietary preferences, Kindly inform your server of any requirements.",
-      "All prices are in AED and include 5% VAT, subject to an additional 7% DIFC Authority Fee and 10 % Service Charge"
+      "All prices are in AED and inclusive of 10% Service Charge and 5% VAT, subject to an additional 7% DIFC Authority Fee."
     ],
     "notes": [
       "Word document text extracted as menu/recipe notes."
