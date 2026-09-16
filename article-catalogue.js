@@ -149,14 +149,23 @@ var acAssortChecked = null;
 var acGaps = null;
 var acGapsOpen = false;
 
-async function acLoadRecipeUse(){
-  try {
-    var recs = await acFetchAllPaged(function(){
+// Both reads start together (16 Sep 2026: the catalogue took ~10s because every
+// read waited for the one before it). acLoad starts this before the article list
+// has arrived and hands the promise in; the gap check still runs after it.
+function acFetchRecipeUse(){
+  return Promise.all([
+    acFetchAllPaged(function(){
       return sb.from('recipes').select('id,name').eq('venue_id','robertos-difc');
-    });
-    var lines = await acFetchAllPaged(function(){
+    }),
+    acFetchAllPaged(function(){
       return sb.from('recipe_lines').select('recipe_id,stock_code');
-    });
+    })
+  ]);
+}
+async function acLoadRecipeUse(fetched){
+  try {
+    var both = await (fetched || acFetchRecipeUse());
+    var recs = both[0], lines = both[1];
     if(recs.error || lines.error) return;
     var name = {};
     (recs.data||[]).forEach(function(r){ name[r.id] = r.name || ('recipe ' + r.id); });
@@ -226,17 +235,28 @@ function acGapsHtml(){
 // ── data ──────────────────────────────────────────────────────────────────
 // PostgREST caps a select at 1000 rows; four sheets are ~3,600 rows, so a
 // single unpaged read would silently drop two thirds of the catalogue.
+// Pages after the first are asked for four at a time, and joined back in order,
+// so a 4,361-row sheet is two round trips instead of five.
 async function acFetchAllPaged(build){
-  var all=[], from=0, size=1000;
+  var all=[], from=0, size=1000, batch=4;
+  var first = await build().range(0, size-1);
+  if(first.error){ return { error:first.error, data:all }; }
+  all = (first.data||[]).slice();
+  if(all.length < size) return { data:all };
+  from = size;
   for(;;){
-    var r = await build().range(from, from+size-1);
-    if(r.error){ return { error:r.error, data:all }; }
-    var rows = r.data||[];
-    all = all.concat(rows);
-    if(rows.length < size) break;
-    from += size;
+    var reqs = [];
+    for(var i=0;i<batch;i++){ reqs.push(build().range(from+i*size, from+(i+1)*size-1)); }
+    var got = await Promise.all(reqs);
+    for(var j=0;j<got.length;j++){
+      var r = got[j];
+      if(r.error){ return { error:r.error, data:all }; }
+      var rows = r.data||[];
+      all = all.concat(rows);
+      if(rows.length < size) return { data:all };
+    }
+    from += batch*size;
   }
-  return { data:all };
 }
 
 // supplier is not in the export yet. Ask for it, and fall back to the columns
@@ -273,16 +293,23 @@ async function acLoad(){
   // Ask for one row with supplier in it. A column that doesn't exist is a 400
   // from PostgREST, so this settles the question for a single tiny request
   // instead of throwing away a full four-sheet read to find out.
-  var probe = await sb.from('stock_take_items').select('code,supplier').limit(1);
-  acHasSupplier = !probe.error;
+  var probeP = sb.from('stock_take_items').select('code,supplier').limit(1);
+  var useP = acFetchRecipeUse();
 
   // THE LIST. Read first, because it is the one that decides what exists.
   var arts = {}, haveArts = false;
-  var ares = await acFetchAllPaged(function(){
+  var aresP = acFetchAllPaged(function(){
     return sb.from('fmc_articles')
       .select('code,name,unit,supplier,on_assortment,retiring,item_group,price,price_per_base_unit,price_paid_at,base_unit,assortment_checked_at')
       .eq('venue_id','robertos-difc').order('code');
   });
+  var probe = await probeP;
+  acHasSupplier = !probe.error;
+  var resP = acFetchAllPaged(function(){
+    return sb.from('stock_take_items').select(acSelectCols())
+      .eq('venue_id', STOCK_VENUE_AC).eq('dept', STOCK_DEPT_AC).eq('active', true).order('id');
+  });
+  var ares = await aresP;
   if(!ares.error && ares.data && ares.data.length){
     haveArts = true;
     ares.data.forEach(function(a){
@@ -302,14 +329,11 @@ async function acLoad(){
 
   // Which ingredients the recipes actually lean on. Never fatal, and never
   // blocking: the catalogue renders with or without it.
-  await acLoadRecipeUse();
+  await acLoadRecipeUse(useP);
 
   // THE PRICES. A stock-take failure must not empty the catalogue — the master
   // stands on its own and every price simply reads "no sheet price".
-  var res = await acFetchAllPaged(function(){
-    return sb.from('stock_take_items').select(acSelectCols())
-      .eq('venue_id', STOCK_VENUE_AC).eq('dept', STOCK_DEPT_AC).eq('active', true).order('id');
-  });
+  var res = await resP;
   // Only a total failure of BOTH reads leaves nothing to show.
   if(res.error && !haveArts){
     acAll = [];
