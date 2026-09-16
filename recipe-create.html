@@ -2169,7 +2169,7 @@ function applyKind(to){
        so a dish left sitting in it reaches his Micros form with no family at all */
     if (S.section === 'Prep') S.section = (was.section && was.section !== 'Prep') ? was.section : '';
   }
-  S.makesQty = (was.makesQty != null) ? was.makesQty : null; S.mkAsk = null;
+  S.makesQty = (was.makesQty != null) ? was.makesQty : null; S.mkAsk = null; S.mkDisp = undefined;
   S.kindAsk = null; S.kindStop = null; S.kindBusy = false;
   render();
   flash('Now a ' + kindWord(S.kind) + '. Everything you wrote is still here — say what it makes, then Save.');
@@ -3093,7 +3093,7 @@ function unparkAt(i){
   S.kindAsk = null; S.kindStop = null; S.kindBusy = false; S.kindStash = {};
   S.id = p.id || null; S.kind = p.kind; S.name = p.name || ''; S.section = p.section || '';
   S.text = p.text || ''; S.price = p.price;
-  S.makesQty = p.makesQty; S.makesUnit = p.makesUnit;
+  S.makesQty = p.makesQty; S.makesUnit = p.makesUnit; S.mkDisp = undefined;
   S.method = p.method || emptyMethod(); S.allergens = p.allergens || []; S.menus = p.menus || [];
   S.photos = Array.isArray(p.photos) ? p.photos.filter(function(x){ return x && x.u; }) : [];
   /* the rows are rebuilt off the same words in the same order, then what he had chosen
@@ -3171,7 +3171,7 @@ function newRecipe(){
      who were reading its Back button as the way out of the recipe. Nothing it did is
      gone: the badge in the bar changes main to batch, and the box that takes a whole
      list at once is a fold on the sheet itself. */
-  S.price=null; S.makesQty=null; S.mkAsk=null; S.makesUnit=null; S.step='sheet';
+  S.price=null; S.makesQty=null; S.mkAsk=null; S.makesUnit=null; S.mkDisp=undefined; S.step='sheet';
   /* the fold on the sheet belongs to the recipe that has just left the screen */
   S.bulk=false; S.btext='';
   S.imported=null; S.found=null; S.hints=null; S.cameFrom=null; S.find=null;
@@ -5691,7 +5691,7 @@ function openRecipe(id){
     S.whole = true;          /* read straight off the record — the sheet holds all of it */
     S.kindAsk = null; S.kindStop = null; S.kindBusy = false; S.kindStash = {};
     S.id = rec.id; S.kind = rec.kind; S.name = rec.name || ''; S.section = rec.section || '';
-    S.makesQty = rec.makes_qty; S.makesUnit = rec.makes_unit;
+    S.makesQty = rec.makes_qty; S.makesUnit = rec.makes_unit; S.mkDisp = undefined;
     S.price = rec.menu_price; S.text = '';
     /* the fold on the sheet is per-recipe — it must not open on the next one carrying
        half a list somebody poured into the last one */
@@ -6354,7 +6354,7 @@ function useImported(f){
   S.hints   = f.hints || null;                   /* codes / sub-recipe flags / wastage, by line */
   S.text    = f.lines.join(',\n') + ',';         /* a comma per line — one line is one ingredient */
   S.method  = parseMethod(f.method || '');
-  if (f.makesQty != null){ S.makesQty = f.makesQty; S.makesUnit = f.makesUnit; }
+  if (f.makesQty != null){ S.makesQty = f.makesQty; S.makesUnit = f.makesUnit; S.mkDisp = undefined; }
   if (f.price != null && S.kind === 'main') S.price = f.price;
   S.imported = { how:f.how, noUnit:f.noUnit||[], where:f.where||'',
                  costing:!!f.costing, subs:f.subs||[],
@@ -8019,7 +8019,7 @@ function render(){
         var kb = $('kindbar'); if (kb && kb.scrollIntoView) kb.scrollIntoView({ block:'center' });
         return; }
       S.kind = S.kind === 'main' ? 'batch' : 'main';
-      S.price = null; S.makesQty = null; S.mkAsk = null; S.makesUnit = null;
+      S.price = null; S.makesQty = null; S.mkAsk = null; S.makesUnit = null; S.mkDisp = undefined;
       if (S.section && sectionList().indexOf(S.section) < 0) S.section = '';
       if (S.kind === 'main' && !(S.menus||[]).length){
         var runm = MENUS.filter(function(m){ return m.running; })[0];
@@ -11211,9 +11211,25 @@ function foot(){
      column and then 1 kg here. "1.800" in THIS box divides the whole batch, so it is
      asked the same way — and while it is unanswered the box holds his own words. */
   var mkAsk = (S.makesQty == null) ? (S.mkAsk || null) : null;
-  var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(mkAsk?esc(mkAsk.typed):(S.makesQty==null?'':S.makesQty))+'">';
-  var muSel = '<select class="mu" id="mu">' + ['kg','L','pcs'].map(function(u){
-                return '<option value="'+u+'"'+(mu===u?' selected':'')+'>'+u+'</option>'; }).join('') + '</select>';
+  /* GRAMS AND MILLILITRES — Chef Andrea, 16 Sep 2026: "there is only KG but sometime we do
+     very small batch of items". The picker offers g and ml, but the RECORD still says kg or
+     L: makes_unit is read by the costing here (batchCost divides by it), by the card, the
+     bible and both exports, and every one of them knows kg / L / pcs and nothing else. So
+     g and ml are only how the box is WRITTEN — 300 g in the box is 0.3 kg in S.makesQty,
+     and the cost line still says per kg, the number a chef prices against.
+     S.mkDisp is the chosen way of writing it: 'g' | 'ml' | null. undefined means "not
+     decided for this recipe yet" and is worked out once, here — under 1 kg / 1 L opens in
+     g / ml — then fixed, so the box never flips from kg to g under a number being typed. */
+  var MKSMALL = { kg:'g', L:'ml' };
+  if (S.kind !== 'batch') S.mkDisp = null;
+  else if (S.mkDisp === undefined)
+    S.mkDisp = (MKSMALL[mu] && S.makesQty != null && S.makesQty > 0 && S.makesQty < 1) ? MKSMALL[mu] : null;
+  if (S.mkDisp && MKSMALL[mu] !== S.mkDisp) S.mkDisp = null;
+  var mkShown = (S.makesQty == null) ? '' : S.mkDisp ? +(S.makesQty * 1000).toPrecision(12) : S.makesQty;
+  var mkIn = '<input class="pr" id="mk" inputmode="decimal" placeholder="—" style="width:56px" value="'+(mkAsk?esc(mkAsk.typed):mkShown)+'">';
+  var mkPick = S.mkDisp || mu;
+  var muSel = '<select class="mu" id="mu">' + ['g','kg','ml','L','pcs'].map(function(u){
+                return '<option value="'+u+'"'+(mkPick===u?' selected':'')+'>'+u+'</option>'; }).join('') + '</select>';
   /* ── out of the way while he works ──
      This bar is fixed to the bottom, and open it is two hundred pixels of the sheet
      he cannot see. A chef writing a recipe is reading the rows, not the food cost —
@@ -11249,7 +11265,7 @@ function foot(){
     (mkAsk
       ? '<div class="todo"><b>'+esc(mkAsk.typed)+' — is that ' +
         '<span class="fix" data-mkamt="'+mkAsk.big+'">'+mkAsk.big+'</span> or ' +
-        '<span class="fix" data-mkamt="'+mkAsk.small+'">'+mkAsk.small+'</span> '+esc(mu)+'?</b> ' +
+        '<span class="fix" data-mkamt="'+mkAsk.small+'">'+mkAsk.small+'</span> '+esc(mkPick)+'?</b> ' +
         'Until you say, this has no “makes” — and “makes” is what every cost here is divided by.</div>'
       : '') +
     (mk==null
@@ -11277,10 +11293,22 @@ function foot(){
   liveInput('pr', function(v){ S.price   = readAmt(v)||null; });
   liveInput('mk', function(v){
     S.mkAsk = thousandsAsk(v);
-    S.makesQty = S.mkAsk ? null : (readAmt(v)||null);
+    var q = S.mkAsk ? null : (readAmt(v)||null);
+    S.makesQty = (q != null && S.mkDisp) ? +(q / 1000).toPrecision(12) : q;
   });
   var ms = $('mu');
-  if (ms) ms.addEventListener('change', function(){ S.makesUnit = this.value; foot(); });
+  /* the number in the box stays what he wrote and the unit changes — typing 300, seeing
+     kg, and picking g means 300 g, exactly as picking L after kg always meant 300 L */
+  if (ms) ms.addEventListener('change', function(){
+    var box = $('mk'), typed = box ? box.value : '';
+    var big = { g:'kg', ml:'L' }[this.value];
+    S.makesUnit = big || this.value;
+    S.mkDisp = big ? this.value : null;
+    S.mkAsk = thousandsAsk(typed);
+    var q = S.mkAsk ? null : (readAmt(typed)||null);
+    S.makesQty = (q != null && S.mkDisp) ? +(q / 1000).toPrecision(12) : q;
+    foot();
+  });
   /* picking or dropping a batch changes what the dish contains — the allergen line
      is worked out from the rows, so it has to be redrawn whenever they change */
   drawAlg();
@@ -11627,7 +11655,8 @@ document.addEventListener('click', function(e){
     bulkReflow(); return;
   }
   var mka = e.target.closest('[data-mkamt]');          /* …the same question, on "makes" */
-  if (mka){ S.makesQty = parseFloat(mka.dataset.mkamt); S.mkAsk = null; foot(); return; }
+  if (mka){ var mkv = parseFloat(mka.dataset.mkamt);        /* the answer is in the unit the box shows */
+    S.makesQty = S.mkDisp ? +(mkv / 1000).toPrecision(12) : mkv; S.mkAsk = null; foot(); return; }
   var am = e.target.closest('[data-amt]');             /* which thousand he meant */
   if (am){
     var ai = +am.dataset.amt, ar = S.rows[ai];
