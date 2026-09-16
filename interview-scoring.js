@@ -26,6 +26,11 @@
 // .docx turned into readable text by mammoth. An old .doc cannot be read in a
 // browser, so it says so and offers the download instead of a blank panel.
 //
+// Candidate details (16 Sep 2026, Chef Andrea via "Tell us"): salary
+// expectation, position applied for, notice period, visa status. Kept as the
+// words the interviewer typed — "4,500 + accommodation" or "1 month" — so the
+// app never turns 4.500 into 4.5. Each field saves on its own, like the name.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad().
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -56,6 +61,16 @@ var IVS_SECTIONS = [
     ['P5','Taste, presentation & plating','Balanced flavour, clean simple plating.']
   ]}
 ];
+// [column, label, placeholder, suggestions — tap one or type anything]
+var IVS_DETAILS = [
+  ['position_applied',   'Position applied / expected', 'e.g. Commis II',
+    ['Commis III','Commis II','Commis I','Demi Chef de Partie','Chef de Partie']],
+  ['salary_expectation', 'Salary expectation', 'e.g. AED 4,500 / month + accommodation', []],
+  ['notice_period',      'Notice period', 'e.g. 1 month',
+    ['Immediate','1 week','2 weeks','1 month','2 months','3 months']],
+  ['visa_status',        'Visa status', 'e.g. Visit visa',
+    ['Visit visa','Employment visa — current employer','Cancelled visa / grace period','Family / spouse visa','Own visa (freelance / golden)','Outside the UAE']]
+];
 var IVS_WAVES = ['', 'Wave 1', 'Wave 2', 'Wave 3', 'Wave 4'];
 var IVS_LINES = 15;
 
@@ -67,6 +82,8 @@ var ivsErr   = '';
 var ivsTimer = null;
 var ivsPending = {};      // id -> number of saves in flight (the poll leaves those rows alone)
 var ivsNameT = null, ivsNotesT = null;
+var ivsDetT = {};          // column -> debounce timer for a detail field not sent yet
+function ivsDetTyping(){ for (var k in ivsDetT) if (ivsDetT[k]) return true; return false; }
 var ivsCvs = [];          // CV metadata for this event (never the file bytes)
 var ivsCvBusy = null;     // candidate id with an upload in flight
 var IVS_CV_MAX = 8 * 1024 * 1024;
@@ -131,6 +148,12 @@ function ivsInjectCss(){
     '.ivname{flex:1 1 220px;min-width:0;font-family:"Cormorant Garamond",Georgia,serif;font-size:25px;color:var(--ik);',
     '  border:0;border-bottom:2px solid var(--is);background:none;padding:6px 2px;min-height:46px}',
     '.ivname:focus{outline:none;border-bottom-color:var(--iv)}',
+    '.ivdet{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-top:10px}',
+    '.ivdf{display:block;min-width:0}',
+    '.ivdf span{display:block;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-bottom:3px}',
+    '.ivdf input{width:100%;box-sizing:border-box;font-family:"DM Sans",sans-serif;font-size:15px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:var(--isl);padding:0 10px;color:var(--ik)}',
+    '.ivdf input:focus{outline:none;border-color:var(--iv);background:#fff}',
+    '.ivtab td.ivdc{font-size:13px;max-width:150px;overflow-wrap:anywhere}',
     '.ivsel{font-family:"DM Sans",sans-serif;font-size:15px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:var(--isl);padding:0 10px;color:var(--ik)}',
     '.ivdel{background:#fff;border:1px solid var(--isd);color:var(--iv);border-radius:4px;min-height:46px;padding:0 14px;font-weight:600;cursor:pointer}',
     '.ivsum{display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--isl);border-radius:6px;padding:12px 14px;margin:12px 0 4px}',
@@ -194,6 +217,7 @@ function ivsInjectCss(){
     '#ivs-viewer .msg{max-width:520px;margin:40px auto;background:#fff;padding:20px;border-radius:6px;font-family:"DM Sans",sans-serif;font-size:15px;line-height:1.5;color:#2a1a10}',
     '@media(max-width:760px){',
     '  .ivgrid{grid-template-columns:1fr}',
+    '  .ivdet{grid-template-columns:1fr}',
     '  .ivstats{width:100%}.ivstat{flex:1;min-width:0}',
     '  .ivs{width:100%}.ivs button{flex:1;width:auto}',
     '  .ivsum .parts{margin-left:0}',
@@ -263,14 +287,13 @@ async function ivsLoad(quiet){
   var mine = {};
   ivsRows.forEach(function(x){ if (ivsPending[x.id]) mine[x.id] = x; });
   ivsRows.forEach(function(x){
-    if (x.id === ivsSel && (ivsNameT || ivsNotesT) && !mine[x.id]) mine[x.id] = { name:x.name, notes:x.notes, partial:true };
+    if (x.id === ivsSel && (ivsNameT || ivsNotesT || ivsDetTyping()) && !mine[x.id]) mine[x.id] = { old:x, partial:true };
   });
   ivsRows = fresh.map(function(x){
     var m = mine[x.id];
     if (!m) return x;
     if (!m.partial) return m;
-    if (ivsNameT) x.name = m.name;          // not sent yet — the typing wins
-    if (ivsNotesT) x.notes = m.notes;
+    ivsKeepTyping(x, m.old);                 // not sent yet — the typing wins
     return x;
   });
   if (ivsSel && !ivsRows.some(function(x){ return x.id === ivsSel; })) ivsSel = null;
@@ -313,10 +336,17 @@ async function ivsSave(id, patch){
       // keep whatever the chef is typing right now
       var cur = ivsRows[i];
       ivsRows[i] = r.data;
-      if (ivsNameT && cur) ivsRows[i].name = cur.name;
-      if (ivsNotesT && cur) ivsRows[i].notes = cur.notes;
+      if (cur) ivsKeepTyping(ivsRows[i], cur);
     }
   }
+}
+
+// copy onto a fresh row every field this phone has typed but not sent yet
+function ivsKeepTyping(to, from){
+  if (!from) return;
+  if (ivsNameT) to.name = from.name;
+  if (ivsNotesT) to.notes = from.notes;
+  IVS_DETAILS.forEach(function(d){ if (ivsDetT[d[0]]) to[d[0]] = from[d[0]]; });
 }
 
 async function ivsAdd(){
@@ -356,6 +386,39 @@ function ivsNotes(el){
   clearTimeout(ivsNotesT);
   ivsNotesT = setTimeout(function(){ ivsNotesT = null; ivsSave(id, { notes: val }); }, 800);
 }
+function ivsDetail(el){
+  var row = ivsRow(ivsSel); if (!row) return;
+  var key = el.getAttribute('data-k');
+  row[key] = el.value;
+  var id = row.id, val = el.value;
+  clearTimeout(ivsDetT[key]);
+  ivsDetT[key] = setTimeout(function(){
+    ivsDetT[key] = null;
+    var p = {}; p[key] = val;
+    ivsSave(id, p);
+  }, 700);
+}
+// leaving the field sends it at once — a chef who types and walks away loses nothing
+function ivsDetailFlush(el){
+  var key = el.getAttribute('data-k');
+  if (!ivsDetT[key]) return;
+  clearTimeout(ivsDetT[key]); ivsDetT[key] = null;
+  var row = ivsRow(ivsSel); if (!row) return;
+  var p = {}; p[key] = el.value;
+  ivsSave(row.id, p);
+}
+function ivsDetailsHtml(r){
+  var h = '<div class="ivdet">';
+  IVS_DETAILS.forEach(function(d){
+    var list = d[3].length ? ' list="ivs-dl-'+d[0]+'"' : '';
+    h += '<label class="ivdf"><span>'+ivsEsc(d[1])+'</span>'+
+      '<input id="ivs-d-'+d[0]+'" data-k="'+d[0]+'" maxlength="120" autocomplete="off"'+list+
+      ' placeholder="'+ivsEsc(d[2])+'" value="'+ivsEsc(r[d[0]])+'" oninput="ivsDetail(this)" onchange="ivsDetailFlush(this)"></label>';
+    if (d[3].length) h += '<datalist id="ivs-dl-'+d[0]+'">'+d[3].map(function(o){ return '<option value="'+ivsEsc(o)+'">'; }).join('')+'</datalist>';
+  });
+  return h + '</div>';
+}
+
 function ivsWave(el){
   var row = ivsRow(ivsSel); if (!row) return;
   row.wave = el.value;
@@ -429,7 +492,7 @@ function ivsEditorHtml(){
       IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===(r.wave||'')?' selected':'')+'>'+(w||'Unassigned')+'</option>'; }).join('')+
     '</select>'+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
-  '</div>' + ivsSumHtml(r) + ivsCvsHtml(r);
+  '</div>' + ivsDetailsHtml(r) + ivsSumHtml(r) + ivsCvsHtml(r);
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
@@ -592,6 +655,7 @@ function ivsBoardHtml(){
     return b.c.scored - a.c.scored;
   });
   var h = '<table class="ivtab"><thead><tr><th>Rank</th><th>Candidate</th><th class="hm">Wave</th>'+
+    '<th class="hm">Position</th><th class="hm">Salary exp.</th><th class="hm">Notice</th><th class="hm">Visa</th>'+
     '<th class="hm">Interview /50</th><th class="hm">Practical /25</th><th>Final</th><th>Verdict</th></tr></thead><tbody>';
   var rank = 0;
   rows.forEach(function(x){
@@ -600,6 +664,7 @@ function ivsBoardHtml(){
       '<td class="n">'+(x.c.done ? rank : '—')+'</td>'+
       '<td><b>'+ivsEsc(ivsCandLabel(x.r))+'</b></td>'+
       '<td class="hm">'+ivsEsc(x.r.wave || '—')+'</td>'+
+      IVS_DETAILS.map(function(d){ return '<td class="hm ivdc">'+ivsEsc(x.r[d[0]] || '—')+'</td>'; }).join('')+
       '<td class="n hm">'+x.c.int+'/50</td><td class="n hm">'+x.c.prac+'/25</td>'+
       '<td class="n">'+(x.c.done ? '<span class="ivbar"><i style="width:'+x.c.final+'%"></i></span><b>'+x.c.final+'</b>' : '—')+'</td>'+
       '<td>'+(x.c.done ? '<span class="ivpill '+x.c.verdict.c+'">'+x.c.verdict.t+'</span>'
@@ -624,13 +689,18 @@ function ivsRender(fromPoll){
   }
   // while a chef is typing, a poll only refreshes the parts that are not under their thumb
   var ae = document.activeElement;
-  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-notes');
+  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-notes' || /^ivs-d-/.test(ae.id || ''));
   if (fromPoll && typing){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
     if (r && sumEl) sumEl.outerHTML = ivsSumHtml(r);
     var cvEl = document.getElementById('ivs-cvs');
     if (r && cvEl) cvEl.outerHTML = ivsCvsHtml(r);
+    // another chef's detail edits land in the fields this chef is not typing in
+    if (r) IVS_DETAILS.forEach(function(d){
+      var inp = document.getElementById('ivs-d-'+d[0]);
+      if (inp && inp !== ae && !ivsDetT[d[0]] && inp.value !== (r[d[0]]||'')) inp.value = r[d[0]]||'';
+    });
     if (r) document.querySelectorAll('#interviews-view .ivs').forEach(function(g){
       var cur = +((r.scores||{})[g.getAttribute('data-k')]) || 0;
       g.querySelectorAll('button').forEach(function(b, i){ b.classList.toggle('on', cur === i+1); b.setAttribute('aria-pressed', cur === i+1); });

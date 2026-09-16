@@ -158,3 +158,37 @@ grant execute on function public.interview_cv_list(text,text)  to anon, authenti
 grant execute on function public.interview_cv_get(text,uuid)    to anon, authenticated;
 grant execute on function public.interview_cv_delete(text,uuid) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Candidate details (added 16 Sep 2026, Chef Andrea via "Tell us"):
+-- salary expectation, position applied/expected, notice period, visa status.
+-- Plain text, kept as typed — the app never parses a salary.
+-- Applied to the Kitchen project 16 Sep 2026; existing rows default to ''.
+-- ══════════════════════════════════════════════════════════════════════════
+alter table public.interview_candidates
+  add column if not exists salary_expectation text not null default '',
+  add column if not exists position_applied   text not null default '',
+  add column if not exists notice_period      text not null default '',
+  add column if not exists visa_status        text not null default '';
+
+create or replace function public.interview_patch(p_code text, p_id uuid, p_patch jsonb)
+returns public.interview_candidates
+language plpgsql security definer set search_path = public as $$
+declare r interview_candidates;
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  update interview_candidates set
+    name   = case when p_patch ? 'name'  then left(p_patch->>'name', 120) else name end,
+    wave   = case when p_patch ? 'wave'  then left(p_patch->>'wave', 40)  else wave end,
+    notes  = case when p_patch ? 'notes' then left(p_patch->>'notes', 4000) else notes end,
+    salary_expectation = case when p_patch ? 'salary_expectation' then left(coalesce(p_patch->>'salary_expectation',''), 120) else salary_expectation end,
+    position_applied   = case when p_patch ? 'position_applied'   then left(coalesce(p_patch->>'position_applied',''), 120)   else position_applied end,
+    notice_period      = case when p_patch ? 'notice_period'      then left(coalesce(p_patch->>'notice_period',''), 120)      else notice_period end,
+    visa_status        = case when p_patch ? 'visa_status'        then left(coalesce(p_patch->>'visa_status',''), 120)        else visa_status end,
+    scores = case when p_patch ? 'scores'
+                  then jsonb_strip_nulls(scores || (p_patch->'scores')) else scores end,
+    updated_at = now()
+  where id = p_id returning * into r;
+  return r;
+end $$;
+notify pgrst, 'reload schema';
