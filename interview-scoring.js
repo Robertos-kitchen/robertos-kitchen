@@ -51,6 +51,13 @@
 // addresses written there. Every send is a row in interview_actions, shown on
 // the candidate's sheet, and a repeat of the same action has to be ticked.
 //
+// The hiring form HR receives is the Candidate Evaluation Form, and the chef fills
+// it HERE (17 Sep 2026, Francesco: "cannot go to HR empty") — interviewers, Hired or
+// On Hold, department, the eleven ratings, the overall rating, comments. Nothing is
+// uploaded. The function writes those answers into the restaurant's own Word form
+// and refuses until every rating is in; the preview hands the finished file back so
+// the chef can open exactly what HR will get.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad(),
 // SUPABASE_URL, SUPABASE_KEY.
 // ══════════════════════════════════════════════════════════════════════════
@@ -118,6 +125,22 @@ var ivsMailRead = {};     // candidate id -> the email on the sheet came off the
 var ivsMailTried = {};    // candidate id -> the stored CV was already searched for an email this session
 var ivsStatusAt = 0;
 var IVS_FN = '/functions/v1/interview-email';
+// the Candidate Evaluation Form, row by row, in the form's own words
+var IVS_EV_ROWS = [
+  ['r1',  '1. Job knowledge', 'Knowledge and skills related to the area of work'],
+  ['r2',  '2. Qualification and experience', 'Relevance of experience and educational attainment to the area of work'],
+  ['r3',  '3. Employment achievement', 'Demonstrated achievements in previous assignments held'],
+  ['r4',  '4. Intelligence', 'Analytical ability, mental alertness and general awareness'],
+  ['r5',  '5. Persuasiveness', 'Determination and ability to influence others, ability to get things done'],
+  ['r6',  '6. Communication', 'Clarity and expression of ideas in a fluent manner'],
+  ['r7',  '7. Interpersonal', 'Good working relationships with colleagues, supervisors and customers; handles feedback or criticism'],
+  ['r8',  '8. Teamwork', 'Cooperative and supportive in a team environment'],
+  ['r9',  '9. Motivation and resilience', 'Energy, drive and motivation; handles pressure'],
+  ['r10', '10. Personality and character', 'Dress, impact and general impression; good attitude towards work'],
+  ['r11', '11. Management & leadership', 'Management-level candidates only: strategy, people management, delegation, conflict and decisions, business acumen']
+];
+var IVS_EV_RATES = [['E','Excellent'],['G','Good'],['A','Average'],['P','Poor']];
+var ivsEvT = null;        // debounce for the form's typed fields
 var IVS_ACTIONS = {
   reject:    { btn:'Reject',                 done:'Rejected',    title:'Reject — email the candidate' },
   shortlist: { btn:'Shortlist',              done:'Shortlisted', title:'Shortlist — email the candidate' },
@@ -327,6 +350,20 @@ function ivsInjectCss(){
     '.ivmlfile label.pick input{display:none}',
     '.ivmlft{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px}',
     '.ivmlft button{flex:0 1 auto}',
+    '.ivev{border:1px solid var(--isd);border-radius:6px;padding:10px 12px;margin-top:8px}',
+    '.ivev.need{border-color:#7a1218;border-width:2px}',
+    '.ivev .q b{display:block;font-size:14.5px;font-weight:600;line-height:1.35}',
+    '.ivev .q span{display:block;font-size:12.5px;color:#5a4a3a;margin-top:2px;line-height:1.4}',
+    '.ivevb{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
+    '.ivevb button{flex:1 1 86px;min-height:46px;border:1px solid var(--isd);background:#fff;border-radius:5px;font-size:14px;font-weight:600;color:var(--ik);cursor:pointer;font-family:"DM Sans",sans-serif;padding:0 6px}',
+    '.ivevb button.on{background:var(--iv);color:#fff;border-color:var(--iv)}',
+    '.ivevb button:focus-visible{outline:3px solid var(--igo);outline-offset:2px}',
+    '.ivevprog{font-size:13px;color:#5a4a3a;margin-top:6px}',
+    '.ivml textarea{width:100%;box-sizing:border-box;min-height:84px;font-family:"DM Sans",sans-serif;font-size:15px;border:1px solid var(--isd);border-radius:4px;background:var(--isl);padding:10px;color:var(--ik)}',
+    '.ivml textarea:focus{outline:none;border-color:var(--iv);background:#fff}',
+    '.ivmlans{display:flex;gap:10px;padding:6px 11px;border-top:1px solid var(--isl);font-size:14px;line-height:1.4}',
+    '.ivmlans:first-child{border-top:0}.ivmlans i{flex:1 1 60%;font-style:normal;color:#5a4a3a}.ivmlans b{flex:1 1 40%;font-weight:600;overflow-wrap:anywhere;white-space:pre-wrap}',
+    '.ivmldl{display:inline-flex;align-items:center;min-height:46px;padding:0 16px;border-radius:4px;background:#fff;color:var(--iv);border:1px solid var(--iv);font-weight:600;font-size:14px;text-decoration:none;margin-top:8px}',
     '.ivmlsec{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-top:16px}',
     '@media(max-width:760px){',
     '  .ivmlrow{flex-direction:column;gap:1px}.ivmlrow i{flex:none}',
@@ -464,6 +501,7 @@ async function ivsSave(id, patch){
 // copy onto a fresh row every field this phone has typed but not sent yet
 function ivsKeepTyping(to, from){
   if (!from) return;
+  if (ivsEvT) to.evaluation = from.evaluation;
   if (ivsNameT) to.name = from.name;
   if (ivsNotesT) to.notes = from.notes;
   IVS_DETAILS.forEach(function(d){ if (ivsDetT[d[0]]) to[d[0]] = from[d[0]]; });
@@ -1519,7 +1557,7 @@ function ivsMailOpen(action){
   ivsMail = { action: action, candId: r.id, step: 'form',
     name: (r.name || '').trim(), email: (r.email || '').trim(), position: (r.position_applied || '').trim(),
     fromCv: !!ivsMailRead[r.id], cvIds: ivsCvsFor(r.id).map(function(c){ return c.id; }),
-    form: null, problems: [], preview: null, again: false, error: '' };
+    ev: ivsEvStart(r), problems: [], preview: null, again: false, error: '' };
   var v = document.createElement('div'); v.id = 'ivs-mail';
   v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', IVS_ACTIONS[action].title);
   document.body.appendChild(v);
@@ -1532,6 +1570,8 @@ function ivsMailKey(e){ if (e.key === 'Escape') ivsMailClose(); }
 function ivsMailClose(force){
   var m = ivsMail; if (!m) return;
   if (m.step === 'sending' && !force) return;
+  ivsEvFlush();
+  if (m.formUrl){ try { URL.revokeObjectURL(m.formUrl); } catch(e){} }
   ivsMail = null;
   var v = document.getElementById('ivs-mail'); if (v) v.remove();
   document.removeEventListener('keydown', ivsMailKey);
@@ -1547,18 +1587,71 @@ function ivsMailCv(el, id){
   m.cvIds = m.cvIds.filter(function(x){ return x !== id; });
   if (el.checked) m.cvIds.push(id);
 }
-async function ivsMailForm(input){
-  var m = ivsMail, f = input.files && input.files[0];
-  input.value = '';
-  if (!m || !f) return;
-  if (!/\.(xlsx|xlsm|xls)$/i.test(f.name)){ kToast('The hiring form must be an Excel file (.xlsx or .xls).', true); return; }
-  if (!f.size){ kToast('That Excel file is empty.', true); return; }
-  if (f.size > 10 * 1024 * 1024){ kToast('The hiring form is ' + ivsKb(f.size) + '. The limit is 10 MB.', true); return; }
-  try { m.form = { filename: f.name, size: f.size, b64: await ivsB64(f) }; }
-  catch(e){ kToast('Could not read that file on this device.', true); return; }
-  m.problems = []; ivsMailRender();
+// what the form starts with: whatever is already saved on the candidate, else the
+// two answers the button itself implies — a hiring request is "Hired", in the Kitchen
+function ivsEvStart(r){
+  var e = (r && r.evaluation) || {}, rt = e.ratings || {}, out = { interviewers: e.interviewers || '', decision: e.decision || 'hired',
+    department: e.department || 'Kitchen', overall: e.overall || '', comments: e.comments || '', ratings: {} };
+  IVS_EV_ROWS.forEach(function(row){ out.ratings[row[0]] = rt[row[0]] || (row[0] === 'r11' ? 'na' : ''); });
+  return out;
 }
-function ivsMailFormClear(){ if (ivsMail){ ivsMail.form = null; ivsMailRender(); } }
+function ivsEvLeft(ev){
+  var n = IVS_EV_ROWS.filter(function(row){ return !ev.ratings[row[0]]; }).length;
+  return n + (ev.overall ? 0 : 1);
+}
+// every answer is saved on the candidate as it is given — closing the window loses nothing
+function ivsEvSave(patch){ if (ivsMail) ivsSave(ivsMail.candId, { evaluation: patch }); }
+function ivsEvPaint(group, val){
+  var box = document.querySelector('#ivs-mail [data-ev="'+group+'"]'); if (!box) return;
+  box.querySelectorAll('button').forEach(function(b){ var on = b.getAttribute('data-v') === val; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  var card = box.closest('.ivev'); if (card && val) card.classList.remove('need');
+  var pr = document.getElementById('ivs-evprog'); if (pr) pr.textContent = ivsEvProgress(ivsMail.ev);
+}
+function ivsEvProgress(ev){ var n = ivsEvLeft(ev); return n ? n + ' of 12 ratings still to give.' : 'All 12 ratings given.'; }
+function ivsEvRate(key, val){
+  var m = ivsMail; if (!m || m.step !== 'form') return;
+  m.ev.ratings[key] = val; var r = {}; r[key] = val;
+  ivsEvSave({ ratings: r }); ivsEvPaint(key, val);
+}
+function ivsEvPick(field, val){
+  var m = ivsMail; if (!m || m.step !== 'form') return;
+  m.ev[field] = val; var p = {}; p[field] = val;
+  ivsEvSave(p); ivsEvPaint(field, val);
+}
+function ivsEvType(el){
+  var m = ivsMail; if (!m) return;
+  var f = el.getAttribute('data-e'); m.ev[f] = el.value; el.classList.remove('bad');
+  if (f === 'comments'){ var c = document.getElementById('ivs-evcount'); if (c) c.textContent = el.value.length + ' / 600'; }
+  clearTimeout(ivsEvT);
+  ivsEvT = setTimeout(function(){ ivsEvT = null; if (ivsMail === m) ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, comments: m.ev.comments }); }, 700);
+}
+function ivsEvFlush(){
+  var m = ivsMail; if (!m || !ivsEvT) return;
+  clearTimeout(ivsEvT); ivsEvT = null;
+  ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, comments: m.ev.comments });
+}
+function ivsEvButtons(group, cur, opts, handler){
+  return '<div class="ivevb" data-ev="'+group+'" role="group">'+opts.map(function(o){
+    return '<button type="button" data-v="'+o[0]+'" class="'+(cur===o[0]?'on':'')+'" aria-pressed="'+(cur===o[0])+'" onclick="'+handler+'(\''+group+'\',\''+o[0]+'\')">'+ivsEsc(o[1])+'</button>';
+  }).join('')+'</div>';
+}
+function ivsEvFormHtml(m, bad){
+  var ev = m.ev;
+  var h = '<div class="ivmlsec">2 · Candidate Evaluation Form — fill it here</div>'+
+    '<p class="lead" style="margin:4px 0 0">This is the hiring form HR receives, as a Word file, with your answers in it. HR is not emailed until it is complete.</p>'+
+    '<label class="ivdf"><span>Name of interviewer(s)</span><input id="ivs-e-interviewers" data-e="interviewers" maxlength="160" autocomplete="off" placeholder="e.g. Andrea Falcone, Danilo Valla" class="'+(bad.interviewers?'bad':'')+'" value="'+ivsEsc(ev.interviewers)+'" oninput="ivsEvType(this)" onchange="ivsEvFlush()"></label>'+
+    '<label class="ivdf"><span>Department</span><input id="ivs-e-department" data-e="department" maxlength="80" autocomplete="off" class="'+(bad.department?'bad':'')+'" value="'+ivsEsc(ev.department)+'" oninput="ivsEvType(this)" onchange="ivsEvFlush()"></label>'+
+    '<div class="ivev"><div class="q"><b>Decision</b><span>Ticked at the top of the form.</span></div>'+ivsEvButtons('decision', ev.decision, [['hired','Hired'],['hold','On Hold']], 'ivsEvPick')+'</div>';
+  IVS_EV_ROWS.forEach(function(row){
+    var opts = row[0] === 'r11' ? IVS_EV_RATES.concat([['na','Not applicable']]) : IVS_EV_RATES;
+    h += '<div class="ivev'+(bad.ratings && !ev.ratings[row[0]] ? ' need' : '')+'"><div class="q"><b>'+ivsEsc(row[1])+'</b><span>'+ivsEsc(row[2])+'</span></div>'+ivsEvButtons(row[0], ev.ratings[row[0]], opts, 'ivsEvRate')+'</div>';
+  });
+  h += '<div class="ivev'+(bad.ratings && !ev.overall ? ' need' : '')+'"><div class="q"><b>Overall rating</b><span>Your own judgement — the app does not work it out.</span></div>'+ivsEvButtons('overall', ev.overall, IVS_EV_RATES, 'ivsEvPick')+'</div>'+
+    '<div class="ivevprog" id="ivs-evprog">'+ivsEsc(ivsEvProgress(ev))+'</div>'+
+    '<label class="ivdf"><span>General comments and recommendations</span><textarea id="ivs-e-comments" data-e="comments" maxlength="600" placeholder="Optional — what HR should know" oninput="ivsEvType(this)" onchange="ivsEvFlush()">'+ivsEsc(ev.comments)+'</textarea><em id="ivs-evcount">'+ev.comments.length+' / 600</em></label>'+
+    '<p class="lead" style="margin:8px 0 0">Signature and date are filled with the interviewer name(s) and today’s date.</p>';
+  return h;
+}
 
 // the same three checks the function makes — here only so the chef hears at once
 function ivsMailLocalProblems(m){
@@ -1570,19 +1663,22 @@ function ivsMailLocalProblems(m){
   if (m.position.trim().replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['position', m.position.trim() ? 'The position does not look right.' : 'The position is missing — type it.']);
   if (m.action === 'hr'){
     if (!m.cvIds.length) p.push(['cv', ivsCvsFor(m.candId).length ? 'Tick the CV to send.' : 'No CV is attached. Close this window and upload the candidate’s CV first.']);
-    if (!m.form) p.push(['form', 'The Excel hiring form has not been uploaded. Add it below — HR cannot be sent without it.']);
+    if (m.ev.interviewers.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['interviewers', 'Evaluation form: type the name of the interviewer(s).']);
+    if (m.ev.department.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['department', 'Evaluation form: the department is missing.']);
+    if (ivsEvLeft(m.ev)) p.push(['ratings', 'Evaluation form: ' + ivsEvProgress(m.ev) + ' They are marked in red — HR is not emailed with a blank rating.']);
   }
   return p;
 }
 function ivsMailBody(m){
   var b = { action: m.action, candidate_id: m.candId, name: m.name.trim(), email: m.email.trim(), position: m.position.trim() };
-  if (m.action === 'hr'){ b.cv_ids = m.cvIds.slice(); if (m.form) b.hiring_form = { filename: m.form.filename, b64: m.form.b64 }; }
+  if (m.action === 'hr'){ b.cv_ids = m.cvIds.slice(); b.evaluation = m.ev; }
   return b;
 }
 
 async function ivsMailPreview(){
   var m = ivsMail; if (!m || m.step !== 'form') return;
   m.name = m.name.replace(/\s+/g, ' ').trim(); m.email = m.email.trim(); m.position = m.position.replace(/\s+/g, ' ').trim();
+  ivsEvFlush();
   var local = ivsMailLocalProblems(m);
   if (local.length){ m.problems = local; ivsMailRender(); return; }
   m.step = 'asking'; m.problems = []; m.error = ''; ivsMailRender();
@@ -1602,7 +1698,18 @@ async function ivsMailPreview(){
     if (Object.keys(patch).length){ Object.assign(row, patch); if (!m.fromCv) delete ivsMailRead[m.candId]; ivsSave(m.candId, patch); ivsRender(); }
   }
   m.preview = r.data.preview; m.again = false; m.step = 'preview';
+  ivsMailFormUrl(m);
   ivsMailRender();
+}
+// the finished Word form as a link the chef can open — the very bytes HR will get
+function ivsMailFormUrl(m){
+  if (m.formUrl){ try { URL.revokeObjectURL(m.formUrl); } catch(e){} m.formUrl = null; }
+  var f = m.preview && m.preview.form_file; if (!f || !f.b64) return;
+  try {
+    var bin = atob(f.b64), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    m.formUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+  } catch(e){}
 }
 function ivsMailBack(){ if (ivsMail && (ivsMail.step === 'preview' || ivsMail.step === 'failed')){ ivsMail.step = 'form'; ivsMail.error = ''; ivsMailRender(); } }
 
@@ -1639,7 +1746,7 @@ function ivsMailRender(){
   if (m.step === 'form' || m.step === 'asking'){
     var posList = (IVS_DETAILS.filter(function(d){ return d[0] === 'position_applied'; })[0] || [0,0,0,[]])[3];
     h += '<h3>1 · Check the details</h3><p class="lead">'+
-      (m.action === 'hr' ? 'These go in the email to HR, with the CV and the hiring form.' : 'The email goes to this address, addressed to this name. Correct anything that is wrong.')+'</p>'+
+      (m.action === 'hr' ? 'These go in the email to HR, with the CV and the evaluation form you fill below.' : 'The email goes to this address, addressed to this name. Correct anything that is wrong.')+'</p>'+
       '<label class="ivdf"><span>Candidate’s full name</span><input id="ivs-m-name" data-f="name" maxlength="120" autocomplete="off" class="'+(bad.name?'bad':'')+'" value="'+ivsEsc(m.name)+'" oninput="ivsMailField(this)"></label>'+
       '<label class="ivdf"><span>Candidate’s email</span><input id="ivs-m-email" data-f="email" type="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="200" autocomplete="off" class="'+(bad.email?'bad':'')+'" value="'+ivsEsc(m.email)+'" oninput="ivsMailField(this)">'+
         '<em>'+(m.fromCv && m.email ? 'Read from the CV — check it letter by letter.' : '')+'</em></label>'+
@@ -1653,10 +1760,7 @@ function ivsMailRender(){
         h += '<label class="ivmlfile'+(bad.cv?' need':'')+'"><input type="checkbox" '+(m.cvIds.indexOf(c.id) >= 0 ? 'checked ' : '')+'onchange="ivsMailCv(this,\''+c.id+'\')">'+
           '<div class="nm">1 · Candidate’s CV<span>'+ivsEsc(c.filename)+' · '+ivsKb(c.size_bytes)+'</span></div></label>';
       });
-      h += m.form
-        ? '<div class="ivmlfile"><div class="nm">2 · Hiring Form<span>'+ivsEsc(m.form.filename)+' · '+ivsKb(m.form.size)+'</span></div><button class="ivb2" onclick="ivsMailFormClear()">Change</button></div>'
-        : '<div class="ivmlfile need"><div class="nm">2 · Hiring Form (Excel) — required<span>HR is not emailed without it.</span></div>'+
-          '<label class="pick">Upload the Excel<input type="file" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onchange="ivsMailForm(this)"></label></div>';
+      h += ivsEvFormHtml(m, bad);
       h += '<div class="ivmlfile slot"><div class="nm">3 · Interview Form<span>Slot reserved — to be added later. Nothing is attached here yet.</span></div></div>';
     }
     m.problems.forEach(function(p){ h += '<div class="ivmlerr">'+ivsEsc(p[1])+'</div>'; });
@@ -1690,6 +1794,10 @@ function ivsMailRender(){
     h += '<div class="ivmlsec">Attachments</div>';
     if (!p.attachments.length) h += '<div class="ivmlfile"><div class="nm">None<span>No file goes with this email.</span></div></div>';
     p.attachments.forEach(function(a, i){ h += '<div class="ivmlfile"><div class="nm">'+(i+1)+' · '+ivsEsc(a.label)+'<span>'+ivsEsc(a.filename)+' · '+ivsKb(a.size_bytes)+'</span></div></div>'; });
+    if (p.form_answers){
+      h += '<div class="ivmlsec">What the evaluation form says</div><div class="ivmlbox">'+p.form_answers.map(function(a){ return '<div class="ivmlans"><i>'+ivsEsc(a[0])+'</i><b>'+ivsEsc(a[1])+'</b></div>'; }).join('')+'</div>';
+      if (m.formUrl) h += '<a class="ivmldl" href="'+m.formUrl+'" download="'+ivsEsc(p.form_file.filename)+'">Open the filled form (Word)</a>';
+    }
     if (p.interview_form_slot) h += '<div class="ivmlfile slot"><div class="nm">'+(p.attachments.length+1)+' · Interview Form<span>Slot reserved — to be added later. Not attached.</span></div></div>';
     if (m.step === 'failed') h += '<div class="ivmlerr">NOT sent — '+ivsEsc(m.error)+'</div>';
     h += '<div class="ivmlft"><button class="ivb2" '+(m.step==='sending'?'disabled ':'')+'onclick="ivsMailBack()">Back</button>'+

@@ -262,3 +262,44 @@ begin
   return r;
 end $$;
 notify pgrst, 'reload schema';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Candidate Evaluation Form (added 17 Sep 2026, Francesco): the hiring form HR
+-- receives is filled IN the app, never uploaded, so it cannot arrive blank.
+-- The answers live with the candidate: interviewers, decision (hired / hold),
+-- department, ratings r1..r11 (E/G/A/P, r11 may be "na"), overall, comments.
+-- Keys are merged one by one like scores, so two chefs filling different rows
+-- do not wipe each other. The interview-email function turns them into the
+-- Word form. Applied to the Kitchen project 17 Sep 2026; additive only.
+-- ══════════════════════════════════════════════════════════════════════════
+alter table public.interview_candidates
+  add column if not exists evaluation jsonb not null default '{}'::jsonb;
+
+create or replace function public.interview_patch(p_code text, p_id uuid, p_patch jsonb)
+returns public.interview_candidates
+language plpgsql security definer set search_path = public as $$
+declare r interview_candidates;
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  if p_patch ? 'evaluation' and length((p_patch->'evaluation')::text) > 6000 then raise exception 'evaluation is too long'; end if;
+  update interview_candidates set
+    name   = case when p_patch ? 'name'  then left(p_patch->>'name', 120) else name end,
+    wave   = case when p_patch ? 'wave'  then left(p_patch->>'wave', 40)  else wave end,
+    notes  = case when p_patch ? 'notes' then left(p_patch->>'notes', 4000) else notes end,
+    email  = case when p_patch ? 'email' then left(coalesce(p_patch->>'email',''), 200) else email end,
+    salary_expectation = case when p_patch ? 'salary_expectation' then left(coalesce(p_patch->>'salary_expectation',''), 120) else salary_expectation end,
+    position_applied   = case when p_patch ? 'position_applied'   then left(coalesce(p_patch->>'position_applied',''), 120)   else position_applied end,
+    notice_period      = case when p_patch ? 'notice_period'      then left(coalesce(p_patch->>'notice_period',''), 120)      else notice_period end,
+    visa_status        = case when p_patch ? 'visa_status'        then left(coalesce(p_patch->>'visa_status',''), 120)        else visa_status end,
+    scores = case when p_patch ? 'scores'
+                  then jsonb_strip_nulls(scores || (p_patch->'scores')) else scores end,
+    evaluation = case when p_patch ? 'evaluation' and jsonb_typeof(p_patch->'evaluation') = 'object'
+                  then jsonb_strip_nulls(
+                         (evaluation || ((p_patch->'evaluation') - 'ratings'))
+                         || jsonb_build_object('ratings', coalesce(evaluation->'ratings','{}'::jsonb) || coalesce(p_patch->'evaluation'->'ratings','{}'::jsonb)))
+                  else evaluation end,
+    updated_at = now()
+  where id = p_id returning * into r;
+  return r;
+end $$;
+notify pgrst, 'reload schema';

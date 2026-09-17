@@ -10,13 +10,19 @@
 // mode "preview" returns exactly what "send" would send — the Confirm screen
 // shows this answer, never a copy of the wording kept in the browser.
 // mode "send" refuses a missing/invalid name, email or position, refuses the HR
-// email without the Excel hiring form, and refuses to repeat an action already
+// email unless the Candidate Evaluation Form has been filled in the app — every
+// rating, the decision, the interviewers — and refuses to repeat an action already
 // sent to this candidate unless the chef has ticked "send again".
+// The form HR receives is the restaurant's own Word form, filled here from those
+// answers (template.ts), so it cannot arrive empty. Preview hands the same file back
+// to the chef to open before anything is sent.
 // Every attempt, sent or failed, is one row in interview_actions.
 //
 // A candidate in an event starting "zz-test" never reaches a real person: every
 // To / CC / Reply-To becomes TEST_TO and the subject says [TEST].
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "npm:jszip@3.10.1";
+import { TEMPLATE_B64 } from "./template.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 
@@ -32,7 +38,65 @@ const TEST_TO = ["fguarracino@robertos.ae"];
 // in buildHr() as the third file and flip this on; the preview already lists it.
 const INTERVIEW_FORM_ENABLED = false;
 
-const MAX_FORM_BYTES = 10 * 1024 * 1024;
+// The hiring form is the "Candidate Evaluation Form" (Francesco, 17 Sep 2026). The chef
+// fills it in the app; it is never uploaded, so it can never reach HR blank.
+const CRITERIA: [string, string][] = [
+  ["r1", "1. Job knowledge"], ["r2", "2. Qualification and experience"], ["r3", "3. Employment achievement"],
+  ["r4", "4. Intelligence"], ["r5", "5. Persuasiveness"], ["r6", "6. Communication"], ["r7", "7. Interpersonal"],
+  ["r8", "8. Teamwork"], ["r9", "9. Motivation and resilience"], ["r10", "10. Personality and character"],
+  ["r11", "11. Management & leadership (management-level candidates only)"],
+];
+const RATING_WORD: Record<string, string> = { E: "Excellent", G: "Good", A: "Average", P: "Poor", na: "Not applicable" };
+const DECISION_WORD: Record<string, string> = { hired: "Hired", hold: "On Hold" };
+
+type Evaluation = { interviewers: string; decision: string; department: string; ratings: Record<string, string>; overall: string; comments: string };
+
+function readEvaluation(raw: any): { ev: Evaluation; problems: string[] } {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const ratings: Record<string, string> = {};
+  const src = r.ratings && typeof r.ratings === "object" ? r.ratings : {};
+  for (const [k] of CRITERIA) ratings[k] = String(src[k] ?? "");
+  const ev: Evaluation = {
+    interviewers: clean(r.interviewers), decision: String(r.decision ?? ""), department: clean(r.department),
+    ratings, overall: String(r.overall ?? ""),
+    comments: String(r.comments ?? "").replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim(),
+  };
+  const problems: string[] = [];
+  if ((ev.interviewers.match(/\p{L}/gu) || []).length < 2 || ev.interviewers.length > 160) problems.push("Evaluation form: type the name of the interviewer(s).");
+  if (!DECISION_WORD[ev.decision]) problems.push("Evaluation form: choose Hired or On Hold.");
+  if ((ev.department.match(/\p{L}/gu) || []).length < 2 || ev.department.length > 80) problems.push("Evaluation form: the department is missing.");
+  const missing = CRITERIA.filter(([k]) => k === "r11" ? !/^(E|G|A|P|na)$/.test(ratings[k]) : !/^(E|G|A|P)$/.test(ratings[k]));
+  if (missing.length) problems.push("Evaluation form: " + missing.length + (missing.length === 1 ? " rating is" : " ratings are") + " not filled — " + missing.map(([, t]) => t.split(" (")[0]).join("; ") + ".");
+  if (!/^(E|G|A|P)$/.test(ev.overall)) problems.push("Evaluation form: the overall rating is not filled.");
+  if (ev.comments.length > 600) problems.push("Evaluation form: the comments are over 600 characters — shorten them.");
+  return { ev, problems };
+}
+
+// control characters are not legal in Word's XML; a line break is handled by the caller
+const xmlEsc = (t: string) => t.replace(/\p{Cc}/gu, (c) => (c.charCodeAt(0) === 10 ? c : "")).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+
+async function fillForm(ev: Evaluation, name: string, position: string): Promise<string> {
+  const zip = await JSZip.loadAsync(TEMPLATE_B64, { base64: true });
+  const doc = zip.file("word/document.xml");
+  if (!doc) throw new Error("form template is broken");
+  const text: Record<string, string> = {
+    NAME: name, INTERVIEWERS: ev.interviewers, POSITION: position, DEPARTMENT: ev.department,
+    COMMENTS: ev.comments, SIGNATURE: ev.interviewers, DATE: dubaiDate(),
+  };
+  const tick: Record<string, string> = { D: ev.decision === "hired" ? "HIRED" : ev.decision === "hold" ? "HOLD" : "", RO: ev.overall };
+  for (const [k] of CRITERIA) tick[k.toUpperCase()] = ev.ratings[k] === "na" ? "" : ev.ratings[k];
+  let unknown = 0;
+  const xml = (await doc.async("string")).replace(/\{\{([A-Z0-9_]+)\}\}/g, (_m: string, key: string) => {
+    if (key in text) return xmlEsc(text[key]).replace(/\n/g, '</w:t><w:br/><w:t xml:space="preserve">');
+    const cut = key.lastIndexOf("_"), row = key.slice(0, cut), col = key.slice(cut + 1);
+    if (!(row in tick)) { unknown++; return ""; }
+    return tick[row] === col ? "✓" : "";
+  });
+  if (unknown) throw new Error("the form template has a box this function does not know");
+  zip.file("word/document.xml", xml);
+  return await zip.generateAsync({ type: "base64", compression: "DEFLATE" });
+}
+
 const ACTIONS = ["reject", "shortlist", "hr"];
 
 const CORS = {
@@ -173,9 +237,8 @@ Deno.serve(async (req) => {
   // ── attachments (HR only) ──
   const cvIds: string[] = action === "hr" && Array.isArray(b.cv_ids) ? b.cv_ids.map(String).slice(0, 5) : [];
   let cvs: { id: string; filename: string; size_bytes: number }[] = [];
-  const form = action === "hr" && b.hiring_form && typeof b.hiring_form === "object" ? b.hiring_form : null;
-  const formName = form ? clean(form.filename) : "";
-  let formBytes = 0;
+  let evaluation: Evaluation | null = null;
+  let formName = "", formB64 = "", formBytes = 0;
   if (action === "hr") {
     if (!cvIds.length) problems.push("No CV is attached. Upload the candidate's CV first.");
     else {
@@ -184,13 +247,16 @@ Deno.serve(async (req) => {
       cvs = (got.data || []).filter((c) => c.candidate_id === cand.data!.id);
       if (cvs.length !== cvIds.length) problems.push("A chosen CV does not belong to this candidate. Close this window and try again.");
     }
-    if (!form || !formName) problems.push("The Excel hiring form has not been uploaded. Add it before sending to HR.");
-    else if (!/\.(xlsx|xlsm|xls)$/i.test(formName)) problems.push("The hiring form must be an Excel file (.xlsx or .xls).");
-    else {
-      const b64 = String(form.b64 ?? "");
-      formBytes = Math.floor(b64.length * 3 / 4);
-      if (mode === "send" && formBytes < 200) problems.push("The Excel hiring form is empty. Upload it again.");
-      if (formBytes > MAX_FORM_BYTES) problems.push("The hiring form is over 10 MB.");
+    const got = readEvaluation(b.evaluation);
+    evaluation = got.ev;
+    problems.push(...got.problems);
+    if (!problems.length) {
+      // only a complete form is ever built — there is no half-filled one to send
+      try {
+        formB64 = await fillForm(evaluation, name, position);
+        formBytes = Math.floor(formB64.length * 3 / 4);
+        formName = "Candidate Evaluation Form - " + name.replace(/[^\p{L}\p{N} .'-]/gu, "").trim().slice(0, 80) + ".docx";
+      } catch (e) { return json({ error: "Could not build the evaluation form (" + String((e as Error).message || e) + ") — nothing was sent." }, 500); }
     }
   }
 
@@ -224,9 +290,16 @@ Deno.serve(async (req) => {
     subject: mail.subject, body: mail.text,
     attachments: action === "hr"
       ? cvs.map((c) => ({ label: "Candidate's CV", filename: c.filename, size_bytes: c.size_bytes }))
-          .concat(formName ? [{ label: "Hiring Form", filename: formName, size_bytes: formBytes }] : [])
+          .concat(formName ? [{ label: "Candidate Evaluation Form — filled", filename: formName, size_bytes: formBytes }] : [])
       : [],
     interview_form_slot: action === "hr" ? { enabled: INTERVIEW_FORM_ENABLED, note: "Interview Form — to be added later. Not attached." } : null,
+    // the filled form itself, for the chef to open before sending, and the same answers in words
+    form_file: formB64 ? { filename: formName, b64: formB64 } : null,
+    form_answers: evaluation && formB64 ? [
+      ["Interviewer(s)", evaluation.interviewers], ["Decision", DECISION_WORD[evaluation.decision]], ["Department", evaluation.department],
+      ...CRITERIA.map(([k, t]) => [t.split(" (")[0], RATING_WORD[evaluation!.ratings[k]]]),
+      ["Overall rating", RATING_WORD[evaluation.overall]], ["Comments", evaluation.comments || "—"],
+    ] : null,
     problems, hints: problems.length ? [] : emailHints(email),
     previous, repeats: repeats.length,
   };
@@ -247,7 +320,7 @@ Deno.serve(async (req) => {
       if (g.error || !g.data) return json({ error: "Could not read the CV " + c.filename + " — nothing was sent." }, 500);
       attachments.push({ filename: c.filename, content: String(g.data) });
     }
-    attachments.push({ filename: formName, content: String(form.b64).replace(/\s+/g, "") });
+    attachments.push({ filename: formName, content: formB64 });
   }
 
   const payload: Record<string, unknown> = { from: mail.from, to: mail.to, subject: mail.subject, text: mail.text, html: htmlOf(mail.text) };
