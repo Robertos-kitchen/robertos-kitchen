@@ -1214,6 +1214,20 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .fold.dim{border-left-color:var(--sabbia-dark)}
 .fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
 .fold.dim .fn{opacity:.65}
+/* ── tiles that can be put in order ──
+   Francesco, 17 Sep 2026: a section made inside a menu goes in the SAME grid as Crudo and
+   Pasta, after them, and any tile can be dragged to where it belongs "like Chef Corner".
+   With a mouse the whole tile is the handle. With a finger it is the ⠿ alone: on a phone
+   the tiles are one column the full width of the screen, and a tile that swallowed every
+   touch would be a page that cannot be scrolled. */
+.folds.ord .fold{cursor:grab;user-select:none;-webkit-user-select:none;position:relative}
+.fold .fgrip{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
+  width:18px;margin:-12px 0 -12px -7px;font-size:15px;line-height:1;color:var(--vino);opacity:.5;
+  touch-action:none;cursor:grab}
+@media (pointer:coarse){ .fold .fgrip{width:44px;margin-left:-13px;font-size:19px} }
+.fold.lift{z-index:6;background:#fff;border-left-color:var(--oro);cursor:grabbing;transition:none;
+  box-shadow:0 12px 28px rgba(64,2,7,.3)}
+.folds.ord.dragging .fold:not(.lift){transition:transform .16s}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
 /* adding a month inside a menu — the label reads at full strength, it is the question */
 .kidnew{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 18px}
@@ -3605,7 +3619,7 @@ function loadSaved(){
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
        ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
-    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position,parent_id&order=archived,position,name')
+    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position,parent_id,fold_order&order=archived,position,name')
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
@@ -4166,6 +4180,150 @@ function secRemove(sec){
         .then(function(){ return inSec.length; });
     });
 }
+
+/* ═════════ dragging a tile to where it belongs ═════════
+   The same drag as the fish list, the market list and Chef Corner, laid out for a GRID:
+   the geometry is measured once on the grab in document coordinates, the carried tile is
+   glued to the pointer with a transform, the others slide to the slots they would take,
+   and the DOM is not touched until the drop. The slot is the one whose centre is nearest
+   the carried tile's centre — in a grid "how many mid-points have I passed" has no answer.
+
+   A press that travels under 6px is still a tap and still opens the folder. The click
+   that follows a real drop is swallowed, or letting go would open the tile just moved. */
+var FD = null, FD_DROP_AT = 0;
+function foldDragInit(root){
+  /* the list can be redrawn under a drag (a reload landing); a drag left holding a tile
+     that is no longer on the page would block every drag after it */
+  if (FD && !document.body.contains(FD.tile)) FD = null;
+  var grid = root && root.querySelector('.folds.ord');
+  if (!grid) return;
+  grid.addEventListener('pointerdown', function(e){
+    if (e.button != null && e.button > 0) return;
+    if (FD && FD.lifted) return;
+    var tile = e.target.closest('.fold');
+    if (!tile) return;
+    /* a finger anywhere but the ⠿ is scrolling the page, and must be left to */
+    if (e.pointerType === 'touch' && !e.target.closest('.fgrip')) return;
+    FD = { grid:grid, tile:tile, id:e.pointerId, x0:e.clientX, y0:e.clientY,
+           sx0:window.scrollX, sy0:window.scrollY, cx:e.clientX, cy:e.clientY, lifted:false, to:-1, raf:0 };
+  });
+  grid.addEventListener('pointermove', function(e){
+    var d = FD; if (!d || e.pointerId !== d.id) return;
+    if (!d.lifted){
+      var mx = e.clientX - d.x0, my = e.clientY - d.y0;
+      if (mx * mx + my * my < 36) return;
+      d.tiles = [].slice.call(d.grid.querySelectorAll('.fold'));
+      d.from = d.tiles.indexOf(d.tile);
+      d.slots = d.tiles.map(function(t){ var r = t.getBoundingClientRect();
+        return { x:r.left + window.scrollX, y:r.top + window.scrollY, w:r.width, h:r.height }; });
+      d.lifted = true;
+      try { d.tile.setPointerCapture(d.id); } catch(_){}
+      d.tile.classList.add('lift'); d.grid.classList.add('dragging');
+    }
+    d.cx = e.clientX; d.cy = e.clientY;
+    e.preventDefault();
+    foldDragPlace(d);
+    if (!d.raf) d.raf = requestAnimationFrame(function tick(){
+      d.raf = 0;
+      if (FD !== d) return;
+      /* held at the top or the bottom edge, the page follows — or on a phone the far end
+         of a long menu cannot be reached in one drag */
+      var v = d.cy < 96 ? -Math.ceil((96 - d.cy) / 5) : d.cy > window.innerHeight - 72
+            ? Math.ceil((d.cy - (window.innerHeight - 72)) / 5) : 0;
+      if (!v) return;
+      var was = window.scrollY; window.scrollBy(0, v);
+      if (window.scrollY !== was) foldDragPlace(d);
+      d.raf = requestAnimationFrame(tick);
+    });
+  });
+  var done = function(e, cancelled){
+    var d = FD; if (!d || e.pointerId !== d.id) return;
+    if (!d.lifted){ FD = null; return; }
+    /* read where it landed BEFORE the drag is torn down (the Chef Corner bug: cleared
+       first, every middle tile landed one slot out) */
+    var from = d.from, to = cancelled ? d.from : d.to;
+    var keys = d.tiles.map(function(t){ return t.dataset.okey; }), menuId = d.grid.dataset.ordof;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    try { d.tile.releasePointerCapture(d.id); } catch(_){}
+    d.tile.classList.remove('lift'); d.grid.classList.remove('dragging');
+    d.tiles.forEach(function(t){ t.style.transform = ''; });
+    FD = null; FD_DROP_AT = Date.now();
+    if (to < 0 || to === from) return;          /* nothing moved: nothing written, nothing said */
+    var k = keys.splice(from, 1)[0]; keys.splice(to, 0, k);
+    foldOrderSave(menuId, keys, k);
+  };
+  grid.addEventListener('pointerup', function(e){ done(e, false); });
+  grid.addEventListener('pointercancel', function(e){ done(e, true); });
+  /* what a keyboard has instead of a drag: one place at a time, on the focused tile */
+  grid.addEventListener('keydown', function(e){
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    var tile = e.target.closest('.fold'); if (!tile) return;
+    var tiles = [].slice.call(grid.querySelectorAll('.fold')), i = tiles.indexOf(tile);
+    var j = i + (e.key === 'ArrowLeft' ? -1 : 1);
+    if (j < 0 || j >= tiles.length) return;
+    e.preventDefault();
+    var keys = tiles.map(function(t){ return t.dataset.okey; }), k = keys.splice(i, 1)[0];
+    keys.splice(j, 0, k);
+    foldOrderSave(grid.dataset.ordof, keys, k, true);
+  });
+}
+function foldDragPlace(d){
+  var dx = (d.cx + window.scrollX) - (d.x0 + d.sx0), dy = (d.cy + window.scrollY) - (d.y0 + d.sy0);
+  d.tile.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+  var s = d.slots[d.from], mx = s.x + s.w / 2 + dx, my = s.y + s.h / 2 + dy;
+  var best = d.from, bd = Infinity;
+  d.slots.forEach(function(q, i){
+    var ax = q.x + q.w / 2 - mx, ay = q.y + q.h / 2 - my, dist = ax * ax + ay * ay;
+    if (dist < bd){ bd = dist; best = i; }
+  });
+  if (best === d.to) return;
+  d.to = best;
+  d.tiles.forEach(function(t, i){
+    if (i === d.from) return;
+    var j = i;
+    if (d.from < d.to && i > d.from && i <= d.to) j = i - 1;
+    else if (d.to < d.from && i >= d.to && i < d.from) j = i + 1;
+    t.style.transform = j === i ? '' :
+      'translate(' + (d.slots[j].x - d.slots[i].x) + 'px,' + (d.slots[j].y - d.slots[i].y) + 'px)';
+  });
+}
+/* ONE write however many tiles: the order is a list on the menu the tiles are inside.
+   A tile that is not on the screen right now (every Pizza filed into a section, say)
+   keeps its place in the list, so it comes back where he left it. The screen moves at
+   once; if the write is refused it goes back to the order the database still has. */
+function foldOrderSave(menuId, visKeys, movedKey, refocus){
+  var m = SAVEDMENUS.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  var old = Array.isArray(m.fold_order) ? m.fold_order.slice() : null;
+  var vis = {}, q = visKeys.slice(), next = [];
+  visKeys.forEach(function(k){ vis[k] = 1; });
+  (old || []).forEach(function(k){ if (!vis[k]) next.push(k); else if (q.length) next.push(q.shift()); });
+  next = next.concat(q);
+  m.fold_order = next;
+  render();
+  if (refocus){
+    var again = [].filter.call(document.querySelectorAll('.folds.ord .fold'),
+      function(t){ return t.dataset.okey === movedKey; })[0];
+    if (again) again.focus();
+  }
+  sb('menus?id=eq.' + menuId + '&select=id,fold_order', { method:'PATCH', prefer:'return=representation',
+       body:{ fold_order: next, updated_at: new Date().toISOString() } })
+    .then(function(rows){
+      if (!rows || !rows.length) throw new Error('the menu is no longer there');
+      if (JSON.stringify(rows[0].fold_order) !== JSON.stringify(next)) throw new Error('the order did not save');
+    })
+    .catch(function(ex){
+      m.fold_order = old;
+      render();
+      flash('That order was not saved, so it is back as it was — ' + menuPlain(ex.message), true);
+    });
+}
+/* the click that a drop ends with belongs to the drag, not to the tile */
+document.addEventListener('click', function(e){
+  if (Date.now() - FD_DROP_AT < 400 && e.target.closest && e.target.closest('.folds.ord')){
+    e.stopPropagation(); e.preventDefault();
+  }
+}, true);
 function menusOf(r){ return (S.rmenus || {})[r.id] || []; }
 /* his order, not the alphabet — Crudo comes before Dessert on the menu and on the screen */
 function secOrder(s){ var i = SECTIONS.indexOf(s); return i < 0 ? 900 : i; }
@@ -7209,8 +7367,8 @@ function render(){
     var kidsOf = function(pid){
       return SAVEDMENUS.filter(function(k){ return k.parent_id === pid; }).map(function(k){
         var n = live.filter(function(r){ return r.kind==='main' && menusOf(r).indexOf(k.id) >= 0; }).length;
-        return { key:k.id, name:k.name, n:n, dim:!n || k.archived,
-                 note: k.archived ? 'put away' : (n ? '' : 'nothing on it yet'), gone:k.archived && !n };
+        return { key:k.id, name:k.name, n:n, dim:!n || k.archived, away:k.archived,
+                 note: k.archived ? 'put away' : (n ? '' : 'nothing in it yet'), gone:k.archived && !n };
       }).filter(function(f){ return !f.gone; });
     };
     /* what is actually in the open folder */
@@ -7248,6 +7406,39 @@ function render(){
         '<span class="ft"><span class="fn">'+esc(f.name)+'</span>' +
         '<span class="fm">'+(f.note ? esc(f.note) : '&nbsp;')+'</span></span>' +
         '<span class="fc">'+f.n+'</span></button>';
+    };
+    /* ── one grid, in his order ──
+       Inside a menu every tile is the same kind of thing to the chef — Crudo, Pasta, the
+       "Secondi di carne" he made himself, October 2026 — so they sit in one grid and any
+       of them drags to where it belongs. `s:` is a section read off the recipes, `m:` is
+       a section or a month that is a row of its own. The order is `menus.fold_order` on
+       the menu they are inside, so every screen in the kitchen shows the same one. A tile
+       the order has never heard of (a section made a minute ago, a family whose first
+       dish has just arrived) goes to the END: new things land below, never on top. */
+    var otile = function(t){
+      return '<button class="fold'+(t.dim?' dim':'')+'" '+(t.kid ? 'data-fold' : 'data-fsec')+'="'+esc(t.key)+'" ' +
+        'data-okey="'+esc((t.kid ? 'm:' : 's:') + t.key)+'" title="Drag to move it · ← → on a keyboard">' +
+        '<span class="fgrip" aria-hidden="true">⠿</span>' +
+        '<span class="ft"><span class="fn">'+esc(t.name)+'</span>' +
+        '<span class="fm">'+(t.note ? esc(t.note) : '&nbsp;')+'</span></span>' +
+        '<span class="fc">'+t.n+'</span></button>';
+    };
+    var ogrid = function(menu, groups, kidTiles){
+      var tiles = groups.map(function(g){ return { kid:false, key:g.key, name:g.name, n:g.rs.length }; })
+        .concat((kidTiles || []).map(function(k){
+          /* an empty section is not a faded one — he has just made it and is about to fill
+             it. Only one that has been put away reads as gone. */
+          return { kid:true, key:k.key, name:k.name, n:k.n, note:k.note, dim:k.away }; }));
+      var at = {};
+      (Array.isArray(menu.fold_order) ? menu.fold_order : []).forEach(function(k, i){ if (at[k] == null) at[k] = i; });
+      tiles = tiles.map(function(t, i){
+        var a = at[(t.kid ? 'm:' : 's:') + t.key];
+        return { t:t, a:(a == null ? 1e6 + i : a) }; })
+        .sort(function(x, y){ return x.a - y.a; }).map(function(x){ return x.t; });
+      /* a menu that has been put away is looked at, not rearranged */
+      return menu.archived
+        ? '<div class="folds">' + tiles.map(function(t){ return t.kid ? fbtn(t) : sbtn({ key:t.key, name:t.name, rs:{ length:t.n } }); }).join('') + '</div>'
+        : '<div class="folds ord" data-ordof="' + esc(menu.id) + '">' + tiles.map(otile).join('') + '</div>';
     };
     var sbtn = function(g){
       return '<button class="fold" data-fsec="'+esc(g.key)+'">' +
@@ -7328,9 +7519,8 @@ function render(){
                                    : 'Nothing in here.') + '</div>');
       } else {
         body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
-               (secIds.length ? ' not in a section yet, grouped by the section on the recipe'
-                              : ' across '+gs.length+' sections') + stateSummary(rs2) + '</div>' +
-               '<div class="folds">' + gs.map(sbtn).join('') + '</div>';
+               ' across '+gs.length+' sections' + stateSummary(rs2) + '</div>' +
+               (here ? ogrid(here, gs, []) : '<div class="folds">' + gs.map(sbtn).join('') + '</div>');
       }
       /* ── the whole menu to Aung, from inside the menu ──
          Build a menu, put the dishes on it, send the lot as one request. That is how a
@@ -7351,10 +7541,7 @@ function render(){
                   : (kidMo && kidMo === kids.length ? 'month' : 'section');
         var kdraft = S.kidDraft && S.kidDraft.of === here.id && S.kidDraft.mode === kmode ? S.kidDraft.v : null;
         var nextNm = kdraft != null ? kdraft : (kmode === 'month' ? nextMonthName(here.id) : '');
-        body = '<div class="crumb"><b>' + esc(here.name) + '</b>' +
-                 (kids.length ? ' · ' + kidsSay(kids) : '') + '</div>' +
-               (kids.length ? '<div class="folds">' + kids.map(fbtn).join('') + '</div>' : '') +
-               (here.archived ? '' :
+        var addBox = (here.archived ? '' :
                  '<div class="mnew kidnew"><label for="kidnn">' +
                    (kmode === 'month'
                      ? (kidMo ? 'Add the next month' : 'A monthly menu? Add a month inside ' + esc(here.name))
@@ -7367,11 +7554,20 @@ function render(){
                    '<button class="maoff" data-kidswitch="' + (kmode === 'month' ? 'section' : 'month') +
                      '" data-kidof="' + esc(here.id) + '">' +
                      (kmode === 'month' ? 'Add a section instead' : 'A monthly menu? Add a month instead') + '</button>' +
-                   '<span class="err" id="kidne"></span></div>') +
-               (rs2.length
-                 ? (kids.length ? '<div class="shd">On ' + esc(here.name) + ' itself, not in a ' +
-                     (kidMo === kids.length ? 'month' : kidMo ? 'section or a month' : 'section') + '</div>' : '') + body
-                 : (kids.length ? '' : '<div class="tip">Nothing is on ' + esc(here.name) + ' yet.</div>'));
+                   '<span class="err" id="kidne"></span></div>');
+        /* Francesco, 17 Sep 2026, looking at the first version: the sections he had made
+           sat in a row of their own ABOVE Crudo and Pasta, under a different heading, and
+           faded. "Need to follow the same path — the new one needs to go below, not on
+           top." So once a menu holds a section or a month it is ONE grid, the new tile
+           lands at the end of it, and the box that makes the next one is underneath. */
+        body = kids.length
+          ? '<div class="crumb"><b>' + esc(here.name) + '</b> · ' + kidsSay(kids) + stateSummary(rsAll) + '</div>' +
+            ogrid(here, gs, kids) + addBox
+          /* tiles already, no section of his own yet: the box is under them from the start,
+             so making the first section does not move the box he has just used */
+          : !flat ? body + addBox
+          : '<div class="crumb"><b>' + esc(here.name) + '</b></div>' + addBox +
+            (rs2.length ? body : '<div class="tip">Nothing is on ' + esc(here.name) + ' yet.</div>');
       }
       /* inside a section or a month: what can be done to it, then the way back up to its
          menu, said with the menu's name */
@@ -7504,6 +7700,7 @@ function render(){
       kn.addEventListener('input', function(){ S.kidDraft = { of:kn.dataset.kidof, v:kn.value, mode:kn.dataset.kidmode }; });
       kn.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); var ko = $('kidok'); if (ko) ko.click(); } });
     }
+    foldDragInit(w);
     /* the same for the new name of a section or a month */
     var kr = $('kidren');
     if (kr){
