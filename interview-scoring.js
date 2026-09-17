@@ -41,7 +41,18 @@
 // matches an existing candidate gets the CV attached instead of a duplicate —
 // so running the same folder twice adds nothing.
 //
-// Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad().
+// Candidate emails (17 Sep 2026, Francesco): the candidate's email is read off
+// the CV next to the name, for the chef to check. Three buttons — Reject,
+// Shortlist, Send to HR for hiring — each open a window: check name / email /
+// position, then a preview of exactly what will go (recipients, CC, Reply-To,
+// subject, body, attachments), then Confirm & Send. The wording, the HR list
+// and the CC addresses live in the interview-email edge function, NOT here: the
+// preview shown is that function's own answer, and a CV can only ever go to the
+// addresses written there. Every send is a row in interview_actions, shown on
+// the candidate's sheet, and a repeat of the same action has to be ticked.
+//
+// Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad(),
+// SUPABASE_URL, SUPABASE_KEY.
 // ══════════════════════════════════════════════════════════════════════════
 
 var IVS_KEY   = '__interviews__';
@@ -73,6 +84,7 @@ var IVS_SECTIONS = [
 ];
 // [column, label, placeholder, suggestions — tap one or type anything]
 var IVS_DETAILS = [
+  ['email',              'Email', 'Read from the CV — or type it', []],
   ['position_applied',   'Position applied / expected', 'e.g. Commis II',
     ['Commis III','Commis II','Commis I','Demi Chef de Partie','Chef de Partie']],
   ['salary_expectation', 'Salary expectation', 'e.g. AED 4,500 / month + accommodation', []],
@@ -100,6 +112,17 @@ var IVS_CV_MAX = 8 * 1024 * 1024;
 var ivsQ = '';            // candidate search, kept across re-renders
 var ivsBulk = null;       // the bulk-CV window's state while it is open
 var IVS_MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';
+var ivsActs = [];         // the email log for this event: one row per Reject / Shortlist / HR attempt
+var ivsMail = null;       // the email window's state while it is open
+var ivsMailRead = {};     // candidate id -> the email on the sheet came off the CV and nobody has typed over it
+var ivsMailTried = {};    // candidate id -> the stored CV was already searched for an email this session
+var ivsStatusAt = 0;
+var IVS_FN = '/functions/v1/interview-email';
+var IVS_ACTIONS = {
+  reject:    { btn:'Reject',                 done:'Rejected',    title:'Reject — email the candidate' },
+  shortlist: { btn:'Shortlist',              done:'Shortlisted', title:'Shortlist — email the candidate' },
+  hr:        { btn:'Send to HR for hiring',  done:'Sent to HR',  title:'Send to HR for hiring' }
+};
 
 function ivsEsc(s){ return String(s==null?'':s)
   .replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -127,7 +150,7 @@ function ivsInjectCss(){
   if (document.getElementById('ivs-css')) return;
   var s = document.createElement('style'); s.id = 'ivs-css';
   s.textContent = [
-    '#interviews-view,#ivs-bulk{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
+    '#interviews-view,#ivs-bulk,#ivs-mail{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
     '  --ik:#2a1a10;--icr:#f5ede0;--igo:#ba9b02;--iol:#4b5128}',
     '.ivwrap{max-width:1100px;margin:0 auto;padding:14px 14px 90px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
     '.ivhd{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:12px}',
@@ -261,7 +284,53 @@ function ivsInjectCss(){
     '.ivbkft{position:sticky;bottom:-12px;background:#fff;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-top:2px solid var(--isd);padding:12px 0 4px;margin-top:6px}',
     '.ivbkft .sum{flex:1 1 200px;font-size:13.5px;color:#5a4a3a}',
     '.ivb:disabled{opacity:.5;cursor:default}',
+    '.ivdf.wide{grid-column:1/-1}',
+    '.ivdf em{display:block;font-style:normal;font-size:12.5px;color:#5a4a3a;margin-top:3px;min-height:16px}',
+    '.ivbkr .em{flex:1 1 100%;font-size:12.5px;color:#5a4a3a;overflow-wrap:anywhere}',
+    // decision card — the three emails
+    '.ivacts{background:#fff;border:1px solid var(--isd);border-radius:6px;padding:10px 12px;margin:10px 0 2px}',
+    '.ivacts .hd b{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl)}',
+    '.ivacts .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}',
+    '.ivacts .btns button{flex:1 1 150px}',
+    '.ivactl{font-size:13.5px;line-height:1.45;border-top:1px solid var(--isl);padding:7px 0 0;margin-top:8px;color:var(--ik);overflow-wrap:anywhere}',
+    '.ivactl b{font-weight:700}.ivactl.bad{color:#7a1218}.ivactl span{color:#5a4a3a}',
+    // the email window
+    '#ivs-mail{position:fixed;inset:0;z-index:9000;background:rgba(20,10,5,.72);display:flex;flex-direction:column;padding-bottom:56px;box-sizing:border-box}',
+    '#ivs-mail .bar{display:flex;align-items:center;gap:8px;background:#410207;color:#f5ede0;padding:8px 10px;font-family:"DM Sans",sans-serif}',
+    '#ivs-mail .bar b{flex:1;min-width:0;font-size:15px}',
+    '#ivs-mail .bar button{min-height:44px;padding:0 14px;border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;background:transparent;color:#f5ede0;border:1px solid rgba(245,237,224,.6);font-family:"DM Sans",sans-serif}',
+    '#ivs-mail .body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px}',
+    '.ivml{max-width:720px;margin:0 auto;background:#fff;border-radius:6px;padding:16px;font-family:"DM Sans",sans-serif;color:var(--ik);font-size:15px}',
+    '.ivml h3{font-family:"Cormorant Garamond",Georgia,serif;font-size:24px;font-weight:600;color:var(--iv);margin:0 0 4px}',
+    '.ivml .lead{font-size:14px;color:#5a4a3a;margin:0 0 12px;line-height:1.45}',
+    '.ivml .ivdf{margin-top:10px}',
+    '.ivml .ivdf input.bad{border-color:#7a1218;background:#fbeeee}',
+    '.ivmlerr{background:#f6dcdc;color:#5e0a10;border-radius:5px;padding:9px 11px;font-size:14px;font-weight:600;margin-top:10px;line-height:1.4}',
+    '.ivmlwarn{background:#f3e9c4;color:#4a3900;border-radius:5px;padding:9px 11px;font-size:14px;margin-top:10px;line-height:1.45}',
+    '.ivmlwarn label{display:flex;gap:9px;align-items:center;margin-top:8px;font-weight:700;min-height:44px;cursor:pointer}',
+    '.ivmlwarn input{width:22px;height:22px;flex:0 0 auto}',
+    '.ivmltest{background:#2f4a1e;color:#fff;border-radius:5px;padding:9px 11px;font-size:14px;font-weight:600;margin-top:10px;line-height:1.4}',
+    '.ivmlbox{border:1px solid var(--isd);border-radius:6px;margin-top:10px;overflow:hidden}',
+    '.ivmlrow{display:flex;gap:10px;padding:8px 11px;border-top:1px solid var(--isl);font-size:14.5px;line-height:1.4}',
+    '.ivmlrow:first-child{border-top:0}',
+    '.ivmlrow i{flex:0 0 84px;font-style:normal;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ivl);font-weight:700;padding-top:3px}',
+    '.ivmlrow div{flex:1;min-width:0;overflow-wrap:anywhere}',
+    '.ivmlrow .none{color:#5a4a3a}',
+    '.ivmlbody{white-space:pre-wrap;background:var(--icr);padding:12px;font-size:14.5px;line-height:1.5;border-top:1px solid var(--isd)}',
+    '.ivmlfile{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--isd);border-radius:5px;padding:8px 10px;margin-top:8px;min-height:46px;box-sizing:border-box}',
+    '.ivmlfile input[type=checkbox]{width:22px;height:22px;flex:0 0 auto}',
+    '.ivmlfile .nm{flex:1 1 180px;min-width:0;font-weight:600;font-size:14px;overflow-wrap:anywhere}',
+    '.ivmlfile .nm span{display:block;font-weight:400;font-size:12px;color:#5a4a3a}',
+    '.ivmlfile.need{border-color:#7a1218;border-width:2px}',
+    '.ivmlfile.slot{border-style:dashed;background:var(--isl);color:#5a4a3a}',
+    '.ivmlfile label.pick{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:4px;background:var(--iv);color:var(--icr);font-weight:600;font-size:14px;cursor:pointer}',
+    '.ivmlfile label.pick input{display:none}',
+    '.ivmlft{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px}',
+    '.ivmlft button{flex:0 1 auto}',
+    '.ivmlsec{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-top:16px}',
     '@media(max-width:760px){',
+    '  .ivmlrow{flex-direction:column;gap:1px}.ivmlrow i{flex:none}',
+    '  .ivmlft button{flex:1 1 100%}',
     '  .ivgrid{grid-template-columns:1fr}',
     '  .ivdet{grid-template-columns:1fr}',
     '  .ivstats{width:100%}.ivstat{flex:1;min-width:0}',
@@ -314,10 +383,12 @@ document.addEventListener('visibilitychange', async function(){
 async function ivsLoad(quiet){
   var both = await Promise.all([
     sb.rpc('interview_list',    { p_code: ivsCode, p_event: IVS_EVENT }),
-    sb.rpc('interview_cv_list', { p_code: ivsCode, p_event: IVS_EVENT })
+    sb.rpc('interview_cv_list', { p_code: ivsCode, p_event: IVS_EVENT }),
+    sb.rpc('interview_actions_list', { p_code: ivsCode, p_event: IVS_EVENT })
   ]);
   var r = both[0];
   if (!both[1].error) ivsCvs = both[1].data || [];
+  if (!both[2].error) ivsActs = both[2].data || [];
   if (r.error){
     if (/passcode/i.test(r.error.message || '')){
       ivsCode = null; try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
@@ -343,6 +414,7 @@ async function ivsLoad(quiet){
     return x;
   });
   if (ivsSel && !ivsRows.some(function(x){ return x.id === ivsSel; })) ivsSel = null;
+  ivsMailStatus();
   return true;
 }
 
@@ -359,7 +431,8 @@ async function ivsUnlock(){
 }
 function ivsLock(){
   if (ivsBulk && ivsBulk.running){ kToast('CVs are still uploading — wait for them to finish, then lock.', true); return; }
-  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsQ = ''; ivsViewerClose(); ivsBulkClose(true);
+  if (ivsMail && ivsMail.step === 'sending'){ kToast('An email is being sent — wait for it to finish, then lock.', true); return; }
+  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsActs = []; ivsQ = ''; ivsViewerClose(); ivsBulkClose(true); ivsMailClose(true);
   try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
   if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
   ivsRender();
@@ -408,6 +481,7 @@ async function ivsAdd(){
 
 function ivsPick(id){
   ivsSel = id; ivsTab = 'score'; ivsRender();
+  ivsMailBackfill(id);
   // on a phone the list sits above the sheet — a long list would leave the sheet off-screen
   var ed = document.getElementById('ivs-editor');
   if (ed && window.matchMedia('(max-width:760px)').matches) ed.scrollIntoView({ block:'start' });
@@ -445,6 +519,10 @@ function ivsDetail(el){
   var key = el.getAttribute('data-k');
   row[key] = el.value;
   var id = row.id, val = el.value;
+  if (key === 'email'){                                // typed over: no longer "read from the CV"
+    delete ivsMailRead[id];
+    var hint = document.getElementById('ivs-mailhint'); if (hint) hint.textContent = ivsMailHint(row);
+  }
   clearTimeout(ivsDetT[key]);
   ivsDetT[key] = setTimeout(function(){
     ivsDetT[key] = null;
@@ -465,9 +543,12 @@ function ivsDetailsHtml(r){
   var h = '<div class="ivdet">';
   IVS_DETAILS.forEach(function(d){
     var list = d[3].length ? ' list="ivs-dl-'+d[0]+'"' : '';
-    h += '<label class="ivdf"><span>'+ivsEsc(d[1])+'</span>'+
+    var mail = d[0] === 'email';
+    h += '<label class="ivdf'+(mail?' wide':'')+'"><span>'+ivsEsc(d[1])+'</span>'+
       '<input id="ivs-d-'+d[0]+'" data-k="'+d[0]+'" maxlength="120" autocomplete="off"'+list+
-      ' placeholder="'+ivsEsc(d[2])+'" value="'+ivsEsc(r[d[0]])+'" oninput="ivsDetail(this)" onchange="ivsDetailFlush(this)"></label>';
+      (mail ? ' type="email" inputmode="email" autocapitalize="off" spellcheck="false"' : '')+
+      ' placeholder="'+ivsEsc(d[2])+'" value="'+ivsEsc(r[d[0]])+'" oninput="ivsDetail(this)" onchange="ivsDetailFlush(this)">'+
+      (mail ? '<em id="ivs-mailhint">'+ivsEsc(ivsMailHint(r))+'</em>' : '')+'</label>';
     if (d[3].length) h += '<datalist id="ivs-dl-'+d[0]+'">'+d[3].map(function(o){ return '<option value="'+ivsEsc(o)+'">'; }).join('')+'</datalist>';
   });
   return h + '</div>';
@@ -576,7 +657,7 @@ function ivsListHtml(){
     h += '<div class="ivfindn">'+(hits.length ? hits.length+' of '+ivsRows.length+' candidates' : 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”')+'</div>';
   }
   hits.forEach(function(r){
-    var c = ivsCalc(r), where = ivsQ.trim() ? ivsWhere(r, ivsQ) : '';
+    var c = ivsCalc(r), where = [ivsQ.trim() ? ivsWhere(r, ivsQ) : '', ivsActLine(r.id)].filter(Boolean).join(' · ');
     h += '<button class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
       '<span class="ivdot'+(c.done?' done':(c.scored?' part':''))+'"></span>'+
       '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(where ? '<small>'+ivsEsc(where)+'</small>' : '')+'</span>'+
@@ -610,7 +691,7 @@ function ivsEditorHtml(){
       IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===(r.wave||'')?' selected':'')+'>'+(w||'Unassigned')+'</option>'; }).join('')+
     '</select>'+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
-  '</div>' + ivsDetailsHtml(r) + ivsSumHtml(r) + ivsCvsHtml(r);
+  '</div>' + ivsDetailsHtml(r) + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r);
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
@@ -677,8 +758,36 @@ function ivsCvUpload(input, candId){
     if (row) ivsCvs.push(row);
     ivsCvRefresh();
     kToast('CV saved — ' + f.name);
+    ivsCvReadInto(candId, f);
   };
   rd.readAsDataURL(f);
+}
+
+// a CV has just been loaded: read the name and the email off it for the chef to check
+async function ivsCvReadInto(candId, f){
+  var kind = ivsCvKind(f.name, f.type);
+  if (kind !== 'pdf' && kind !== 'docx') return;
+  var cand = ivsRow(candId); if (!cand) return;
+  ivsMailTried[candId] = true;
+  var got = [];
+  try {
+    if (!(cand.name || '').trim() && !ivsNameT){
+      var nm = await ivsReadName(f, kind);
+      cand = ivsRow(candId);
+      if (nm && cand && !(cand.name || '').trim() && !ivsNameT){
+        cand.name = nm; ivsSave(candId, { name: nm }); got.push('name');
+        var ni = document.getElementById('ivs-name');
+        if (ni && ivsSel === candId && !ni.value.trim()) ni.value = nm;   // empty box, focused or not ("+ Add" leaves the cursor in it)
+        ivsRenderList();
+      }
+    }
+    var mail = await ivsReadEmail(f, kind, (ivsRow(candId) || {}).name);
+    if (ivsMailApply(candId, mail)) got.push('email');
+  } catch(e){ /* unreadable here — the chef types them */ }
+  if (got.length) kToast('Read from the CV: ' + got.join(' and ') + ' — check ' + (got.length > 1 ? 'them' : 'it') + '.');
+  else if (ivsSel === candId && !((ivsRow(candId) || {}).email || '').trim()){
+    var hint = document.getElementById('ivs-mailhint'); if (hint) hint.textContent = 'No email found on the CV — type it here.';
+  }
 }
 
 async function ivsCvDelete(id){
@@ -890,6 +999,134 @@ async function ivsReadName(file, kind){
   return '';
 }
 
+// ── the candidate's email, off the same CV ──
+// Kept apart from the name reader on purpose: that one was tuned CV by CV and
+// must not move. An address is either a mailto: link in the PDF or text shaped
+// like one. CVs print "name @gmail.com" and "name@gmail. com", so the text is
+// also searched with the gaps around @ and the dots closed up.
+var IVS_MAIL_RE = /[A-Za-z0-9][A-Za-z0-9._+\-]*@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}/g;
+function ivsMailValid(e){
+  var t = String(e||'').trim();
+  if (!t || t.length > 200 || /\s/.test(t) || /\.\./.test(t) || /\.@/.test(t)) return false;
+  var m = t.match(IVS_MAIL_RE);
+  return !!(m && m.length === 1 && m[0] === t);
+}
+function ivsMailsIn(text){
+  var t = String(text||''), out = [];
+  [t, t.replace(/\s*@\s*/g, '@').replace(/(@[A-Za-z0-9.\-]*[A-Za-z0-9])\s*\.\s*(com|net|org|ae|in|np|ph|pk|lk|bd|it|uk|co)\b/gi, '$1.$2')].forEach(function(v){
+    (v.match(IVS_MAIL_RE) || []).forEach(function(m){
+      m = m.replace(/^[._\-]+/, '').replace(/[.\-]+$/, '').toLowerCase();
+      if (ivsMailValid(m) && out.indexOf(m) < 0) out.push(m);
+    });
+  });
+  return out;
+}
+// first page first; an address carrying one of the candidate's names beats a referee's
+function ivsBestMail(found, name){
+  if (!found.length) return '';
+  var words = ivsNorm(name).split(' ').filter(function(w){ return w.length >= 3; });
+  var best = null;
+  found.forEach(function(f, i){
+    var local = f.mail.split('@')[0].replace(/[^a-z]/g, '');
+    var hits = words.filter(function(w){ return local.indexOf(w) >= 0; }).length;
+    var score = (hits ? 100 : 0) - f.page * 10 - i * 0.01;
+    if (!best || score > best.score) best = { mail: f.mail, score: score };
+  });
+  return best.mail;
+}
+async function ivsReadEmail(file, kind, name){
+  var found = [];
+  if (kind === 'pdf'){
+    var P = await ivsPdf();
+    var pdf = await P.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    try {
+      for (var pg = 1; pg <= Math.min(3, pdf.numPages); pg++){
+        var page = await pdf.getPage(pg);
+        var ann = []; try { ann = await page.getAnnotations(); } catch(e){}
+        ann.forEach(function(a){
+          var u = a && (a.url || a.unsafeUrl) || '';
+          if (/^mailto:/i.test(u)) ivsMailsIn(decodeURIComponent(u.replace(/^mailto:/i, '').split('?')[0])).forEach(function(m){ found.push({ mail:m, page:pg }); });
+        });
+        var tc = await page.getTextContent(), byY = {};
+        tc.items.forEach(function(it){
+          if (!it.str) return;
+          var y = Math.round(it.transform[5]);
+          var L = byY[y] || byY[y-1] || byY[y+1];
+          if (!L){ L = byY[y] = { y:y, parts:[] }; }
+          L.parts.push({ x: it.transform[4], w: it.width || 0, s: it.str, h: Math.hypot(it.transform[2], it.transform[3]) || it.height || 10 });
+        });
+        Object.keys(byY).map(function(k){ return byY[k]; }).sort(function(a,b){ return b.y - a.y; }).forEach(function(L){
+          var txt = '', end = null;
+          L.parts.sort(function(a,b){ return a.x - b.x; }).forEach(function(p){
+            // pieces of one word arrive as separate items: close the gap when there is none on the page
+            txt += (end === null || p.x - end < p.h * 0.18 ? '' : ' ') + p.s;
+            end = p.x + p.w;
+          });
+          ivsMailsIn(txt).forEach(function(m){ found.push({ mail:m, page:pg }); });
+        });
+      }
+    } finally { try { pdf.destroy(); } catch(e){} }
+  } else if (kind === 'docx'){
+    var M = await ivsLib(IVS_MAMMOTH, 'mammoth');
+    var buf = await file.arrayBuffer();
+    var out = await M.extractRawText({ arrayBuffer: buf });
+    ivsMailsIn(out.value).forEach(function(m){ found.push({ mail:m, page:1 }); });
+    if (!found.length){                                 // an address kept only as a link
+      try {
+        var html = await M.convertToHtml({ arrayBuffer: buf });
+        (String(html.value).match(/mailto:[^"'?\s<>]+/gi) || []).forEach(function(u){
+          ivsMailsIn(decodeURIComponent(u.replace(/^mailto:/i, ''))).forEach(function(m){ found.push({ mail:m, page:1 }); });
+        });
+      } catch(e){}
+    }
+  }
+  return ivsBestMail(found, name || ivsNameFromFile(file.name));
+}
+
+function ivsMailHint(r){
+  if (!r) return '';
+  if (r.email && ivsMailRead[r.id]) return 'Read from the CV — check it before sending anything.';
+  if (r.email && !ivsMailValid(r.email)) return 'This does not look like an email address.';
+  return '';
+}
+// put an address found on a CV onto the sheet — never over one that is already there
+function ivsMailApply(candId, mail){
+  var row = ivsRow(candId);
+  if (!row || !mail || (row.email || '').trim() || ivsDetT.email) return false;
+  row.email = mail; ivsMailRead[candId] = true;
+  ivsSave(candId, { email: mail });
+  if (ivsSel === candId){
+    var inp = document.getElementById('ivs-d-email');
+    if (inp && !inp.value.trim()) inp.value = mail;
+    var hint = document.getElementById('ivs-mailhint'); if (hint) hint.textContent = ivsMailHint(row);
+  }
+  return true;
+}
+// a CV loaded before the email was read: look once, when the candidate is opened
+async function ivsMailBackfill(candId){
+  var row = ivsRow(candId);
+  if (!row || (row.email || '').trim() || ivsMailTried[candId]) return;
+  var cv = ivsCvsFor(candId).filter(function(c){ var k = ivsCvKind(c.filename, c.mime); return k === 'pdf' || k === 'docx'; })[0];
+  if (!cv) return;
+  ivsMailTried[candId] = true;
+  var hint = document.getElementById('ivs-mailhint');
+  if (hint && ivsSel === candId) hint.textContent = 'Looking for the email on the CV…';
+  var mail = '';
+  try {
+    var r = await sb.rpc('interview_cv_get', { p_code: ivsCode, p_id: cv.id });
+    if (r.error) throw r.error;
+    var bin = atob(r.data), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    mail = await ivsReadEmail(new File([bytes], cv.filename), ivsCvKind(cv.filename, cv.mime), row.name);
+  } catch(e){ delete ivsMailTried[candId]; }                // no connection: try again next time
+  var ok = ivsMailApply(candId, mail);
+  hint = document.getElementById('ivs-mailhint');
+  if (hint && ivsSel === candId && !ok){
+    var now = ivsRow(candId);
+    hint.textContent = now && now.email ? ivsMailHint(now) : 'No email found on the CV — type it here.';
+  }
+}
+
 // everything a dropped folder holds, subfolders included
 function ivsEntryFiles(entry){
   return new Promise(function(resolve){
@@ -999,6 +1236,7 @@ async function ivsBulkAddFiles(list){
       var got = await ivsReadName(next.file, next.kind);
       if (got && !next.edited) next.name = got;
     } catch(e){ /* unreadable here — the file name stands and the chef can type it */ }
+    try { next.email = await ivsReadEmail(next.file, next.kind, next.name); } catch(e){ next.email = ''; }
     next.reading = false;
     ivsBulkPlan(next);
     ivsBulkRender();
@@ -1115,6 +1353,7 @@ function ivsBulkRender(){
           (locked ? 'disabled ' : '')+'oninput="ivsBulkName(this,'+r.seq+')" autocomplete="off">'+
         '<span class="st '+ivsBulkCls(r)+'" id="ivs-bst-'+r.seq+'">'+ivsEsc(r.reading ? 'Reading the name…' : (r.note || ''))+'</span>'+
         (canLeave ? '<button class="out" onclick="ivsBulkLeave('+r.seq+')">'+(r.left ? 'Put back' : 'Leave out')+'</button>' : '')+
+        (!r.reading && !r.problem && (r.kind === 'pdf' || r.kind === 'docx') ? '<div class="em">'+(r.email ? 'Email on the CV: <b>'+ivsEsc(r.email)+'</b>' : 'No email found on this CV — type it on the candidate’s sheet.')+'</div>' : '')+
       '</div>';
     });
     h += ivsBulkFootHtml();
@@ -1154,6 +1393,7 @@ async function ivsBulkRun(){
           var a = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT });
           if (a.error) throw a.error;
           var patch = { name: row.name.trim() }; if (b.wave) patch.wave = b.wave;
+          if (row.email){ patch.email = row.email; ivsMailRead[a.data.id] = true; }
           ivsPending[a.data.id] = 1;                   // the poll must not show it nameless meanwhile
           var fresh = Object.assign({}, a.data, patch);
           ivsRows.push(fresh);
@@ -1171,6 +1411,8 @@ async function ivsBulkRun(){
       if (r.error) throw r.error;
       var cvRow = Array.isArray(r.data) ? r.data[0] : r.data;
       if (cvRow) ivsCvs.push(cvRow);
+      ivsMailTried[row.candId] = true;
+      if (row.email) ivsMailApply(row.candId, row.email);   // a candidate already on the board with no email yet
       var owner = ivsRow(row.candId);
       row.state = 'done'; row.note = 'Added' + (owner ? ' — ' + ivsCandLabel(owner) : '');
     } catch(e){
@@ -1191,6 +1433,288 @@ function ivsBulkRetry(){
   ivsBulkRun();
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// Candidate emails — Reject / Shortlist / Send to HR for hiring.
+// Nothing here knows the wording or the HR addresses: the window asks the
+// interview-email function for a preview and shows its answer.
+// ══════════════════════════════════════════════════════════════════════════
+function ivsActsFor(id){ return ivsActs.filter(function(a){ return a.candidate_id === id; }); }
+function ivsWhen(iso){
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Dubai', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(iso));
+  } catch(e){ return String(iso||'').slice(0,16).replace('T',' '); }
+}
+// the list and the leaderboard: the last email that really went
+function ivsActLine(id){
+  var sent = ivsActsFor(id).filter(function(a){ return a.status === 'sent'; });
+  if (!sent.length) return '';
+  var last = sent[sent.length - 1];
+  return (IVS_ACTIONS[last.action] || {}).done + ' · ' + ivsWhen(last.created_at).split(',')[0];
+}
+function ivsDeliveryWord(a){
+  var d = a.delivery || '';
+  if (d === 'delivered') return 'delivered';
+  if (d === 'bounced') return 'BOUNCED — the address is wrong or full';
+  if (d === 'complained') return 'marked as spam by the recipient';
+  if (d === 'delivery_delayed') return 'delayed — still trying';
+  return '';
+}
+function ivsActsHtml(r){
+  var list = ivsActsFor(r.id);
+  var h = '<div class="ivacts" id="ivs-acts"><div class="hd"><b>Decision — send the email</b></div><div class="btns">'+
+    '<button class="ivb2" onclick="ivsMailOpen(\'reject\')">'+IVS_ACTIONS.reject.btn+'</button>'+
+    '<button class="ivb2" onclick="ivsMailOpen(\'shortlist\')">'+IVS_ACTIONS.shortlist.btn+'</button>'+
+    '<button class="ivb" onclick="ivsMailOpen(\'hr\')">'+IVS_ACTIONS.hr.btn+'</button></div>';
+  list.forEach(function(a){
+    var A = IVS_ACTIONS[a.action] || { done:a.action, btn:a.action };
+    if (a.status === 'sent'){
+      var dw = ivsDeliveryWord(a), bad = a.delivery === 'bounced' || a.delivery === 'complained';
+      h += '<div class="ivactl'+(bad?' bad':'')+'"><b>'+ivsEsc(A.done)+'</b> — email sent '+ivsEsc(ivsWhen(a.created_at))+
+        ' <span>to '+ivsEsc((a.sent_to||[]).join(', '))+(a.position ? ' · '+ivsEsc(a.position) : '')+(a.is_test ? ' · TEST' : '')+'</span>'+
+        (dw ? ' · <b>'+ivsEsc(dw)+'</b>' : '')+'</div>';
+    } else {
+      h += '<div class="ivactl bad"><b>'+ivsEsc(A.btn)+' — NOT sent</b> '+ivsEsc(ivsWhen(a.created_at))+' <span>'+ivsEsc(a.error || '')+'</span></div>';
+    }
+  });
+  return h + '</div>';
+}
+function ivsActsRefresh(){
+  var r = ivsRow(ivsSel), el = document.getElementById('ivs-acts');
+  if (r && el) el.outerHTML = ivsActsHtml(r);
+  ivsRenderList();
+}
+
+async function ivsMailCall(body){
+  body.code = ivsCode;
+  var res;
+  try {
+    res = await fetch(SUPABASE_URL + IVS_FN, { method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + SUPABASE_KEY, 'apikey': SUPABASE_KEY },
+      body: JSON.stringify(body) });
+  } catch(e){ return { status:0, data:{ error:'No connection — nothing was sent.' } }; }
+  var data = {};
+  try { data = await res.json(); } catch(e){}
+  if (!res.ok && !data.error) data.error = data.message || ('The email service answered ' + res.status + '.');
+  if (!res.ok && data.message && /read-only/i.test(data.error || '')) data.error = data.message;   // the DEV guard's own words
+  return { status: res.status, data: data };
+}
+
+// ask now and then what happened to the emails already sent (delivered / bounced)
+async function ivsMailStatus(){
+  if (!ivsCode || Date.now() - ivsStatusAt < 60000) return;
+  // only emails of the last day: one that never reports is not asked about for ever
+  var open = ivsActs.some(function(a){ return a.status === 'sent' && a.resend_id && Date.now() - new Date(a.created_at).getTime() < 86400000 &&
+    (!a.delivery || /^(sent|queued|scheduled|delivery_delayed)$/.test(a.delivery)); });
+  if (!open) return;
+  ivsStatusAt = Date.now();
+  var r = await ivsMailCall({ mode:'status', event: IVS_EVENT });
+  if (r.data && r.data.readable === false) ivsStatusAt = Date.now() + 3600000;   // this key cannot read deliveries: stop asking
+}
+
+function ivsMailOpen(action){
+  var r = ivsRow(ivsSel); if (!r || ivsMail) return;
+  // anything typed on the sheet a moment ago goes to the database before the window opens
+  ['email','position_applied'].forEach(function(k){ var el = document.getElementById('ivs-d-'+k); if (el) ivsDetailFlush(el); });
+  if (ivsNameT){ clearTimeout(ivsNameT); ivsNameT = null; ivsSave(r.id, { name: r.name }); }
+  ivsMail = { action: action, candId: r.id, step: 'form',
+    name: (r.name || '').trim(), email: (r.email || '').trim(), position: (r.position_applied || '').trim(),
+    fromCv: !!ivsMailRead[r.id], cvIds: ivsCvsFor(r.id).map(function(c){ return c.id; }),
+    form: null, problems: [], preview: null, again: false, error: '' };
+  var v = document.createElement('div'); v.id = 'ivs-mail';
+  v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', IVS_ACTIONS[action].title);
+  document.body.appendChild(v);
+  document.addEventListener('keydown', ivsMailKey);
+  ivsMailRender();
+  var first = document.getElementById(!ivsMail.name ? 'ivs-m-name' : !ivsMail.email ? 'ivs-m-email' : !ivsMail.position ? 'ivs-m-position' : '');
+  if (first) first.focus();
+}
+function ivsMailKey(e){ if (e.key === 'Escape') ivsMailClose(); }
+function ivsMailClose(force){
+  var m = ivsMail; if (!m) return;
+  if (m.step === 'sending' && !force) return;
+  ivsMail = null;
+  var v = document.getElementById('ivs-mail'); if (v) v.remove();
+  document.removeEventListener('keydown', ivsMailKey);
+}
+function ivsMailField(el){
+  if (!ivsMail) return;
+  ivsMail[el.getAttribute('data-f')] = el.value;
+  if (el.getAttribute('data-f') === 'email') ivsMail.fromCv = false;
+  el.classList.remove('bad');
+}
+function ivsMailCv(el, id){
+  var m = ivsMail; if (!m) return;
+  m.cvIds = m.cvIds.filter(function(x){ return x !== id; });
+  if (el.checked) m.cvIds.push(id);
+}
+async function ivsMailForm(input){
+  var m = ivsMail, f = input.files && input.files[0];
+  input.value = '';
+  if (!m || !f) return;
+  if (!/\.(xlsx|xlsm|xls)$/i.test(f.name)){ kToast('The hiring form must be an Excel file (.xlsx or .xls).', true); return; }
+  if (!f.size){ kToast('That Excel file is empty.', true); return; }
+  if (f.size > 10 * 1024 * 1024){ kToast('The hiring form is ' + ivsKb(f.size) + '. The limit is 10 MB.', true); return; }
+  try { m.form = { filename: f.name, size: f.size, b64: await ivsB64(f) }; }
+  catch(e){ kToast('Could not read that file on this device.', true); return; }
+  m.problems = []; ivsMailRender();
+}
+function ivsMailFormClear(){ if (ivsMail){ ivsMail.form = null; ivsMailRender(); } }
+
+// the same three checks the function makes — here only so the chef hears at once
+function ivsMailLocalProblems(m){
+  var p = [];
+  if (!m.name.trim() || /^unnamed candidate$/i.test(m.name.trim())) p.push(['name', 'The candidate’s name is missing.']);
+  else if (/[@\d<>]/.test(m.name) || m.name.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['name', 'The name does not look like a person’s name.']);
+  if (!m.email.trim()) p.push(['email', 'The candidate’s email address is missing.']);
+  else if (!ivsMailValid(m.email)) p.push(['email', 'The email address does not look right.']);
+  if (m.position.trim().replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['position', m.position.trim() ? 'The position does not look right.' : 'The position is missing — type it.']);
+  if (m.action === 'hr'){
+    if (!m.cvIds.length) p.push(['cv', ivsCvsFor(m.candId).length ? 'Tick the CV to send.' : 'No CV is attached. Close this window and upload the candidate’s CV first.']);
+    if (!m.form) p.push(['form', 'The Excel hiring form has not been uploaded. Add it below — HR cannot be sent without it.']);
+  }
+  return p;
+}
+function ivsMailBody(m){
+  var b = { action: m.action, candidate_id: m.candId, name: m.name.trim(), email: m.email.trim(), position: m.position.trim() };
+  if (m.action === 'hr'){ b.cv_ids = m.cvIds.slice(); if (m.form) b.hiring_form = { filename: m.form.filename, b64: m.form.b64 }; }
+  return b;
+}
+
+async function ivsMailPreview(){
+  var m = ivsMail; if (!m || m.step !== 'form') return;
+  m.name = m.name.replace(/\s+/g, ' ').trim(); m.email = m.email.trim(); m.position = m.position.replace(/\s+/g, ' ').trim();
+  var local = ivsMailLocalProblems(m);
+  if (local.length){ m.problems = local; ivsMailRender(); return; }
+  m.step = 'asking'; m.problems = []; m.error = ''; ivsMailRender();
+  var b = ivsMailBody(m); b.mode = 'preview';
+  var r = await ivsMailCall(b);
+  if (ivsMail !== m) return;
+  if (r.status !== 200 || !r.data.preview){ m.step = 'form'; m.error = (r.data && r.data.error) || 'Could not prepare the email.'; ivsMailRender(); return; }
+  if (r.data.preview.problems && r.data.preview.problems.length){
+    m.step = 'form'; m.problems = r.data.preview.problems.map(function(t){ return ['', t]; }); ivsMailRender(); return;
+  }
+  // what the chef corrected here belongs on the candidate's sheet too
+  var row = ivsRow(m.candId), patch = {};
+  if (row){
+    if ((row.name || '').trim() !== m.name) patch.name = m.name;
+    if ((row.email || '').trim() !== m.email) patch.email = m.email;
+    if ((row.position_applied || '').trim() !== m.position) patch.position_applied = m.position;
+    if (Object.keys(patch).length){ Object.assign(row, patch); if (!m.fromCv) delete ivsMailRead[m.candId]; ivsSave(m.candId, patch); ivsRender(); }
+  }
+  m.preview = r.data.preview; m.again = false; m.step = 'preview';
+  ivsMailRender();
+}
+function ivsMailBack(){ if (ivsMail && (ivsMail.step === 'preview' || ivsMail.step === 'failed')){ ivsMail.step = 'form'; ivsMail.error = ''; ivsMailRender(); } }
+
+async function ivsMailSend(){
+  var m = ivsMail; if (!m || m.step !== 'preview') return;
+  if (m.preview.repeats && !m.again){ kToast('Tick “Send it again” first — this was already sent.', true); return; }
+  m.step = 'sending'; ivsMailRender();
+  var b = ivsMailBody(m); b.mode = 'send'; b.confirm_repeat = !!m.again;
+  var r = await ivsMailCall(b);
+  if (ivsMail !== m) return;
+  await ivsLoad(true);                                   // the log row, sent or failed
+  if (r.status === 200 && r.data.ok){
+    m.step = 'done'; m.result = r.data;
+    ivsMailRender(); ivsActsRefresh();
+    kToast(IVS_ACTIONS[m.action].done + ' — email sent.');
+    return;
+  }
+  m.step = 'failed'; m.error = (r.data && r.data.error) || 'The email was not sent.';
+  ivsMailRender(); ivsActsRefresh();
+}
+
+function ivsMailRowHtml(label, val, none){
+  var txt = Array.isArray(val) ? val.join(', ') : (val || '');
+  return '<div class="ivmlrow"><i>'+label+'</i><div'+(txt ? '' : ' class="none"')+'>'+ivsEsc(txt || none)+'</div></div>';
+}
+function ivsMailRender(){
+  var v = document.getElementById('ivs-mail'), m = ivsMail;
+  if (!v || !m) return;
+  var A = IVS_ACTIONS[m.action], h = '';
+  var sy = v.querySelector('.body') ? v.querySelector('.body').scrollTop : 0;
+  var bad = {}; m.problems.forEach(function(p){ if (p[0]) bad[p[0]] = true; });
+  h += '<div class="bar"><b>'+ivsEsc(A.title)+'</b>'+(m.step === 'sending' ? '' : '<button onclick="ivsMailClose()">'+(m.step === 'done' ? 'Close' : 'Cancel')+'</button>')+'</div><div class="body"><div class="ivml">';
+
+  if (m.step === 'form' || m.step === 'asking'){
+    var posList = (IVS_DETAILS.filter(function(d){ return d[0] === 'position_applied'; })[0] || [0,0,0,[]])[3];
+    h += '<h3>1 · Check the details</h3><p class="lead">'+
+      (m.action === 'hr' ? 'These go in the email to HR, with the CV and the hiring form.' : 'The email goes to this address, addressed to this name. Correct anything that is wrong.')+'</p>'+
+      '<label class="ivdf"><span>Candidate’s full name</span><input id="ivs-m-name" data-f="name" maxlength="120" autocomplete="off" class="'+(bad.name?'bad':'')+'" value="'+ivsEsc(m.name)+'" oninput="ivsMailField(this)"></label>'+
+      '<label class="ivdf"><span>Candidate’s email</span><input id="ivs-m-email" data-f="email" type="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="200" autocomplete="off" class="'+(bad.email?'bad':'')+'" value="'+ivsEsc(m.email)+'" oninput="ivsMailField(this)">'+
+        '<em>'+(m.fromCv && m.email ? 'Read from the CV — check it letter by letter.' : '')+'</em></label>'+
+      '<label class="ivdf"><span>Position</span><input id="ivs-m-position" data-f="position" maxlength="120" autocomplete="off" list="ivs-m-pos" placeholder="e.g. Commis II" class="'+(bad.position?'bad':'')+'" value="'+ivsEsc(m.position)+'" oninput="ivsMailField(this)"></label>'+
+      '<datalist id="ivs-m-pos">'+posList.map(function(o){ return '<option value="'+ivsEsc(o)+'">'; }).join('')+'</datalist>';
+    if (m.action === 'hr'){
+      var cvs = ivsCvsFor(m.candId);
+      h += '<div class="ivmlsec">Attachments</div>';
+      if (!cvs.length) h += '<div class="ivmlfile need"><div class="nm">1 · Candidate’s CV<span>None on this candidate. Close this window and upload the CV first.</span></div></div>';
+      cvs.forEach(function(c){
+        h += '<label class="ivmlfile'+(bad.cv?' need':'')+'"><input type="checkbox" '+(m.cvIds.indexOf(c.id) >= 0 ? 'checked ' : '')+'onchange="ivsMailCv(this,\''+c.id+'\')">'+
+          '<div class="nm">1 · Candidate’s CV<span>'+ivsEsc(c.filename)+' · '+ivsKb(c.size_bytes)+'</span></div></label>';
+      });
+      h += m.form
+        ? '<div class="ivmlfile"><div class="nm">2 · Hiring Form<span>'+ivsEsc(m.form.filename)+' · '+ivsKb(m.form.size)+'</span></div><button class="ivb2" onclick="ivsMailFormClear()">Change</button></div>'
+        : '<div class="ivmlfile need"><div class="nm">2 · Hiring Form (Excel) — required<span>HR is not emailed without it.</span></div>'+
+          '<label class="pick">Upload the Excel<input type="file" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onchange="ivsMailForm(this)"></label></div>';
+      h += '<div class="ivmlfile slot"><div class="nm">3 · Interview Form<span>Slot reserved — to be added later. Nothing is attached here yet.</span></div></div>';
+    }
+    m.problems.forEach(function(p){ h += '<div class="ivmlerr">'+ivsEsc(p[1])+'</div>'; });
+    if (m.error) h += '<div class="ivmlerr">'+ivsEsc(m.error)+'</div>';
+    h += '<div class="ivmlft"><button class="ivb2" onclick="ivsMailClose()">Cancel</button>'+
+      '<button class="ivb" '+(m.step === 'asking' ? 'disabled' : '')+' onclick="ivsMailPreview()">'+(m.step === 'asking' ? 'Preparing the preview…' : 'Preview the email')+'</button></div>';
+  }
+
+  if (m.step === 'preview' || m.step === 'sending' || m.step === 'failed'){
+    var p = m.preview;
+    h += '<h3>2 · Preview — nothing has been sent yet</h3><p class="lead">This is exactly what will go. Read it, then press Confirm &amp; Send.</p>';
+    if (p.is_test) h += '<div class="ivmltest">TEST candidate — this email goes ONLY to '+ivsEsc(p.to.join(', '))+'. On a real candidate it would go to: '+
+      ivsEsc(p.real_recipients.to.join(', '))+(p.real_recipients.cc.length ? ' · CC '+ivsEsc(p.real_recipients.cc.join(', ')) : '')+
+      (p.real_recipients.reply_to.length ? ' · Reply-To '+ivsEsc(p.real_recipients.reply_to.join(', ')) : '')+'.</div>';
+    var others = (p.previous || []).filter(function(x){ return x.action !== m.action; });
+    if (p.repeats){
+      var same = p.previous.filter(function(x){ return x.action === m.action; });
+      h += '<div class="ivmlwarn"><b>Already done.</b> “'+ivsEsc(A.done)+'” was sent for this candidate '+
+        same.map(function(x){ return ivsEsc(ivsWhen(x.created_at))+' to '+ivsEsc(x.candidate_email); }).join('; ')+'. Sending again puts a second email in the same inbox.'+
+        '<label><input type="checkbox" '+(m.again?'checked ':'')+(m.step==='sending'?'disabled ':'')+'onchange="ivsMail.again=this.checked;ivsMailRender()">Send it again anyway</label></div>';
+    }
+    if (others.length) h += '<div class="ivmlwarn">Earlier for this candidate: '+others.map(function(x){ return '<b>'+ivsEsc((IVS_ACTIONS[x.action]||{}).done || x.action)+'</b> '+ivsEsc(ivsWhen(x.created_at)); }).join(' · ')+'.</div>';
+    (p.hints || []).forEach(function(t){ h += '<div class="ivmlwarn">'+ivsEsc(t)+'</div>'; });
+    h += '<div class="ivmlbox">'+
+      ivsMailRowHtml('From', p.from)+
+      ivsMailRowHtml('To', p.to)+
+      ivsMailRowHtml('CC', p.cc, 'Nobody')+
+      ivsMailRowHtml('Reply-To', p.reply_to, 'None — a reply to this email reaches nobody')+
+      ivsMailRowHtml('Subject', p.subject)+
+      '<div class="ivmlbody">'+ivsEsc(p.body)+'</div></div>';
+    h += '<div class="ivmlsec">Attachments</div>';
+    if (!p.attachments.length) h += '<div class="ivmlfile"><div class="nm">None<span>No file goes with this email.</span></div></div>';
+    p.attachments.forEach(function(a, i){ h += '<div class="ivmlfile"><div class="nm">'+(i+1)+' · '+ivsEsc(a.label)+'<span>'+ivsEsc(a.filename)+' · '+ivsKb(a.size_bytes)+'</span></div></div>'; });
+    if (p.interview_form_slot) h += '<div class="ivmlfile slot"><div class="nm">'+(p.attachments.length+1)+' · Interview Form<span>Slot reserved — to be added later. Not attached.</span></div></div>';
+    if (m.step === 'failed') h += '<div class="ivmlerr">NOT sent — '+ivsEsc(m.error)+'</div>';
+    h += '<div class="ivmlft"><button class="ivb2" '+(m.step==='sending'?'disabled ':'')+'onclick="ivsMailBack()">Back</button>'+
+      '<button class="ivb" '+(m.step==='sending' || (p.repeats && !m.again) ? 'disabled ' : '')+'onclick="ivsMailSend()">'+
+      (m.step === 'sending' ? 'Sending…' : m.step === 'failed' ? 'Try again — Confirm & Send' : 'Confirm &amp; Send')+'</button></div>';
+  }
+
+  if (m.step === 'done'){
+    var row = m.result && m.result.row;
+    h += '<h3>Sent</h3><p class="lead"><b>'+ivsEsc(A.done)+'</b> — the email went to '+ivsEsc((row && row.sent_to || m.preview.to).join(', '))+
+      (m.preview.cc.length ? ', copy to '+ivsEsc(m.preview.cc.join(', ')) : '')+'.'+
+      (m.preview.attachments.length ? ' Attached: '+ivsEsc(m.preview.attachments.map(function(a){ return a.filename; }).join(', '))+'.' : '')+'</p>'+
+      (m.result && m.result.logged === false ? '<div class="ivmlerr">The email went, but it could not be written to the log. Tell Francesco.</div>' : '<p class="lead">It is written on the candidate’s sheet with the time.</p>')+
+      '<div class="ivmlft"><button class="ivb" onclick="ivsMailClose()">Close</button></div>';
+  }
+  h += '</div></div>';
+  var keep = document.activeElement && document.activeElement.id && v.contains(document.activeElement) ? document.activeElement.id : null;
+  v.innerHTML = h;
+  // a new step starts at its top; a tick or an error inside a step leaves the page where the chef is reading
+  var stage = m.step === 'asking' ? 'form' : (m.step === 'sending' || m.step === 'failed') ? 'preview' : m.step;
+  var body = v.querySelector('.body'); if (body) body.scrollTop = stage === m.stage ? sy : 0;
+  m.stage = stage;
+  if (keep){ var k = document.getElementById(keep); if (k) k.focus(); }
+}
+
 function ivsLib(src, globalName){
   if (window[globalName]) return Promise.resolve(window[globalName]);
   return lazyLoad(src).then(function(){
@@ -1209,7 +1733,7 @@ function ivsBoardHtml(){
   });
   var h = '<table class="ivtab"><thead><tr><th>Rank</th><th>Candidate</th><th class="hm">Wave</th>'+
     '<th class="hm">Position</th><th class="hm">Salary exp.</th><th class="hm">Notice</th><th class="hm">Visa</th>'+
-    '<th class="hm">Interview /50</th><th class="hm">Practical /25</th><th>Final</th><th>Verdict</th></tr></thead><tbody>';
+    '<th class="hm">Interview /50</th><th class="hm">Practical /25</th><th>Final</th><th>Verdict</th><th class="hm">Email sent</th></tr></thead><tbody>';
   var rank = 0;
   rows.forEach(function(x){
     if (x.c.done) rank++;
@@ -1217,11 +1741,12 @@ function ivsBoardHtml(){
       '<td class="n">'+(x.c.done ? rank : '—')+'</td>'+
       '<td><b>'+ivsEsc(ivsCandLabel(x.r))+'</b></td>'+
       '<td class="hm">'+ivsEsc(x.r.wave || '—')+'</td>'+
-      IVS_DETAILS.map(function(d){ return '<td class="hm ivdc">'+ivsEsc(x.r[d[0]] || '—')+'</td>'; }).join('')+
+      IVS_DETAILS.filter(function(d){ return d[0] !== 'email'; }).map(function(d){ return '<td class="hm ivdc">'+ivsEsc(x.r[d[0]] || '—')+'</td>'; }).join('')+
       '<td class="n hm">'+x.c.int+'/50</td><td class="n hm">'+x.c.prac+'/25</td>'+
       '<td class="n">'+(x.c.done ? '<span class="ivbar"><i style="width:'+x.c.final+'%"></i></span><b>'+x.c.final+'</b>' : '—')+'</td>'+
       '<td>'+(x.c.done ? '<span class="ivpill '+x.c.verdict.c+'">'+x.c.verdict.t+'</span>'
                        : '<span class="ivpill">'+(x.c.scored ? (IVS_LINES-x.c.scored)+' to score' : 'Not scored')+'</span>')+'</td>'+
+      '<td class="hm ivdc">'+ivsEsc(ivsActLine(x.r.id) || '—')+'</td>'+
     '</tr>';
   });
   return h + '</tbody></table>';
@@ -1249,6 +1774,8 @@ function ivsRender(fromPoll){
     if (r && sumEl) sumEl.outerHTML = ivsSumHtml(r);
     var cvEl = document.getElementById('ivs-cvs');
     if (r && cvEl) cvEl.outerHTML = ivsCvsHtml(r);
+    var acEl = document.getElementById('ivs-acts');
+    if (r && acEl) acEl.outerHTML = ivsActsHtml(r);
     // another chef's detail edits land in the fields this chef is not typing in
     if (r) IVS_DETAILS.forEach(function(d){
       var inp = document.getElementById('ivs-d-'+d[0]);

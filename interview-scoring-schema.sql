@@ -192,3 +192,73 @@ begin
   return r;
 end $$;
 notify pgrst, 'reload schema';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Candidate emails (added 17 Sep 2026): Reject / Shortlist / Send to HR.
+-- The candidate's email is read off the CV and checked by the chef; every
+-- email goes out through the interview-email edge function, which checks the
+-- same passcode, holds the HR / CC addresses itself (the browser cannot name
+-- them) and writes one row here per attempt — sent or failed.
+-- The log keeps its row when a candidate is deleted (candidate_id goes null).
+-- Applied to the Kitchen project 17 Sep 2026; additive only.
+-- ══════════════════════════════════════════════════════════════════════════
+alter table public.interview_candidates
+  add column if not exists email text not null default '';
+
+create table if not exists public.interview_actions (
+  id               uuid primary key default gen_random_uuid(),
+  candidate_id     uuid references public.interview_candidates(id) on delete set null,
+  event            text not null default '',
+  action           text not null check (action in ('reject','shortlist','hr')),
+  candidate_name   text not null,
+  candidate_email  text not null,
+  position         text not null,
+  status           text not null check (status in ('sent','failed')),
+  sent_to          text[] not null default '{}',
+  sent_cc          text[] not null default '{}',
+  reply_to         text[] not null default '{}',
+  subject          text not null default '',
+  attachments      text[] not null default '{}',
+  resend_id        text,
+  error            text,
+  delivery         text,
+  delivery_checked_at timestamptz,
+  is_test          boolean not null default false,
+  created_at       timestamptz not null default now()
+);
+create index if not exists interview_actions_cand_idx  on public.interview_actions(candidate_id);
+create index if not exists interview_actions_event_idx on public.interview_actions(event, created_at);
+alter table public.interview_actions enable row level security;
+-- no policies: the edge function (service role) writes, interview_actions_list reads
+
+create or replace function public.interview_actions_list(p_code text, p_event text)
+returns setof public.interview_actions
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  return query select * from interview_actions where event = p_event order by created_at;
+end $$;
+grant execute on function public.interview_actions_list(text,text) to anon, authenticated;
+
+create or replace function public.interview_patch(p_code text, p_id uuid, p_patch jsonb)
+returns public.interview_candidates
+language plpgsql security definer set search_path = public as $$
+declare r interview_candidates;
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  update interview_candidates set
+    name   = case when p_patch ? 'name'  then left(p_patch->>'name', 120) else name end,
+    wave   = case when p_patch ? 'wave'  then left(p_patch->>'wave', 40)  else wave end,
+    notes  = case when p_patch ? 'notes' then left(p_patch->>'notes', 4000) else notes end,
+    email  = case when p_patch ? 'email' then left(coalesce(p_patch->>'email',''), 200) else email end,
+    salary_expectation = case when p_patch ? 'salary_expectation' then left(coalesce(p_patch->>'salary_expectation',''), 120) else salary_expectation end,
+    position_applied   = case when p_patch ? 'position_applied'   then left(coalesce(p_patch->>'position_applied',''), 120)   else position_applied end,
+    notice_period      = case when p_patch ? 'notice_period'      then left(coalesce(p_patch->>'notice_period',''), 120)      else notice_period end,
+    visa_status        = case when p_patch ? 'visa_status'        then left(coalesce(p_patch->>'visa_status',''), 120)        else visa_status end,
+    scores = case when p_patch ? 'scores'
+                  then jsonb_strip_nulls(scores || (p_patch->'scores')) else scores end,
+    updated_at = now()
+  where id = p_id returning * into r;
+  return r;
+end $$;
+notify pgrst, 'reload schema';

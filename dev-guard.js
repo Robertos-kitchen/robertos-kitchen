@@ -40,6 +40,7 @@
     'send-stock-take',       // emails the stock take to the cost controller + team
     'send-market-order',     // emails the market order to the chefs
     'send-closing-report',   // emails the closing report
+    'interview-email',       // emails a candidate (reject / shortlist) or HR with the CV
     'survey-assistant'       // paid AI proxy — not a write, but a real cost per call
   ];
 
