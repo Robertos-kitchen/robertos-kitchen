@@ -3619,7 +3619,7 @@ function loadSaved(){
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
        ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
-    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position,parent_id,fold_order&order=archived,position,name')
+    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,running,position,parent_id,fold_order&order=archived,position,name')
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
@@ -7447,6 +7447,7 @@ function render(){
         '<span class="fc">'+g.rs.length+'</span></button>';
     };
 
+    if (S.menuAct && (S.menuAct.id !== S.fmenu || S.fsec || S.sq)) S.menuAct = null;
     var body;
     if (S.sq){
       /* searching goes straight past the folders — you are looking for one dish and you
@@ -7643,6 +7644,43 @@ function render(){
                      (kw === 'section' ? 'Remove this section' : 'Put this month away') + '</button></div>';
         body = '<button class="newr" data-fold="' + esc(here.parent_id) + '" style="margin:0 0 12px">‹ ' +
                  esc(up ? up.name : 'The menu') + ' — every ' + kw + '</button>' + acts + body;
+      }
+      /* ── removing a menu, from inside the menu ──
+         Chef Andrea, 17 Sep 2026: "Off the menu is not more needed and there is not
+         possibility to delete… before cancel make sure you ask a confirmation." There was
+         a way — Menus → Put it away — but he was standing in the book, inside the folder,
+         where a section and a month already carry this button and a menu carried none.
+         Same ask-first box and the same write as Menus: what is inside goes with it, no
+         recipe is touched, and Menus → the put away → Bring it back is the way back for as
+         long as he likes. The menu the cards open on is refused, with the reason, exactly
+         as Menus refuses it. */
+      if (here && !here.parent_id && !here.archived && !S.fsec){
+        var mact = S.menuAct && S.menuAct.id === here.id ? S.menuAct : null;
+        var mkids = SAVEDMENUS.filter(function(k){ return k.parent_id === here.id && !k.archived; });
+        var mids = [here.id].concat(mkids.map(function(k){ return k.id; }));
+        var mOn = live.filter(function(r){ return r.kind === 'main' &&
+                    menusOf(r).some(function(x){ return mids.indexOf(x) >= 0; }); }).length;
+        var macts = !mact
+          ? '<div class="maacts" style="margin:0 0 14px">' +
+              '<button class="newr" data-menurm="' + esc(here.id) + '">Remove this menu</button></div>'
+          : mact.running
+          ? '<div class="maask" style="margin:0 0 14px"><b>' + esc(here.name) + ' is the menu running now.</b> ' +
+              'The recipe card and the Food Bible open on it, so it cannot be removed. Make another menu ' +
+              'the one running first: <b>Menus</b> → Make it the one running.' +
+              '<div class="maaskb"><button class="newr" style="margin:0" data-menuactcx="1">OK</button></div></div>'
+          : '<div class="maask" style="margin:0 0 14px"><b>Remove the menu ' + esc(here.name) + '?</b> ' +
+              (mkids.length ? 'The ' + kidsSay(mkids).replace(' · ', ' and ') + ' inside it ' +
+                              (mkids.length === 1 ? 'goes' : 'go') + ' with it. ' : '') +
+              (mOn ? 'No recipe is touched — the ' + mOn + ' dish' + (mOn === 1 ? '' : 'es') + ' on it ' +
+                     (mOn === 1 ? 'stays' : 'stay') + ' written. While ' + (mOn === 1 ? 'it is' : 'they are') +
+                     ' still on it the folder stays in the book, faded and marked put away. '
+                   : 'Nothing is on it, so the folder leaves the book. ') +
+              'It is put away, not destroyed: <b>Menus</b> → the put away brings it back.' +
+              '<div class="maaskb"><button class="okb" data-menurmyes="' + esc(here.id) + '"' + (mact.busy ? ' disabled' : '') + '>' +
+                (mact.busy ? 'Working…' : 'Yes, remove it') + '</button>' +
+              '<button class="newr" style="margin:0" data-menuactcx="1">Keep it</button></div>' +
+              (mact.err ? '<span class="pmerr">' + esc(mact.err) + '</span>' : '') + '</div>';
+        body = macts + body;
       }
       /* a new dish started from inside a folder goes on THAT menu, not the running one —
          he is standing in October, so October is where he means it */
@@ -12889,6 +12927,49 @@ document.addEventListener('click', function(e){
       })
       .catch(function(ex){
         if (S.kidAct){ S.kidAct.busy = false; S.kidAct.err = 'It was not finished — ' + menuPlain(ex.message); }
+        /* it may have died half way, so the screen is redrawn from what is really there */
+        loadSaved().then(render, render);
+      });
+    return;
+  }
+  var bkrm = e.target.closest('[data-menurm]');
+  if (bkrm){
+    var mrow0 = SAVEDMENUS.filter(function(m){ return m.id === bkrm.dataset.menurm; })[0];
+    S.menuAct = { id:bkrm.dataset.menurm, running:!!(mrow0 && mrow0.running), err:null, busy:false };
+    render(); return; }
+  if (e.target.closest('[data-menuactcx]')){ S.menuAct = null; render(); return; }
+  var bkry = e.target.closest('[data-menurmyes]');
+  if (bkry && S.menuAct && !S.menuAct.busy){
+    var bkrow = SAVEDMENUS.filter(function(m){ return m.id === bkry.dataset.menurmyes; })[0];
+    if (!bkrow || bkrow.parent_id) return;
+    S.menuAct.busy = true; S.menuAct.err = null; render();
+    /* Asked of the database, not of the screen: this frame is built once and can be hours
+       old, and the menu may have been made the one running since. Putting THAT one away
+       leaves the recipe card and the Food Bible opening on nothing. */
+    sb('menus?id=eq.' + bkrow.id + '&select=id,running')
+      .then(function(now){
+        if (!now || !now[0]) throw new Error('that menu could not be found');
+        if (now[0].running){ var er = new Error('running'); er.running = true; throw er; }
+        /* the same write as Menus → Put it away: what is inside goes with it, or it would go
+           on filling the pickers under a menu that is gone */
+        var tIds = [bkrow.id].concat(SAVEDMENUS.filter(function(x){
+          return x.parent_id === bkrow.id && !x.archived; }).map(function(x){ return x.id; }));
+        return Promise.all(tIds.map(function(id){
+          return patchMenu(id, { archived:true, running:false, active:false }); }));
+      })
+      .then(function(){ return Promise.all([loadSaved(), loadMenus()]); })
+      .then(function(){
+        var still = SAVEDMENUS.filter(function(m){ return m.id === bkrow.id; })[0];
+        if (still && !still.archived) throw new Error('it is still there');
+        S.menuAct = null; S.fmenu = null; S.fsec = null;
+        render(); drawBarMenu(); window.scrollTo(0,0);
+        flash('‘' + bkrow.name + '’ is removed. Menus → the put away brings it back.');
+      })
+      .catch(function(ex){
+        if (S.menuAct){
+          if (ex && ex.running){ S.menuAct.running = true; S.menuAct.busy = false; }
+          else { S.menuAct.busy = false; S.menuAct.err = 'It was not finished — ' + menuPlain(ex.message); }
+        }
         /* it may have died half way, so the screen is redrawn from what is really there */
         loadSaved().then(render, render);
       });
