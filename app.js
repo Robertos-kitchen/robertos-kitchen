@@ -1918,8 +1918,8 @@ function openHome(){
   loadKitchenEvents();
 }
 // ══ KITCHEN EVENTS STRIP ══════════════════════════════════════════════
-// Every confirmed FOH event whose team brief has been sent, from today onward,
-// grouped this-week / next-2-weeks / later and capped. Reads a scoped read-only
+// Every FOH event whose team brief has been sent, from today to 14 days out,
+// grouped this-week / the-week-after; anything later is a count, not a row. Reads a scoped read-only
 // feed from the FOH project — kitchen-safe fields only (name, date, time, area,
 // guests, dietary, menu + quantities); never prices or client data. Handles
 // canapé menus AND plated set menus; flags beverage-only events; shows a note
@@ -2065,17 +2065,21 @@ function renderKitchenEvents(events, today){
   events.forEach(function(e){ if(kevDaysUntil(e.date, today)<=0) todayEv.push(e); else up.push(e); });
   var h = '<div class="kev-band"><span class="kev-band-t">Events</span></div>';
   todayEv.forEach(function(e){ h += kevTodayCard(e); });
-  // Upcoming: grouped by proximity, nearest first, capped so the home screen
-  // never floods (the feed is sorted by date, so the cap keeps the soonest).
-  var MAX = 6, shown = 0, hidden = 0, lastLb = null;
-  function bucket(n){ return n<=7 ? 'This week' : (n<=21 ? 'Next 2 weeks' : 'Later'); }
+  // Upcoming: ONLY the next 14 days reach the home screen (Francesco, 17 Sep 2026 —
+  // the events desk now books enough that a count cap let a 6 Oct event sit on a
+  // 17 Sep screen). The rule is a date window, not a count: nothing INSIDE the
+  // window is ever hidden, because an event within two weeks is one the kitchen
+  // has to prep for. Anything further out is one quiet line, never a row.
+  var WINDOW_DAYS = 14, shown = 0, hidden = 0, lastLb = null;
+  function bucket(n){ return n<=7 ? 'This week' : 'The week after'; }
   up.forEach(function(e){
-    if(shown >= MAX){ hidden++; return; }
-    var lb = bucket(kevDaysUntil(e.date, today));
+    var n = kevDaysUntil(e.date, today);
+    if(n > WINDOW_DAYS){ hidden++; return; }
+    var lb = bucket(n);
     if(lb !== lastLb){ lastLb = lb; h += '<div class="kev-up-h">'+lb+'</div>'; }
     h += kevUpRow(e); shown++;
   });
-  if(hidden>0) h += '<div class="kev-more">+ '+hidden+' more event'+(hidden>1?'s':'')+' further out</div>';
+  if(hidden>0) h += '<div class="kev-more">'+(!shown && !todayEv.length ? 'No events in the next 2 weeks &middot; '+hidden : '+ '+hidden+' more')+' event'+(hidden>1?'s':'')+' beyond 2 weeks</div>';
   box.innerHTML = h;
 }
 // Shared prep list (dishes/courses + quantities + allergens + total + dietary).
