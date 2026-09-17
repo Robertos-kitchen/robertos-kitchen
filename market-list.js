@@ -463,7 +463,7 @@ async function mlLoadArticles(){
     if(a.on_assortment) mlArtByCode[String(a.code).trim()] = a;
   });
   mlArtLoaded = true;
-  if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); }
+  if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); mlRenderGlobalAdd(); }
 }
 
 // What is wrong with this line's article, if anything. Returns null when the
@@ -570,10 +570,15 @@ function mlRenderPickMenu(category, safe){
   var q = inp ? (inp.value||'').trim() : '';
   if(q.length < 2 || !mlArtLoaded){ box.style.display='none'; box.innerHTML=''; return; }
 
+  // The top search box can add to ANY category, so it is the one place a
+  // duplicate is easy to make without seeing it - say where it already sits.
+  var onList = safe === 'global' ? mlOnListByCode() : {};
   var html = st.hits.map(function(a,i){
+    var where = onList[String(a.code).trim()];
     return '<div class="ml-pick-opt' + (i===st.sel?' sel':'') + '" data-i="' + i + '">' +
       '<div class="ml-pick-nm">' + mlEsc(a.name) +
         (a.retiring ? '<span class="ml-flag retiring">retiring</span>' : '') +
+        (where ? '<span class="ml-flag onlist">on the list · ' + mlEsc(where) + '</span>' : '') +
         '<div class="ml-pick-meta">' + mlEsc(a.unit||'—') +
         (a.supplier ? ' · ' + mlEsc(a.supplier) : '') + '</div></div>' +
       '<span class="ml-pick-code">' + mlEsc(a.code) + '</span></div>';
@@ -617,7 +622,8 @@ function mlAddKey(e, category, safe){
   else if(e.key === 'Enter'){
     e.preventDefault();
     if(open) mlPickChoose(category, safe, st.sel);
-    else mlAddCustom(category, safe);        // refused unless an article is picked; was: catalogue never loaded — plain add
+    else if(safe === 'global') mlGlobalAdd();
+    else mlAddCustom(category, safe);       // refused unless an article is picked; was: catalogue never loaded — plain add
   }
 }
 
@@ -642,6 +648,10 @@ function mlPickChoose(category, safe, i){
   // free-text option to fall through to.
   if(safe === 'repoint'){
     if(st.picked) mlRepoint(mlRepointFor, st.picked);
+    return;
+  }
+  if(safe === 'global'){
+    mlGlobalAdd();
     return;
   }
   mlAddCustom(category, safe);
@@ -737,11 +747,75 @@ async function mlAddCustom(category, safe){
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
   if(typeof kToast === 'function'){
-    kToast('✓ ' + art.name + ' added · ' + art.code + ' · ' + (art.unit||''));
+    kToast('✓ ' + art.name + ' added' + (safe === 'global' ? ' to ' + category : '') + ' · ' + art.code + ' · ' + (art.unit||''));
   }
   // keep focus flowing: re-focus the same category's add box
   const again = document.getElementById('mladd-' + safe);
   if(again) again.focus();
+}
+
+// ── the one search box at the top ─────────────────────────────────────────
+// Antonio asked for it 17 Sep 2026: once the list is unlocked, one box that
+// searches the WHOLE FMC catalogue, instead of scrolling to the bottom of the
+// right category to find its own add box. It goes through exactly the same
+// picker and the same mlAddCustom gate as those boxes - the only thing it adds
+// is the category, which a per-category box knows and this one has to ask.
+function mlOnListByCode(){
+  var m = {};
+  mlItems.forEach(function(i){ var c = (i.code||'').trim(); if(c && !m[c]) m[c] = i.category; });
+  return m;
+}
+
+function mlGlobalAddHtml(){
+  var cur = mlCatFilter || '';
+  var opts = '<option value="">Category…</option>' + ML_CAT_ORDER.map(function(c){
+    return '<option value="' + mlEsc(c) + '"' + (c === cur ? ' selected' : '') + '>' + mlEsc(c) + '</option>';
+  }).join('');
+  return '<div class="ml-gadd">'
+    + '<div class="ml-catadd-combo">'
+    +   '<input class="check-input ml-catadd-input" id="mladd-global" autocomplete="off" '
+    +     'placeholder="' + (mlArtLoaded ? 'Add any item — search the whole FMC catalogue by name, code or supplier…' : 'Loading the FMC article list…') + '" '
+    +     'oninput="mlAddInput(\'\',\'global\',this.value)" '
+    +     'onkeydown="mlAddKey(event,\'\',\'global\')">'
+    +   '<div class="ml-pick-menu" id="mlpick-global"></div>'
+    + '</div>'
+    + '<select class="check-select ml-gadd-cat" id="ml-gadd-cat" onchange="mlGlobalCatChanged()">' + opts + '</select>'
+    + '<button class="ml-catadd-btn" onclick="mlGlobalAdd()">Add</button>'
+    + '</div>';
+}
+
+// Drawn only when the unlocked state changes. mlRenderQuickBar runs after every
+// undo too, and redrawing here each time would wipe a half-typed search.
+function mlRenderGlobalAdd(){
+  var host = document.getElementById('ml-globaladd'); if(!host) return;
+  if(!mlEditUnlocked){ host.innerHTML = ''; mlPickState.global = null; return; }
+  var inp = document.getElementById('mladd-global');
+  if(!inp){ host.innerHTML = mlGlobalAddHtml(); return; }
+  if(mlArtLoaded && /Loading/.test(inp.placeholder))
+    inp.placeholder = 'Add any item — search the whole FMC catalogue by name, code or supplier…';
+}
+
+// Picking a category after the article finishes the add - no third tap.
+function mlGlobalCatChanged(){
+  var st = mlPickState.global;
+  if(st && st.picked) mlGlobalAdd();
+}
+
+function mlGlobalAdd(){
+  var st = mlPickState.global;
+  var sel = document.getElementById('ml-gadd-cat');
+  var inp = document.getElementById('mladd-global');
+  if(!inp || !(inp.value||'').trim()) return;
+  if(!st || !st.picked){ mlAddCustom('', 'global'); return; }   // refuses out loud, same words as every box
+  var cat = sel ? sel.value : '';
+  if(!cat){
+    if(sel){ sel.classList.add('need'); sel.focus(); setTimeout(function(){ sel.classList.remove('need'); }, 1800); }
+    if(typeof kToast === 'function') kToast('Which category does ' + st.picked.name + ' go in? Pick it next to the search box.');
+    return;
+  }
+  var where = mlOnListByCode()[String(st.picked.code).trim()];
+  if(where && !confirm(st.picked.name + ' (' + st.picked.code + ') is already on the list under ' + where + '.\n\nAdd it again under ' + cat + '?')) return;
+  mlAddCustom(cat, 'global');
 }
 
 // ── repointing a dead code ────────────────────────────────────────────────
@@ -921,6 +995,7 @@ function renderMarketList(){
     </div>
 
     <div id="ml-quickbar"></div>
+    <div id="ml-globaladd"></div>
 
     ${isMobile ? `
       <div class="ml-dayswitch">
@@ -1662,6 +1737,14 @@ function mlInjectCss(){
     '.ml-flag.dead{background:#FDECEA;color:#b3261e;border:1px solid #F2B8B2}',
     '.ml-flag.none{background:#FDF4E0;color:#8a5a00;border:1px solid #E4C98A}',
     '.ml-flag.retiring{background:#EEF2FA;color:#2a4a7a;border:1px solid #C3D2EA}',
+    '.ml-flag.onlist{background:#EAF4EC;color:#1f5a2c;border:1px solid #B9D8C0}',
+    // ── the top "add any item" box (unlocked only) ──
+    '.ml-gadd{display:flex;gap:8px;align-items:center;margin:0 0 12px;padding:10px 12px;',
+      'background:#FBF6EC;border:1px solid rgba(64,2,7,.18);border-radius:8px}',
+    '.ml-gadd .ml-catadd-input{font-size:14px;padding:9px 10px}',
+    '.ml-gadd-cat{flex:0 0 auto;max-width:190px}',
+    '.ml-gadd-cat.need{outline:3px solid #c9a84c;outline-offset:1px}',
+    '@media(max-width:560px){.ml-gadd{flex-wrap:wrap}.ml-gadd .ml-catadd-combo{flex:1 1 100%}.ml-gadd-cat{flex:1;max-width:none}}',
     '.ml-ed-flagline{margin:8px 0 0;padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.4}',
     '.ml-ed-flagline.dead{background:#FDECEA;color:#8a1c16}',
     '.ml-ed-flagline.none{background:#FDF4E0;color:#6d4700}',
@@ -2116,6 +2199,7 @@ function mlRenderQuickBar(){
   // than in renderMarketList: unlocking redraws the rows and this bar, never the
   // toolbar, because a toolbar re-render would blow away whatever is typed in the
   // search box.
+  mlRenderGlobalAdd();
   var az = document.getElementById('ml-sortaz');
   if(az) az.style.display = mlEditUnlocked ? '' : 'none';
   var u = document.getElementById('ml-undo');
