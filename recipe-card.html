@@ -833,11 +833,11 @@ function loadMenu(){
     /* the menus, and what is on them. A dish carries its menus so the front page can
        be narrowed to one — a chef de partie on the Christmas section does not want
        three hundred à la carte dishes in the way. */
-    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position&order=position,name')
+    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id&order=position,name')
       .catch(function(){ return []; }),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; })
   ]).then(function(res){
-    MENUS = res[3] || [];
+    MENUS = menuTree(res[3] || []);
     menuSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
@@ -922,6 +922,27 @@ function posIn(qw, txt){
   return Math.min.apply(null,pos);
 }
 /* it is not on this menu — but is it in the book at all, and where? */
+/* a month inside a menu — Business lunch · October 2026 (see menuLabel in recipe-create.html).
+   Listed under its menu and named with it, and picking the menu shows its months' dishes too. */
+var KIDOF = {};
+function menuTree(list){
+  var byId = {}; list.forEach(function(m){ byId[m.id] = m; });
+  KIDOF = {};
+  var out = [];
+  list.forEach(function(m){
+    if (m.parent_id && byId[m.parent_id]) return;
+    out.push(m);
+    list.forEach(function(k){
+      if (k.parent_id !== m.id) return;
+      KIDOF[k.id] = m.id;
+      out.push(Object.assign({}, k, { name: m.name + ' · ' + k.name }));
+    });
+  });
+  return out;
+}
+function onPick(d){
+  return (d.menus || []).some(function(id){ return id === menuPick || KIDOF[id] === menuPick; });
+}
 function elsewhereNote(q){
   var qw = words(q); if (!qw.length) return '';
   var found = MENU.filter(function(d){ return posIn(qw, d.name) != null; });
@@ -1715,7 +1736,7 @@ function viewHome(){
   } else {
     /* the menu filter comes first, then the search inside it — searching should not
        quietly reach into a menu he is not looking at */
-    var pool = menuPick ? MENU.filter(function(d){ return (d.menus||[]).indexOf(menuPick) > -1; }) : MENU;
+    var pool = menuPick ? MENU.filter(onPick) : MENU;
     var sec = '', shown = findDishes(mq, pool);
     var orphans = MENUS.length ? MENU.filter(function(d){ return !(d.menus||[]).length; }).length : 0;
     body =

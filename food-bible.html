@@ -703,7 +703,7 @@ function load(){
     sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. This is the whole point for the floor: a waiter
        training on the à la carte opens the à la carte and sees nothing else. */
-    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position&order=position,name')
+    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id&order=position,name')
       .catch(function(){ return []; }),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; })
   ]).then(function(res){
@@ -712,7 +712,7 @@ function load(){
     res[2].forEach(function(l){
       if (l.child_recipe_id) (LINKS[l.recipe_id] = LINKS[l.recipe_id] || []).push(l.child_recipe_id);
     });
-    MENUS = res[3] || [];
+    MENUS = menuTree(res[3] || []);
     dishSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
@@ -735,6 +735,28 @@ function load(){
 }
 
 var idx = 0, bq = '', MENUS = [], menuPick = null;
+/* a month inside a menu — Business lunch · October 2026 (see menuLabel in recipe-create.html).
+   Listed under its menu and named with it, and picking the menu shows its months' dishes too. */
+var KIDOF = {};
+function menuTree(list){
+  var byId = {}; list.forEach(function(m){ byId[m.id] = m; });
+  KIDOF = {};
+  var out = [];
+  list.forEach(function(m){
+    if (m.parent_id && byId[m.parent_id]) return;
+    out.push(m);
+    list.forEach(function(k){
+      if (k.parent_id !== m.id) return;
+      KIDOF[k.id] = m.id;
+      out.push(Object.assign({}, k, { name: m.name + ' · ' + k.name }));
+    });
+  });
+  return out;
+}
+function onPick(d){
+  return (d.menus || []).some(function(id){ return id === menuPick || KIDOF[id] === menuPick; });
+}
+
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
@@ -784,7 +806,7 @@ function posIn(qw, txt){
 function inMenu(){
   var all = DISHES.map(function(_,i){ return i; });
   if (!menuPick) return all;
-  return all.filter(function(i){ return (DISHES[i].menus||[]).indexOf(menuPick) > -1; });
+  return all.filter(function(i){ return onPick(DISHES[i]); });
 }
 function findDishes(qRaw){
   var pool = inMenu();

@@ -1215,6 +1215,10 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .fold.dim .fc{background:var(--sabbia-dark);color:var(--vino)}
 .fold.dim .fn{opacity:.65}
 .crumb{font-family:var(--sans);font-size:12px;opacity:.6;margin:16px 0 8px}
+/* adding a month inside a menu — the label reads at full strength, it is the question */
+.kidnew{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 18px}
+.kidnew label{flex:1 0 100%;font-family:var(--sans);font-size:13px;font-weight:700;color:var(--vino)}
+.kidnew input{flex:1 1 180px;min-width:0}
 /* everything half written, in one place, on the screen a new recipe starts from */
 .parked{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oliva);
   border-radius:0 5px 5px 0;padding:11px 14px 6px;margin:0 0 18px;color:var(--vino-light)}
@@ -3598,7 +3602,7 @@ function loadSaved(){
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
        ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
-    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position&order=archived,position,name')
+    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,position,parent_id&order=archived,position,name')
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
@@ -4030,8 +4034,53 @@ function needsWork(r){
          (hard.length && is.length > hard.length ? ' +' + (is.length - hard.length) : '') + '</span>';
 }
 function menuNameOf(id){
-  for (var i = 0; i < SAVEDMENUS.length; i++) if (SAVEDMENUS[i].id === id) return SAVEDMENUS[i].name;
+  for (var i = 0; i < SAVEDMENUS.length; i++) if (SAVEDMENUS[i].id === id) return menuLabel(SAVEDMENUS[i], SAVEDMENUS);
   return 'A menu that is no longer there';
+}
+/* ── a menu inside a menu ──
+   Chef Andrea, 16 Sep 2026, standing inside Business lunch: it changes every month, so it
+   needs "October 2026 / November 2026 / December 2026" inside it, each with its own twelve
+   dishes. A month IS a menu in every way that matters — a dish is put on it from the bar,
+   the card and the Food Bible filter by it, it goes to Aung on its own — and `parent_id`
+   says which menu it sits inside. One level only: a month never has months of its own.
+   Wherever a month is named it is named WITH its menu, because "October 2026" alone in a
+   picker could be anybody's October. */
+function menuLabel(m, list){
+  if (!m) return '';
+  if (!m.parent_id) return m.name;
+  var find = function(l){ return (l || []).filter(function(x){ return x.id === m.parent_id; })[0]; };
+  var p = find(list) || find(SAVEDMENUS) || find(MENUADM.all) || find(MENUS);
+  return (p ? p.name + ' · ' : '') + m.name;
+}
+/* reading order: each menu, then the months inside it */
+function menuTree(list){
+  list = list || [];
+  var ids = {}; list.forEach(function(m){ ids[m.id] = 1; });
+  var out = [];
+  list.forEach(function(m){
+    if (m.parent_id && ids[m.parent_id]) return;
+    out.push(m);
+    list.forEach(function(k){ if (k.parent_id === m.id) out.push(k); });
+  });
+  return out;
+}
+/* what to offer as the next month: the one after the latest month already inside this
+   menu, or next month if there is none yet — so adding December is one press */
+var MONTHNAMES = ['January','February','March','April','May','June','July','August',
+                  'September','October','November','December'];
+function nextMonthName(parentId){
+  var best = -1;
+  SAVEDMENUS.forEach(function(k){
+    if (k.parent_id !== parentId || k.archived) return;
+    var mm = /^([a-z]+)\s+(\d{4})$/i.exec(String(k.name || '').trim());
+    if (!mm) return;
+    var mi = MONTHNAMES.map(function(x){ return x.toLowerCase(); }).indexOf(mm[1].toLowerCase());
+    if (mi < 0) return;
+    best = Math.max(best, +mm[2] * 12 + mi);
+  });
+  if (best < 0){ var d = new Date(); best = d.getFullYear() * 12 + d.getMonth(); }
+  best += 1;
+  return MONTHNAMES[best % 12] + ' ' + Math.floor(best / 12);
 }
 function menusOf(r){ return (S.rmenus || {})[r.id] || []; }
 /* his order, not the alphabet — Crudo comes before Dessert on the menu and on the screen */
@@ -4276,11 +4325,14 @@ function saveRecipeMenus(){
 }
 function menuName(id){
   var m = MENUS.filter(function(x){ return x.id === id; })[0];
-  return m ? m.name : 'a menu';
+  return m ? menuLabel(m, MENUS) : 'a menu';
 }
-function newMenu(name){
-  return sb('menus', { method:'POST', body:{ name:name.trim(),
-    position:(MENUS.length ? Math.max.apply(null, MENUS.map(function(m){ return m.position||0; })) + 1 : 0) } })
+/* parentId makes a month inside that menu; without it, a menu of its own as before */
+function newMenu(name, parentId){
+  var body = { name:name.trim(),
+    position:(MENUS.length ? Math.max.apply(null, MENUS.map(function(m){ return m.position||0; })) + 1 : 0) };
+  if (parentId) body.parent_id = parentId;
+  return sb('menus', { method:'POST', body:body })
     .then(function(rows){ var m = rows && rows[0]; if (m) MENUS.push(m); return m; });
 }
 function menuPlain(msg){
@@ -5429,7 +5481,7 @@ function micFileName(menuName){
 }
 function micMenuName(){
   var m = MENUS.filter(function(x){ return x.id === MICREQ.menuId; })[0];
-  return m ? m.name : 'menu';
+  return m ? menuLabel(m, MENUS) : 'menu';
 }
 function micBuild(){
   return lazy('lib/exceljs.min.js', 'ExcelJS').then(function(ExcelJS){
@@ -7040,12 +7092,22 @@ function render(){
     var folders = function(){
       var out = [], mains2 = live.filter(function(r){ return r.kind==='main'; });
       SAVEDMENUS.forEach(function(m){
-        var n = mains2.filter(function(r){ return menusOf(r).indexOf(m.id) >= 0; }).length;
+        /* a month is a folder INSIDE its menu, not beside it */
+        if (m.parent_id) return;
+        /* the menu's count is every dish on it or on any month inside it, each dish once —
+           the same Burrata on October and November is one dish, not two */
+        var ids = [m.id].concat(SAVEDMENUS.filter(function(k){ return k.parent_id === m.id; })
+                                          .map(function(k){ return k.id; }));
+        var n = mains2.filter(function(r){
+          return menusOf(r).some(function(x){ return ids.indexOf(x) >= 0; }); }).length;
+        var months = kidsOf(m.id).length;
         /* a menu that has been put away is only worth a folder while something is still
            on it — an empty one that is still running is worth showing, so he can see it */
         if (!n && m.archived) return;
-        out.push({ key:m.id, name:m.name, n:n, dim:!n || m.archived,
-                   note: m.archived ? 'put away' : (n ? '' : 'nothing on it yet') });
+        out.push({ key:m.id, name:m.name, n:n, dim:(!n && !months) || m.archived,
+                   note: m.archived ? 'put away'
+                       : months ? months + (months === 1 ? ' month' : ' months') + ' inside'
+                       : (n ? '' : 'nothing on it yet') });
       });
       var loose = mains2.filter(function(r){ return !menusOf(r).length; }).length;
       if (loose) out.push({ key:'__none', name:'Not on a menu', n:loose,
@@ -7056,6 +7118,16 @@ function render(){
       if (gone.length) out.push({ key:'__gone', name:'Removed', n:gone.length, dim:true,
                                   note:'nothing is destroyed — put any of them back' });
       return out;
+    };
+    /* the months inside a menu, as folders: a live one always (an empty October is the
+       one he has just made and is about to fill), a put-away one only while it holds
+       something */
+    var kidsOf = function(pid){
+      return SAVEDMENUS.filter(function(k){ return k.parent_id === pid; }).map(function(k){
+        var n = live.filter(function(r){ return r.kind==='main' && menusOf(r).indexOf(k.id) >= 0; }).length;
+        return { key:k.id, name:k.name, n:n, dim:!n || k.archived,
+                 note: k.archived ? 'put away' : (n ? '' : 'nothing on it yet'), gone:k.archived && !n };
+      }).filter(function(f){ return !f.gone; });
     };
     /* what is actually in the open folder */
     var inFolder = function(k){
@@ -7137,7 +7209,11 @@ function render(){
          hollow shows "Pasta · 0 recipes · Nothing in here", which is a dead end he did
          not ask for. Fall outwards to the nearest place that still has something in it. */
       var rs2 = inFolder(S.fmenu);
-      if (!rs2.length){ S.fmenu = null; S.fsec = null; render(); return; }
+      var here = SAVEDMENUS.filter(function(m){ return m.id === S.fmenu; })[0] || null;
+      var kids = here && !here.parent_id ? kidsOf(here.id) : [];
+      /* an empty folder only falls outwards when it is hollow for good — a live menu or a
+         month with nothing on it YET is where he is about to put the dishes */
+      if (!rs2.length && !kids.length && !(here && !here.archived)){ S.fmenu = null; S.fsec = null; render(); return; }
       var gs = groupsOf(rs2);
       if (S.fsec && !gs.some(function(g){ return g.key === S.fsec; })) S.fsec = null;
       /* one section in the folder is not a folder — do not make him tap twice to see
@@ -7151,7 +7227,10 @@ function render(){
                  ' · '+pick.rs.length+' recipe'+(pick.rs.length===1?'':'s') +
                  stateSummary(pick.rs) + '</div>' +
                (pick.rs.length ? pick.rs.map(card).join('')
-                               : '<div class="tip">Nothing in here.</div>');
+                               : '<div class="tip">' + (S.fmenu && S.fmenu.indexOf('__') !== 0
+                                   ? 'Nothing on ' + esc(menuNameOf(S.fmenu)) + ' yet. Start one with the button above, ' +
+                                     'or open a dish that is already written and tick this menu in the box at the top of it.'
+                                   : 'Nothing in here.') + '</div>');
       } else {
         body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
                ' across '+gs.length+' sections' + stateSummary(rs2) + '</div>' +
@@ -7164,7 +7243,36 @@ function render(){
          in was something you had to find again. The request screen still asks which of
          them go: what has already been sent comes up unticked, with the count and a
          button to put them back on. */
-      if (S.fmenu && S.fmenu.indexOf('__') !== 0)
+      /* ── the months inside a menu ──
+         Shown on the menu itself, above anything put straight on it, with the box to add
+         the next one. Not while he is down inside one section of it. */
+      if (here && !here.parent_id && !S.fsec){
+        var nextNm = S.kidDraft && S.kidDraft.of === here.id ? S.kidDraft.v : nextMonthName(here.id);
+        body = '<div class="crumb"><b>' + esc(here.name) + '</b>' +
+                 (kids.length ? ' · ' + kids.length + (kids.length === 1 ? ' month' : ' months') : '') + '</div>' +
+               (kids.length ? '<div class="folds">' + kids.map(fbtn).join('') + '</div>' : '') +
+               (here.archived ? '' :
+                 '<div class="mnew kidnew"><label for="kidnn">' +
+                   (kids.length ? 'Add the next month' : 'A monthly menu? Add a month inside ' + esc(here.name)) +
+                   '</label><input id="kidnn" data-kidof="' + esc(here.id) + '" value="' + esc(nextNm) + '" autocomplete="off">' +
+                   '<button class="okb" id="kidok" data-kidof="' + esc(here.id) + '">＋ Add this month</button>' +
+                   '<span class="err" id="kidne"></span></div>') +
+               (rs2.length
+                 ? (kids.length ? '<div class="shd">On ' + esc(here.name) + ' itself, not in a month</div>' : '') + body
+                 : (kids.length ? '' : '<div class="tip">Nothing is on ' + esc(here.name) + ' yet.</div>'));
+      }
+      /* inside a month: the way back up to its menu, said with the menu's name */
+      if (here && here.parent_id){
+        var up = SAVEDMENUS.filter(function(m){ return m.id === here.parent_id; })[0];
+        body = '<button class="newr" data-fold="' + esc(here.parent_id) + '" style="margin:0 0 12px">‹ ' +
+                 esc(up ? up.name : 'The menu') + ' — every month</button>' + body;
+      }
+      /* a new dish started from inside a folder goes on THAT menu, not the running one —
+         he is standing in October, so October is where he means it */
+      if (here && !here.archived)
+        body = '<button class="newr" data-newon="' + esc(here.id) + '" style="margin:0 8px 12px 0">＋ New recipe on ' +
+                 esc(here.name) + '</button>' + body;
+      if (S.fmenu && S.fmenu.indexOf('__') !== 0 && rs2.length)
         body = '<button class="newr" id="micmenu1" data-micmenu="'+esc(S.fmenu)+'" ' +
                  'style="margin:0 0 12px">Send this menu to ' + esc(micWho()) + ' →</button>' + body;
     }
@@ -7209,6 +7317,12 @@ function render(){
             })() +
             body
       ) + '</div>';
+    /* the month being named survives a redraw of the list behind it, and Enter makes it */
+    var kn = $('kidnn');
+    if (kn){
+      kn.addEventListener('input', function(){ S.kidDraft = { of:kn.dataset.kidof, v:kn.value }; });
+      kn.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); var ko = $('kidok'); if (ko) ko.click(); } });
+    }
     /* the caret stays where it was: render() rebuilds this pane on every keystroke */
     var sq = $('sq');
     if (sq){
@@ -7566,8 +7680,8 @@ function render(){
 
       /* the heading is read off the room; the form is not — it goes on paper */
       '<div class="onpaper">' +
-      '<div class="sfind"><select id="micmenu">' + MENUS.map(function(m){
-          return '<option value="'+m.id+'"'+(m.id===MICREQ.menuId?' selected':'')+'>'+esc(m.name)+'</option>'; }).join('') +
+      '<div class="sfind"><select id="micmenu">' + menuTree(MENUS).map(function(m){
+          return '<option value="'+m.id+'"'+(m.id===MICREQ.menuId?' selected':'')+'>'+esc(menuLabel(m, MENUS))+'</option>'; }).join('') +
         '</select>' +
         '<input id="micpre" value="'+esc(MICREQ.prefix)+'" placeholder="short prefix — Valen, RA, SV…" style="max-width:230px">' +
         '<span class="scount">'+take.length+' of '+MICREQ.rows.length+' going</span></div>' +
@@ -9972,7 +10086,7 @@ function pmMenu(){
 }
 function pmMenuName(id){
   var m = SAVEDMENUS.filter(function(x){ return x.id === id; })[0];
-  return m ? m.name : 'a menu that is no longer there';
+  return m ? menuLabel(m, SAVEDMENUS) : 'a menu that is no longer there';
 }
 /* every section already used on this menu, so the box offers them instead of asking him
    to spell "Secondi di Pesce" the same way twice — one typo is a section of one dish */
@@ -10240,7 +10354,7 @@ function printedInner(){
     (liveMenus.length > 1
       ? '<div class="achips" style="margin:0 0 18px">' + liveMenus.map(function(m){
           return '<button class="ach' + (m.id === menuId ? ' on' : '') + '" data-pmmenu="' + m.id + '">' +
-            esc(m.name) + ' · ' + (counts[m.id] || 0) + '</button>';
+            esc(menuLabel(m, SAVEDMENUS)) + ' · ' + (counts[m.id] || 0) + '</button>';
         }).join('') + '</div>'
       : '') +
     (PM.adding ? pmForm(null) : '') +
@@ -10279,7 +10393,7 @@ function menusInner(){
     var on = MENUADM.dishes[m.id] || [];
     var sec = null;
     return '<div class="pane">' +
-      '<div class="q">' + esc(m.name) + '</div>' +
+      '<div class="q">' + esc(menuLabel(m, MENUADM.all)) + '</div>' +
       '<div class="sub">' + (on.length ? on.length + ' dish' + (on.length===1?'':'es') + ' on this menu. ' +
           'Tap one to open it. Taking a dish off changes only this menu — the recipe stays exactly where it is.'
         : 'Nothing is on this menu yet. Open a recipe and put it on from the bar at the top.') + '</div>' +
@@ -10307,14 +10421,16 @@ function menusInner(){
           ? '<input class="maren" id="maren" value="' + esc(m.name) + '">' +
             '<button class="okb" data-marensave="' + m.id + '">Save the name</button>' +
             '<button class="newr" style="margin:0" data-marencx="1">Cancel</button>'
-          : '<span class="mahd">' + esc(m.name) + '</span>' +
+          : '<span class="mahd">' + esc(menuLabel(m, MENUADM.all)) + '</span>' +
             (m.running ? '<span class="mabadge run">running now</span>' : '') +
             (!m.archived && !m.active ? '<span class="mabadge off">off</span>' : '') +
             (m.archived ? '<span class="mabadge away">put away</span>' : '')) +
         '<span class="macount">' + n + ' dish' + (n===1?'':'es') + '</span>' +
       '</div>' +
       (asking
-        ? '<div class="maask"><b>Put ' + esc(m.name) + ' away?</b> ' +
+        ? '<div class="maask"><b>Put ' + esc(menuLabel(m, MENUADM.all)) + ' away?</b> ' +
+            (function(){ var k = MENUADM.all.filter(function(x){ return x.parent_id === m.id && !x.archived; }).length;
+              return k ? 'The ' + k + (k === 1 ? ' month' : ' months') + ' inside it go away with it. ' : ''; })() +
             (n ? 'The ' + n + ' dish' + (n===1?'':'es') + ' on it stay exactly as they are — ' +
                  (n===1?'it is':'they are') + ' simply no longer on this menu. ' : '') +
             'It stops appearing anywhere, and it can be brought back from below.' +
@@ -10325,7 +10441,8 @@ function menusInner(){
               ? '<button class="newr" style="margin:0" data-maback="' + m.id + '">Bring it back</button>'
               : '<button class="newr" style="margin:0" data-maopenm="' + m.id + '">See what is on it</button>' +
                 '<button class="newr" style="margin:0" data-marename="' + m.id + '">Rename</button>' +
-                (m.running ? '' : '<button class="newr" style="margin:0" data-marun="' + m.id + '">Make it the one running</button>') +
+                /* a month is never the menu the cards open on — its menu is */
+                (m.running || m.parent_id ? '' : '<button class="newr" style="margin:0" data-marun="' + m.id + '">Make it the one running</button>') +
                 (m.running ? '<span class="matip">The cards open on this one, so it cannot be turned off or put away until another one is running.</span>'
                   : '<button class="newr" style="margin:0" data-maact="' + m.id + '">' +
                       (m.active ? 'Turn it off' : 'Turn it back on') + '</button>' +
@@ -10343,10 +10460,10 @@ function menusInner(){
       'a hundred menus nobody can choose between.', 'Turning menus off') +
     '<div class="mnew" style="margin:0 0 18px"><input id="manew" placeholder="A new menu — New Year’s Eve 2026">' +
       '<button class="okb" id="manewok">Make this menu</button><span class="err" id="manewe"></span></div>' +
-    (live.length ? live.map(card).join('') : '<div class="tip">No menus yet.</div>') +
+    (live.length ? menuTree(live).map(card).join('') : '<div class="tip">No menus yet.</div>') +
     (off.length
       ? '<button class="newr" id="mashow">' + (MENUADM.showOff ? 'Hide' : 'Show') + ' the ' + off.length +
-          ' put away</button>' + (MENUADM.showOff ? off.map(card).join('') : '')
+          ' put away</button>' + (MENUADM.showOff ? menuTree(off).map(card).join('') : '')
       : '') +
     '</div>';
 }
@@ -10373,13 +10490,13 @@ function drawBarMenu(){
   /* Only the menus in use, plus any this dish is already on. A menu for one night is
      turned off when the night is over, and an off menu has no business in a picker a
      chef uses every day — that is what keeps this list five long instead of a hundred. */
-  var live = MENUS.filter(function(m){ return MENUSALL || m.active || on.indexOf(m.id) > -1; });
+  var live = menuTree(MENUS).filter(function(m){ return MENUSALL || m.active || on.indexOf(m.id) > -1; });
   var hidden = MENUS.length - live.length;
   bm.innerHTML =
     '<option value="">' + esc(barMenuLabel()) + '</option>' +
     live.map(function(m){
       var yes = on.indexOf(m.id) > -1;
-      return '<option value="' + m.id + '">' + (yes ? '✓ ' : '＋ ') + esc(m.name) +
+      return '<option value="' + m.id + '">' + (yes ? '✓ ' : '＋ ') + esc(menuLabel(m, MENUS)) +
              (m.running ? ' — running now' : (m.active ? '' : ' — off')) + '</option>';
     }).join('') +
     (hidden ? '<option value="__all">… and ' + hidden + ' turned off — show ' +
@@ -10440,7 +10557,7 @@ function makeMenuFromBar(){
   var inp = $('bmnn'), err = $('bmne'), btn = $('bmnok');
   var nm = inp ? inp.value.trim() : '';
   if (!nm){ if (err) err.textContent = 'Give the menu a name.'; if (inp) inp.focus(); return; }
-  if (MENUS.some(function(m){ return m.name.toLowerCase() === nm.toLowerCase(); })){
+  if (MENUS.some(function(m){ return !m.parent_id && m.name.toLowerCase() === nm.toLowerCase(); })){
     if (err) err.textContent = 'There is already a menu called that — pick it from the list instead.';
     return;
   }
@@ -10487,10 +10604,10 @@ function menuInner(){
     howto('menus', 'A dish can be on more than one — Burrata is on the à la carte and on Christmas. ' +
       'This is what the recipe card and the Food Bible filter by, so a waiter training on one menu ' +
       'sees only its dishes. <b>A dish on no menu shows on no card at all.</b>', 'What menus do') +
-    '<div class="mchips">' + MENUS.map(function(m){
+    '<div class="mchips">' + menuTree(MENUS).map(function(m){
       var yes = on.indexOf(m.id) > -1;
       return '<button class="mchip'+(yes?' on':'')+'" data-menu="'+m.id+'">' +
-        (yes ? '✓ ' : '') + esc(m.name) +
+        (yes ? '✓ ' : '') + esc(menuLabel(m, MENUS)) +
         (m.running ? '<span class="mrun">running now</span>' : (m.active ? '' : '<span class="moff">off</span>')) +
       '</button>'; }).join('') + '</div>' +
     (!on.length
@@ -12263,6 +12380,36 @@ document.addEventListener('click', function(e){
 
   /* Starting a new recipe is never blocked. The half-written one is parked, not lost,
      and not argued about — he asked to be here, so he is here. */
+  /* a new recipe from inside a menu or a month lands on it */
+  var nwo = e.target.closest('[data-newon]');
+  if (nwo){
+    var onId = nwo.dataset.newon, wasP = parkCurrent();
+    S.pendingGo = null; newRecipe(); S.menus = [onId]; render(); window.scrollTo(0,0);
+    if (wasP) flash(parkedFlash());
+    return;
+  }
+  /* a month inside the menu he is standing in */
+  if (e.target.id === 'kidok'){
+    var pid = e.target.dataset.kidof, ki = $('kidnn'), ke = $('kidne'), kb = e.target;
+    var kn2 = ki ? ki.value.trim() : '';
+    if (!kn2){ if (ke) ke.textContent = 'Give the month a name — ' + nextMonthName(pid) + '.'; if (ki) ki.focus(); return; }
+    if (SAVEDMENUS.some(function(m){ return !m.archived && m.parent_id === pid && m.name.toLowerCase() === kn2.toLowerCase(); })){
+      if (ke) ke.textContent = kn2 + ' is already inside ' + menuNameOf(pid) + ' — tap it above.'; return; }
+    kb.disabled = true; kb.textContent = 'Adding…'; if (ke) ke.textContent = '';
+    newMenu(kn2, pid).then(function(m){
+      if (!m) throw new Error('the month came back empty');
+      S.kidDraft = null;
+      return Promise.all([loadSaved(), loadMenus()]).then(function(){
+        if (S.step === 'saved'){ S.fmenu = m.id; S.fsec = null; render(); window.scrollTo(0,0); }
+        drawBarMenu();
+        flash(menuNameOf(m.id) + ' is made ✓ — open a dish and tick it in the menu box at the top, or start a new one here');
+      });
+    }).catch(function(ex){
+      kb.disabled = false; kb.textContent = '＋ Add this month';
+      var e3 = $('kidne'); if (e3) e3.textContent = 'Not added — ' + menuPlain(ex.message);
+    });
+    return;
+  }
   if (e.target.id === 'newr'){
     var wasParked = parkCurrent();
     S.pendingGo = null; newRecipe(); render(); window.scrollTo(0,0);
@@ -12459,7 +12606,7 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'manewok'){
     var mi = $('manew'), me = $('manewe'), nm2 = mi ? mi.value.trim() : '';
     if (!nm2){ if (me) me.textContent = 'Give the menu a name.'; if (mi) mi.focus(); return; }
-    if (MENUADM.all.some(function(m){ return !m.archived && m.name.toLowerCase() === nm2.toLowerCase(); })){
+    if (MENUADM.all.some(function(m){ return !m.archived && !m.parent_id && m.name.toLowerCase() === nm2.toLowerCase(); })){
       if (me) me.textContent = 'There is already a menu called that.'; return; }
     var nb = e.target; nb.disabled = true; nb.textContent = 'Making…';
     newMenu(nm2).then(menusChanged)
@@ -12493,7 +12640,12 @@ document.addEventListener('click', function(e){
   if (mask){ MENUADM.ask = mask.dataset.maaskaway; render(); return; }
   if (e.target.closest('[data-manoaway]')){ MENUADM.ask = null; render(); return; }
   var maw = e.target.closest('[data-maaway]');
-  if (maw){ patchMenu(maw.dataset.maaway, { archived:true, running:false, active:false })
+  if (maw){
+    /* a menu put away takes its months with it — left behind they would go on filling the
+       picker as "Business lunch · October 2026" under a menu that is gone */
+    var awayIds = [maw.dataset.maaway].concat(MENUADM.all.filter(function(x){
+      return x.parent_id === maw.dataset.maaway && !x.archived; }).map(function(x){ return x.id; }));
+    Promise.all(awayIds.map(function(id){ return patchMenu(id, { archived:true, running:false, active:false }); }))
       .then(function(){ MENUADM.ask = null; return menusChanged(); })
       .catch(function(ex){ flash('Not put away — ' + menuPlain(ex.message), true); }); return; }
   var mbk = e.target.closest('[data-maback]');
