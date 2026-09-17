@@ -1219,6 +1219,9 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .kidnew{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 18px}
 .kidnew label{flex:1 0 100%;font-family:var(--sans);font-size:13px;font-weight:700;color:var(--vino)}
 .kidnew input{flex:1 1 180px;min-width:0}
+/* on a line of its own: beside the box it squeezed the box shut the moment it spoke */
+.kidnew .err{flex:1 0 100%}
+.kidnew .err:empty{display:none}
 /* everything half written, in one place, on the screen a new recipe starts from */
 .parked{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oliva);
   border-radius:0 5px 5px 0;padding:11px 14px 6px;margin:0 0 18px;color:var(--vino-light)}
@@ -4068,19 +4071,100 @@ function menuTree(list){
    menu, or next month if there is none yet — so adding December is one press */
 var MONTHNAMES = ['January','February','March','April','May','June','July','August',
                   'September','October','November','December'];
+/* "October 2026" → 2026*12+9, anything else → -1 */
+function monthIndex(name){
+  var mm = /^([a-z]+)\s+(\d{4})$/i.exec(String(name || '').trim());
+  if (!mm) return -1;
+  var mi = MONTHNAMES.map(function(x){ return x.toLowerCase(); }).indexOf(mm[1].toLowerCase());
+  return mi < 0 ? -1 : +mm[2] * 12 + mi;
+}
 function nextMonthName(parentId){
   var best = -1;
   SAVEDMENUS.forEach(function(k){
     if (k.parent_id !== parentId || k.archived) return;
-    var mm = /^([a-z]+)\s+(\d{4})$/i.exec(String(k.name || '').trim());
-    if (!mm) return;
-    var mi = MONTHNAMES.map(function(x){ return x.toLowerCase(); }).indexOf(mm[1].toLowerCase());
-    if (mi < 0) return;
-    best = Math.max(best, +mm[2] * 12 + mi);
+    best = Math.max(best, monthIndex(k.name));
   });
   if (best < 0){ var d = new Date(); best = d.getFullYear() * 12 + d.getMonth(); }
   best += 1;
   return MONTHNAMES[best % 12] + ' ' + Math.floor(best / 12);
+}
+/* ── a section inside a menu ──
+   Chef Andrea, 17 Sep 2026, the evening months went live: he typed "Secondi di carne" into
+   the Add a month box inside A la carte 2026 — the only box there was — and then wrote
+   "not a monthly menu. a la carte menu will have more section and i need to be able to
+   create/cancel and modify the sections". The box made what he wanted; every word round it
+   called it a month.
+
+   So a section is the same row a month is — a menu with a parent_id — and what it IS is
+   read off its name: "October 2026" is a month, anything else is a section. No column, so
+   the one he already made is a section from this build on with nothing to migrate.
+
+   One thing differs. A month's dishes are on the month alone. A dish filed in a section
+   STAYS ON ITS MENU as well: the section is where it is filed, not a menu of its own, so
+   the request to the till for A la carte 2026 is still every dish on A la carte 2026. */
+function isMonthKid(m){ return !!m && !!m.parent_id && monthIndex(m.name) >= 0; }
+function kidWord(m){ return isMonthKid(m) ? 'month' : 'section'; }
+function kidsSay(list){
+  var mo = list.filter(function(k){ return monthIndex(k.name) >= 0; }).length, se = list.length - mo;
+  return [se ? se + (se === 1 ? ' section' : ' sections') : '',
+          mo ? mo + (mo === 1 ? ' month' : ' months') : ''].filter(Boolean).join(' · ');
+}
+/* the live sections of a menu — not its months, not the ones put away */
+function sectionKids(parentId){
+  return SAVEDMENUS.filter(function(k){
+    return k.parent_id === parentId && !k.archived && monthIndex(k.name) < 0; });
+}
+function rmAdd(recipeId, menuId){
+  return sb('recipe_menus', { method:'POST', prefer:'return=minimal',
+                              body:[{ recipe_id:recipeId, menu_id:menuId }] });
+}
+function rmDel(recipeId, menuId){
+  return sb('recipe_menus?recipe_id=eq.' + recipeId + '&menu_id=eq.' + menuId,
+            { method:'DELETE', prefer:'return=minimal' });
+}
+/* File a dish in a section. It goes on the section, stays on (or is put on) the menu the
+   section is inside, and comes out of any OTHER section of that menu — a dish printed
+   under two headings of one menu is a mistake nobody means. Adds before it removes, so a
+   write that dies half way leaves the dish in two places, never in none. */
+function secFile(recipeId, sec){
+  var on = (S.rmenus || {})[recipeId] || [], adds = [];
+  if (on.indexOf(sec.id) < 0) adds.push(rmAdd(recipeId, sec.id));
+  if (on.indexOf(sec.parent_id) < 0) adds.push(rmAdd(recipeId, sec.parent_id));
+  return Promise.all(adds).then(function(){
+    return Promise.all(sectionKids(sec.parent_id).filter(function(k){
+      return k.id !== sec.id && on.indexOf(k.id) >= 0; }).map(function(k){ return rmDel(recipeId, k.id); }));
+  });
+}
+/* Out of the section and back onto the menu itself. The menu row is made sure of FIRST:
+   a dish somebody ticked onto the section alone would otherwise land on no menu at all,
+   and a dish on no menu shows on no card. */
+function secUnfile(recipeId, sec){
+  var on = (S.rmenus || {})[recipeId] || [];
+  return (on.indexOf(sec.parent_id) < 0 ? rmAdd(recipeId, sec.parent_id) : Promise.resolve())
+    .then(function(){ return rmDel(recipeId, sec.id); });
+}
+/* Removing a section. Every dish in it goes back onto the menu itself, then the section
+   is put away — never deleted, so Menus → put away still brings it back (empty). The
+   rows are read from the database, not off the screen: a recipe that is itself removed
+   is still in the section and must not be left pointing at it. */
+function secRemove(sec){
+  return sb('recipe_menus?menu_id=in.(' + sec.id + ',' + sec.parent_id + ')&select=recipe_id,menu_id')
+    .then(function(rows){
+      var onParent = {}, inSec = [];
+      (rows || []).forEach(function(r){
+        if (r.menu_id === sec.parent_id) onParent[r.recipe_id] = 1; else inSec.push(r.recipe_id); });
+      var need = inSec.filter(function(id){ return !onParent[id]; });
+      return (need.length
+          ? sb('recipe_menus', { method:'POST', prefer:'return=minimal',
+              body: need.map(function(id){ return { recipe_id:id, menu_id:sec.parent_id }; }) })
+          : Promise.resolve())
+        .then(function(){
+          return inSec.length
+            ? sb('recipe_menus?menu_id=eq.' + sec.id, { method:'DELETE', prefer:'return=minimal' })
+            : null; })
+        .then(function(){ return patchMenu(sec.id, { archived:true, running:false, active:false }); })
+        .then(function(){ return inSec.length; });
+    });
 }
 function menusOf(r){ return (S.rmenus || {})[r.id] || []; }
 /* his order, not the alphabet — Crudo comes before Dessert on the menu and on the screen */
@@ -7100,13 +7184,13 @@ function render(){
                                           .map(function(k){ return k.id; }));
         var n = mains2.filter(function(r){
           return menusOf(r).some(function(x){ return ids.indexOf(x) >= 0; }); }).length;
-        var months = kidsOf(m.id).length;
+        var inside = kidsOf(m.id), months = inside.length;
         /* a menu that has been put away is only worth a folder while something is still
            on it — an empty one that is still running is worth showing, so he can see it */
         if (!n && m.archived) return;
         out.push({ key:m.id, name:m.name, n:n, dim:(!n && !months) || m.archived,
                    note: m.archived ? 'put away'
-                       : months ? months + (months === 1 ? ' month' : ' months') + ' inside'
+                       : months ? kidsSay(inside) + ' inside'
                        : (n ? '' : 'nothing on it yet') });
       });
       var loose = mains2.filter(function(r){ return !menusOf(r).length; }).length;
@@ -7214,6 +7298,14 @@ function render(){
       /* an empty folder only falls outwards when it is hollow for good — a live menu or a
          month with nothing on it YET is where he is about to put the dishes */
       if (!rs2.length && !kids.length && !(here && !here.archived)){ S.fmenu = null; S.fsec = null; render(); return; }
+      /* A dish filed in a section is still on the menu (see secFile), so the menu's own
+         list would show it twice — once in its section, once loose underneath. What is
+         listed on the menu itself is what is in NO section yet. rsAll stays the whole
+         menu: that is what a request to the till is built from. */
+      var rsAll = rs2;
+      var secIds = here && !here.parent_id ? sectionKids(here.id).map(function(k){ return k.id; }) : [];
+      if (secIds.length) rs2 = rs2.filter(function(r){
+        return !menusOf(r).some(function(x){ return secIds.indexOf(x) >= 0; }); });
       var gs = groupsOf(rs2);
       if (S.fsec && !gs.some(function(g){ return g.key === S.fsec; })) S.fsec = null;
       /* one section in the folder is not a folder — do not make him tap twice to see
@@ -7227,13 +7319,17 @@ function render(){
                  ' · '+pick.rs.length+' recipe'+(pick.rs.length===1?'':'s') +
                  stateSummary(pick.rs) + '</div>' +
                (pick.rs.length ? pick.rs.map(card).join('')
-                               : '<div class="tip">' + (S.fmenu && S.fmenu.indexOf('__') !== 0
+                               : '<div class="tip">' + (here && here.parent_id && !isMonthKid(here) && !here.archived
+                                   ? 'Nothing in ' + esc(here.name) + ' yet. <b>Choose the dishes in this section</b> files ' +
+                                     'the ones already on the menu; <b>＋ New recipe</b> starts one here.'
+                                   : S.fmenu && S.fmenu.indexOf('__') !== 0
                                    ? 'Nothing on ' + esc(menuNameOf(S.fmenu)) + ' yet. Start one with the button above, ' +
                                      'or open a dish that is already written and tick this menu in the box at the top of it.'
                                    : 'Nothing in here.') + '</div>');
       } else {
         body = '<div class="crumb"><b>'+esc(foldName(S.fmenu))+'</b> · '+rs2.length+' recipe'+(rs2.length===1?'':'s')+
-               ' across '+gs.length+' sections' + stateSummary(rs2) + '</div>' +
+               (secIds.length ? ' not in a section yet, grouped by the section on the recipe'
+                              : ' across '+gs.length+' sections') + stateSummary(rs2) + '</div>' +
                '<div class="folds">' + gs.map(sbtn).join('') + '</div>';
       }
       /* ── the whole menu to Aung, from inside the menu ──
@@ -7247,32 +7343,117 @@ function render(){
          Shown on the menu itself, above anything put straight on it, with the box to add
          the next one. Not while he is down inside one section of it. */
       if (here && !here.parent_id && !S.fsec){
-        var nextNm = S.kidDraft && S.kidDraft.of === here.id ? S.kidDraft.v : nextMonthName(here.id);
+        var kidMo = kids.filter(function(k){ return monthIndex(k.name) >= 0; }).length;
+        /* ONE box, and it asks for the kind this menu already holds — a section when it
+           holds neither, because most menus are not monthly. The other kind is one press
+           away and never gone: Business lunch still opens on "Add the next month". */
+        var kmode = S.kidMode && S.kidMode.of === here.id ? S.kidMode.v
+                  : (kidMo && kidMo === kids.length ? 'month' : 'section');
+        var kdraft = S.kidDraft && S.kidDraft.of === here.id && S.kidDraft.mode === kmode ? S.kidDraft.v : null;
+        var nextNm = kdraft != null ? kdraft : (kmode === 'month' ? nextMonthName(here.id) : '');
         body = '<div class="crumb"><b>' + esc(here.name) + '</b>' +
-                 (kids.length ? ' · ' + kids.length + (kids.length === 1 ? ' month' : ' months') : '') + '</div>' +
+                 (kids.length ? ' · ' + kidsSay(kids) : '') + '</div>' +
                (kids.length ? '<div class="folds">' + kids.map(fbtn).join('') + '</div>' : '') +
                (here.archived ? '' :
                  '<div class="mnew kidnew"><label for="kidnn">' +
-                   (kids.length ? 'Add the next month' : 'A monthly menu? Add a month inside ' + esc(here.name)) +
-                   '</label><input id="kidnn" data-kidof="' + esc(here.id) + '" value="' + esc(nextNm) + '" autocomplete="off">' +
-                   '<button class="okb" id="kidok" data-kidof="' + esc(here.id) + '">＋ Add this month</button>' +
+                   (kmode === 'month'
+                     ? (kidMo ? 'Add the next month' : 'A monthly menu? Add a month inside ' + esc(here.name))
+                     : (kids.length > kidMo ? 'Add another section' : 'Add a section inside ' + esc(here.name))) +
+                   '</label><input id="kidnn" data-kidof="' + esc(here.id) + '" data-kidmode="' + kmode + '" value="' +
+                     esc(nextNm) + '" autocomplete="off"' +
+                     (kmode === 'section' ? ' placeholder="The name of the section — Secondi di Pesce"' : '') + '>' +
+                   '<button class="okb" id="kidok" data-kidof="' + esc(here.id) + '" data-kidmode="' + kmode + '">＋ Add this ' +
+                     kmode + '</button>' +
+                   '<button class="maoff" data-kidswitch="' + (kmode === 'month' ? 'section' : 'month') +
+                     '" data-kidof="' + esc(here.id) + '">' +
+                     (kmode === 'month' ? 'Add a section instead' : 'A monthly menu? Add a month instead') + '</button>' +
                    '<span class="err" id="kidne"></span></div>') +
                (rs2.length
-                 ? (kids.length ? '<div class="shd">On ' + esc(here.name) + ' itself, not in a month</div>' : '') + body
+                 ? (kids.length ? '<div class="shd">On ' + esc(here.name) + ' itself, not in a ' +
+                     (kidMo === kids.length ? 'month' : kidMo ? 'section or a month' : 'section') + '</div>' : '') + body
                  : (kids.length ? '' : '<div class="tip">Nothing is on ' + esc(here.name) + ' yet.</div>'));
       }
-      /* inside a month: the way back up to its menu, said with the menu's name */
+      /* inside a section or a month: what can be done to it, then the way back up to its
+         menu, said with the menu's name */
       if (here && here.parent_id){
         var up = SAVEDMENUS.filter(function(m){ return m.id === here.parent_id; })[0];
+        var kw = kidWord(here), upName = up ? up.name : 'the menu';
+        var act = S.kidAct && S.kidAct.id === here.id ? S.kidAct : null;
+        /* ── the dishes in this section, chosen off the menu it is inside ──
+           Making "Secondi di Carne" is half of it; the four meat dishes are already
+           written and already on the menu. Opening each one to tick a box is eight
+           screens. This is the menu's whole list with one button a dish. */
+        if (kw === 'section' && S.kidPick === here.id && !here.archived){
+          var sibs = {}; sectionKids(here.parent_id).forEach(function(k){ if (k.id !== here.id) sibs[k.id] = k.name; });
+          var pool = live.filter(function(r){
+            if (r.kind !== 'main') return false;
+            var on = menusOf(r); return on.indexOf(here.id) >= 0 || on.indexOf(here.parent_id) >= 0; })
+            .sort(function(a,b){ return secOrder(a.section||'') - secOrder(b.section||'') ||
+                                        String(a.section||'').localeCompare(String(b.section||'')) ||
+                                        String(a.name).localeCompare(String(b.name)); });
+          var lastFam = null, nIn = pool.filter(function(r){ return menusOf(r).indexOf(here.id) >= 0; }).length;
+          body = '<div class="crumb">' + esc(foldName(S.fmenu)) + ' · <b>' + nIn + '</b> of the ' + pool.length +
+                   ' dish' + (pool.length === 1 ? '' : 'es') + ' on ' + esc(upName) + ' ' + (nIn === 1 ? 'is' : 'are') +
+                   ' in this section</div>' +
+                 '<button class="okb" data-kidpick="" style="margin:0 0 14px">Done — show the section</button>' +
+                 (pool.length ? pool.map(function(r){
+                    var on = menusOf(r), inIt = on.indexOf(here.id) >= 0;
+                    var from = Object.keys(sibs).filter(function(id){ return on.indexOf(id) >= 0; })[0];
+                    var hd = (r.section || '') !== lastFam
+                      ? (lastFam = r.section || '', '<div class="shd">' + esc(r.section || 'No section on the recipe') + '</div>') : '';
+                    var busy = S.kidBusy === r.id;
+                    return hd + '<div class="marow">' +
+                      '<span class="manm" style="cursor:default;text-decoration:none">' + (inIt ? '✓ ' : '') + esc(r.name) + '</span>' +
+                      (inIt
+                        ? '<button class="maoff" data-kidout="' + r.id + '"' + (S.kidBusy ? ' disabled' : '') + '>' +
+                            (busy ? 'Taking it out…' : 'Take it out') + '</button>'
+                        : '<button class="maoff" data-kidin="' + r.id + '"' + (S.kidBusy ? ' disabled' : '') + '>' +
+                            (busy ? 'Filing it…' : from ? 'Move it here from ' + esc(sibs[from]) : 'Put it in this section') + '</button>') +
+                      '</div>';
+                  }).join('')
+                  : '<div class="tip">Nothing is on ' + esc(upName) + ' yet, so there is nothing to file. ' +
+                    'Start a dish here with <b>＋ New recipe</b>.</div>');
+        }
+        var acts = '';
+        if (here.archived) acts = '';
+        else if (act && act.mode === 'rename')
+          acts = '<div class="mnew kidnew"><label for="kidren">New name for ' + esc(here.name) + '</label>' +
+                   '<input id="kidren" value="' + esc(act.v != null ? act.v : here.name) + '" autocomplete="off">' +
+                   '<button class="okb" data-kidrensave="' + esc(here.id) + '"' + (act.busy ? ' disabled' : '') + '>' +
+                     (act.busy ? 'Renaming…' : 'Save the name') + '</button>' +
+                   '<button class="maoff" data-kidactcx="1">Cancel</button>' +
+                   '<span class="err" id="kidacte">' + esc(act.err || '') + '</span></div>';
+        else if (act && act.mode === 'remove')
+          acts = '<div class="maask" style="margin:0 0 14px">' +
+                   (kw === 'section'
+                     ? '<b>Remove the section ' + esc(here.name) + '?</b> ' +
+                       (rs2.length ? (rs2.length === 1 ? 'The 1 dish in it goes' : 'The ' + rs2.length + ' dishes in it go') +
+                                     ' back onto ' + esc(upName) + ' itself — no recipe is touched and nothing comes off the menu. '
+                                   : 'Nothing is in it. ') +
+                       'The section is put away, not destroyed: <b>Menus</b> → the put away brings it back, empty.'
+                     : '<b>Put ' + esc(here.name) + ' away?</b> ' +
+                       (rs2.length ? (rs2.length === 1 ? 'The 1 dish on it stays exactly as it is. ' : 'The ' + rs2.length +
+                                     ' dishes on it stay exactly as they are. ') : '') +
+                       'It stops appearing in the pickers, and <b>Menus</b> → the put away brings it back.') +
+                   '<div class="maaskb"><button class="okb" data-kidrmyes="' + esc(here.id) + '"' + (act.busy ? ' disabled' : '') + '>' +
+                     (act.busy ? 'Working…' : kw === 'section' ? 'Yes, remove it' : 'Yes, put it away') + '</button>' +
+                   '<button class="newr" style="margin:0" data-kidactcx="1">Keep it</button></div>' +
+                   (act.err ? '<span class="pmerr">' + esc(act.err) + '</span>' : '') + '</div>';
+        else if (S.kidPick !== here.id)
+          acts = '<div class="maacts" style="margin:0 0 14px">' +
+                   (kw === 'section' ? '<button class="newr" data-kidpick="' + esc(here.id) + '">Choose the dishes in this section</button>' : '') +
+                   '<button class="newr" data-kidren="' + esc(here.id) + '">Rename this ' + kw + '</button>' +
+                   '<button class="newr" data-kidrm="' + esc(here.id) + '">' +
+                     (kw === 'section' ? 'Remove this section' : 'Put this month away') + '</button></div>';
         body = '<button class="newr" data-fold="' + esc(here.parent_id) + '" style="margin:0 0 12px">‹ ' +
-                 esc(up ? up.name : 'The menu') + ' — every month</button>' + body;
+                 esc(up ? up.name : 'The menu') + ' — every ' + kw + '</button>' + acts + body;
       }
       /* a new dish started from inside a folder goes on THAT menu, not the running one —
          he is standing in October, so October is where he means it */
       if (here && !here.archived)
         body = '<button class="newr" data-newon="' + esc(here.id) + '" style="margin:0 8px 12px 0">＋ New recipe on ' +
                  esc(here.name) + '</button>' + body;
-      if (S.fmenu && S.fmenu.indexOf('__') !== 0 && rs2.length)
+      if (S.fmenu && S.fmenu.indexOf('__') !== 0 && rsAll.length)
         body = '<button class="newr" id="micmenu1" data-micmenu="'+esc(S.fmenu)+'" ' +
                  'style="margin:0 0 12px">Send this menu to ' + esc(micWho()) + ' →</button>' + body;
     }
@@ -7320,8 +7501,15 @@ function render(){
     /* the month being named survives a redraw of the list behind it, and Enter makes it */
     var kn = $('kidnn');
     if (kn){
-      kn.addEventListener('input', function(){ S.kidDraft = { of:kn.dataset.kidof, v:kn.value }; });
+      kn.addEventListener('input', function(){ S.kidDraft = { of:kn.dataset.kidof, v:kn.value, mode:kn.dataset.kidmode }; });
       kn.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); var ko = $('kidok'); if (ko) ko.click(); } });
+    }
+    /* the same for the new name of a section or a month */
+    var kr = $('kidren');
+    if (kr){
+      kr.addEventListener('input', function(){ if (S.kidAct) S.kidAct.v = kr.value; });
+      kr.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault();
+        var ks = w.querySelector('[data-kidrensave]'); if (ks) ks.click(); } });
     }
     /* the caret stays where it was: render() rebuilds this pane on every keystroke */
     var sq = $('sq');
@@ -10429,8 +10617,9 @@ function menusInner(){
       '</div>' +
       (asking
         ? '<div class="maask"><b>Put ' + esc(menuLabel(m, MENUADM.all)) + ' away?</b> ' +
-            (function(){ var k = MENUADM.all.filter(function(x){ return x.parent_id === m.id && !x.archived; }).length;
-              return k ? 'The ' + k + (k === 1 ? ' month' : ' months') + ' inside it go away with it. ' : ''; })() +
+            (function(){ var k = MENUADM.all.filter(function(x){ return x.parent_id === m.id && !x.archived; });
+              return k.length ? 'The ' + kidsSay(k).replace(' · ', ' and ') + ' inside it ' +
+                                (k.length === 1 ? 'goes' : 'go') + ' away with it. ' : ''; })() +
             (n ? 'The ' + n + ' dish' + (n===1?'':'es') + ' on it stay exactly as they are — ' +
                  (n===1?'it is':'they are') + ' simply no longer on this menu. ' : '') +
             'It stops appearing anywhere, and it can be brought back from below.' +
@@ -12384,30 +12573,128 @@ document.addEventListener('click', function(e){
   var nwo = e.target.closest('[data-newon]');
   if (nwo){
     var onId = nwo.dataset.newon, wasP = parkCurrent();
-    S.pendingGo = null; newRecipe(); S.menus = [onId]; render(); window.scrollTo(0,0);
+    var onRow = SAVEDMENUS.filter(function(m){ return m.id === onId; })[0];
+    S.pendingGo = null; newRecipe();
+    /* started inside a section, it is on the section AND on the menu the section is in */
+    S.menus = onRow && onRow.parent_id && !isMonthKid(onRow) ? [onId, onRow.parent_id] : [onId];
+    render(); window.scrollTo(0,0);
     if (wasP) flash(parkedFlash());
     return;
   }
-  /* a month inside the menu he is standing in */
+  /* the box inside a menu asks for a section or for a month — this swaps which */
+  var ksw = e.target.closest('[data-kidswitch]');
+  if (ksw){
+    S.kidMode = { of:ksw.dataset.kidof, v:ksw.dataset.kidswitch };
+    render(); var kf = $('kidnn'); if (kf){ kf.focus(); kf.select(); } return;
+  }
+  /* a section or a month inside the menu he is standing in */
   if (e.target.id === 'kidok'){
     var pid = e.target.dataset.kidof, ki = $('kidnn'), ke = $('kidne'), kb = e.target;
-    var kn2 = ki ? ki.value.trim() : '';
-    if (!kn2){ if (ke) ke.textContent = 'Give the month a name — ' + nextMonthName(pid) + '.'; if (ki) ki.focus(); return; }
+    var kmd = kb.dataset.kidmode === 'month' ? 'month' : 'section';
+    var kn2 = ki ? ki.value.trim().replace(/\s+/g, ' ') : '';
+    if (!kn2){
+      if (ke) ke.textContent = kmd === 'month' ? 'Give the month a name — ' + nextMonthName(pid) + '.'
+                                               : 'Give the section a name — Secondi di Pesce.';
+      if (ki) ki.focus(); return; }
     if (SAVEDMENUS.some(function(m){ return !m.archived && m.parent_id === pid && m.name.toLowerCase() === kn2.toLowerCase(); })){
       if (ke) ke.textContent = kn2 + ' is already inside ' + menuNameOf(pid) + ' — tap it above.'; return; }
     kb.disabled = true; kb.textContent = 'Adding…'; if (ke) ke.textContent = '';
     newMenu(kn2, pid).then(function(m){
-      if (!m) throw new Error('the month came back empty');
-      S.kidDraft = null;
+      if (!m) throw new Error('the ' + kmd + ' came back empty');
+      S.kidDraft = null; S.kidMode = null;
       return Promise.all([loadSaved(), loadMenus()]).then(function(){
-        if (S.step === 'saved'){ S.fmenu = m.id; S.fsec = null; render(); window.scrollTo(0,0); }
+        if (S.step === 'saved'){ S.fmenu = m.id; S.fsec = null; S.kidAct = null; S.kidPick = null; render(); window.scrollTo(0,0); }
         drawBarMenu();
-        flash(menuNameOf(m.id) + ' is made ✓ — open a dish and tick it in the menu box at the top, or start a new one here');
+        flash(menuNameOf(m.id) + ' is made ✓ — ' + (isMonthKid(m)
+          ? 'open a dish and tick it in the menu box at the top, or start a new one here'
+          : 'Choose the dishes in this section files the ones already on the menu, or start a new one here'));
       });
     }).catch(function(ex){
-      kb.disabled = false; kb.textContent = '＋ Add this month';
+      kb.disabled = false; kb.textContent = '＋ Add this ' + kmd;
       var e3 = $('kidne'); if (e3) e3.textContent = 'Not added — ' + menuPlain(ex.message);
     });
+    return;
+  }
+  /* ── inside a section or a month: choose its dishes, rename it, remove it ── */
+  var kpk = e.target.closest('[data-kidpick]');
+  if (kpk){ S.kidPick = kpk.dataset.kidpick || null; S.kidAct = null; render(); window.scrollTo(0,0); return; }
+  var kin = e.target.closest('[data-kidin]'), kout = e.target.closest('[data-kidout]');
+  if (kin || kout){
+    if (S.kidBusy) return;
+    var ksec = SAVEDMENUS.filter(function(m){ return m.id === S.fmenu; })[0];
+    if (!ksec || !ksec.parent_id) return;
+    var krid = (kin || kout).dataset[kin ? 'kidin' : 'kidout'];
+    var krec = (S.saved || []).filter(function(x){ return x.id === krid; })[0];
+    S.kidBusy = krid; render();
+    (kin ? secFile(krid, ksec) : secUnfile(krid, ksec))
+      .then(function(){ return loadSaved(); })
+      .then(function(){
+        S.kidBusy = null; render();
+        /* said from what the database now holds, not from what was pressed */
+        var nowIn = ((S.rmenus || {})[krid] || []).indexOf(ksec.id) >= 0;
+        if (nowIn !== !!kin) throw new Error('it was sent but the list did not change');
+        flash('‘' + (krec ? krec.name : 'That dish') + '’ is ' +
+              (kin ? 'in ' + ksec.name + ' now.' : 'out of ' + ksec.name + ' — still on ' + menuNameOf(ksec.parent_id) + '.'));
+      })
+      .catch(function(ex){
+        S.kidBusy = null;
+        loadSaved().then(render, render);
+        flash('Nothing was moved — ' + menuPlain(ex.message), true);
+      });
+    return;
+  }
+  var kren = e.target.closest('[data-kidren]');
+  if (kren){ S.kidAct = { id:kren.dataset.kidren, mode:'rename', v:null, err:null, busy:false }; render();
+             var kri = $('kidren'); if (kri){ kri.focus(); kri.select(); } return; }
+  var krm = e.target.closest('[data-kidrm]');
+  if (krm){ S.kidAct = { id:krm.dataset.kidrm, mode:'remove', err:null, busy:false }; render(); return; }
+  if (e.target.closest('[data-kidactcx]')){ S.kidAct = null; render(); return; }
+  var krs = e.target.closest('[data-kidrensave]');
+  if (krs && S.kidAct && !S.kidAct.busy){
+    var rrow = SAVEDMENUS.filter(function(m){ return m.id === krs.dataset.kidrensave; })[0];
+    var rin = $('kidren'), rto = (rin ? rin.value : '').trim().replace(/\s+/g, ' ');
+    if (!rrow) return;
+    if (!rto){ S.kidAct.err = 'It needs a name.'; render(); return; }
+    if (rto === rrow.name){ S.kidAct = null; render(); return; }
+    if (SAVEDMENUS.some(function(m){ return m.id !== rrow.id && !m.archived && m.parent_id === rrow.parent_id &&
+                                            m.name.toLowerCase() === rto.toLowerCase(); })){
+      S.kidAct.v = rto; S.kidAct.err = rto + ' is already inside ' + menuNameOf(rrow.parent_id) + '.'; render(); return; }
+    S.kidAct.v = rto; S.kidAct.busy = true; S.kidAct.err = null; render();
+    patchMenu(rrow.id, { name:rto })
+      .then(function(){ return Promise.all([loadSaved(), loadMenus()]); })
+      .then(function(){
+        var back = SAVEDMENUS.filter(function(m){ return m.id === rrow.id; })[0];
+        if (!back || back.name !== rto) throw new Error('the name did not change');
+        S.kidAct = null; render(); drawBarMenu();
+        flash('‘' + rrow.name + '’ is ‘' + rto + '’ now — on the recipe card and the Food Bible too.');
+      })
+      .catch(function(ex){
+        if (S.kidAct){ S.kidAct.busy = false; S.kidAct.err = 'Not renamed — ' + menuPlain(ex.message); }
+        render();
+      });
+    return;
+  }
+  var kry = e.target.closest('[data-kidrmyes]');
+  if (kry && S.kidAct && !S.kidAct.busy){
+    var xrow = SAVEDMENUS.filter(function(m){ return m.id === kry.dataset.kidrmyes; })[0];
+    if (!xrow || !xrow.parent_id) return;
+    var xsec = !isMonthKid(xrow);
+    S.kidAct.busy = true; S.kidAct.err = null; render();
+    (xsec ? secRemove(xrow) : patchMenu(xrow.id, { archived:true, running:false, active:false }))
+      .then(function(){ return Promise.all([loadSaved(), loadMenus()]); })
+      .then(function(){
+        var gone2 = SAVEDMENUS.filter(function(m){ return m.id === xrow.id; })[0];
+        if (gone2 && !gone2.archived) throw new Error('it is still there');
+        S.kidAct = null; S.kidPick = null; S.fmenu = xrow.parent_id; S.fsec = null;
+        render(); drawBarMenu(); window.scrollTo(0,0);
+        flash(xsec ? 'The section ‘' + xrow.name + '’ is removed — what was in it is on ' + menuNameOf(xrow.parent_id) + ' itself.'
+                   : '‘' + xrow.name + '’ is put away. Menus → the put away brings it back.');
+      })
+      .catch(function(ex){
+        if (S.kidAct){ S.kidAct.busy = false; S.kidAct.err = 'It was not finished — ' + menuPlain(ex.message); }
+        /* it may have died half way, so the screen is redrawn from what is really there */
+        loadSaved().then(render, render);
+      });
     return;
   }
   if (e.target.id === 'newr'){
@@ -12513,7 +12800,8 @@ document.addEventListener('click', function(e){
   }
   /* ── opening a folder on Saved recipes ── */
   var fd = e.target.closest('[data-fold]');
-  if (fd){ S.fmenu = fd.dataset.fold; S.fsec = null; S.sq = ''; render(); window.scrollTo(0,0); return; }
+  if (fd){ S.fmenu = fd.dataset.fold; S.fsec = null; S.sq = ''; S.kidAct = null; S.kidPick = null;
+           render(); window.scrollTo(0,0); return; }
   var fsx = e.target.closest('[data-fsec]');
   if (fsx){ S.fsec = fsx.dataset.fsec; render(); window.scrollTo(0,0); return; }
 
