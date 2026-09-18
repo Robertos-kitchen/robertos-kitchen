@@ -8147,7 +8147,9 @@ function render(){
       (noCost.length ? '<div class="todo"><b>'+noCost.length+' with no cost yet.</b> ' +
         esc(noCost.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
         (noCost.length>4 ? ' and '+(noCost.length-4)+' more' : '') +
-        ' — usually a batch inside them that is not finished. The cost column is left empty rather than guessed.</div>' : '') +
+        (noCost.every(function(r){ return r.why === 'recipe not finished'; })
+          ? ' — the recipe is only started (no method yet), so its cost is not a cost. The form says “recipe not finished” instead; finish the recipe, or untick ' + (noCost.length===1?'it':'them') + '.</div>'
+          : ' — usually a batch inside them that is not finished, or a recipe only started. The cost column says why rather than guess.</div>') : '') +
       (over.length ? '<div class="todo"><b>'+over.length+' till name'+(over.length===1?' is':'s are')+' over 16 characters.</b> ' +
         'Micros cuts them off. Shorten '+(over.length===1?'it':'them')+' below.</div>' : '') +
       /* A section that is not one of Aung's families goes out with no family code, and he
