@@ -183,18 +183,25 @@ function ivsEsc(s){ return String(s==null?'':s)
   .replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 
 // ── the arithmetic, in one place ──
+// A line marked N/A (stored as 0) counts as answered but is left out of the
+// average: its 5 points leave the max, so the candidate is judged only on the
+// lines they could actually be tested on.
 function ivsCalc(r){
-  var sc = (r && r.scores) || {}, i = 0, p = 0, n = 0, iMax = 0, pMax = 0;
+  var sc = (r && r.scores) || {}, i = 0, p = 0, n = 0, iMax = 0, pMax = 0, na = 0, iAll = 0, pAll = 0;
   IVS_SECTIONS.forEach(function(s){ s.items.forEach(function(it){
+    var raw = sc[it[0]], v = +raw;
+    if (s.part === 'int') iAll++; else pAll++;
+    if (raw != null && v === 0){ n++; na++; return; }
     if (s.part === 'int') iMax += 5; else pMax += 5;
-    var v = +sc[it[0]];
     if (v >= 1 && v <= 5){ n++; if (s.part === 'int') i += v; else p += v; }
   }); });
-  var done = n === IVS_LINES && n > 0;
-  // a part with no lines carries no weight — the set editor keeps the other at 100
-  var fin = done ? Math.round((iMax ? (i/iMax)*IVS_WEIGHTS.int : 0) + (pMax ? (p/pMax)*IVS_WEIGHTS.prac : 0)) : null;
-  return { int:i, prac:p, iMax:iMax, pMax:pMax, scored:n, done:done, final:fin, verdict: done ? ivsVerdict(fin) : null };
+  // a part with no rated lines (none in the set, or all N/A) carries no weight — the other takes it all
+  var wI = iMax ? IVS_WEIGHTS.int : 0, wP = pMax ? IVS_WEIGHTS.prac : 0, wT = wI + wP;
+  var done = n === IVS_LINES && n > 0 && wT > 0;
+  var fin = done ? Math.round(((iMax ? (i/iMax)*wI : 0) + (pMax ? (p/pMax)*wP : 0)) * 100 / wT) : null;
+  return { int:i, prac:p, iMax:iMax, pMax:pMax, iAll:iAll, pAll:pAll, na:na, scored:n, done:done, final:fin, verdict: done ? ivsVerdict(fin) : null };
 }
+function ivsPart(got, max, all){ return max ? got+'/'+max : (all ? 'N/A' : '—'); }
 // the same arithmetic for a candidate of another round (history)
 function ivsCalcWith(r, set){
   var keepS = IVS_SECTIONS, keepW = IVS_WEIGHTS, keepL = IVS_LINES;
@@ -289,6 +296,8 @@ function ivsInjectCss(){
     '.ivs{display:flex;gap:6px;flex:0 0 auto}',
     '.ivs button{width:46px;height:46px;border:1px solid var(--isd);background:#fff;border-radius:5px;font-size:16px;font-weight:600;color:var(--ik);cursor:pointer;font-family:"DM Sans",sans-serif}',
     '.ivs button.on{background:var(--iv);color:#fff;border-color:var(--iv)}',
+    '.ivs button.na{width:54px;font-size:13.5px;font-weight:700;letter-spacing:.02em;border-style:dashed;border-color:#8a7a68;color:#4a3a2a}',
+    '.ivs button.na.on{background:#4a3a2a;color:#fff;border-style:solid;border-color:#4a3a2a}',
     '.ivnotes{width:100%;box-sizing:border-box;min-height:90px;font-family:"DM Sans",sans-serif;font-size:15px;border:1px solid var(--isd);border-radius:5px;background:var(--isl);padding:10px;color:var(--ik)}',
     '.ivempty{padding:26px 10px;color:#6b5a48;font-size:14px}',
     '.ivgate{max-width:420px;margin:30px auto;background:#fff;border:2px solid var(--iv);border-radius:6px;padding:18px}',
@@ -677,7 +686,7 @@ function ivsPick(id){
 function ivsScore(key, val){
   var row = ivsRow(ivsSel); if (!row) return;
   var sc = Object.assign({}, row.scores || {});
-  var next = (+sc[key] === val) ? null : val;       // tap the same number again to clear it
+  var next = (sc[key] != null && +sc[key] === val) ? null : val;   // tap the same one again to clear it (0 = N/A)
   if (next === null) delete sc[key]; else sc[key] = next;
   row.scores = sc;
   row.scores_by = Object.assign({}, row.scores_by || {}); if (next === null) delete row.scores_by[key]; else if (ivsMe) row.scores_by[key] = ivsMe;
@@ -882,11 +891,12 @@ function ivsRenderList(){
 function ivsSumHtml(r){
   var c = ivsCalc(r);
   var pill = c.done ? '<span class="ivpill '+c.verdict.c+'">'+c.verdict.t+'</span>'
-                    : '<span class="ivpill">'+(c.scored ? 'In progress · '+(IVS_LINES-c.scored)+' to score' : 'Not scored')+'</span>';
+                    : '<span class="ivpill">'+(c.scored === IVS_LINES ? 'All N/A — nothing to average' : c.scored ? 'In progress · '+(IVS_LINES-c.scored)+' to score' : 'Not scored')+'</span>';
   return '<div class="ivsum" id="ivs-sum">'+
     '<div class="big">'+(c.done ? c.final : '—')+'<small> / 100</small></div>'+ pill +
-    '<div class="parts">'+(c.iMax ? '<div><b>'+c.int+'/'+c.iMax+'</b><span>Interview ('+IVS_WEIGHTS.int+'%)</span></div>' : '')+
-    (c.pMax ? '<div><b>'+c.prac+'/'+c.pMax+'</b><span>Practical ('+IVS_WEIGHTS.prac+'%)</span></div>' : '')+'</div>'+
+    '<div class="parts">'+(c.iAll ? '<div><b>'+ivsPart(c.int, c.iMax, c.iAll)+'</b><span>Interview ('+IVS_WEIGHTS.int+'%)</span></div>' : '')+
+    (c.pAll ? '<div><b>'+ivsPart(c.prac, c.pMax, c.pAll)+'</b><span>Practical ('+IVS_WEIGHTS.prac+'%)</span></div>' : '')+
+    (c.na ? '<div><b>'+c.na+'</b><span>N/A — not counted</span></div>' : '')+'</div>'+
   '</div>';
 }
 
@@ -903,10 +913,11 @@ function ivsEditorHtml(){
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
-      var cur = +sc[it[0]] || 0;
+      var cur = sc[it[0]] == null ? -1 : +sc[it[0]];
       var by = (r.scores_by || {})[it[0]];
-      h += '<div class="ivq"><div class="t"><b>'+(s.part==='prac'?'':ivsEsc(it[0])+'. ')+ivsEsc(it[1])+(by && cur ? '<span class="ivby" data-by="'+it[0]+'">'+ivsEsc(by)+'</span>' : '<span class="ivby" data-by="'+it[0]+'"></span>')+'</b><span>'+ivsEsc(it[2] || '')+'</span></div><div class="ivs" data-k="'+it[0]+'">';
-      for (var n=1;n<=5;n++) h += '<button type="button" class="'+(cur===n?'on':'')+'" aria-pressed="'+(cur===n)+'" onclick="ivsScore(\''+it[0]+'\','+n+')">'+n+'</button>';
+      h += '<div class="ivq"><div class="t"><b>'+(s.part==='prac'?'':ivsEsc(it[0])+'. ')+ivsEsc(it[1])+(by && cur >= 0 ? '<span class="ivby" data-by="'+it[0]+'">'+ivsEsc(by)+'</span>' : '<span class="ivby" data-by="'+it[0]+'"></span>')+'</b><span>'+ivsEsc(it[2] || '')+'</span></div><div class="ivs" data-k="'+it[0]+'">';
+      for (var n=1;n<=5;n++) h += '<button type="button" data-v="'+n+'" class="'+(cur===n?'on':'')+'" aria-pressed="'+(cur===n)+'" onclick="ivsScore(\''+it[0]+'\','+n+')">'+n+'</button>';
+      h += '<button type="button" data-v="0" class="na'+(cur===0?' on':'')+'" aria-pressed="'+(cur===0)+'" title="Could not be assessed — left out of the average" onclick="ivsScore(\''+it[0]+'\',0)">N/A</button>';
       h += '</div></div>';
     });
   });
@@ -2275,10 +2286,10 @@ function ivsBoardHtml(){
       '<td><b>'+ivsEsc(ivsCandLabel(x.r))+'</b></td>'+
       '<td class="hm">'+ivsEsc(x.r.wave || '—')+'</td>'+
       IVS_DETAILS.filter(function(d){ return d[0] !== 'email'; }).map(function(d){ return '<td class="hm ivdc">'+ivsEsc(x.r[d[0]] || '—')+'</td>'; }).join('')+
-      '<td class="n hm">'+(x.c.iMax ? x.c.int+'/'+x.c.iMax : '—')+'</td><td class="n hm">'+(x.c.pMax ? x.c.prac+'/'+x.c.pMax : '—')+'</td>'+
+      '<td class="n hm">'+ivsPart(x.c.int, x.c.iMax, x.c.iAll)+'</td><td class="n hm">'+ivsPart(x.c.prac, x.c.pMax, x.c.pAll)+'</td>'+
       '<td class="n">'+(x.c.done ? '<span class="ivbar"><i style="width:'+x.c.final+'%"></i></span><b>'+x.c.final+'</b>' : '—')+'</td>'+
       '<td>'+(x.c.done ? '<span class="ivpill '+x.c.verdict.c+'">'+x.c.verdict.t+'</span>'
-                       : '<span class="ivpill">'+(x.c.scored ? (IVS_LINES-x.c.scored)+' to score' : 'Not scored')+'</span>')+'</td>'+
+                       : '<span class="ivpill">'+(x.c.scored === IVS_LINES ? 'All N/A' : x.c.scored ? (IVS_LINES-x.c.scored)+' to score' : 'Not scored')+'</span>')+'</td>'+
       '<td class="hm ivdc">'+ivsEsc(ivsStageWord(ivsStage(x.r)))+(ivsActLine(x.r.id) ? '<br><span style="font-size:12px;color:#5a4a3a">'+ivsEsc(ivsActLine(x.r.id))+'</span>' : '')+'</td>'+
     '</tr>';
   });
@@ -2315,9 +2326,9 @@ function ivsRender(fromPoll){
       if (inp && inp !== ae && !ivsDetT[d[0]] && inp.value !== (r[d[0]]||'')) inp.value = r[d[0]]||'';
     });
     if (r) document.querySelectorAll('#interviews-view .ivs').forEach(function(g){
-      var k = g.getAttribute('data-k'), cur = +((r.scores||{})[k]) || 0;
-      g.querySelectorAll('button').forEach(function(b, i){ b.classList.toggle('on', cur === i+1); b.setAttribute('aria-pressed', cur === i+1); });
-      var by = document.querySelector('#interviews-view .ivby[data-by="'+k+'"]'); if (by) by.textContent = cur ? ((r.scores_by||{})[k] || '') : '';
+      var k = g.getAttribute('data-k'), raw = (r.scores||{})[k], cur = raw == null ? -1 : +raw;
+      g.querySelectorAll('button').forEach(function(b){ var on = cur === +b.getAttribute('data-v'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      var by = document.querySelector('#interviews-view .ivby[data-by="'+k+'"]'); if (by) by.textContent = cur >= 0 ? ((r.scores_by||{})[k] || '') : '';
     });
     return;
   }
@@ -2337,7 +2348,7 @@ function ivsRender(fromPoll){
     '</div>'+
     (ivsErr ? '<div class="iverr" style="margin-bottom:10px">'+ivsEsc(ivsErr)+'</div>' : '')+
     body +
-    '<div class="ivsync">Synced live — shared with everyone scoring. Final = interview '+IVS_WEIGHTS.int+'% + practical '+IVS_WEIGHTS.prac+'%, given once all '+IVS_LINES+' lines are scored.</div>'+
+    '<div class="ivsync">Synced live — shared with everyone scoring. Final = interview '+IVS_WEIGHTS.int+'% + practical '+IVS_WEIGHTS.prac+'%, given once all '+IVS_LINES+' lines are scored or marked N/A — N/A lines are left out of the average.</div>'+
   '</div>';
   if (fromPoll) window.scrollTo(0, y);
 }
