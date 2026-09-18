@@ -567,7 +567,7 @@ begin
   end if;
   update interview_candidates set
     name   = case when p_patch ? 'name'  then left(p_patch->>'name', 120) else name end,
-    wave   = case when p_patch ? 'wave'  then left(p_patch->>'wave', 40)  else wave end,
+    wave   = case when p_patch ? 'wave'  then left(p_patch->>'wave', 80)  else wave end,
     notes  = case when p_patch ? 'notes' then left(p_patch->>'notes', 4000) else notes end,
     email  = case when p_patch ? 'email' then left(coalesce(p_patch->>'email',''), 200) else email end,
     salary_expectation = case when p_patch ? 'salary_expectation' then left(coalesce(p_patch->>'salary_expectation',''), 120) else salary_expectation end,
@@ -651,3 +651,5 @@ begin
   return query select s.interviewers, s.hr_to, s.hr_cc, s.shortlist_cc, s.shortlist_reply_to, s.hr_reply_to from interview_settings s where s.id = 1;
 end $$;
 notify pgrst, 'reload schema';
+
+-- 18 Sep 2026: a folder inside a round ("Monday 21st interview") is the wave column with a typed name — 80 characters.

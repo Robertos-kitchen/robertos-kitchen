@@ -68,6 +68,11 @@
 // are edited in Set-up, not in code (own domains only — the database refuses the
 // rest); an Emails tab lists everything sent this round.
 //
+// Folders (18 Sep 2026, Francesco): inside a round, candidates go in a folder the
+// chef names when adding CVs — "Monday 21st interview" — so a day's candidates sit
+// together. A folder is the old `wave` column with a typed name instead of Wave 1–4.
+// Tap a folder chip above the list to see only it; the search finds it by name.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad(),
 // SUPABASE_URL, SUPABASE_KEY.
 // ══════════════════════════════════════════════════════════════════════════
@@ -113,7 +118,8 @@ var IVS_DETAILS = [
   ['visa_status',        'Visa status', 'e.g. Visit visa',
     ['Visit visa','Employment visa — current employer','Cancelled visa / grace period','Family / spouse visa','Own visa (freelance / golden)','Outside the UAE']]
 ];
-var IVS_WAVES = ['', 'Wave 1', 'Wave 2', 'Wave 3', 'Wave 4'];
+var ivsFolderQ = '';      // the folder chip tapped above the list ('' = all)
+var ivsWaveT = null;      // debounce for the folder box on the sheet
 var IVS_SECTIONS = IVS_COMMIS_SECTIONS;   // the current round's questions (ivsRoundUse)
 var IVS_WEIGHTS = { int: 40, prac: 60 };
 var IVS_LINES = 15;
@@ -418,6 +424,9 @@ function ivsInjectCss(){
     '.ivwho{font-size:12.5px;color:#5a4a3a;margin-top:4px}.ivwho button{background:none;border:0;color:var(--ivl);font-weight:700;text-decoration:underline;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:12.5px;min-height:32px;padding:0 4px}',
     '.ivstg{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin:14px 0 2px;display:flex;justify-content:space-between}',
     '.ivstg:first-child{margin-top:6px}',
+    '.ivchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}',
+    '.ivchips button{min-height:38px;padding:0 12px;border-radius:20px;border:1px solid var(--isd);background:#fff;color:var(--iv);font-size:13px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ivchips button.on{background:var(--iv);color:#fff;border-color:var(--iv)}',
     '.ivby{display:inline-block;font-size:11px;color:#5a4a3a;margin-left:6px;font-weight:400}',
     '.ivhist{background:#f3e9c4;color:#4a3900;border-radius:5px;padding:9px 11px;font-size:13.5px;margin-top:10px;line-height:1.45}',
     '.ivhist b{font-weight:700}',
@@ -502,7 +511,7 @@ async function ivsBoot(){
 async function ivsRoundUse(r){
   ivsRound = r; IVS_EVENT = r.event;
   ivsUseSet(ivsSetByKey(r.question_set));
-  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsHist = {}; ivsTab = 'score';
+  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsHist = {}; ivsTab = 'score';
   try { localStorage.setItem(IVS_ROUND_STORE, r.event); } catch(e){}
   var ok = await ivsLoad();
   if (ok){ ivsScreen = 'main'; ivsStartPoll(); }
@@ -574,7 +583,7 @@ async function ivsLoad(quiet){
   var mine = {};
   ivsRows.forEach(function(x){ if (ivsPending[x.id]) mine[x.id] = x; });
   ivsRows.forEach(function(x){
-    if (x.id === ivsSel && (ivsNameT || ivsNotesT || ivsDetTyping()) && !mine[x.id]) mine[x.id] = { old:x, partial:true };
+    if (x.id === ivsSel && (ivsNameT || ivsWaveT || ivsNotesT || ivsDetTyping()) && !mine[x.id]) mine[x.id] = { old:x, partial:true };
   });
   ivsRows = fresh.map(function(x){
     var m = mine[x.id];
@@ -639,6 +648,7 @@ function ivsKeepTyping(to, from){
   if (!from) return;
   if (ivsEvT) to.evaluation = from.evaluation;
   if (ivsNameT) to.name = from.name;
+  if (ivsWaveT) to.wave = from.wave;
   if (ivsNotesT) to.notes = from.notes;
   IVS_DETAILS.forEach(function(d){ if (ivsDetT[d[0]]) to[d[0]] = from[d[0]]; });
 }
@@ -646,6 +656,7 @@ function ivsKeepTyping(to, from){
 async function ivsAdd(){
   var r = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT, p_by: ivsMe || '' });
   if (r.error){ kToast('Could not add — ' + (r.error.message || 'no connection'), true); return; }
+  if (ivsFolderQ){ r.data.wave = ivsFolderQ; ivsSave(r.data.id, { wave: ivsFolderQ }); }   // the folder on screen is where they go
   ivsRows.push(r.data);
   ivsQ = '';                                        // a search would hide the new, unnamed row
   ivsSel = r.data.id; ivsTab = 'score';
@@ -734,9 +745,23 @@ function ivsDetailsHtml(r){
 function ivsWave(el){
   var row = ivsRow(ivsSel); if (!row) return;
   row.wave = el.value;
-  ivsSave(row.id, { wave: el.value });
-  ivsRenderList();
+  var id = row.id, val = el.value;
+  clearTimeout(ivsWaveT);
+  ivsWaveT = setTimeout(function(){ ivsWaveT = null; ivsSave(id, { wave: val.trim() }); ivsRenderList(); }, 700);
 }
+function ivsWaveFlush(el){
+  if (!ivsWaveT) return;
+  clearTimeout(ivsWaveT); ivsWaveT = null;
+  var row = ivsRow(ivsSel); if (!row) return;
+  row.wave = el.value.trim(); ivsSave(row.id, { wave: row.wave }); ivsRenderList();
+}
+// the folders of this round, most used first
+function ivsFolders(){
+  var n = {}; ivsRows.forEach(function(r){ var w = (r.wave || '').trim(); if (w) n[w] = (n[w] || 0) + 1; });
+  return Object.keys(n).sort(function(a, b){ return n[b] - n[a] || a.localeCompare(b); }).map(function(k){ return { name: k, n: n[k] }; });
+}
+function ivsFolderListHtml(){ return '<datalist id="ivs-dl-folder">'+ivsFolders().map(function(f){ return '<option value="'+ivsEsc(f.name)+'">'; }).join('')+'</datalist>'; }
+function ivsFolderPick(name){ ivsFolderQ = name; ivsRenderList(); }
 
 async function ivsDelete(){
   var row = ivsRow(ivsSel); if (!row) return;
@@ -801,7 +826,7 @@ function ivsWhere(r, q){
   if (det) return det[1] + ': ' + r[det[0]];
   return 'found in CV file name';
 }
-function ivsFiltered(){ return ivsRows.filter(function(r){ return ivsMatches(r, ivsQ); }); }
+function ivsFiltered(){ return ivsRows.filter(function(r){ return (!ivsFolderQ || (r.wave || '').trim() === ivsFolderQ) && ivsMatches(r, ivsQ); }); }
 
 function ivsSearch(el){
   ivsQ = el.value;
@@ -825,7 +850,12 @@ function ivsSearchClear(){
 
 function ivsListHtml(){
   if (!ivsRows.length) return '<div class="ivempty">No candidates yet. Add the first one above, or add a folder of CVs in bulk.</div>';
-  var hits = ivsFiltered(), h = '';
+  var hits = ivsFiltered(), h = '', folders = ivsFolders();
+  if (ivsFolderQ && !folders.some(function(f){ return f.name === ivsFolderQ; })) ivsFolderQ = '';   // the folder was renamed away
+  if (folders.length){
+    h += '<div class="ivchips"><button class="'+(ivsFolderQ ? '' : 'on')+'" onclick="ivsFolderPick(\'\')">All · '+ivsRows.length+'</button>'+
+      folders.map(function(f){ return '<button class="'+(ivsFolderQ === f.name ? 'on' : '')+'" onclick="ivsFolderPick(this.getAttribute(\'data-f\'))" data-f="'+ivsEsc(f.name)+'">'+ivsEsc(f.name)+' · '+f.n+'</button>'; }).join('')+'</div>';
+  }
   if (ivsQ.trim()){
     h += '<div class="ivfindn">'+(hits.length ? hits.length+' of '+ivsRows.length+' candidates' : 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”')+'</div>';
   }
@@ -834,7 +864,8 @@ function ivsListHtml(){
     var rows = groups[st[0]]; if (!rows || !rows.length) return;
     h += '<div class="ivstg"><span>'+ivsEsc(st[1])+'</span><span>'+rows.length+'</span></div>';
     rows.forEach(function(r){
-      var c = ivsCalc(r), where = [ivsQ.trim() ? ivsWhere(r, ivsQ) : '', ivsActLine(r.id)].filter(Boolean).join(' · ');
+      var c = ivsCalc(r), where = [ivsQ.trim() ? ivsWhere(r, ivsQ) : '', !ivsFolderQ && (r.wave || '').trim() ? r.wave.trim() : '', ivsActLine(r.id)]
+        .filter(function(x, i, arr){ return x && arr.indexOf(x) === i; }).join(' · ');   // a search hit in the folder name is not said twice
       h += '<button class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
         '<span class="ivdot'+(c.done?' done':(c.scored?' part':''))+'"></span>'+
         '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(where ? '<small>'+ivsEsc(where)+'</small>' : '')+'</span>'+
@@ -865,9 +896,8 @@ function ivsEditorHtml(){
   var sc = r.scores || {};
   var h = '<div class="ivtop">'+
     '<input id="ivs-name" class="ivname" placeholder="Candidate name" value="'+ivsEsc(r.name)+'" oninput="ivsName(this)" autocomplete="off">'+
-    '<select class="ivsel" onchange="ivsWave(this)" aria-label="Wave">'+
-      IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===(r.wave||'')?' selected':'')+'>'+(w||'Unassigned')+'</option>'; }).join('')+
-    '</select>'+
+    '<input id="ivs-wave" class="ivsel" style="flex:1 1 200px;min-width:0" list="ivs-dl-folder" maxlength="80" autocomplete="off" placeholder="Folder — e.g. Monday 21st interview" aria-label="Folder" value="'+ivsEsc(r.wave||'')+'" oninput="ivsWave(this)" onchange="ivsWaveFlush(this)">'+
+    ivsFolderListHtml()+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
   '</div>' + ivsDetailsHtml(r) + '<div id="ivs-hist">'+ivsHistHtml(r)+'</div>' + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r);
   IVS_SECTIONS.forEach(function(s){
@@ -1335,7 +1365,7 @@ function ivsEntryFiles(entry){
 
 function ivsBulkOpen(){
   if (ivsBulk) return;
-  ivsBulk = { rows: [], reading: false, running: false, stopped: false, wave: '', seq: 0 };
+  ivsBulk = { rows: [], reading: false, running: false, stopped: false, wave: ivsFolderQ || '', seq: 0 };
   var v = document.createElement('div'); v.id = 'ivs-bulk';
   v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Add CVs in bulk');
   document.body.appendChild(v);
@@ -1522,9 +1552,9 @@ function ivsBulkRender(){
   }
   if (b.rows.length){
     h += '<div class="ivbkhd" style="margin-top:14px"><div class="msg">Check each name — it was read from the CV. Fix any that are wrong.</div>'+
-      '<select class="ivsel" aria-label="Wave for new candidates" '+(b.running?'disabled ':'')+'onchange="ivsBulk.wave=this.value">'+
-      IVS_WAVES.map(function(w){ return '<option value="'+ivsEsc(w)+'"'+(w===b.wave?' selected':'')+'>'+(w ? 'New candidates: '+w : 'Wave: unassigned')+'</option>'; }).join('')+
-      '</select></div>';
+      '<input class="ivsel" style="flex:1 1 220px;min-width:0" list="ivs-dl-folder-bulk" maxlength="80" autocomplete="off" aria-label="Folder for these candidates" placeholder="Folder — e.g. Monday 21st interview" '+(b.running?'disabled ':'')+'value="'+ivsEsc(b.wave)+'" oninput="ivsBulk.wave=this.value">'+
+      '<datalist id="ivs-dl-folder-bulk">'+ivsFolders().map(function(f){ return '<option value="'+ivsEsc(f.name)+'">'; }).join('')+'</datalist></div>'+
+      '<p class="ivnote" style="margin:0 0 6px">Every CV added now goes in that folder; a CV attached to a candidate already on the board keeps theirs.</p>';
     b.rows.forEach(function(r){
       var locked = b.running || r.problem || r.state === 'done' || r.state === 'run' || (r.state === 'skip' && !r.left) || r.left;
       var canLeave = !b.running && !r.problem && r.state !== 'done' && !(r.state === 'skip' && !r.left);
@@ -1572,7 +1602,7 @@ async function ivsBulkRun(){
         else {
           var a = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT, p_by: ivsMe || '' });
           if (a.error) throw a.error;
-          var patch = { name: row.name.trim() }; if (b.wave) patch.wave = b.wave;
+          var patch = { name: row.name.trim() }; if (b.wave.trim()) patch.wave = b.wave.trim().slice(0, 80);
           if (row.email){ patch.email = row.email; ivsMailRead[a.data.id] = true; }
           ivsPending[a.data.id] = 1;                   // the poll must not show it nameless meanwhile
           var fresh = Object.assign({}, a.data, patch);
@@ -2234,7 +2264,7 @@ function ivsBoardHtml(){
     if (a.c.done) return b.c.final - a.c.final;
     return b.c.scored - a.c.scored;
   });
-  var h = '<table class="ivtab"><thead><tr><th>Rank</th><th>Candidate</th><th class="hm">Wave</th>'+
+  var h = '<table class="ivtab"><thead><tr><th>Rank</th><th>Candidate</th><th class="hm">Folder</th>'+
     '<th class="hm">Position</th><th class="hm">Salary exp.</th><th class="hm">Notice</th><th class="hm">Visa</th>'+
     '<th class="hm">Interview</th><th class="hm">Practical</th><th>Final</th><th>Verdict</th><th class="hm">Stage</th></tr></thead><tbody>';
   var rank = 0;
@@ -2270,7 +2300,7 @@ function ivsRender(fromPoll){
   }
   // while a chef is typing, a poll only refreshes the parts that are not under their thumb
   var ae = document.activeElement;
-  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || /^ivs-d-/.test(ae.id || ''));
+  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-wave' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || /^ivs-d-/.test(ae.id || ''));
   if (fromPoll && typing){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
