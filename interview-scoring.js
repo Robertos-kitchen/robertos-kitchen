@@ -118,7 +118,10 @@ var IVS_DETAILS = [
   ['visa_status',        'Visa status', 'e.g. Visit visa',
     ['Visit visa','Employment visa — current employer','Cancelled visa / grace period','Family / spouse visa','Own visa (freelance / golden)','Outside the UAE']]
 ];
-var ivsFolderQ = '';      // the folder chip tapped above the list ('' = all)
+var ivsFolderQ = '';      // the folder chip tapped above the list ('' = all, IVS_NOFOLDER = the ones with none)
+var IVS_NOFOLDER = '__none__';
+var ivsStageQ = '';       // the counter tapped in the header ('' = every stage)
+var ivsAddOpen = false;   // the "+ Add" menu
 var ivsWaveT = null;      // debounce for the folder box on the sheet
 var IVS_SECTIONS = IVS_COMMIS_SECTIONS;   // the current round's questions (ivsRoundUse)
 var IVS_WEIGHTS = { int: 40, prac: 60 };
@@ -238,15 +241,20 @@ function ivsInjectCss(){
   s.textContent = [
     '#interviews-view,#ivs-bulk,#ivs-mail{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
     '  --ik:#2a1a10;--icr:#f5ede0;--igo:#ba9b02;--iol:#4b5128}',
-    '.ivwrap{max-width:1100px;margin:0 auto;padding:14px 14px 90px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
+    '.ivwrap{max-width:1440px;margin:0 auto;padding:18px 24px 90px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
     '.ivhd{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:12px}',
     '.ivhd small{display:block;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ivl);font-weight:700}',
     '.ivhd h2{font-family:"Cormorant Garamond",Georgia,serif;font-size:30px;margin:2px 0 0;font-weight:600;color:var(--iv);line-height:1.1}',
     '.ivstats{display:flex;gap:8px}',
-    '.ivstat{background:#fff;border:1px solid var(--isd);border-radius:6px;padding:8px 12px;min-width:74px;text-align:center}',
+    '.ivstat{background:#fff;border:1px solid var(--isd);border-radius:8px;padding:9px 14px;min-width:104px;text-align:center;cursor:pointer;font-family:"DM Sans",sans-serif}',
+    '.ivstat:hover{border-color:var(--iv)}',
+    '.ivstat.on{background:var(--iv);border-color:var(--iv)}.ivstat.on b,.ivstat.on span{color:#fff}',
+    '.ivstat:focus-visible,.ivtabn:focus-visible,.ivcand:focus-visible,.ivchips button:focus-visible,.ivmini:focus-visible{outline:3px solid var(--igo);outline-offset:2px}',
     '.ivstat b{display:block;font-family:"DM Sans",sans-serif;font-variant-numeric:lining-nums tabular-nums;font-weight:600;font-size:22px;color:var(--iv);line-height:1}',
     '.ivstat span{display:block;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-top:3px}',
-    '.ivtabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}',
+    '.ivtabs{display:flex;gap:26px;margin-bottom:16px;align-items:center;border-bottom:1px solid var(--isd);overflow-x:auto;overflow-y:hidden}',
+    '.ivtabn{background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;padding:12px 2px;min-height:46px;font-family:"DM Sans",sans-serif;font-size:15.5px;font-weight:600;color:#5a4a3a;white-space:nowrap;cursor:pointer}',
+    '.ivtabn:hover{color:var(--ik)}.ivtabn.on{color:var(--iv);border-bottom-color:var(--iv)}',
     '.ivb{font-family:"DM Sans",sans-serif;font-size:14px;font-weight:600;background:var(--iv);color:var(--icr);',
     '  border:1px solid var(--iv);border-radius:4px;padding:0 18px;min-height:46px;cursor:pointer}',
     '.ivb:hover{background:var(--ivm)}',
@@ -254,15 +262,44 @@ function ivsInjectCss(){
     '  border:1px solid var(--isd);border-radius:4px;padding:0 16px;min-height:46px;cursor:pointer}',
     '.ivb2.on{background:var(--iv);color:var(--icr);border-color:var(--iv)}',
     '.ivb:focus-visible,.ivb2:focus-visible,.ivs button:focus-visible{outline:3px solid var(--igo);outline-offset:2px}',
-    '.ivlock{margin-left:auto;background:none;border:0;color:var(--ivl);font-size:13px;font-weight:600;text-decoration:underline;cursor:pointer;min-height:44px}',
-    '.ivgrid{display:grid;grid-template-columns:250px 1fr;gap:12px;align-items:start}',
+    '.ivlock{margin-left:auto;background:none;border:0;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:14px;font-weight:600;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;white-space:nowrap}',
+    '.ivgrid{display:grid;grid-template-columns:minmax(290px,370px) minmax(0,1fr);gap:18px;align-items:start}',
+    '.ivside{box-sizing:border-box;position:sticky;top:calc(var(--ivhd,0px) + 12px);max-height:calc(100vh - var(--ivhd,0px) - 24px);display:flex;flex-direction:column;padding:14px}',
+    '.ivside #ivs-list{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
+    '.ivlrows{flex:1 1 auto;min-height:0;overflow-y:auto;padding-right:4px}',
+    '#ivs-editor{padding:20px 24px}',
+    '.ivbar1{display:flex;gap:8px}.ivbar1 .ivfind{flex:1 1 auto;margin-top:0}',
+    '.ivaddw{position:relative;flex:0 0 auto}.ivaddw .ivb{padding:0 16px;font-size:15px;font-weight:700}',
+    '.ivaddm{position:absolute;right:0;top:52px;z-index:20;background:#fff;border:1px solid var(--isd);border-radius:8px;box-shadow:0 8px 24px rgba(65,2,7,.16);padding:6px;display:flex;flex-direction:column;width:210px}',
+    '.ivaddm[hidden]{display:none}',
+    '.ivaddm button{background:none;border:0;text-align:left;padding:0 12px;min-height:46px;border-radius:5px;font-family:"DM Sans",sans-serif;font-size:15px;color:var(--ik);cursor:pointer}',
+    '.ivaddm button:hover{background:var(--isl)}',
+    '.ivdot.s-new{background:#b5a591}.ivdot.s-scoring{background:#c99a1e}.ivdot.s-decide{background:#a3261c}.ivdot.s-shortlist{background:#3e6b24}.ivdot.s-hr{background:var(--iv)}.ivdot.s-reject{background:#7a6a5a}',
+    '.ivspill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:20px;padding:5px 11px;white-space:nowrap;background:#efe7dc;color:#4a3a2a}',
+    '.ivspill.s-scoring{background:#f6e7b8;color:#4f3b00}.ivspill.s-decide{background:#f5dcd5;color:#6a1410}.ivspill.s-shortlist{background:#dce8cf;color:#2f4a1e}.ivspill.s-hr{background:var(--iv);color:#fff}.ivspill.s-reject{background:#e4dcd2;color:#3a2e24}',
+    '.ivselbar{display:flex;align-items:center;gap:10px;margin:0 0 8px}',
+    '.ivback{order:3;margin-left:auto;background:none;border:0;padding:0;min-height:40px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:14px;font-weight:600;text-decoration:underline;cursor:pointer}',
+    '.ivback .m{display:none}.ivselsc{display:none}',
+    '.ivovh{font-family:"Cormorant Garamond",Georgia,serif;font-size:28px;font-weight:600;color:var(--ik);margin:0 0 14px;line-height:1.15}',
+    '.ivov{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}',
+    '.ivovb{border:1px solid var(--is);border-radius:8px;padding:14px 16px;min-width:0}',
+    '.ivovb .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.ivovb .t b{font-size:15.5px}.ivovb .t span{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}',
+    '.ivovb p{margin:2px 0 6px;font-size:13px;color:#5a4a3a;line-height:1.4}',
+    '.ivmini{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--isl);padding:8px 2px;min-height:44px;font-family:"DM Sans",sans-serif;font-size:14.5px;color:var(--ik);cursor:pointer}',
+    '.ivmini:hover{background:var(--isl)}',
+    '.ivmini .g{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ivmini .rk{width:16px;color:#5a4a3a;font-weight:700}',
+    '.ivmini b{color:var(--iv);font-variant-numeric:tabular-nums;white-space:nowrap}.ivmini .ivbar{width:70px;margin:0}',
+    '.ivovnone{font-size:13.5px;color:#5a4a3a;border-top:1px solid var(--isl);padding:10px 2px}',
+    '.ivovall{background:none;border:0;padding:8px 0 0;min-height:36px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:13.5px;font-weight:600;text-decoration:underline;cursor:pointer}',
+    '.ivovnew{margin-top:14px;border:1px dashed var(--isd);border-radius:8px;padding:13px 16px;font-size:14.5px;color:#4a3a2a}',
     '.ivcard{background:#fff;border:1px solid var(--isd);border-radius:6px;padding:12px}',
     '.ivlbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-bottom:8px}',
-    '.ivcand{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:var(--isl);border:1px solid transparent;',
-    '  border-radius:4px;padding:10px;margin-top:7px;min-height:48px;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:14px;color:var(--ik)}',
+    '.ivcand{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid transparent;',
+    '  border-radius:6px;padding:8px 10px;margin-top:2px;min-height:54px;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:14.5px;color:var(--ik)}',
+    '.ivcand:hover{background:var(--isl)}',
     '.ivcand.on{background:var(--icr);border-color:var(--iv)}',
     '.ivcand b{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '.ivcand i{font-style:normal;font-size:12.5px;font-weight:700;color:var(--iv)}',
+    '.ivcand i{font-style:normal;font-size:14.5px;font-weight:700;color:var(--iv);font-variant-numeric:tabular-nums;white-space:nowrap}',
     '.ivdot{width:9px;height:9px;border-radius:50%;background:var(--isd);flex:0 0 auto}',
     '.ivdot.done{background:var(--iol)}.ivdot.part{background:var(--igo)}',
     '.ivtop{display:flex;gap:8px;flex-wrap:wrap;align-items:center}',
@@ -343,8 +380,9 @@ function ivsInjectCss(){
     '.ivfind input:focus{outline:3px solid var(--igo);outline-offset:1px;background:#fff}',
     '.ivfind input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}',   // ours is the one clear button
     '.ivfind button{position:absolute;right:2px;top:1px;width:44px;height:44px;border:0;background:none;color:var(--ivl);font-size:20px;cursor:pointer}',
-    '.ivfindn{font-size:12px;color:#6b5a48;margin-top:6px}',
-    '.ivcand small{display:block;font-size:11.5px;font-weight:400;color:#6b5a48;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ivfindn{display:flex;align-items:center;gap:12px;font-size:13px;color:#5a4a3a;margin:8px 0 2px;min-height:32px}.ivfindn span{flex:1}',
+    '.ivfindn button{background:none;border:0;padding:0;min-height:32px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:13px;font-weight:600;text-decoration:underline;cursor:pointer;white-space:nowrap}',
+    '.ivcand small{display:block;font-size:12.5px;font-weight:400;color:#5a4a3a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}',
     '.ivcand .nmw{flex:1;min-width:0}.ivcand .nmw b{display:block}',
     // the bottom strip stays clear so the "Tell us" pill never sits on the Add button
     '#ivs-bulk{position:fixed;inset:0;z-index:9000;background:rgba(20,10,5,.72);display:flex;flex-direction:column;padding-bottom:56px;box-sizing:border-box}',
@@ -433,8 +471,8 @@ function ivsInjectCss(){
     '.ivwho{font-size:12.5px;color:#5a4a3a;margin-top:4px}.ivwho button{background:none;border:0;color:var(--ivl);font-weight:700;text-decoration:underline;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:12.5px;min-height:32px;padding:0 4px}',
     '.ivstg{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin:14px 0 2px;display:flex;justify-content:space-between}',
     '.ivstg:first-child{margin-top:6px}',
-    '.ivchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}',
-    '.ivchips button{min-height:38px;padding:0 12px;border-radius:20px;border:1px solid var(--isd);background:#fff;color:var(--iv);font-size:13px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.ivchips{display:flex;flex-wrap:nowrap;gap:6px;margin-top:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}',
+    '.ivchips button{flex:0 0 auto;min-height:38px;padding:0 13px;border-radius:20px;border:1px solid var(--isd);background:#fff;color:var(--iv);font-size:13.5px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.ivchips button.on{background:var(--iv);color:#fff;border-color:var(--iv)}',
     '.ivby{display:inline-block;font-size:11px;color:#5a4a3a;margin-left:6px;font-weight:400}',
     '.ivhist{background:#f3e9c4;color:#4a3900;border-radius:5px;padding:9px 11px;font-size:13.5px;margin-top:10px;line-height:1.45}',
@@ -459,7 +497,17 @@ function ivsInjectCss(){
     '@media(max-width:760px){',
     '  .ivmlrow{flex-direction:column;gap:1px}.ivmlrow i{flex:none}',
     '  .ivmlft button{flex:1 1 100%}',
-    '  .ivgrid{grid-template-columns:1fr}',
+    '  .ivwrap{padding:14px 14px 90px}',
+    '  .ivgrid{grid-template-columns:minmax(0,1fr)}',
+    '  .ivside{position:static;max-height:none}.ivlrows{overflow:visible;padding-right:0}',
+    '  .ivgrid.sel .ivside{display:none}.ivgrid:not(.sel) #ivs-editor{display:none}',
+    '  .ivwrap.ivopen .ivhd,.ivwrap.ivopen .ivtabs{display:none}',
+    '  #ivs-editor{padding:0 14px 14px}',
+    '  .ivselbar{position:sticky;top:var(--ivhd,0px);z-index:6;background:#fff;margin:0 -14px 10px;padding:4px 14px;border-bottom:1px solid var(--isl);border-radius:6px 6px 0 0}',
+    '  .ivback{order:0;margin-left:0;text-decoration:none;min-height:44px;font-size:15px}.ivback .m{display:inline}.ivback .d{display:none}',
+    '  .ivselsc{display:block;margin-left:auto;font-size:20px;font-weight:700;color:var(--iv);font-variant-numeric:tabular-nums}.ivselsc small{font-size:12px;color:#5a4a3a;font-weight:500}',
+    '  .ivtabs{gap:18px}.ivlock span{display:none}',
+    '  .ivstat{padding:8px 4px}.ivstat span{font-size:9px;letter-spacing:.06em}',
     '  .ivdet{grid-template-columns:1fr}',
     '  .ivstats{width:100%}.ivstat{flex:1;min-width:0}',
     '  .ivs{width:100%}.ivs button{flex:1;width:auto}',
@@ -520,7 +568,7 @@ async function ivsBoot(){
 async function ivsRoundUse(r){
   ivsRound = r; IVS_EVENT = r.event;
   ivsUseSet(ivsSetByKey(r.question_set));
-  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsHist = {}; ivsTab = 'score';
+  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsStageQ = ''; ivsAddOpen = false; ivsHist = {}; ivsTab = 'score';
   try { localStorage.setItem(IVS_ROUND_STORE, r.event); } catch(e){}
   var ok = await ivsLoad();
   if (ok){ ivsScreen = 'main'; ivsStartPoll(); }
@@ -665,7 +713,7 @@ function ivsKeepTyping(to, from){
 async function ivsAdd(){
   var r = await sb.rpc('interview_add', { p_code: ivsCode, p_event: IVS_EVENT, p_by: ivsMe || '' });
   if (r.error){ kToast('Could not add — ' + (r.error.message || 'no connection'), true); return; }
-  if (ivsFolderQ){ r.data.wave = ivsFolderQ; ivsSave(r.data.id, { wave: ivsFolderQ }); }   // the folder on screen is where they go
+  if (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER){ r.data.wave = ivsFolderQ; ivsSave(r.data.id, { wave: ivsFolderQ }); }   // the folder on screen is where they go
   ivsRows.push(r.data);
   ivsQ = '';                                        // a search would hide the new, unnamed row
   ivsSel = r.data.id; ivsTab = 'score';
@@ -677,11 +725,10 @@ function ivsPick(id){
   ivsSel = id; ivsTab = 'score'; ivsRender();
   ivsMailBackfill(id);
   ivsHistLoad(id);
-  // on a phone the list sits above the sheet — a long list would leave the sheet off-screen
-  var ed = document.getElementById('ivs-editor');
-  if (ed && window.matchMedia('(max-width:760px)').matches) ed.scrollIntoView({ block:'start' });
-  else window.scrollTo(0, 0);
+  window.scrollTo(0, 0);
 }
+// back to the list (phone) / the overview (laptop)
+function ivsBack(){ ivsSel = null; ivsRender(); window.scrollTo(0, 0); }
 
 function ivsScore(key, val){
   var row = ivsRow(ivsSel); if (!row) return;
@@ -771,6 +818,40 @@ function ivsFolders(){
 }
 function ivsFolderListHtml(){ return '<datalist id="ivs-dl-folder">'+ivsFolders().map(function(f){ return '<option value="'+ivsEsc(f.name)+'">'; }).join('')+'</datalist>'; }
 function ivsFolderPick(name){ ivsFolderQ = name; ivsRenderList(); }
+function ivsFolderRename(){
+  var old = ivsFolderQ; if (!old || old === IVS_NOFOLDER) return;
+  var nw = prompt('New name for the folder “' + old + '” — every candidate in it moves:', old);
+  if (nw == null) return;
+  nw = nw.trim().slice(0, 80);
+  if (!nw || nw === old) return;
+  var n = 0;
+  ivsRows.forEach(function(r){ if ((r.wave || '').trim() === old){ r.wave = nw; ivsSave(r.id, { wave: nw }); n++; } });
+  ivsFolderQ = nw; ivsRender();
+  kToast('Folder renamed — ' + n + ' candidate' + (n === 1 ? '' : 's') + ' now in “' + nw + '”.');
+}
+// the header counters filter the list; "Candidates" clears every filter
+function ivsStagePick(k){
+  if (!k){ ivsStageQ = ''; ivsFolderQ = ''; ivsQ = ''; }
+  else ivsStageQ = ivsStageQ === k ? '' : k;
+  ivsSel = null; ivsTab = 'score'; ivsRender();
+}
+function ivsFiltersClear(){ ivsStageQ = ''; ivsFolderQ = ''; ivsQ = ''; ivsRender(); }
+function ivsAddMenu(){
+  ivsAddOpen = !ivsAddOpen;
+  var m = document.getElementById('ivs-addm'), b = document.getElementById('ivs-addb');
+  if (m) m.hidden = !ivsAddOpen;
+  if (b) b.setAttribute('aria-expanded', ivsAddOpen);
+  if (ivsAddOpen) setTimeout(function(){ document.addEventListener('click', ivsAddMenuOff, true); }, 0);
+  else document.removeEventListener('click', ivsAddMenuOff, true);
+}
+function ivsAddMenuOff(e){
+  if (e && e.target && e.target.closest && e.target.closest('.ivaddw')) return;   // its own button toggles it
+  ivsAddOpen = true; ivsAddMenu();
+}
+function ivsAddPick(which){
+  if (ivsAddOpen) ivsAddMenu();
+  if (which === 'bulk') ivsBulkOpen(); else ivsAdd();
+}
 
 async function ivsDelete(){
   var row = ivsRow(ivsSel); if (!row) return;
@@ -789,12 +870,14 @@ async function ivsDelete(){
 // ══════════════════════════════════════════════════════════════════════════
 function ivsStatsHtml(){
   var st = {}; ivsRows.forEach(function(r){ var k = ivsStage(r); st[k] = (st[k] || 0) + 1; });
-  return '<div class="ivstats">'+
-    '<div class="ivstat"><b>'+ivsRows.length+'</b><span>Candidates</span></div>'+
-    '<div class="ivstat"><b>'+(st.decide || 0)+'</b><span>To decide</span></div>'+
-    '<div class="ivstat"><b>'+(st.shortlist || 0)+'</b><span>Shortlisted</span></div>'+
-    '<div class="ivstat"><b>'+(st.hr || 0)+'</b><span>Sent to HR</span></div>'+
-  '</div>';
+  var none = !ivsStageQ && !ivsFolderQ && !ivsQ.trim();
+  var b = function(k, n, label){
+    var on = k ? ivsStageQ === k : none;
+    return '<button type="button" class="ivstat'+(on ? ' on' : '')+'" aria-pressed="'+on+'" onclick="ivsStagePick(\''+k+'\')"'+
+      ' title="'+(k ? 'Show only: '+label : 'Show everyone')+'"><b>'+n+'</b><span>'+label+'</span></button>';
+  };
+  return '<div class="ivstats">'+b('', ivsRows.length, 'Candidates')+b('decide', st.decide || 0, 'To decide')+
+    b('shortlist', st.shortlist || 0, 'Shortlisted')+b('hr', st.hr || 0, 'Sent to HR')+'</div>';
 }
 
 function ivsCandLabel(r){ return r.name && r.name.trim() ? r.name : 'Unnamed candidate'; }
@@ -802,12 +885,15 @@ function ivsCandLabel(r){ return r.name && r.name.trim() ? r.name : 'Unnamed can
 // the buttons and the search box sit OUTSIDE #ivs-list, so a poll redrawing the
 // list never takes the search box out from under the chef's typing
 function ivsListShellHtml(){
-  return '<div class="ivlbl">Candidates</div>'+
-    '<button class="ivb" style="width:100%" onclick="ivsAdd()">+ Add candidate</button>'+
-    '<button class="ivb2" style="width:100%;margin-top:7px" onclick="ivsBulkOpen()">Add CVs in bulk</button>'+
-    '<div class="ivfind"><input id="ivs-search" type="search" placeholder="Search candidates" aria-label="Search candidates" autocomplete="off" value="'+ivsEsc(ivsQ)+'" oninput="ivsSearch(this)" onkeydown="ivsSearchKey(event)">'+
+  return '<div class="ivbar1">'+
+    '<div class="ivfind"><input id="ivs-search" type="search" placeholder="Search '+ivsRows.length+' candidates" aria-label="Search candidates" autocomplete="off" value="'+ivsEsc(ivsQ)+'" oninput="ivsSearch(this)" onkeydown="ivsSearchKey(event)">'+
     (ivsQ ? '<button type="button" aria-label="Clear search" onclick="ivsSearchClear()">&times;</button>' : '')+'</div>'+
-    '<div id="ivs-list">'+ivsListHtml()+'</div>';
+    '<div class="ivaddw"><button type="button" id="ivs-addb" class="ivb" aria-haspopup="true" aria-expanded="'+ivsAddOpen+'" onclick="ivsAddMenu()">+ Add</button>'+
+      '<div class="ivaddm" id="ivs-addm"'+(ivsAddOpen ? '' : ' hidden')+'>'+
+        '<button type="button" onclick="ivsAddPick(\'one\')">One candidate</button>'+
+        '<button type="button" onclick="ivsAddPick(\'bulk\')">CVs in bulk…</button></div></div>'+
+  '</div>'+
+  '<div id="ivs-list">'+ivsListHtml()+'</div>';
 }
 
 // lower-case, accents off, anything that is not a letter or digit becomes a space
@@ -835,7 +921,12 @@ function ivsWhere(r, q){
   if (det) return det[1] + ': ' + r[det[0]];
   return 'found in CV file name';
 }
-function ivsFiltered(){ return ivsRows.filter(function(r){ return (!ivsFolderQ || (r.wave || '').trim() === ivsFolderQ) && ivsMatches(r, ivsQ); }); }
+function ivsFiltered(){ return ivsRows.filter(function(r){
+  var w = (r.wave || '').trim();
+  if (ivsFolderQ === IVS_NOFOLDER ? w : (ivsFolderQ && w !== ivsFolderQ)) return false;
+  if (ivsStageQ && ivsStage(r) !== ivsStageQ) return false;
+  return ivsMatches(r, ivsQ);
+}); }
 
 function ivsSearch(el){
   ivsQ = el.value;
@@ -859,29 +950,42 @@ function ivsSearchClear(){
 
 function ivsListHtml(){
   if (!ivsRows.length) return '<div class="ivempty">No candidates yet. Add the first one above, or add a folder of CVs in bulk.</div>';
-  var hits = ivsFiltered(), h = '', folders = ivsFolders();
-  if (ivsFolderQ && !folders.some(function(f){ return f.name === ivsFolderQ; })) ivsFolderQ = '';   // the folder was renamed away
+  var folders = ivsFolders(), h = '';
+  if (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER && !folders.some(function(f){ return f.name === ivsFolderQ; })) ivsFolderQ = '';   // the folder was renamed away
+  var unfiled = ivsRows.filter(function(r){ return !(r.wave || '').trim(); }).length;
+  if (ivsFolderQ === IVS_NOFOLDER && !unfiled) ivsFolderQ = '';
+  var hits = ivsFiltered();
+  h += '<div class="ivlhead">';
   if (folders.length){
-    h += '<div class="ivchips"><button class="'+(ivsFolderQ ? '' : 'on')+'" onclick="ivsFolderPick(\'\')">All · '+ivsRows.length+'</button>'+
-      folders.map(function(f){ return '<button class="'+(ivsFolderQ === f.name ? 'on' : '')+'" onclick="ivsFolderPick(this.getAttribute(\'data-f\'))" data-f="'+ivsEsc(f.name)+'">'+ivsEsc(f.name)+' · '+f.n+'</button>'; }).join('')+'</div>';
+    var chip = function(val, label, on){ return '<button type="button" class="'+(on ? 'on' : '')+'" aria-pressed="'+on+'" onclick="ivsFolderPick(this.getAttribute(\'data-f\'))" data-f="'+ivsEsc(val)+'">'+ivsEsc(label)+'</button>'; };
+    h += '<div class="ivchips" role="group" aria-label="Folders">'+chip('', 'All · '+ivsRows.length, !ivsFolderQ)+
+      folders.map(function(f){ return chip(f.name, f.name+' · '+f.n, ivsFolderQ === f.name); }).join('')+
+      (unfiled ? chip(IVS_NOFOLDER, 'No folder · '+unfiled, ivsFolderQ === IVS_NOFOLDER) : '')+'</div>';
   }
-  if (ivsQ.trim()){
-    h += '<div class="ivfindn">'+(hits.length ? hits.length+' of '+ivsRows.length+' candidates' : 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”')+'</div>';
-  }
+  var filtered = !!(ivsStageQ || ivsFolderQ || ivsQ.trim());
+  h += '<div class="ivfindn"><span>'+(filtered ? hits.length+' of '+ivsRows.length+(ivsStageQ ? ' · '+ivsEsc(ivsStageWord(ivsStageQ)) : '') : 'All '+ivsRows.length)+'</span>'+
+    (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER ? '<button type="button" onclick="ivsFolderRename()">Rename folder</button>' : '')+
+    (filtered ? '<button type="button" onclick="ivsFiltersClear()">Clear filters</button>' : '')+'</div></div><div class="ivlrows">';
+  if (!hits.length) h += '<div class="ivempty">'+(ivsQ.trim() ? 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”.' : 'No candidates here.')+'</div>';
   var groups = {}; hits.forEach(function(r){ var k = ivsStage(r); (groups[k] = groups[k] || []).push(r); });
-  IVS_STAGES.forEach(function(st){
+  // what needs a decision first, then what is half-done, then the rest
+  ['decide','scoring','new','shortlist','hr','reject'].map(function(k){ return [k, ivsStageWord(k)]; }).forEach(function(st){
     var rows = groups[st[0]]; if (!rows || !rows.length) return;
+    // the ones to decide best first; the ones being scored nearest to done first
+    if (st[0] === 'decide') rows = rows.slice().sort(function(a, b){ return ivsCalc(b).final - ivsCalc(a).final; });
+    if (st[0] === 'scoring') rows = rows.slice().sort(function(a, b){ return ivsCalc(b).scored - ivsCalc(a).scored; });
     h += '<div class="ivstg"><span>'+ivsEsc(st[1])+'</span><span>'+rows.length+'</span></div>';
     rows.forEach(function(r){
-      var c = ivsCalc(r), where = [ivsQ.trim() ? ivsWhere(r, ivsQ) : '', !ivsFolderQ && (r.wave || '').trim() ? r.wave.trim() : '', ivsActLine(r.id)]
+      var c = ivsCalc(r), w = (r.wave || '').trim();
+      var where = [ivsQ.trim() ? ivsWhere(r, ivsQ) : '', ivsFolderQ ? '' : (w || 'No folder'), ivsCvsFor(r.id).length ? 'CV' : 'No CV', ivsActLine(r.id)]
         .filter(function(x, i, arr){ return x && arr.indexOf(x) === i; }).join(' · ');   // a search hit in the folder name is not said twice
-      h += '<button class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
-        '<span class="ivdot'+(c.done?' done':(c.scored?' part':''))+'"></span>'+
-        '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b>'+(where ? '<small>'+ivsEsc(where)+'</small>' : '')+'</span>'+
-        (ivsCvsFor(r.id).length?'<span class="cv">CV</span>':'')+'<i>'+(c.done ? c.final : (c.scored ? c.scored+'/'+IVS_LINES : '—'))+'</i></button>';
+      h += '<button type="button" class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
+        '<span class="ivdot s-'+st[0]+'"></span>'+
+        '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b><small>'+ivsEsc(where)+'</small></span>'+
+        '<i>'+(c.done ? c.final : (c.scored ? c.scored+'/'+IVS_LINES : ''))+'</i></button>';
     });
   });
-  return h;
+  return h + '</div>';
 }
 function ivsRenderList(){
   var el = document.getElementById('ivs-list'); if (el) el.innerHTML = ivsListHtml();
@@ -900,11 +1004,43 @@ function ivsSumHtml(r){
   '</div>';
 }
 
+function ivsOverviewHtml(){
+  if (!ivsRows.length) return '<div id="ivs-ov" class="ivempty">No candidates yet — add one with “+ Add”, or add a folder of CVs in bulk.</div>';
+  var all = ivsRows.map(function(r){ return { r:r, c:ivsCalc(r), s:ivsStage(r) }; });
+  var dec = all.filter(function(x){ return x.s === 'decide'; }).sort(function(a, b){ return b.c.final - a.c.final; });
+  var scg = all.filter(function(x){ return x.s === 'scoring'; }).sort(function(a, b){ return b.c.scored - a.c.scored; });
+  var top = all.filter(function(x){ return x.c.done; }).sort(function(a, b){ return b.c.final - a.c.final; }).slice(0, 5);
+  var fresh = all.filter(function(x){ return x.s === 'new'; }).length;
+  var mini = function(x, rank){
+    return '<button type="button" class="ivmini" onclick="ivsPick(\''+x.r.id+'\')">'+(rank ? '<span class="rk">'+rank+'</span>' : '')+
+      '<span class="g">'+ivsEsc(ivsCandLabel(x.r))+'</span>'+
+      (rank ? '<span class="ivbar"><i style="width:'+x.c.final+'%"></i></span>' : '')+
+      '<b>'+(x.c.done ? x.c.final : x.c.scored+'/'+IVS_LINES)+'</b></button>';
+  };
+  var box = function(title, n, color, lead, list, stage, ranked){
+    return '<div class="ivovb"><div class="t"><b>'+title+'</b>'+(n != null ? '<span style="color:'+color+'">'+n+'</span>' : '')+'</div><p>'+lead+'</p>'+
+      (list.length ? list.slice(0, 5).map(function(x, i){ return mini(x, ranked ? i + 1 : 0); }).join('') : '<div class="ivovnone">None yet.</div>')+
+      (stage && list.length > 5 ? '<button type="button" class="ivovall" onclick="ivsStagePick(\''+stage+'\')">See all '+list.length+'</button>' : '')+'</div>';
+  };
+  return '<div id="ivs-ov"><div class="ivlbl">Overview</div><h3 class="ivovh">Where the round stands</h3><div class="ivov">'+
+    box('To decide', dec.length, '#a3261c', 'Fully scored — waiting for shortlist or reject.', dec, 'decide', false)+
+    box('Being scored', scg.length, '#7a5b00', 'Started, lines still open — pick up where it stopped.', scg, 'scoring', false)+
+    box('Top of the leaderboard', null, '', 'Final score out of 100.', top, '', true)+'</div>'+
+    (fresh ? '<div class="ivovnew"><b>'+fresh+' not started.</b> Pick a name to score, or tap a folder to see one interview day.</div>' : '')+
+  '</div>';
+}
+function ivsSelBarHtml(r){
+  var c = ivsCalc(r), k = ivsStage(r);
+  return '<div class="ivselbar"><button type="button" class="ivback" onclick="ivsBack()"><span class="m">‹ Candidates</span><span class="d">Back to overview</span></button>'+
+    '<span class="ivspill s-'+k+'">'+ivsEsc(ivsStageWord(k))+'</span>'+
+    '<span class="ivselsc" id="ivs-selsc">'+(c.done ? c.final+'<small> /100</small>' : c.scored ? c.scored+'/'+IVS_LINES : '')+'</span></div>';
+}
+
 function ivsEditorHtml(){
   var r = ivsRow(ivsSel);
-  if (!r) return '<div class="ivempty">Select a candidate on the left, or add a new one.</div>';
+  if (!r) return ivsOverviewHtml();
   var sc = r.scores || {};
-  var h = '<div class="ivtop">'+
+  var h = ivsSelBarHtml(r) + '<div class="ivtop">'+
     '<input id="ivs-name" class="ivname" placeholder="Candidate name" value="'+ivsEsc(r.name)+'" oninput="ivsName(this)" autocomplete="off">'+
     '<input id="ivs-wave" class="ivsel" style="flex:1 1 200px;min-width:0" list="ivs-dl-folder" maxlength="80" autocomplete="off" placeholder="Folder — e.g. Monday 21st interview" aria-label="Folder" value="'+ivsEsc(r.wave||'')+'" oninput="ivsWave(this)" onchange="ivsWaveFlush(this)">'+
     ivsFolderListHtml()+
@@ -1376,7 +1512,7 @@ function ivsEntryFiles(entry){
 
 function ivsBulkOpen(){
   if (ivsBulk) return;
-  ivsBulk = { rows: [], reading: false, running: false, stopped: false, wave: ivsFolderQ || '', seq: 0 };
+  ivsBulk = { rows: [], reading: false, running: false, stopped: false, wave: (ivsFolderQ !== IVS_NOFOLDER && ivsFolderQ) || '', seq: 0 };
   var v = document.createElement('div'); v.id = 'ivs-bulk';
   v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Add CVs in bulk');
   document.body.appendChild(v);
@@ -2316,6 +2452,10 @@ function ivsRender(fromPoll){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
     if (r && sumEl) sumEl.outerHTML = ivsSumHtml(r);
+    var ovEl = document.getElementById('ivs-ov');
+    if (!r && ovEl) ovEl.outerHTML = ivsOverviewHtml();
+    var sbEl = document.querySelector('#interviews-view .ivselbar');
+    if (r && sbEl) sbEl.outerHTML = ivsSelBarHtml(r);
     var cvEl = document.getElementById('ivs-cvs');
     if (r && cvEl) cvEl.outerHTML = ivsCvsHtml(r);
     var acEl = document.getElementById('ivs-acts');
@@ -2335,16 +2475,20 @@ function ivsRender(fromPoll){
   var y = window.scrollY;
   if (ivsScreen === 'name'){ v.innerHTML = '<div class="ivwrap">'+ivsNameHtml()+'</div>'; var ni = document.getElementById('ivs-me-new'); if (ni && !(ivsSettings && (ivsSettings.interviewers||[]).length)) ni.focus(); return; }
   if (ivsScreen === 'rounds' || !ivsRound){ v.innerHTML = '<div class="ivwrap">'+ivsRoundsHtml()+'</div>'; return; }
+  var open = ivsTab === 'score' && !!ivsRow(ivsSel);
   var body = ivsTab === 'board' ? ivsBoardHtml() : ivsTab === 'emails' ? ivsEmailsHtml() : ivsTab === 'setup' ? ivsSetupHtml()
-    : '<div class="ivgrid"><div class="ivcard">'+ivsListShellHtml()+'</div>'+
+    : '<div class="ivgrid'+(open ? ' sel' : '')+'"><div class="ivcard ivside">'+ivsListShellHtml()+'</div>'+
       '<div class="ivcard" id="ivs-editor">'+ivsEditorHtml()+'</div></div>';
-  var tab = function(k, label){ return '<button class="ivb2'+(ivsTab===k?' on':'')+'" onclick="ivsTab=\''+k+'\';ivsRender()">'+label+'</button>'; };
-  v.innerHTML = '<div class="ivwrap">'+
+  var tab = function(k, label){ return '<button type="button" class="ivtabn'+(ivsTab===k?' on':'')+'" aria-pressed="'+(ivsTab===k)+'" onclick="ivsTab=\''+k+'\';ivsRender()">'+label+'</button>'; };
+  // the kitchen app's own header is sticky: the list column sticks just below it, whatever its height
+  var hd = document.querySelector('.app-header');
+  v.style.setProperty('--ivhd', ((hd && hd.offsetHeight) || 0) + 'px');
+  v.innerHTML = '<div class="ivwrap'+(open ? ' ivopen' : '')+'">'+
     '<div class="ivhd"><div><small>Roberto\'s Dubai · Kitchen · '+ivsEsc(ivsRound.position || 'Hiring')+(ivsRound.closed_on ? ' · closed' : '')+'</small><h2>'+ivsEsc(ivsRound.title)+'</h2>'+
       '<div class="ivwho">Scoring as <b>'+ivsEsc(ivsMe)+'</b><button onclick="ivsMeChange()">change</button> · <button onclick="ivsRoundsOpen()">other rounds</button></div></div>'+
       '<div id="ivs-stats">'+ivsStatsHtml()+'</div></div>'+
     '<div class="ivtabs">'+tab('score','Score')+tab('board','Leaderboard')+tab('emails','Emails')+tab('setup','Set-up')+
-      '<button class="ivlock" onclick="ivsLock()">Lock</button>'+
+      '<button type="button" class="ivlock" onclick="ivsLock()" aria-label="Lock the board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Lock</span></button>'+
     '</div>'+
     (ivsErr ? '<div class="iverr" style="margin-bottom:10px">'+ivsEsc(ivsErr)+'</div>' : '')+
     body +
