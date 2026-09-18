@@ -188,6 +188,21 @@ async function loadFmcQuotes(){
   });
 }
 
+// The supplier a NEW line gets, chosen by the app, never typed by a person.
+// FMC's Price Quotes are the links FMC will accept an order on, so the newest
+// quote wins; fmc_articles.supplier is only the fallback. Until 18 Sep 2026 the
+// add box read fmc_articles.supplier alone, and that column is empty whenever
+// FMC's quote row has a blank Article No - which is most of them. Cheese Cow
+// Ciliegine went on the list with no supplier while FMC's own Price Quotes
+// named Quality Taste at 52.000, and 341 other live articles were one tap from
+// the same. null only when FMC links nobody to the article at all.
+function mlSupplierFor(art){
+  const c = art && art.code != null ? String(art.code).trim() : '';
+  const q = (c && mlQuotes[c]) || [];
+  if(q.length && q[0].supplier) return q[0].supplier;
+  return art && art.supplier ? String(art.supplier).trim() : null;
+}
+
 // What FMC will accept for this line, and whether our stored choice is among it.
 // An empty list means the catalogue has nothing for the code - NOT that the item
 // cannot be ordered - so the caller shows the stored supplier unchanged rather
@@ -580,7 +595,7 @@ function mlRenderPickMenu(category, safe){
         (a.retiring ? '<span class="ml-flag retiring">retiring</span>' : '') +
         (where ? '<span class="ml-flag onlist">on the list · ' + mlEsc(where) + '</span>' : '') +
         '<div class="ml-pick-meta">' + mlEsc(a.unit||'—') +
-        (a.supplier ? ' · ' + mlEsc(a.supplier) : '') + '</div></div>' +
+        (mlSupplierFor(a) ? ' · ' + mlEsc(mlSupplierFor(a)) : ' · <b>no supplier in FMC</b>') + '</div></div>' +
       '<span class="ml-pick-code">' + mlEsc(a.code) + '</span></div>';
   }).join('');
 
@@ -686,6 +701,21 @@ async function mlAddCustom(category, safe){
     alert('The FMC article list has not loaded yet - give it a moment and try again.');
     return;
   }
+  if(art && !mlQuotesLoaded){
+    try { await loadFmcQuotes(); } catch(e){ console.warn('fmc_price_quotes load failed', e); }
+  }
+  if(art && !mlQuotesLoaded){
+    alert('FMC\'s suppliers have not loaded yet - give it a moment and try again.');
+    return;
+  }
+  const artSupplier = art ? mlSupplierFor(art) : null;
+  if(art && !artSupplier){
+    alert('FMC has no supplier linked to ' + art.name + ' (' + art.code + '), so it cannot be '
+        + 'ordered and cannot go on the market list.\n\n'
+        + 'Once a supplier is linked to it in Materials Control (Purchase > Price Quotes) and '
+        + 'prices are refreshed, it can be added.');
+    return;
+  }
   if(!art){
     alert('Choose the item from the list that drops down as you type.\n\n'
         + 'Only items in the FMC article catalogue can go on the market list, so that '
@@ -732,7 +762,7 @@ async function mlAddCustom(category, safe){
                 sort_order: slot, active:true,
                 code: art.code,
                 fmc_unit: art.unit || null,
-                supplier: art.supplier || null,
+                supplier: artSupplier,
                 fmc_verified_at: new Date().toISOString(),
                 fmc_verified_by: 'catalogue' };
 
@@ -747,7 +777,7 @@ async function mlAddCustom(category, safe){
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
   if(typeof kToast === 'function'){
-    kToast('✓ ' + art.name + ' added' + (safe === 'global' ? ' to ' + category : '') + ' · ' + art.code + ' · ' + (art.unit||''));
+    kToast('✓ ' + art.name + ' added' + (safe === 'global' ? ' to ' + category : '') + ' · ' + art.code + ' · ' + (art.unit||'') + ' · ' + artSupplier);
   }
   // keep focus flowing: re-focus the same category's add box
   const again = document.getElementById('mladd-' + safe);
@@ -875,13 +905,20 @@ async function mlRepoint(itemId, art){
   if(!it || !art) return;
 
   var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
+  if(!mlQuotesLoaded){ try { await loadFmcQuotes(); } catch(e){ console.warn('fmc_price_quotes load failed', e); } }
+  var newSupplier = mlSupplierFor(art);
+  if(!newSupplier){
+    var why = 'FMC has no supplier linked to ' + art.name + ' (' + art.code + '), so the line could not be ordered. Not repointed.';
+    if(typeof kToast === 'function') kToast(why, true); else alert(why);
+    return;
+  }
   if(!(await kAsk('Point "' + it.name + '" at:\n\n' + art.name + '\n' + art.code + ' · ' + (art.unit||'') +
-      (art.supplier ? '\n' + art.supplier : '') +
+      '\n' + newSupplier +
       '\n\nThe line keeps its place and every quantity on it' +
       (ordered ? ' — including ' + ordered + ' day' + (ordered===1?'':'s') + ' this week' : '') + '.', { ok:'Point it there' }))) return;
 
   var res = await sb.from('order_items').update({
-    code: art.code, fmc_unit: art.unit || null, supplier: art.supplier || null,
+    code: art.code, fmc_unit: art.unit || null, supplier: newSupplier,
     fmc_none: false,
     fmc_verified_at: new Date().toISOString(), fmc_verified_by: 'catalogue'
   }).eq('id', itemId);
@@ -890,7 +927,7 @@ async function mlRepoint(itemId, art){
     if(typeof kToast === 'function') kToast(m, true); else alert(m);
     return;
   }
-  it.code = art.code; it.fmc_unit = art.unit || null; it.supplier = art.supplier || null; it.fmc_none = false;
+  it.code = art.code; it.fmc_unit = art.unit || null; it.supplier = newSupplier; it.fmc_none = false;
   mlRepointFor = null;
   mlCloseEditor();
   mlRenderRows(mlVisibleDays());
