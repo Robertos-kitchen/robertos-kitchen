@@ -1299,6 +1299,26 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .kev-hl-note{font-size:12px;line-height:1.4;color:#5A3A1E;margin-top:3px}
 body.roomstep .kev-hl-note{color:#5A3A1E}
 .kev-err{font-size:12px;color:#8A2A1A;background:#FBE9E7;border:1px solid #f3c6bf;border-radius:8px;padding:8px 11px;margin-bottom:14px}
+/* Complimentary tasting -> Aung (18 Sep 2026). Dark text on the card's own cream: 7:1 or better. */
+.kev-comp-box{margin-top:10px;border-top:1px dashed var(--sabbia-dark);padding-top:10px}
+.kev-comp-open{background:transparent;color:var(--vino);border:1.5px solid var(--vino);border-radius:8px;padding:10px 14px;font-family:var(--font-sans);font-size:13px;font-weight:600;cursor:pointer}
+.kev-comp-open:active{background:#F3E9DA}
+.kev-comp-sent{font-size:13px;color:#2F4A12;font-weight:600;margin-bottom:8px}
+.kev-comp-ok{font-size:13px;color:#2F4A12;margin-top:8px}
+.kev-comp-panel{background:#FFFBF5;border:1px solid var(--sabbia-dark);border-radius:10px;padding:12px 14px;cursor:default}
+.kev-comp-h{font-family:var(--font-serif);font-size:19px;color:var(--vino);line-height:1.15}
+.kev-comp-sub{font-size:12.5px;color:#4A3524;margin:3px 0 6px}
+.kev-comp-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid rgba(207,192,173,.6)}
+.kev-comp-norec{font-size:12px;color:#8A2A1A;font-weight:600;margin-top:1px}
+.kev-comp-in{width:72px;min-height:44px;font-size:18px;text-align:center;border:1.5px solid #B9A48A;border-radius:8px;background:#fff;color:#2C1810;font-family:var(--font-sans)}
+.kev-comp-warn{background:#FBE9E7;border:1px solid #E7B7AE;color:#5E1A10;border-radius:8px;padding:9px 11px;font-size:13.5px;line-height:1.45;margin-top:12px}
+.kev-comp-lbl{display:block;font-size:12.5px;color:#3A2A1C;font-weight:600;margin:12px 0 4px}
+.kev-comp-note,.kev-comp-code{width:100%;box-sizing:border-box;min-height:44px;font-size:16px;border:1.5px solid #B9A48A;border-radius:8px;padding:8px 10px;background:#fff;color:#2C1810;font-family:var(--font-sans)}
+.kev-comp-code{max-width:220px;letter-spacing:4px}
+.kev-comp-err{color:#8A1A10;font-size:13.5px;font-weight:600;margin-top:10px}
+.kev-comp-btns{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;flex-wrap:wrap}
+.kev-comp-cancel{background:transparent;border:1px solid #B9A48A;color:#3A2A1C;border-radius:8px;padding:11px 16px;font-family:var(--font-sans);font-size:13px;cursor:pointer}
+.kev-comp-btns button[disabled]{opacity:.6;cursor:default}
 </style>
 <div id="home-view" class="home-view">
   <div class="home-title">Kitchen App</div>
@@ -1495,7 +1515,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1789747927"></script>
+<script src="app.js?v=1789748168"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
