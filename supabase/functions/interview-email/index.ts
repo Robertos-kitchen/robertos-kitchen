@@ -35,6 +35,7 @@ const FALLBACK = {
   shortlist_cc: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],
   shortlist_reply_to: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],
   hr_to: ["lmadlag@robertos.ae", "slhanzom@robertos.ae", "dsaxena@skelmore.com"],
+  hr_cc: [] as string[],   // copy list on the hiring request (Francesco, 18 Sep 2026) — Set-up decides
   hr_reply_to: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],   // Francesco, 17 Sep 2026
 };
 type Lists = typeof FALLBACK;
@@ -193,7 +194,7 @@ function buildMail(action: string, name: string, email: string, position: string
     };
   }
   return {
-    from: FROM_TEAM, to: L.hr_to.slice(), cc: [], reply_to: L.hr_reply_to.slice(),
+    from: FROM_TEAM, to: L.hr_to.slice(), cc: L.hr_cc.filter((a) => !L.hr_to.includes(a)), reply_to: L.hr_reply_to.slice(),
     subject: `Hiring Request – ${name} – ${position}`,
     text: `Dear HR Team,\n\nPlease find attached the CV and hiring form for the candidate below:\n\n` +
       `Name: ${name}\nEmail: ${email}\nPosition: ${position}\nDate: ${dubaiDate()}\n\nKind regards,\n${TEAM}`,
@@ -211,7 +212,7 @@ Deno.serve(async (req) => {
 
   // passcode first — nothing about a candidate is confirmed or denied without it
   const code = String(b.code ?? "");
-  const st = await sb.from("interview_settings").select("passcode,hr_to,shortlist_cc,shortlist_reply_to,hr_reply_to").eq("id", 1).maybeSingle();
+  const st = await sb.from("interview_settings").select("passcode,hr_to,hr_cc,shortlist_cc,shortlist_reply_to,hr_reply_to").eq("id", 1).maybeSingle();
   if (st.error) return json({ error: "Could not check the passcode. Try again." }, 500);
   if (!code || !st.data || st.data.passcode !== code) return json({ error: "wrong passcode" }, 401);
 

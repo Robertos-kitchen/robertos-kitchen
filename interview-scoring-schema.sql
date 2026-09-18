@@ -603,3 +603,51 @@ notify pgrst, 'reload schema';
 drop function if exists public.interview_add(text,text);
 drop function if exists public.interview_patch(text,uuid,jsonb);
 notify pgrst, 'reload schema';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 18 Sep 2026, Francesco: Leverina (HR) can use the module — she is offered as a
+-- name on unlock; and the Hiring Request can carry a copy list (hr_cc), edited
+-- in Set-up like the other lists. Applied to the Kitchen project 18 Sep 2026.
+-- ══════════════════════════════════════════════════════════════════════════
+alter table public.interview_settings
+  add column if not exists hr_cc text[] not null default '{}';
+update public.interview_settings set
+  interviewers = case when interviewers @> '["Leverina (HR)"]'::jsonb then interviewers else interviewers || '["Leverina (HR)"]'::jsonb end,
+  -- starts with the shortlist copy people who are not already the HR address
+  hr_cc = case when hr_cc = '{}' then (select coalesce(array_agg(x), '{}') from unnest(shortlist_cc) x where not (x = any(hr_to))) else hr_cc end
+where id = 1;
+
+-- the row type grows a column: Postgres wants the old shape dropped first
+drop function if exists public.interview_settings_get(text);
+drop function if exists public.interview_settings_patch(text,jsonb);
+create or replace function public.interview_settings_get(p_code text)
+returns table(interviewers jsonb, hr_to text[], hr_cc text[], shortlist_cc text[], shortlist_reply_to text[], hr_reply_to text[])
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  return query select s.interviewers, s.hr_to, s.hr_cc, s.shortlist_cc, s.shortlist_reply_to, s.hr_reply_to from interview_settings s where s.id = 1;
+end $$;
+
+create or replace function public.interview_settings_patch(p_code text, p_patch jsonb)
+returns table(interviewers jsonb, hr_to text[], hr_cc text[], shortlist_cc text[], shortlist_reply_to text[], hr_reply_to text[])
+language plpgsql security definer set search_path = public as $$
+declare k text; arr text[]; a text; names jsonb;
+begin
+  if not interview_ok(p_code) then raise exception 'wrong passcode'; end if;
+  foreach k in array array['hr_to','hr_cc','shortlist_cc','shortlist_reply_to','hr_reply_to'] loop
+    if p_patch ? k then
+      select coalesce(array_agg(lower(trim(x))), '{}') into arr from jsonb_array_elements_text(p_patch->k) x where trim(x) <> '';
+      foreach a in array arr loop
+        if not interview_addr_ok(a) then raise exception 'Only @robertos.ae and @skelmore.com addresses can receive candidate data (%)', a; end if;
+      end loop;
+      if k = 'hr_to' and cardinality(arr) = 0 then raise exception 'HR needs at least one address'; end if;
+      execute format('update interview_settings set %I = $1 where id = 1', k) using arr;
+    end if;
+  end loop;
+  if p_patch ? 'interviewers' then
+    select coalesce(jsonb_agg(left(trim(x), 60)), '[]'::jsonb) into names from jsonb_array_elements_text(p_patch->'interviewers') x where trim(x) <> '';
+    update interview_settings set interviewers = names where id = 1;
+  end if;
+  return query select s.interviewers, s.hr_to, s.hr_cc, s.shortlist_cc, s.shortlist_reply_to, s.hr_reply_to from interview_settings s where s.id = 1;
+end $$;
+notify pgrst, 'reload schema';

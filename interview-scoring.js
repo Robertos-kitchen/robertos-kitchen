@@ -2087,7 +2087,7 @@ function ivsEmailsHtml(){
 
 // ── Set-up tab: this round, the people, the recipients, the question sets ──
 function ivsSetupHtml(){
-  var S = ivsSettings || { interviewers: [], hr_to: [], shortlist_cc: [], shortlist_reply_to: [], hr_reply_to: [] };
+  var S = ivsSettings || { interviewers: [], hr_to: [], hr_cc: [], shortlist_cc: [], shortlist_reply_to: [], hr_reply_to: [] };
   var scored = ivsRows.some(function(r){ return ivsCalc(r).scored > 0; });
   var h = '<div class="ivsetup">';
   // this round
@@ -2110,6 +2110,7 @@ function ivsSetupHtml(){
   };
   h += '<div class="ivcard"><h4>Who receives the emails</h4><p class="ivnote" style="margin:0">Only @robertos.ae and @skelmore.com addresses — the database refuses anything else, so a CV can never leave the company.</p>'+
     list('hr_to', 'Hiring request — To', 'HR, with the CV and the evaluation form.')+
+    list('hr_cc', 'Hiring request — copy to', 'Copied on the email to HR.')+
     list('hr_reply_to', 'Hiring request — replies go to', '')+
     list('shortlist_cc', 'Shortlist email — copy to', '')+
     list('shortlist_reply_to', 'Shortlist email — the candidate\'s reply goes to', 'Reject emails come from a no-reply address: nobody receives a reply.')+
