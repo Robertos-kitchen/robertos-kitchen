@@ -2,7 +2,9 @@
 // Interviews module — the three candidate emails: Reject, Shortlist, Send to HR.
 //
 // CV data is confidential, so the browser names NOTHING but the candidate:
-//   - the HR list, the shortlist CC and every Reply-To live HERE, not in the client;
+//   - the HR list, the shortlist CC and every Reply-To come from interview_settings
+//     (editable in the app, our own domains only — the database refuses anything
+//     else); the lists below are only the fallback for an empty row;
 //   - the CV is read from interview_cvs by this function, and only a CV that
 //     belongs to that candidate is accepted;
 //   - the interviewers' passcode is checked against interview_settings first.
@@ -29,10 +31,23 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const TEAM = "Roberto's Dubai Culinary Team";
 const FROM_NOREPLY = `Roberto's Dubai <no-reply@kitchenteam.robertos.ae>`;   // no mailbox, no MX: a reply reaches nobody
 const FROM_TEAM = `${TEAM} <culinary@kitchenteam.robertos.ae>`;
-const SHORTLIST_CC = ["dvalla@robertos.ae", "lmadlag@robertos.ae"];
-const SHORTLIST_REPLY = ["dvalla@robertos.ae", "lmadlag@robertos.ae"];
-const HR_TO = ["lmadlag@robertos.ae", "slhanzom@robertos.ae", "dsaxena@skelmore.com"];
-const HR_REPLY = ["dvalla@robertos.ae", "lmadlag@robertos.ae"];   // Francesco, 17 Sep 2026
+const FALLBACK = {
+  shortlist_cc: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],
+  shortlist_reply_to: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],
+  hr_to: ["lmadlag@robertos.ae", "slhanzom@robertos.ae", "dsaxena@skelmore.com"],
+  hr_reply_to: ["dvalla@robertos.ae", "lmadlag@robertos.ae"],   // Francesco, 17 Sep 2026
+};
+type Lists = typeof FALLBACK;
+// the same rule the database enforces — checked again here before a CV leaves
+const OWN_ADDR = /^[a-z0-9._+\-]+@(robertos\.ae|skelmore\.com)$/i;
+function listsFrom(row: any): Lists {
+  const out: any = {};
+  for (const k of Object.keys(FALLBACK) as (keyof Lists)[]) {
+    const v = Array.isArray(row?.[k]) ? row[k].map((x: unknown) => String(x).trim().toLowerCase()).filter((x: string) => OWN_ADDR.test(x)) : [];
+    out[k] = v.length ? v : FALLBACK[k].slice();
+  }
+  return out as Lists;
+}
 const TEST_TO = ["fguarracino@robertos.ae"];
 // Interview Form — slot reserved (17 Sep 2026). When the form exists, attach it
 // in buildHr() as the third file and flip this on; the preview already lists it.
@@ -159,7 +174,7 @@ function htmlOf(text: string): string {
 
 type Mail = { from: string; to: string[]; cc: string[]; reply_to: string[]; subject: string; text: string };
 
-function buildMail(action: string, name: string, email: string, position: string): Mail {
+function buildMail(action: string, name: string, email: string, position: string, L: Lists): Mail {
   if (action === "reject") {
     return {
       from: FROM_NOREPLY, to: [email], cc: [], reply_to: [],
@@ -171,14 +186,14 @@ function buildMail(action: string, name: string, email: string, position: string
   }
   if (action === "shortlist") {
     return {
-      from: FROM_TEAM, to: [email], cc: SHORTLIST_CC.slice(), reply_to: SHORTLIST_REPLY.slice(),
+      from: FROM_TEAM, to: [email], cc: L.shortlist_cc.slice(), reply_to: L.shortlist_reply_to.slice(),
       subject: `You've been shortlisted – ${position} at Roberto's Dubai`,
       text: `Dear ${name},\n\nThank you for applying for the ${position} role at Roberto's Dubai. We are pleased to let you know that you have been shortlisted.\n\n` +
         `We will be in touch soon regarding the next step.\n\nKind regards,\n${TEAM}`,
     };
   }
   return {
-    from: FROM_TEAM, to: HR_TO.slice(), cc: [], reply_to: HR_REPLY.slice(),
+    from: FROM_TEAM, to: L.hr_to.slice(), cc: [], reply_to: L.hr_reply_to.slice(),
     subject: `Hiring Request – ${name} – ${position}`,
     text: `Dear HR Team,\n\nPlease find attached the CV and hiring form for the candidate below:\n\n` +
       `Name: ${name}\nEmail: ${email}\nPosition: ${position}\nDate: ${dubaiDate()}\n\nKind regards,\n${TEAM}`,
@@ -196,7 +211,7 @@ Deno.serve(async (req) => {
 
   // passcode first — nothing about a candidate is confirmed or denied without it
   const code = String(b.code ?? "");
-  const st = await sb.from("interview_settings").select("passcode").eq("id", 1).maybeSingle();
+  const st = await sb.from("interview_settings").select("passcode,hr_to,shortlist_cc,shortlist_reply_to,hr_reply_to").eq("id", 1).maybeSingle();
   if (st.error) return json({ error: "Could not check the passcode. Try again." }, 500);
   if (!code || !st.data || st.data.passcode !== code) return json({ error: "wrong passcode" }, 401);
 
@@ -232,6 +247,7 @@ Deno.serve(async (req) => {
   const isTest = /^zz-test/i.test(cand.data.event || "");
 
   const name = clean(b.name), email = clean(b.email).replace(/^mailto:/i, ""), position = clean(b.position);
+  const sentBy = clean(b.sent_by).slice(0, 60);   // the name picked on unlock — a name, not a login
   const problems = [checkName(name), checkEmail(email), checkPosition(position)].filter(Boolean);
 
   // ── attachments (HR only) ──
@@ -275,7 +291,8 @@ Deno.serve(async (req) => {
   previous.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const repeats = previous.filter((p) => p.action === action);
 
-  const mail = buildMail(action, name, email, position);
+  const lists = listsFrom(st.data);
+  const mail = buildMail(action, name, email, position, lists);
   const real = { to: mail.to.slice(), cc: mail.cc.slice(), reply_to: mail.reply_to.slice() };
   if (isTest) {
     mail.to = TEST_TO.slice(); mail.cc = []; mail.reply_to = mail.reply_to.length ? TEST_TO.slice() : [];
@@ -346,7 +363,7 @@ Deno.serve(async (req) => {
     status: resendId ? "sent" : "failed",
     sent_to: mail.to, sent_cc: mail.cc, reply_to: mail.reply_to,
     subject: mail.subject, attachments: attachNames,
-    resend_id: resendId, error: err || null, is_test: isTest,
+    resend_id: resendId, error: err || null, is_test: isTest, sent_by: sentBy,
   }).select("*").maybeSingle();
   console.log("interview-email", action, resendId ? "sent " + resendId : "FAILED " + err, log.error ? "LOG FAILED " + log.error.message : "logged");
 
