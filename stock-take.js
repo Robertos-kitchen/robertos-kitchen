@@ -820,7 +820,7 @@ function stOnSort(v){ stSortBy=v; stRenderRows(); }
 async function stLockMonth(){
   if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can lock a month.', true); return; }
   if(!stSheet){ return; }
-  if(!confirm('Lock '+stPeriodLabel(stMonth)+'?\n\nNobody will be able to enter, add, or clear counts until an admin unlocks it again.')) return;
+  if(!(await kAsk('Lock '+stPeriodLabel(stMonth)+'?\n\nNobody will be able to enter, add, or clear counts until an admin unlocks it again.', { ok:'Lock' }))) return;
   var res=await sb.from('stock_take_sheets').update({ locked:true, locked_by:stUser.emp_id, locked_by_name:stUser.name, locked_at:new Date().toISOString() }).eq('id', stSheet.id);
   if(res.error){ if(typeof kToast==='function') kToast('Could not lock: '+res.error.message, true); return; }
   stSheet.locked=true; stSheet.locked_by_name=stUser.name;
@@ -830,7 +830,7 @@ async function stLockMonth(){
 async function stUnlockMonth(){
   if(!stCanLock()){ if(typeof kToast==='function') kToast('Only Aung\'s code (0000) can unlock a month.', true); return; }
   if(!stSheet){ return; }
-  if(!confirm('Unlock '+stPeriodLabel(stMonth)+'?\n\nCounts can be entered, added to, or cleared again until it is re-locked.')) return;
+  if(!(await kAsk('Unlock '+stPeriodLabel(stMonth)+'?\n\nCounts can be entered, added to, or cleared again until it is re-locked.', { ok:'Unlock' }))) return;
   var res=await sb.from('stock_take_sheets').update({ locked:false }).eq('id', stSheet.id);
   if(res.error){ if(typeof kToast==='function') kToast('Could not unlock: '+res.error.message, true); return; }
   stSheet.locked=false;
@@ -844,7 +844,7 @@ async function stClearAllCounts(){
   if(!stIsSuper()){ if(typeof kToast==='function') kToast('Only an admin code (1212 / 0000 / 2468) can clear all counts.', true); return; }
   if(stIsLocked()){ if(typeof kToast==='function') kToast('This month is locked — unlock it first to clear counts.', true); return; }
   if(!stCountedCount()){ if(typeof kToast==='function') kToast('Nothing counted yet.'); return; }
-  if(!confirm('Clear ALL counts for '+stPeriodLabel(stMonth)+'?\n\nThis erases every quantity entered in this count — by everyone — and cannot be undone. The item list stays.')) return;
+  if(!(await kAsk('Clear ALL counts for '+stPeriodLabel(stMonth)+'?\n\nThis erases every quantity entered in this count — by everyone — and cannot be undone. The item list stays.', { ok:'Clear all counts', danger:true }))) return;
   var res=await sb.from('stock_take_counts').delete().eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT).eq('month',stMonth);
   if(res && res.error){ if(typeof kToast==='function') kToast('Could not clear counts: '+res.error.message, true); return; }
   stCounts={};
@@ -1105,7 +1105,7 @@ async function stAddRecipient(){
 async function stRemoveRecipient(i){
   var r = (stRecipients||[])[i]; if(!r) return;
   if(r.role === 'to'){ stRecipStatus('This is the addressee. Add someone else as To first — the send needs one.', true); return; }
-  if(!confirm('Stop sending the stock take to '+r.name+' ('+r.email+')?')) return;
+  if(!(await kAsk('Stop sending the stock take to '+r.name+' ('+r.email+')?', { ok:'Stop sending', danger:true }))) return;
   stRecipStatus('Saving…');
   try{
     // Deactivated, not deleted — so who used to receive it stays answerable later.
@@ -1482,7 +1482,7 @@ async function stApplyUpload(month, items, filename){
       lbl+' already has '+cRes.count+' quantities entered, so it will not be overwritten.\n\n'+
       'If this is a NEW count, change "Date counted" to the day it was counted — the '+lbl+' count is then kept as well.\n\n'+
       'If you really do mean to replace '+lbl+', use "Clear all counts" first.');
-    if(!confirm('A stock take for '+lbl+' already exists, with nothing counted yet. Replace its item list?')) throw new Error('cancelled');
+    if(!(await kAsk('A stock take for '+lbl+' already exists, with nothing counted yet. Replace its item list?', { ok:'Replace item list', danger:true }))) throw new Error('cancelled');
   }
   // supabase-js never throws — check each destructive step's .error and abort
   // BEFORE the next one, so a blocked delete can't leave the month half-wiped

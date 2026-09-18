@@ -420,11 +420,11 @@ function crSaveEntry(type) {
   crSaveDraftLocal();
   crRender();
 }
-function crRemoveEntry(idx) {
+async function crRemoveEntry(idx) {
   var e = crEntries[idx];
   if (!e) return;
   var what = e.item_name || e.category || 'this entry';
-  if (!confirm('Remove "' + what + '"? It will be deleted when you submit.')) return;
+  if (!(await kAsk('Remove "' + what + '"? It will be deleted when you submit.', { ok:'Remove', danger:true }))) return;
   if (e.id) crRemovedIds.push(e.id);
   crEntries.splice(idx, 1);
   crSaveDraftLocal();
@@ -529,7 +529,7 @@ async function crSubmit() {
     // second copy must be an explicit human choice — not the accident of two
     // people submitting the same night (the twice-on-Monday problem). The report
     // is already SAVED, so declining still keeps every edit.
-    if (crEmailedAt && !confirm('This night (' + sd + ') was already emailed to the team ' + crFmtWhen(crEmailedAt) + '.\n\nThe report is saved either way. Send ANOTHER copy to everyone now?')) {
+    if (crEmailedAt && !(await kAsk('This night (' + sd + ') was already emailed to the team ' + crFmtWhen(crEmailedAt) + '.\n\nThe report is saved either way. Send ANOTHER copy to everyone now?', { ok:'Send again', cancel:'Save only' }))) {
       if (typeof logReset === 'function') logReset(crWho, 'closing_report_save_only', sd, null);
       btn.disabled = false;
       btn.textContent = '✓ Saved — email skipped (already sent)';

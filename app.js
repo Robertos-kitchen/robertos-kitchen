@@ -829,7 +829,7 @@ function kPickPerson(actionLabel, opts){
 async function resetIdentity(actionLabel, opts){
   if(typeof kPickPerson==='function') return await kPickPerson(actionLabel, opts);
   // Fallback: typed Employee ID (kept in case app.js's picker fails to load).
-  var id = (prompt('Enter your Employee ID to '+actionLabel+'.\n\nThis is recorded.')||'').trim();
+  var id = ((await kAskText({ title:'Your Employee ID', body:'To '+actionLabel+'. This is recorded.', numeric:true, ok:'Continue' }))||'').trim();
   if(!id) return null;
   if(RESET_SUPER[id]) return { emp_id:id, name:RESET_SUPER[id] };
   var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
@@ -1997,11 +1997,11 @@ async function loadKevOverrides(ids){
     (r.data||[]).forEach(function(o){ KEV_OVR[kevOvrKey(o.event_id, o.dish_name)] = { portions:o.portions, label:o.label }; });
   }catch(err){ console.warn('[kev-ovr] load skipped', err && err.message||err); }  // table missing / offline → no overrides, strip still works
 }
-function kevUnlockEdit(){
+async function kevUnlockEdit(){
   if(KEV_CAN_EDIT) return true;
-  var p = prompt('Enter the kitchen prep code to change portions:');
+  var p = await kAskText({ title:'Kitchen prep code', body:'Enter the code to change portions.', secret:true, ok:'Unlock',
+    check:function(v){ return String(v).trim() === KEV_EDIT_CODE ? '' : 'Wrong code — try again.'; } });
   if(p===null) return false;
-  if(String(p).trim() !== KEV_EDIT_CODE){ kToast('Wrong code — portions stay as the events count.', true); return false; }
   KEV_CAN_EDIT = true; return true;
 }
 // Re-render just one event's prep block, keeping the card open (no full reload).
@@ -2012,13 +2012,13 @@ function rerenderKevEvent(eid){
   else if(KEV_TODAY!=null){ renderKitchenEvents(Object.keys(KEV_CACHE).map(function(k){return KEV_CACHE[k];}), KEV_TODAY); }
 }
 async function kevEditPortion(eid, idx){
-  if(!kevUnlockEdit()) return;
+  if(!(await kevUnlockEdit())) return;
   var e = KEV_CACHE[eid]; if(!e) return;
   var raw = kevMenuModelRaw(e); var row = raw.rows[idx]; if(!row) return;
   var name = row.name, base = row.qty;
   var oCur = KEV_OVR[kevOvrKey(eid,name)];
   var curStr = oCur ? ((oCur.label!=null && oCur.label!=='') ? String(oCur.label) : (oCur.portions!=null?String(oCur.portions):'')) : (base==null?'':String(base));
-  var v = prompt('What to cook for “'+name+'” — '+e.name+'\nEvents count: '+(base==null?'—':base)+'\n\nEnter a number (e.g. 15) OR a note (e.g. guests choose on the night).\nBlank = back to the events count.', curStr);
+  var v = await kAskText({ title:'What to cook — '+name, body:e.name+' · events count: '+(base==null?'—':base)+'\n\nA number (e.g. 15) or a note (e.g. guests choose on the night). Leave it empty to go back to the events count.', value:curStr, placeholder:'e.g. 15', ok:'Save' });
   if(v===null) return;
   v = String(v).trim();
   if(v===''){ return kevResetPortion(eid, name); }
@@ -2817,7 +2817,7 @@ function schedEffHours(staff, dateStr) {
 }
 
 // Close an open shift (past day, no clock-out) using planned end. Lock-gated.
-function schedCloseShift(event, staffId, dateStr) {
+async function schedCloseShift(event, staffId, dateStr) {
   event.stopPropagation();
   if (schedPlanMode) return;   // closing a real clock-out is a live action, not planning
   if (!schedGuard(function(){ schedCloseShift(event, staffId, dateStr); })) return;
@@ -2827,11 +2827,11 @@ function schedCloseShift(event, staffId, dateStr) {
   var plannedEnd = rrow ? formatTime(rrow.shift_end) : '';
   var a = schedAttendance[schedAttKey(staff.emp_id, dateStr)];
   if (!a || !a.first_in) return;
-  var out = prompt('Close shift for ' + staff.name + ' on ' + dateStr +
-    '\nClocked in at ' + a.first_in + '. Clock-out time (planned end pre-filled):', plannedEnd || '00:00');
+  var out = await kAskText({ title:'Close shift — ' + staff.name, body:dateStr + ' · clocked in at ' + a.first_in +
+    '.\nClock-out time (the planned end is filled in):', value:plannedEnd || '00:00', placeholder:'HH:MM', ok:'Close shift',
+    check:function(v){ return /^\d{1,2}:\d{2}$/.test(String(v).trim()) ? '' : 'Please use HH:MM (e.g. 00:00).'; } });
   if (out === null) return;
   out = out.trim();
-  if (!/^\d{1,2}:\d{2}$/.test(out)) { alert('Please use HH:MM (e.g. 00:00)'); return; }
   var prevOut = a.manual_out, prevClosedAt = a.closed_at;
   a.manual_out = out; a.closed_at = new Date().toISOString();
   renderSchedView();
@@ -2854,13 +2854,13 @@ function schedCloseShift(event, staffId, dateStr) {
 }
 
 // Inline edit of COSEC employee ID. Lock-gated.
-function schedEditEmpId(event, staffId) {
+async function schedEditEmpId(event, staffId) {
   event.stopPropagation();
   if (schedPlanMode) return;   // employee IDs are managed on the live schedule, not in the plan
   if (!schedGuard(function(){ schedEditEmpId(event, staffId); })) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff) return;
-  var v = prompt('Employee ID (COSEC) for ' + staff.name + '\nLeave empty = no clock-in tracking:', staff.emp_id || '');
+  var v = await kAskText({ title:'Employee ID (COSEC) — ' + staff.name, body:'Leave it empty for no clock-in tracking.', value:staff.emp_id || '', numeric:true, ok:'Save' });
   if (v === null) return;
   v = (v || '').trim();
   staff.emp_id = v || null;
@@ -3422,14 +3422,14 @@ function krtSecMove(btn, dir){
   if(dir < 0 && row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
   else if(dir > 0 && row.nextElementSibling) list.insertBefore(row.nextElementSibling, row);
 }
-function krtSecDelete(btn){
+async function krtSecDelete(btn){
   var row = btn.closest('.krt-sec-row'); if(!row) return;
   var key = row.getAttribute('data-key');
   var name = (row.querySelector('input').value || '').trim() || 'this section';
   // Don't orphan people — a section with anyone in it must be emptied first.
   var count = key ? schedStaff.filter(function(s){ return s.station_key === key; }).length : 0;
   if(count > 0){ alert('“'+name+'” has '+count+' '+(count===1?'person':'people')+' in it.\n\nMove them to another section first (the ↔ Move button on each person), then you can delete it.'); return; }
-  if(key && !confirm('Delete the section “'+name+'”? It goes when you press Bring live — and you can still undo it.')) return;
+  if(key && !(await kAsk('Delete the section “'+name+'”? It goes when you press Bring live — and you can still undo it.', { ok:'Delete section', danger:true }))) return;
   row.parentElement.removeChild(row);
 }
 function krtSaveSections(){
@@ -3470,13 +3470,13 @@ function krtWeekTabsHtml(wmon){
   tab += '<button class="krt-wk-btn clear" onclick="krtClearWeek(\''+wmon+'\')" title="Clear this week — remove all shifts, keep the names">Clear</button>';
   return tab;
 }
-function krtWeekPaste(tgtMon){
+async function krtWeekPaste(tgtMon){
   if(!krtWeekClip || krtWeekClip === tgtMon) return;
   var srcMon = getMonday(new Date(krtWeekClip + 'T12:00:00'));
   var tMon   = getMonday(new Date(tgtMon      + 'T12:00:00'));
   var srcLabel = srcMon.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
   var tLabel   = tMon.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-  if(!confirm('Paste the week of '+srcLabel+' into the week of '+tLabel+'?\n\nIt replaces that week in your plan. (Nothing goes live until you Bring live.)')) return;
+  if(!(await kAsk('Paste the week of '+srcLabel+' into the week of '+tLabel+'?\n\nIt replaces that week in your plan. (Nothing goes live until you Bring live.)', { ok:'Paste week' }))) return;
   for(var d=0; d<7; d++){
     var sds = formatDate(addDays(srcMon, d)), tds = formatDate(addDays(tMon, d));
     schedStaff.forEach(function(s){
@@ -3494,11 +3494,11 @@ function krtWeekPaste(tgtMon){
   schedPlanSaveDraft(); schedPlanApplySections(); schedPlanOverlay(); krtRender(); schedPlanUpdateBadge();
 }
 // Clear a whole week back to empty — names stay, every shift removed. Draft only.
-function krtClearWeek(mon){
+async function krtClearWeek(mon){
   if(typeof krtCloseActions === 'function') krtCloseActions();
   var m = getMonday(new Date(mon + 'T12:00:00'));
   var mLabel = m.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-  if(!confirm('Clear the whole week of '+mLabel+'?\n\nEvery shift that week is removed — the names stay, but the week is empty. This is in your plan; nothing goes live until Bring live, and you can undo.')) return;
+  if(!(await kAsk('Clear the whole week of '+mLabel+'?\n\nEvery shift that week is removed — the names stay, but the week is empty. This is in your plan; nothing goes live until Bring live, and you can undo.', { ok:'Clear week', danger:true }))) return;
   for(var d=0; d<7; d++){
     var ds = formatDate(addDays(m, d));
     schedStaff.forEach(function(s){
@@ -3717,7 +3717,7 @@ async function krtWriteRoster(payloads){
 async function krtFillTeams(){
   krtCloseActions();
   if(!schedStaff.length) return;
-  if(!confirm('Set lunch & dinner teams for '+krtWeekLabel()+'?\n\nThis REPLACES everyone’s shifts that week — 1 person per section on the lunch split (10:00–15:00 / 19:00–00:00), the rest on dinner (15:00–03:00), for '+schedStaff.length+' people. Set days off afterwards with “Give everyone their days off”.')) return;
+  if(!(await kAsk('Set lunch & dinner teams for '+krtWeekLabel()+'?\n\nThis REPLACES everyone’s shifts that week — 1 person per section on the lunch split (10:00–15:00 / 19:00–00:00), the rest on dinner (15:00–03:00), for '+schedStaff.length+' people. Set days off afterwards with “Give everyone their days off”.', { ok:'Set teams' }))) return;
   await krtWriteRoster(krtBuildFillTeams(schedWeekStart));
 }
 async function krtGiveDaysOff(){
@@ -3725,14 +3725,14 @@ async function krtGiveDaysOff(){
   if(!schedStaff.length) return;
   var payloads = krtBuildDaysOff(schedWeekStart);
   if(!payloads.length){ alert('Everyone already has their 2 days off in '+krtWeekLabel()+' — nothing to add.'); return; }
-  if(!confirm('Top everyone up to 2 days off in '+krtWeekLabel()+'?\n\nOnly real days off count toward the 2 — annual leave and public holidays are left as they are. Anyone already on 2 gets nothing more. New days off land on the quiet days, never Thu–Sat. This adds '+payloads.length+' day(s) off across the team.')) return;
+  if(!(await kAsk('Top everyone up to 2 days off in '+krtWeekLabel()+'?\n\nOnly real days off count toward the 2 — annual leave and public holidays are left as they are. Anyone already on 2 gets nothing more. New days off land on the quiet days, never Thu–Sat. This adds '+payloads.length+' day(s) off across the team.', { ok:'Add days off' }))) return;
   await krtWriteRoster(payloads);
 }
 async function krtGiveWeekOff(){
   krtCloseActions();
   if(krtWeeks<2){ alert('Switch to “Several weeks” first — then everyone gets a staggered week off spread across those weeks.'); return; }
   if(!schedStaff.length) return;
-  if(!confirm('Give everyone a staggered week off across the '+krtWeeks+' weeks on screen?\n\nEach person gets one full week marked as Holiday, spread section by section so no section is left short in the same week. This replaces those days for '+schedStaff.length+' people.')) return;
+  if(!(await kAsk('Give everyone a staggered week off across the '+krtWeeks+' weeks on screen?\n\nEach person gets one full week marked as Holiday, spread section by section so no section is left short in the same week. This replaces those days for '+schedStaff.length+' people.', { ok:'Give weeks off' }))) return;
   await krtWriteRoster(krtBuildWeekOff());
 }
 function krtToggleActions(ev){
@@ -3903,8 +3903,8 @@ function kplShowHelp(force){
     + '</div></div>';
 }
 function kplCloseHelp(ev){ if(ev && ev.target && !ev.target.classList.contains('kpl-ov')) return; try{ localStorage.setItem('kitchenPlanSeen','1'); }catch(e){} var h=document.getElementById('kpl-modalhost'); if(h) h.innerHTML=''; }
-function kplClose(){
-  if(kplDirty){ if(!confirm('You have unsaved planning in this draft.\n\nIt is saved on this device and will still be here next time — close the Roster tool?')) return; }
+async function kplClose(){
+  if(kplDirty){ if(!(await kAsk('You have unsaved planning in this draft.\n\nIt is saved on this device and will still be here next time — close the Roster tool?', { ok:'Close', cancel:'Keep planning' }))) return; }
   kplEndPaste();
   var el = document.getElementById('kpl-full'); if(el) el.style.display='none';
   var sview = document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
@@ -3976,8 +3976,8 @@ function kplMaybeOfferResume(){
   } else { banner.style.display='none'; }
 }
 function kplResumeYes(){ document.getElementById('kpl-resume').style.display='none'; kplEnterDraft(false); }
-function kplResumeFresh(){ if(!confirm('Discard the saved draft for these weeks and start again from the live roster?')) return; document.getElementById('kpl-resume').style.display='none'; kplEnterDraft(true); }
-function kplExitDraft(){ if(!confirm('Switch back to the read-only preview? Your draft stays saved on this device.')) return; kplMode='preview'; kplPaintOff(); kplEndPaste(); kplRenderControls(); kplRender(); }
+async function kplResumeFresh(){ if(!(await kAsk('Discard the saved draft for these weeks and start again from the live roster?', { ok:'Start again', danger:true }))) return; document.getElementById('kpl-resume').style.display='none'; kplEnterDraft(true); }
+async function kplExitDraft(){ if(!(await kAsk('Switch back to the read-only preview? Your draft stays saved on this device.', { ok:'Switch to preview' }))) return; kplMode='preview'; kplPaintOff(); kplEndPaste(); kplRenderControls(); kplRender(); }
 
 // ── Shell / CSS ──
 function KPL_SHELL(){
@@ -4153,8 +4153,8 @@ function kplToggleActions(ev){ if(ev) ev.stopPropagation(); var m=document.getEl
 function kplCloseActions(){ var m=document.getElementById('kpl-actmenu'); if(m) m.classList.remove('open'); }
 function kplSetView(v){ if(v==='week') kplSetSpan('1'); else kplSetSpan(String(kplLastMulti||4)); }
 // Discard the working plan and start again from what's really on the schedule.
-function kplResetToLive(){
-  if(!confirm('Start again from the live schedule?\n\nThis clears the changes in your plan. Nothing on the real schedule changes.')) return;
+async function kplResetToLive(){
+  if(!(await kAsk('Start again from the live schedule?\n\nThis clears the changes in your plan. Nothing on the real schedule changes.', { ok:'Start again', danger:true }))) return;
   kplEndPaste(); kplPullFromLive(); kplMins={}; kplEnt={}; kplSaveDraft(); kplRender();
 }
 
@@ -4363,9 +4363,9 @@ function kplMoveTo(id, secKey){
   kplDraftOrd[id] = maxOrd+1;
   kplCloseMove(); kplSaveDraft(); kplRender();
 }
-function kplRemoveNew(id){
+async function kplRemoveNew(id){
   var s = kplFindPerson(id); if(!s || !s._new) return;
-  if(!confirm('Remove '+schEvEsc(s.name)+' from the plan? (They were only ever in this draft — nothing on the live schedule changes.)')) return;
+  if(!(await kAsk('Remove '+schEvEsc(s.name)+' from the plan? (They were only ever in this draft — nothing on the live schedule changes.)', { ok:'Remove', danger:true }))) return;
   kplNewStaff = kplNewStaff.filter(function(x){ return x.id!==id; });
   // drop any shifts drafted for them
   Object.keys(kplDraft).forEach(function(k){ if(k.indexOf(id+'|')===0) delete kplDraft[k]; });
@@ -4408,11 +4408,13 @@ function kplCoverageRow(sec, people, dayW, totalCols){
   return row;
 }
 function kplMinFor(secKey, weekend){ var m=kplMins[secKey]||{}; return weekend ? (m.we!=null?m.we:1) : (m.wd!=null?m.wd:1); }
-function kplEditMin(secKey){
+async function kplEditMin(secKey){
   var m = kplMins[secKey]||{wd:1,we:1};
-  var wd = prompt('Minimum people working on a WEEKDAY for '+ (kplSections().find(function(x){return x.key===secKey;})||{label:secKey}).label +':', m.wd!=null?m.wd:1);
+  var secLabel = (kplSections().find(function(x){return x.key===secKey;})||{label:secKey}).label;
+  var isCount = function(v){ return /^\s*\d+\s*$/.test(v) ? '' : 'Type a whole number (0 or more).'; };
+  var wd = await kAskText({ title:'Minimum on a weekday — '+secLabel, body:'Fewest people working in '+secLabel+' Monday to Friday.', value:m.wd!=null?m.wd:1, numeric:true, ok:'Next', check:isCount });
   if(wd===null) return;
-  var we = prompt('Minimum on a WEEKEND (Sat/Sun):', m.we!=null?m.we:1);
+  var we = await kAskText({ title:'Minimum on a weekend — '+secLabel, body:'Fewest people working in '+secLabel+' on Saturday and Sunday.', value:m.we!=null?m.we:1, numeric:true, ok:'Save', check:isCount });
   if(we===null) return;
   kplMins[secKey] = { wd: Math.max(0,parseInt(wd,10)||0), we: Math.max(0,parseInt(we,10)||0) };
   kplSaveDraft(); kplRender();
@@ -4642,9 +4644,9 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape' && kplPast
 
 // ── Copy / paste week ──
 function kplCopyWeek(w){ kplWkClip=w; kplRender(); var s=document.getElementById('kpl-saved'); if(s){ s.textContent='Week '+(w+1)+' copied'; s.style.opacity='1'; } }
-function kplPasteWeek(w){
+async function kplPasteWeek(w){
   if(kplWkClip===null || kplWkClip===w) return;
-  if(!confirm('Paste week '+(kplWkClip+1)+' onto week '+(w+1)+'? This overwrites week '+(w+1)+' in the draft (all people shown or hidden).')) return;
+  if(!(await kAsk('Paste week '+(kplWkClip+1)+' onto week '+(w+1)+'? This overwrites week '+(w+1)+' in the draft (all people shown or hidden).', { ok:'Paste week' }))) return;
   var affected = kplFilterPer==='all' ? kplStaff : kplStaff.filter(function(s){return s.id===kplFilterPer;});
   var _wk=[]; affected.forEach(function(s){ for(var d=0; d<7; d++){ _wk.push(kplKey(s.id,kplDateISO(w,d))); } });
   kplPushUndo(_wk, 'paste week '+(kplWkClip+1)+' → week '+(w+1));
@@ -4733,10 +4735,10 @@ function kplAutoWeekOff(){
   });
   return { assigned:assigned, maxPerSecWeek:maxPerSecWeek };
 }
-function kplGiveEveryoneWeekOff(){
+async function kplGiveEveryoneWeekOff(){
   if(kplMode!=='draft'){ alert('Press “Start planning” first, then try again.'); return; }
   var n=kplStaff.length;
-  if(!confirm('Give each of the '+n+' people ONE week off (Vacation), spread across the '+kplNumWeeks+' weeks so as few as possible are off together?\n\nThis only changes your draft — nothing goes to the team until you press “Put on schedule”. You can adjust anyone afterwards.')) return;
+  if(!(await kAsk('Give each of the '+n+' people ONE week off (Vacation), spread across the '+kplNumWeeks+' weeks so as few as possible are off together?\n\nThis only changes your draft — nothing goes to the team until you press “Put on schedule”. You can adjust anyone afterwards.', { ok:'Give weeks off' }))) return;
   var r=kplAutoWeekOff();
   kplSaveDraft(); kplRender();
   var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Everyone has a week off'; sv.style.opacity='1'; }
@@ -4758,9 +4760,9 @@ function kplAutoDaysOff(){
   });
   return {assigned:assigned};
 }
-function kplGiveEveryoneDaysOff(){
+async function kplGiveEveryoneDaysOff(){
   if(kplMode!=='draft'){ alert('Press “Start planning” first, then try again.'); return; }
-  if(!confirm('Give everyone 2 days off each week, spread out so the busy days (Thu–Sat) stay covered?\n\nThis marks the days off in your draft — you can move anyone’s days after. Vacation weeks are left alone.')) return;
+  if(!(await kAsk('Give everyone 2 days off each week, spread out so the busy days (Thu–Sat) stay covered?\n\nThis marks the days off in your draft — you can move anyone’s days after. Vacation weeks are left alone.', { ok:'Add days off' }))) return;
   kplAutoDaysOff();
   kplSaveDraft(); kplRender();
   var sv=document.getElementById('kpl-saved'); if(sv){ sv.textContent='✓ Days off added'; sv.style.opacity='1'; }
@@ -5024,7 +5026,7 @@ async function kplDoPublish(){
   var extraTxt = extra.length ? '\n\nAlso going live: '+extra.join(' · ')+'.' : '';
   var rangeTxt = weeks.length ? (' ('+minD+' → '+maxD+')') : '';
   var mainTxt = weeks.length ? (payloads.length+' shift-days for the team will go onto the live schedule — the team and HR will see them.') : 'Your section changes will go onto the live schedule for everyone.';
-  if(!confirm('Bring '+lbl+rangeTxt+' live?\n\n'+mainTxt+extraTxt+'\n\nYou can undo this straight after.')) return;
+  if(!(await kAsk('Bring '+lbl+rangeTxt+' live?\n\n'+mainTxt+extraTxt+'\n\nYou can undo this straight after.', { ok:'Bring live' }))) return;
   var goBtn=document.getElementById('kpl-pub-go'); if(goBtn){ goBtn.disabled=true; goBtn.textContent='Publishing…'; }
   var statusEl=document.getElementById('kpl-pub-status');
   try{
@@ -5081,7 +5083,7 @@ async function kplRevert(){
   var snap=kplReadSnap(); if(!snap){ alert('Nothing to undo.'); return; }
   var extra=[]; if(snap.priorSections && Object.keys(snap.priorSections).length) extra.push('section moves'); if(snap.priorOrders && Object.keys(snap.priorOrders).length) extra.push('reordering'); if(snap.insertedIds && snap.insertedIds.length) extra.push(snap.insertedIds.length+' added '+(snap.insertedIds.length===1?'person':'people')); if(snap.secRows && snap.secRows.length) extra.push('section changes');
   var rangeTxt = snap.minD ? (' for '+snap.minD+' → '+snap.maxD) : '';
-  if(!confirm('Undo the last Bring live ('+snap.label+')?\n\nThe live schedule'+rangeTxt+' goes back to exactly what it was before'+(extra.length?', and '+extra.join(' + ')+' are reversed':'')+'.')) return;
+  if(!(await kAsk('Undo the last Bring live ('+snap.label+')?\n\nThe live schedule'+rangeTxt+' goes back to exactly what it was before'+(extra.length?', and '+extra.join(' + ')+' are reversed':'')+'.', { ok:'Undo', danger:true }))) return;
   try{
     if(snap.minD){
       var allIds = (snap.staffIds||[]).concat(snap.insertedIds||[]);
@@ -6068,7 +6070,7 @@ function schedCancelRole(staffId, input) {
 
 
 // ── Delete staff ──
-function schedConfirmDelete(event, staffId) {
+async function schedConfirmDelete(event, staffId) {
   event.stopPropagation();
   if (!schedGuard(null)) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
@@ -6078,14 +6080,14 @@ function schedConfirmDelete(event, staffId) {
     // teammate is removed on the live schedule (and you can move them instead).
     var isNew = (kplNewStaff||[]).some(function(n){ return n.id === staffId; });
     if (!isNew) { alert('Removing a teammate from the roster is done on the live schedule, not while planning.\n\nIn the plan you can move ' + staff.name + ' to another section instead.'); return; }
-    if (!confirm('Remove ' + staff.name + ' from your plan? (They were only added here — nothing on the live schedule changes.)')) return;
+    if (!(await kAsk('Remove ' + staff.name + ' from your plan? (They were only added here — nothing on the live schedule changes.)', { ok:'Remove', danger:true }))) return;
     schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
     kplNewStaff = kplNewStaff.filter(function(n){ return n.id !== staffId; });
     Object.keys(kplDraft).forEach(function(k){ if (k.indexOf(staffId + '|') === 0) delete kplDraft[k]; });
     renderSchedWeek(); schedPlanSaveDraft();
     return;
   }
-  if (!confirm('Remove ' + staff.name + ' from the roster? This cannot be undone.')) return;
+  if (!(await kAsk('Remove ' + staff.name + ' from the roster? This cannot be undone.', { ok:'Remove', danger:true }))) return;
   schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
   renderSchedWeek();
   if (!DEV_READ_ONLY) {
@@ -6157,7 +6159,7 @@ async function schedDeleteWeek() {
   var from = formatDate(schedWeekStart);
   var to   = formatDate(addDays(schedWeekStart, 6));
   var fmt = function(d){ return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); };
-  if (!confirm('Delete ALL roster entries for ' + fmt(schedWeekStart) + ' – ' + fmt(addDays(schedWeekStart,6)) + '?\n\nStaff names stay — only the shifts of this week are removed. This cannot be undone.')) return;
+  if (!(await kAsk('Delete ALL roster entries for ' + fmt(schedWeekStart) + ' – ' + fmt(addDays(schedWeekStart,6)) + '?\n\nStaff names stay — only the shifts of this week are removed. This cannot be undone.', { ok:'Delete week', danger:true }))) return;
   // Optimistic local removal
   Object.keys(schedRoster).forEach(function(k) {
     var d = k.split('|')[1];

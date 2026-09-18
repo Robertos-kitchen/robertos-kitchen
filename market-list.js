@@ -801,7 +801,7 @@ function mlGlobalCatChanged(){
   if(st && st.picked) mlGlobalAdd();
 }
 
-function mlGlobalAdd(){
+async function mlGlobalAdd(){
   var st = mlPickState.global;
   var sel = document.getElementById('ml-gadd-cat');
   var inp = document.getElementById('mladd-global');
@@ -814,7 +814,7 @@ function mlGlobalAdd(){
     return;
   }
   var where = mlOnListByCode()[String(st.picked.code).trim()];
-  if(where && !confirm(st.picked.name + ' (' + st.picked.code + ') is already on the list under ' + where + '.\n\nAdd it again under ' + cat + '?')) return;
+  if(where && !(await kAsk(st.picked.name + ' (' + st.picked.code + ') is already on the list under ' + where + '.\n\nAdd it again under ' + cat + '?', { ok:'Add again' }))) return;
   mlAddCustom(cat, 'global');
 }
 
@@ -875,10 +875,10 @@ async function mlRepoint(itemId, art){
   if(!it || !art) return;
 
   var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
-  if(!confirm('Point "' + it.name + '" at:\n\n' + art.name + '\n' + art.code + ' · ' + (art.unit||'') +
+  if(!(await kAsk('Point "' + it.name + '" at:\n\n' + art.name + '\n' + art.code + ' · ' + (art.unit||'') +
       (art.supplier ? '\n' + art.supplier : '') +
       '\n\nThe line keeps its place and every quantity on it' +
-      (ordered ? ' — including ' + ordered + ' day' + (ordered===1?'':'s') + ' this week' : '') + '.')) return;
+      (ordered ? ' — including ' + ordered + ' day' + (ordered===1?'':'s') + ' this week' : '') + '.', { ok:'Point it there' }))) return;
 
   var res = await sb.from('order_items').update({
     code: art.code, fmc_unit: art.unit || null, supplier: art.supplier || null,
@@ -1516,9 +1516,9 @@ async function mlSortAZ(){
   // Says how many BEFORE it moves any: the whole complaint was a shared order
   // changing without anybody being told.
   const many = plan.length === 1 ? '1 item' : plan.length + ' items';
-  if(!confirm('Put every category back into A–Z order?\n\n' + many + ' of ' + mlItems.length
+  if(!(await kAsk('Put every category back into A–Z order?\n\n' + many + ' of ' + mlItems.length
       + ' move. Categories stay where they are, and nobody’s quantities are touched.\n\n'
-      + 'Everyone sees the new order.')) return;
+      + 'Everyone sees the new order.', { ok:'Sort A–Z' }))) return;
 
   plan.forEach(function(pl){ pl.it.sort_order = pl.want; });
   mlItems.sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0); });
@@ -1914,7 +1914,7 @@ var mlWho = null;                      // { emp_id, name } — null until identi
 
 async function mlIdentify(){
   if(mlWho) return mlWho;
-  var id = prompt('Your employee ID (or admin code) — so the app can record who took the item off:');
+  var id = await kAskText({ title:'Who is taking this off?', body:'Your employee ID (or admin code) — so the app can record who took the item off.', secret:true, ok:'Continue' });
   if(id === null) return null;         // Cancel
   id = String(id).trim();
   if(!id) return null;
@@ -2049,19 +2049,15 @@ function mlMayEditList(what){
 }
 var ML_LOCK_IDLE_MS = 10 * 60 * 1000;   // a pass screen gets walked away from
 
-function mlQuickEditToggle(){
+async function mlQuickEditToggle(){
   if(mlEditUnlocked){ mlLock('List locked.'); return; }
-  var code = prompt('Unlocking lets you change the MARKET LIST itself - add an item, take '
-    + 'one off, change who it is ordered from, move it into a different place.\n\nOrdering '
-    + 'is never locked: anybody can type quantities.\n\nEnter the admin code:');
+  var code = await kAskText({ title:'Unlock the market list',
+    body:'Unlocking lets you change the list itself — add an item, take one off, change who it is '
+      + 'ordered from, move it to a different place.\n\nOrdering is never locked: anybody can type quantities.',
+    placeholder:'Admin code', secret:true, ok:'Unlock',
+    check:function(v){ v = String(v).trim(); return ML_ADMIN[v] ? '' : (v ? 'That is not an admin code.' : 'Enter the admin code.'); } });
   if(code === null) return;                       // Cancel
   code = String(code).trim();
-  if(!ML_ADMIN[code]){
-    var m = code ? 'That is not an admin code, so quick edit stays off.'
-                 : 'No code entered, so quick edit stays off.';
-    if(typeof kToast === 'function') kToast(m, true); else alert(m);
-    return;
-  }
   mlEditUnlocked = true;
   mlWho = { emp_id:code, name:ML_ADMIN[code] };   // so removing does not ask again
   mlTouchLock();
@@ -2453,11 +2449,11 @@ async function mlRemoveItem(itemId){
   // undo must not become a silent delete — so that case, and only that case,
   // still asks first.
   if(typeof kToast !== 'function'){
-    if(!confirm('Take "' + it.name + '" off the market list?' +
+    if(!(await kAsk('Take "' + it.name + '" off the market list?' +
                 '\n\nChecked: nothing is waiting to be ordered on it — not today, and not on ' +
                 'any day ahead.' +
                 '\n\nNothing is deleted. Everything ever ordered against it is kept, and Undo ' +
-                'in the toolbar puts the line straight back.')) return;
+                'in the toolbar puts the line straight back.', { ok:'Take off', danger:true }))) return;
   }
 
   // mlItems is updated and the rows redrawn a few lines below, so our own echo

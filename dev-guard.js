@@ -97,11 +97,14 @@
       b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;padding:5px 12px;border-radius:14px;' +
         'font:700 11px/1.3 Inter,system-ui,sans-serif;letter-spacing:.4px;cursor:pointer;color:#fff;' +
         'box-shadow:0 2px 8px rgba(0,0,0,.25);background:' + (window.DEV_READ_ONLY ? '#6B1F2A' : '#B00020');
-      b.onclick = function () {
+      b.onclick = async function () {
         if (window.DEV_READ_ONLY) {
-          var p = prompt('DEV site is read-only.\nEnter the schedule PIN to enable TEST WRITES (and real emails) against the production database:');
+          // the app's own panel (k-dialog.js) — never the browser's grey pop-up
+          var p = await window.kAskText({ title: 'DEV site is read-only',
+            body: 'Enter the schedule PIN to enable TEST WRITES (and real emails) against the production database.',
+            secret: true, numeric: true, ok: 'Enable writes',
+            check: function (v) { return String(v).trim() === DEV_UNLOCK_PIN ? '' : 'Wrong PIN.'; } });
           if (p === null) return;
-          if (p.trim() !== DEV_UNLOCK_PIN) { alert('Wrong PIN.'); return; }
           localStorage.setItem('kitchen-dev-writes', '1');
         } else {
           localStorage.removeItem('kitchen-dev-writes');

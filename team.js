@@ -402,11 +402,11 @@ function teamListHTML() {
 
 // Passcode-gated admin entry (button visible, but team can't get in)
 var teamAdminAnon = false;   // true = anonymous mode (no names shown)
-function teamAdminGate(){
-  var code = prompt('Admin passcode:');
+async function teamAdminGate(){
+  var code = await kAskText({ title:'Admin passcode', secret:true, ok:'Open results',
+    check:function(v){ return String(v).trim() ? '' : 'Enter the passcode.'; } });
   if (code === null) return;
   var c = String(code).trim();
-  if (!c) { alert('Incorrect passcode.'); return; }
   // The SERVER decides if the code is right (kitchen-guard checks it against
   // its TEAM_RESULTS_CODES secret) — the page no longer contains the codes.
   // Short code = anonymous view, long code = named view (same codes as before).
@@ -416,7 +416,7 @@ function teamAdminGate(){
   teamOpenAdmin();
 }
 
-function teamStart(staffId) {
+async function teamStart(staffId) {
   var person = teamStaff.find(function(s){ return s.id === staffId; });
   if (!person) return;
   // One per cycle: if this person already submitted this round, do not let them in again.
@@ -431,15 +431,15 @@ function teamStart(staffId) {
   for (var oi=0; oi<OVERRIDES.length; oi++){ if (lname.indexOf(OVERRIDES[oi].match) !== -1){ override = OVERRIDES[oi]; break; } }
   var fn = person.name.split(' ')[0];
   if (override) {
-    var oc = prompt(Tui('passPromptCode') + ', ' + fn + ':');
+    var oc = await kAskText({ title:Tui('passPromptCode') + ', ' + fn, secret:true, numeric:true,
+      check:function(v){ return String(v).trim() === override.code ? '' : Tui('passWrong'); } });
     if (oc === null) return;
-    if (String(oc).trim() !== override.code) { alert(Tui('passWrong')); return; }
   } else if (person.emp_id) {
-    var code = prompt(Tui('passPrompt') + ', ' + fn + ':');
+    var code = await kAskText({ title:Tui('passPrompt') + ', ' + fn, secret:true, numeric:true,
+      check:function(v){ return String(v).trim() === String(person.emp_id).trim() ? '' : Tui('passWrong'); } });
     if (code === null) return;
-    if (String(code).trim() !== String(person.emp_id).trim()) { alert(Tui('passWrong')); return; }
   } else {
-    var ok = confirm(Tui('confirmNoId'));
+    var ok = await kAsk({ title:fn, body:Tui('confirmNoId') });
     if (!ok) return;
   }
   teamCurrent = person;

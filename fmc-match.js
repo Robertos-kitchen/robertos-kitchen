@@ -270,7 +270,7 @@ async function fmSave(){
 // is the one action that touches hundreds of rows, so it is never automatic.
 async function fmAcceptExact(){
   if(fmSaving || !fmExact.length) return;
-  if(!confirm('Write the FMC code onto ' + fmExact.length + ' lines whose name matches an article exactly?\n\nNames are not changed. You can still fix any of them afterwards.')) return;
+  if(!(await kAsk('Write the FMC code onto ' + fmExact.length + ' lines whose name matches an article exactly?\n\nNames are not changed. You can still fix any of them afterwards.', { ok:'Write codes' }))) return;
   fmSaving = true; fmRender();
   var failed = 0;
   for(var i=0;i<fmExact.length;i++){
@@ -325,7 +325,7 @@ async function fmUnretire(id, name){
 // way back must still ask.
 async function fmRetire(id, name){
   if(typeof kToast !== 'function'){
-    if(!confirm('Take "' + name + '" off the market list?\n\nIt stays in the database with everything ordered against it — it just stops appearing as a line to fill.')) return;
+    if(!(await kAsk('Take "' + name + '" off the market list?\n\nIt stays in the database with everything ordered against it — it just stops appearing as a line to fill.', { ok:'Take off', danger:true }))) return;
   }
   var res = await sb.from('order_items').update({ active:false }).eq('id', id);
   if(res.error){

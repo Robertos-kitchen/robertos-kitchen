@@ -847,14 +847,15 @@ async function calDelete(id){
   if(calIsAnchor(row)){
     const rest = calFollowers(row);
     if(rest.length){
-      const both = confirm('This ' + calType(row.kind).label.toLowerCase() + ' starts a chain.\n\nOK — remove it and its ' +
-        rest.map(r => calType(r.kind).label.toLowerCase()).join(' and ') +
-        '.\nCancel — keep them and remove only this one.');
+      const both = await kAsk({ title:'This ' + calType(row.kind).label.toLowerCase() + ' starts a chain',
+        body:'Remove it together with its ' + rest.map(r => calType(r.kind).label.toLowerCase()).join(' and ') +
+        ', or keep those and remove only this one?', ok:'Remove all', cancel:'Only this one' });
       if(both) ids = ids.concat(rest.map(r => r.id));
     }
   } else if(row.series_id){
     const kin = calRows.filter(r => r.series_id === row.series_id);
-    const all = confirm('This same note is on ' + kin.length + ' days.\n\nOK — remove all ' + kin.length + '.\nCancel — remove only this one.');
+    const all = await kAsk({ title:'This same note is on ' + kin.length + ' days',
+      body:'Remove it from all ' + kin.length + ' days, or only this one?', ok:'Remove all ' + kin.length, cancel:'Only this one' });
     if(all) ids = kin.map(r => r.id);
   }
   const gone = calRows.filter(r => ids.indexOf(r.id) > -1).map(function(r){
