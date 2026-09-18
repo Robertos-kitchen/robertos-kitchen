@@ -5014,10 +5014,14 @@ function micPastInner(){
     '</div></div>';
 }
 
-/* The net selling price — the price with every tax taken back out. Written as the form's
-   own formula writes it, not as ÷1.225, so the screen and the sheet can never disagree:
-   VAT, municipality and service have all been inside the price since December 2025. */
-function micNet(price){ return price - price * 0.183675; }
+/* The net selling price — the menu price with service and VAT taken back out.
+   From 16 Sep 2026 a menu price holds only 10% service + 5% VAT; the 7% DIFC fee is
+   added on top of the bill, so it is NOT inside the price: net = price ÷ 1.155
+   (finance's figure, Aung's price review). Until 15 Sep all three were inside and it
+   was ÷ 1.225 (the old -L*0.183675+L). The sheet writes the same ÷ 1.155, so the
+   screen, the sheet and the recipe's food cost can never disagree. */
+var MIC_NET_DIV = 1.155;
+function micNet(price){ return price / MIC_NET_DIV; }
 
 /* his own shorthand, as far as a machine can take it: drop the joining words, keep the
    words that mean something, then shorten the longest one until it fits */
@@ -5646,8 +5650,8 @@ function micWorkbook(ExcelJS, menuName){
   ws.mergeCells('I7:J7'); put('I7', 'Cost Price');
   put('I8', 'Exclu.VAT'); put('J8', 'Cost %');
   put('K7', 'Old Net Price'); put('K8', 'Incl. 5%VAT');
-  put('L7', 'Sales Price');   put('L8', 'Inclu. All Taxes');
-  put('M7', 'Net Sales Price'); put('M8', 'Exclu. All Taxes');
+  put('L7', 'Sales Price');   put('L8', 'Incl. 10% SC + 5% VAT');
+  put('M7', 'Net Sales Price'); put('M8', 'Excl. SC & VAT');
   ws.mergeCells('N7:N8'); put('N7', 'Date Required');
   put('P7', 'Old Price'); put('P8', 'All Inclusive');
   ws.mergeCells('Q7:R7'); put('Q7', 'Price Status');
@@ -5685,10 +5689,10 @@ function micWorkbook(ExcelJS, menuName){
     if (r.cost != null) put('I'+R, Math.round(r.cost*100)/100, { z:'0.00', align:money });
     put('J'+R, null, { f:'IF(M'+R+'=0,0,+I'+R+'/M'+R+')', z:'0.00%', align:money });
     if (r.price != null) put('L'+R, r.price, { z:'0.00', align:money });
-    /* His own formula, character for character. It is 1/1.225 written the way the
-       form has always written it — VAT, municipality and service all inside the
-       price since December 2025. Not re-derived here: the form is the authority. */
-    put('M'+R, null, { f:'-L'+R+'*0.183675+L'+R, z:'0.00', align:money });
+    /* From 16 Sep 2026 the menu price holds 10% service + 5% VAT only — the 7% DIFC
+       fee is added on the bill — so net = price ÷ 1.155. The form's old
+       -L*0.183675+L was ÷ 1.225 and understated every net by 5.7%. */
+    put('M'+R, null, { f:'L'+R+'/1.155', z:'0.00', align:money });
     R++;
   });
 
@@ -5809,13 +5813,13 @@ function micPrintHtml(){
       '<span>Type of request: <b>Addition</b></span></div>' +
     '<table><thead><tr><th>Micros code</th><th>Item name in menu</th>' +
       '<th>Item name in Micros (16)</th><th class="n">Cost</th>' +
-      '<th class="n">Sales price<br>incl. all taxes</th>' +
-      '<th class="n">Net selling price<br>excl. all taxes</th>' +
+      '<th class="n">Sales price<br>incl. 10% SC + 5% VAT</th>' +
+      '<th class="n">Net selling price<br>excl. SC &amp; VAT</th>' +
       '<th class="n">Cost %</th></tr></thead>' +
     '<tbody>' + body + '</tbody></table>' +
     '<div class="foot">Micros codes are left blank for Aung to assign. Cost % is against the ' +
-      'net price — the sales price with VAT, municipality and service taken out (÷ 1.225), the ' +
-      'same basis as the form\'s own formula.</div>' +
+      'net price — the menu price with 10% service and 5% VAT taken out (÷ 1.155). The 7% DIFC ' +
+      'Authority Fee is added on the bill from 16 Sep 2026, so it is not inside the price.</div>' +
     '</body></html>';
 }
 function micPrint(){
@@ -8194,8 +8198,8 @@ function render(){
               '<span class="miclbl">cost</span></span>' +
             '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
               '<span class="miclbl">price</span></span>' +
-            /* the same figure the form's own formula gives — the price with VAT, municipality
-               and service taken back out. It is what the cost % is worked against, so it is
+            /* the same figure the form's own formula gives — the menu price with service and
+               VAT taken back out (÷ 1.155). It is what the cost % is worked against, so it is
                shown rather than left to be worked out from the other two. */
             '<span class="micnum">'+(r.price==null?'<i class="none">—</i>':fmt(micNet(r.price)))+
               '<span class="miclbl">net</span></span>' +
@@ -8272,8 +8276,8 @@ function render(){
       '</div>' +
 
       '<div class="tip" style="margin-top:12px"><b>The form works the cost out itself</b>, with its own formula, ' +
-        'unchanged from the one you have been sending since December 2025 — the price with every tax inside it, ' +
-        'net of VAT, municipality and service. That is the same basis as the food cost on the sheet, so the two ' +
+        'net = menu price ÷ 1.155. From 16 Sep 2026 the menu price holds 10% service and 5% VAT only; the 7% DIFC ' +
+        'fee is added on the bill, not inside the price. That is the same basis as the food cost on the recipe, so the two ' +
         'agree. The only things written into the form are the name, the cost and the price; everything else on ' +
         'it is a formula, so it still recalculates when Aung corrects a figure.</div>' +
       '</div>' +
@@ -11824,7 +11828,7 @@ function foot(){
   var t = totals();
   var mk   = (S.makesQty && S.makesQty > 0) ? S.makesQty : null;
   var each = mk ? t.total / mk : null;              /* per portion, or per kg / L / piece */
-  var net  = S.price ? S.price/1.225 : null;
+  var net  = S.price ? micNet(S.price) : null;     /* ÷ 1.155 — the same net as the Micros form */
   var fc   = (net && each != null) ? each/net*100 : null;
   /* When a batch in this dish carries no cost, or an ingredient has no price on the
      stock take, every one of these figures is a FLOOR, not the number. It used to be
