@@ -122,6 +122,29 @@ var ivsFolderQ = '';      // the folder chip tapped above the list ('' = all, IV
 var IVS_NOFOLDER = '__none__';
 var ivsStageQ = '';       // the counter tapped in the header ('' = every stage)
 var ivsAddOpen = false;   // the "+ Add" menu
+var ivsRen = null;        // { old, val } while a folder is being renamed
+
+// the app's own "are you sure?" — never the browser's grey pop-up. Resolves true / false.
+function ivsAsk(o){
+  return new Promise(function(done){
+    var old = document.getElementById('ivs-ask'); if (old) old.remove();
+    var w = document.createElement('div'); w.id = 'ivs-ask';
+    w.innerHTML = '<div class="ivask" role="alertdialog" aria-modal="true" aria-labelledby="ivs-ask-t">'+
+      '<h4 id="ivs-ask-t">'+ivsEsc(o.title)+'</h4>'+(o.body ? '<p>'+ivsEsc(o.body)+'</p>' : '')+
+      '<div class="ivaskb"><button type="button" class="ivb2" data-a="0">'+ivsEsc(o.cancel || 'Cancel')+'</button>'+
+      '<button type="button" class="ivb'+(o.danger ? ' danger' : '')+'" data-a="1">'+ivsEsc(o.ok || 'OK')+'</button></div></div>';
+    var close = function(v){ document.removeEventListener('keydown', key, true); w.remove(); done(v); };
+    var key = function(e){ if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); close(false); } };
+    w.addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('button[data-a]');
+      if (b) close(b.getAttribute('data-a') === '1'); else if (e.target === w) close(false);
+    });
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(w);
+    // a destructive ask starts on Cancel, so a stray Enter never deletes anything
+    var first = w.querySelector('button[data-a="' + (o.danger ? '0' : '1') + '"]'); if (first) first.focus();
+  });
+}
 var ivsWaveT = null;      // debounce for the folder box on the sheet
 var IVS_SECTIONS = IVS_COMMIS_SECTIONS;   // the current round's questions (ivsRoundUse)
 var IVS_WEIGHTS = { int: 40, prac: 60 };
@@ -239,9 +262,47 @@ function ivsInjectCss(){
   if (document.getElementById('ivs-css')) return;
   var s = document.createElement('style'); s.id = 'ivs-css';
   s.textContent = [
-    '#interviews-view,#ivs-bulk,#ivs-mail{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
+    '#interviews-view,#ivs-bulk,#ivs-mail,#ivs-ask{--iv:#410207;--ivm:#5e0a10;--ivl:#7a1218;--is:#e1d3c2;--isl:#ede5d8;--isd:#cfc0ad;',
     '  --ik:#2a1a10;--icr:#f5ede0;--igo:#ba9b02;--iol:#4b5128}',
     '.ivwrap{max-width:1440px;margin:0 auto;padding:18px 24px 90px;font-family:"DM Sans",sans-serif;color:var(--ik)}',
+    // the terrace by day behind the whole module (the Recipes device: room, vino wash, work on paper).
+    // On the view itself, so it goes the moment the view is hidden — nothing to take off.
+    '#interviews-view::before,#interviews-view::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none}',
+    '#interviews-view::before{background:#cdbba6 url(venue-terrace-day.jpg) center/cover}',
+    '#interviews-view::after{background:linear-gradient(180deg,rgba(43,1,4,.76) 0,rgba(43,1,4,.52) 200px,rgba(43,1,4,.38) 55%,rgba(43,1,4,.62) 100%)}',
+    '#interviews-view>*{position:relative;z-index:1}',
+    // the heading sits on the room, in cream
+    '.ivhd small{color:#f2d3b8!important}',
+    '.ivhd h2{color:#fbf3e9!important;text-shadow:0 1px 14px rgba(20,2,4,.45)}',
+    '.ivwho{color:rgba(251,243,233,.86)!important}.ivwho b{color:#fbf3e9}.ivwho button{color:#f2d3b8!important}',
+    '.ivsync{color:rgba(251,243,233,.82)!important}',
+    '.ivwrap>.iverr{background:#fbf3e9;border-radius:6px;padding:9px 12px}',
+    // the tabs on a strip of the wash, so they read over any part of the photo
+    '.ivtabs{background:rgba(43,1,4,.58);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-bottom:0!important;border-radius:10px;padding:0 16px}',
+    '.ivtabn{color:rgba(251,243,233,.78)!important}.ivtabn:hover{color:#fbf3e9!important}',
+    '.ivtabn.on{color:#fbf3e9!important;border-bottom-color:#f2d3b8!important}',
+    '.ivlock{color:#f2d3b8!important}',
+    // everything that is work goes on cream paper
+    '.ivcard,.ivgate,.ivround,.ivtab{background:#faf4ea!important;border:0!important;box-shadow:0 18px 40px -22px rgba(20,4,4,.8),0 1px 0 rgba(255,255,255,.5) inset}',
+    '.ivcard{border-radius:10px!important}.ivgate{border-radius:10px}.ivround{border-radius:8px}',
+    '.ivround.closed{background:#ece2d3!important}',
+    '.ivcand{background:#fff}',
+    '.ivstat{background:rgba(250,244,234,.96)!important;border-color:transparent!important;box-shadow:0 10px 24px -16px rgba(20,4,4,.8)}',
+    '.ivstat.on{background:var(--iv)!important;box-shadow:0 0 0 2px #f2d3b8}',
+    '.ivovb{background:#fff;border-color:#eadfce!important}',
+    // folder rename, in place
+    '.ivren{background:#fff;border:1px solid var(--isd);border-radius:8px;padding:10px 12px;margin-top:10px}',
+    '.ivren label{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl);font-weight:700;margin-bottom:6px}',
+    '.ivren .r{display:flex;gap:6px}.ivren input{flex:1 1 auto;min-width:0;font-family:"DM Sans",sans-serif;font-size:16px;min-height:46px;border:1px solid var(--iv);border-radius:4px;padding:0 10px;color:var(--ik)}',
+    '.ivren .ivb,.ivren .ivb2{padding:0 14px}',
+    '.ivren small{display:block;font-size:12.5px;color:#5a4a3a;margin-top:6px}',
+    // the confirm
+    '#ivs-ask{position:fixed;inset:0;z-index:9500;background:rgba(30,6,8,.55);display:flex;align-items:center;justify-content:center;padding:16px;font-family:"DM Sans",sans-serif}',
+    '.ivask{background:#faf4ea;border-radius:12px;max-width:420px;width:100%;padding:22px 22px 18px;box-shadow:0 24px 60px -20px rgba(20,4,4,.9);color:var(--ik)}',
+    '.ivask h4{font-family:"Cormorant Garamond",Georgia,serif;font-size:25px;font-weight:600;color:var(--iv);margin:0 0 8px;line-height:1.15}',
+    '.ivask p{font-size:15px;line-height:1.45;color:#4a3a2a;margin:0 0 16px}',
+    '.ivaskb{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.ivaskb button{min-width:110px}',
+    '.ivb.danger{background:#8c1a14;border-color:#8c1a14}.ivb.danger:hover{background:#6e120d}',
     '.ivhd{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:12px}',
     '.ivhd small{display:block;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ivl);font-weight:700}',
     '.ivhd h2{font-family:"Cormorant Garamond",Georgia,serif;font-size:30px;margin:2px 0 0;font-weight:600;color:var(--iv);line-height:1.1}',
@@ -568,7 +629,7 @@ async function ivsBoot(){
 async function ivsRoundUse(r){
   ivsRound = r; IVS_EVENT = r.event;
   ivsUseSet(ivsSetByKey(r.question_set));
-  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsStageQ = ''; ivsAddOpen = false; ivsHist = {}; ivsTab = 'score';
+  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsStageQ = ''; ivsAddOpen = false; ivsRen = null; ivsHist = {}; ivsTab = 'score';
   try { localStorage.setItem(IVS_ROUND_STORE, r.event); } catch(e){}
   var ok = await ivsLoad();
   if (ok){ ivsScreen = 'main'; ivsStartPoll(); }
@@ -819,11 +880,20 @@ function ivsFolders(){
 function ivsFolderListHtml(){ return '<datalist id="ivs-dl-folder">'+ivsFolders().map(function(f){ return '<option value="'+ivsEsc(f.name)+'">'; }).join('')+'</datalist>'; }
 function ivsFolderPick(name){ ivsFolderQ = name; ivsRenderList(); }
 function ivsFolderRename(){
-  var old = ivsFolderQ; if (!old || old === IVS_NOFOLDER) return;
-  var nw = prompt('New name for the folder “' + old + '” — every candidate in it moves:', old);
-  if (nw == null) return;
-  nw = nw.trim().slice(0, 80);
-  if (!nw || nw === old) return;
+  if (!ivsFolderQ || ivsFolderQ === IVS_NOFOLDER) return;
+  ivsRen = { old: ivsFolderQ, val: ivsFolderQ };
+  ivsRender();
+  var i = document.getElementById('ivs-ren'); if (i){ i.focus(); i.select(); }
+}
+function ivsFolderRenameKey(e){
+  if (e.key === 'Enter'){ e.preventDefault(); ivsFolderRenameSave(); }
+  if (e.key === 'Escape'){ e.preventDefault(); ivsRen = null; ivsRender(); }
+}
+function ivsFolderRenameSave(){
+  if (!ivsRen) return;
+  var old = ivsRen.old, nw = (ivsRen.val || '').trim().slice(0, 80);
+  ivsRen = null;
+  if (!nw || nw === old){ ivsRender(); return; }
   var n = 0;
   ivsRows.forEach(function(r){ if ((r.wave || '').trim() === old){ r.wave = nw; ivsSave(r.id, { wave: nw }); n++; } });
   ivsFolderQ = nw; ivsRender();
@@ -856,7 +926,7 @@ function ivsAddPick(which){
 async function ivsDelete(){
   var row = ivsRow(ivsSel); if (!row) return;
   var nm = row.name || 'this unnamed candidate';
-  if (!confirm('Delete ' + nm + ' and all their scores?\n\nThis removes them for all four interviewers and cannot be undone.')) return;
+  if (!(await ivsAsk({ title:'Delete ' + nm + '?', body:'Their scores, notes and CVs go too — for all four interviewers. This cannot be undone.', ok:'Delete', danger:true }))) return;
   var r = await sb.rpc('interview_delete', { p_code: ivsCode, p_id: row.id });
   if (r.error){ kToast('Not deleted — ' + (r.error.message || 'no connection'), true); return; }
   ivsRows = ivsRows.filter(function(x){ return x.id !== row.id; });
@@ -893,6 +963,11 @@ function ivsListShellHtml(){
         '<button type="button" onclick="ivsAddPick(\'one\')">One candidate</button>'+
         '<button type="button" onclick="ivsAddPick(\'bulk\')">CVs in bulk…</button></div></div>'+
   '</div>'+
+  (ivsRen ? '<div class="ivren"><label for="ivs-ren">Rename folder “'+ivsEsc(ivsRen.old)+'”</label>'+
+    '<div class="r"><input id="ivs-ren" maxlength="80" autocomplete="off" value="'+ivsEsc(ivsRen.val)+'" oninput="ivsRen.val=this.value" onkeydown="ivsFolderRenameKey(event)">'+
+    '<button type="button" class="ivb" onclick="ivsFolderRenameSave()">Save</button>'+
+    '<button type="button" class="ivb2" onclick="ivsRen=null;ivsRender()">Cancel</button></div>'+
+    '<small>Every candidate in this folder moves to the new name.</small></div>' : '')+
   '<div id="ivs-list">'+ivsListHtml()+'</div>';
 }
 
@@ -964,7 +1039,7 @@ function ivsListHtml(){
   }
   var filtered = !!(ivsStageQ || ivsFolderQ || ivsQ.trim());
   h += '<div class="ivfindn"><span>'+(filtered ? hits.length+' of '+ivsRows.length+(ivsStageQ ? ' · '+ivsEsc(ivsStageWord(ivsStageQ)) : '') : 'All '+ivsRows.length)+'</span>'+
-    (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER ? '<button type="button" onclick="ivsFolderRename()">Rename folder</button>' : '')+
+    (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER && !ivsRen ? '<button type="button" onclick="ivsFolderRename()">Rename folder</button>' : '')+
     (filtered ? '<button type="button" onclick="ivsFiltersClear()">Clear filters</button>' : '')+'</div></div><div class="ivlrows">';
   if (!hits.length) h += '<div class="ivempty">'+(ivsQ.trim() ? 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”.' : 'No candidates here.')+'</div>';
   var groups = {}; hits.forEach(function(r){ var k = ivsStage(r); (groups[k] = groups[k] || []).push(r); });
@@ -1148,7 +1223,7 @@ async function ivsCvReadInto(candId, f){
 
 async function ivsCvDelete(id){
   var c = ivsCvs.filter(function(x){ return x.id === id; })[0]; if (!c) return;
-  if (!confirm('Remove ' + c.filename + ' from this candidate?\n\nIt is removed for all four interviewers.')) return;
+  if (!(await ivsAsk({ title:'Remove this CV?', body:c.filename + ' is removed for all four interviewers.', ok:'Remove', danger:true }))) return;
   var r = await sb.rpc('interview_cv_delete', { p_code: ivsCode, p_id: id });
   if (r.error){ kToast('Not removed — ' + (r.error.message || 'no connection'), true); return; }
   ivsCvs = ivsCvs.filter(function(x){ return x.id !== id; });
@@ -1520,15 +1595,16 @@ function ivsBulkOpen(){
   ivsBulkRender();
 }
 function ivsBulkKey(e){ if (e.key === 'Escape' && !(e.target && e.target.closest && e.target.closest('.ivbkr'))) ivsBulkClose(); }
-function ivsBulkClose(force){
+async function ivsBulkClose(force){
   var b = ivsBulk;
   if (!b) return;
   if (!force && b.running){
-    if (!confirm('CVs are still uploading.\n\nStop after the one in progress? Those already added stay on the board.')) return;
+    if (!(await ivsAsk({ title:'CVs are still uploading', body:'Stop after the one in progress? The ones already added stay on the board.', ok:'Stop uploading', cancel:'Keep going' }))) return;
     b.stopped = true; return;
   }
   if (!force && !b.running && b.rows.some(function(r){ return r.state === 'ready'; }) &&
-      !confirm('Close without adding these CVs?')) return;
+      !(await ivsAsk({ title:'Close without adding these CVs?', ok:'Close', cancel:'Go back' }))) return;
+  if (ivsBulk !== b) return;
   ivsBulk = null;
   var v = document.getElementById('ivs-bulk'); if (v) v.remove();
   document.removeEventListener('keydown', ivsBulkKey);
@@ -2212,8 +2288,8 @@ async function ivsRoundPatch(patch, okMsg){
   if (okMsg) kToast(okMsg);
   return true;
 }
-function ivsRoundClose(){
-  if (!confirm('Close ' + ivsRound.title + '?\n\nIt moves to Past rounds. Everything stays readable and it can be reopened.')) return;
+async function ivsRoundClose(){
+  if (!(await ivsAsk({ title:'Close ' + ivsRound.title + '?', body:'It moves to Past rounds. Everything stays readable and it can be reopened.', ok:'Close round' }))) return;
   ivsRoundPatch({ closed_on: new Date(Date.now() + 4*3600000).toISOString().slice(0,10) }, 'Round closed.');
 }
 
@@ -2321,7 +2397,7 @@ async function ivsNamesAdd(){
 }
 async function ivsNamesRemove(i){
   var names = ((ivsSettings && ivsSettings.interviewers) || []).slice(), n = names[i]; if (!n) return;
-  if (!confirm('Remove ' + n + ' from the interviewers?')) return;
+  if (!(await ivsAsk({ title:'Remove ' + n + ' from the interviewers?', ok:'Remove', danger:true }))) return;
   names.splice(i, 1);
   if (await ivsSettingsPatch({ interviewers: names }, n + ' removed.')) ivsRender();
 }
@@ -2447,7 +2523,7 @@ function ivsRender(fromPoll){
   }
   // while a chef is typing, a poll only refreshes the parts that are not under their thumb
   var ae = document.activeElement;
-  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-wave' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || /^ivs-d-/.test(ae.id || ''));
+  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-wave' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || ae.id === 'ivs-ren' || /^ivs-d-/.test(ae.id || ''));
   if (fromPoll && typing){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
