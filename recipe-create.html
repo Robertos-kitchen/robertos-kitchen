@@ -5055,11 +5055,12 @@ function micShort(name, prefix, limit){
 function loadMicros(menuId){
   MICREQ.err = null; MICREQ.ready = false;
   return Promise.all([
-    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price,pos_key'),
+    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,menu_price,pos_key,method'),
     sb('recipe_menus?menu_id=eq.' + menuId + '&select=recipe_id'),
     sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
        'trim_on,yield_pct,waste_pct,position&order=position,id'),
-    MYB.length ? Promise.resolve(null) : loadBatches()
+    MYB.length ? Promise.resolve(null) : loadBatches(),
+    loadWaivers()
   ]).then(function(res){
     var on = {}; (res[1]||[]).forEach(function(r){ on[r.recipe_id] = 1; });
     var byRecipe = {};
@@ -5078,8 +5079,16 @@ function loadMicros(menuId){
                                   String(a.name).localeCompare(String(b.name)); })
       .map(function(r){
         var c = batchCost(r.id);
+        /* 18 Sep 2026: the Business lunch request went to Aung with the cost of nine
+           recipes that were one placeholder line each ("1 g tomat") — 0.02 AED for a
+           soup, sent as if it were the cost. A dish still on Needs finishing for its
+           method is a dish somebody has started, not written, so its cost is not sent:
+           the screen, the sheet and the printed form say "recipe not finished" instead.
+           The same mark the recipe book uses, so the two can never disagree. */
+        var unfinished = !hasMethod(normMethod(r.method)) && !waivedAt(r.id, 'method');
         return { id:r.id, name:r.name, section:r.section || 'No section',
-                 price:r.menu_price, cost: c.problem ? null : c.per, why: c.problem || null,
+                 price:r.menu_price, cost: (c.problem || unfinished) ? null : c.per,
+                 why: unfinished ? 'recipe not finished' : (c.problem || null),
                  pos_key: r.pos_key || null,
                  micros: micShort(r.name, MICREQ.prefix), take:true };
       });
@@ -5440,7 +5449,7 @@ function micRecipeSheet(wb, B, menuName, rows){
       ? { formula: mine.map(function(n){ return 'N' + n; }).join('+') } : null;
     h.getCell(18).value = (m.makesQty
       ? 'Makes ' + m.makesQty + ' portion' + (m.makesQty === 1 ? '' : 's') +
-        ' — cost per portion ' + (r.cost == null ? 'not worked out yet' : fmt(r.cost))
+        ' — cost per portion ' + (r.cost == null ? (r.why === 'recipe not finished' ? 'not sent: the recipe is not finished yet' : 'not worked out yet') : fmt(r.cost))
       : 'it does not say how much it makes') +
       (lines.length ? '. The ' + lines.length + ' row' + (lines.length === 1 ? '' : 's') +
                       ' below are the dish; anything indented under them is inside a batch, ' +
@@ -5687,7 +5696,9 @@ function micWorkbook(ExcelJS, menuName){
     put('G'+R, r.section);
     put('H'+R, r.section);                                   /* SLU, same as the family */
     if (r.cost != null) put('I'+R, Math.round(r.cost*100)/100, { z:'0.00', align:money });
-    put('J'+R, null, { f:'IF(M'+R+'=0,0,+I'+R+'/M'+R+')', z:'0.00%', align:money });
+    else if (r.why === 'recipe not finished') put('I'+R, 'recipe not finished', { align:money });
+    /* a cost that is words, not a number, leaves the cost % empty rather than #VALUE! */
+    put('J'+R, null, { f:'IF(OR(M'+R+'=0,NOT(ISNUMBER(I'+R+'))),"",I'+R+'/M'+R+')', z:'0.00%', align:money });
     if (r.price != null) put('L'+R, r.price, { z:'0.00', align:money });
     /* From 16 Sep 2026 the menu price holds 10% service + 5% VAT only — the 7% DIFC
        fee is added on the bill — so net = price ÷ 1.155. The form's old
@@ -5782,7 +5793,7 @@ function micPrintHtml(){
       '<td class="code"></td>' +
       '<td>' + esc(r.name) + '</td>' +
       '<td class="till">' + esc(r.micros||'') + '</td>' +
-      '<td class="n">' + (r.cost==null ? '—' : fmt(r.cost)) + '</td>' +
+      '<td class="n">' + (r.cost==null ? (r.why === 'recipe not finished' ? '<i>recipe not finished</i>' : '—') : fmt(r.cost)) + '</td>' +
       '<td class="n">' + (r.price==null ? '—' : fmt(r.price)) + '</td>' +
       '<td class="n">' + (net==null ? '—' : fmt(net)) + '</td>' +
       '<td class="n">' + (pct==null ? '—' : pct.toFixed(1)+'%') + '</td></tr>';
@@ -8194,7 +8205,7 @@ function render(){
                  : gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
             '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+x.i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
               '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
-            '<span class="micnum">'+(r.cost==null?'<i class="none">no cost</i>':fmt(r.cost))+
+            '<span class="micnum">'+(r.cost==null?'<i class="none">'+(r.why === 'recipe not finished' ? 'recipe not finished' : 'no cost')+'</i>':fmt(r.cost))+
               '<span class="miclbl">cost</span></span>' +
             '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
               '<span class="miclbl">price</span></span>' +
