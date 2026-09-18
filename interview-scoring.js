@@ -1005,7 +1005,9 @@ function ivsFiltered(){ return ivsRows.filter(function(r){
 
 function ivsSearch(el){
   ivsQ = el.value;
+  var keep = ivsScrollGrab();
   var el2 = document.getElementById('ivs-list'); if (el2) el2.innerHTML = ivsListHtml();
+  ivsScrollPut(keep, false);
   var box = el.parentNode, x = box.querySelector('button');
   if (ivsQ && !x) box.insertAdjacentHTML('beforeend', '<button type="button" aria-label="Clear search" onclick="ivsSearchClear()">&times;</button>');
   if (!ivsQ && x) x.remove();
@@ -1062,9 +1064,21 @@ function ivsListHtml(){
   });
   return h + '</div>';
 }
+// redrawing the list makes new elements, which start scrolled to 0 — so a chef who had
+// scrolled the folder chips (or the list) was thrown back to the start by every 4s refresh
+function ivsScrollGrab(){
+  var c = document.querySelector('#interviews-view .ivchips'), l = document.querySelector('#interviews-view .ivlrows');
+  return { c: c ? c.scrollLeft : 0, l: l ? l.scrollTop : 0 };
+}
+function ivsScrollPut(p, list){
+  var c = document.querySelector('#interviews-view .ivchips'); if (c && p.c) c.scrollLeft = p.c;
+  var l = document.querySelector('#interviews-view .ivlrows'); if (list && l && p.l) l.scrollTop = p.l;
+}
 function ivsRenderList(){
+  var keep = ivsScrollGrab();
   var el = document.getElementById('ivs-list'); if (el) el.innerHTML = ivsListHtml();
   var st = document.getElementById('ivs-stats'); if (st) st.outerHTML = '<div id="ivs-stats">'+ivsStatsHtml()+'</div>';
+  ivsScrollPut(keep, true);
 }
 
 function ivsSumHtml(r){
@@ -2548,7 +2562,7 @@ function ivsRender(fromPoll){
     });
     return;
   }
-  var y = window.scrollY;
+  var y = window.scrollY, keep = ivsScrollGrab();
   if (ivsScreen === 'name'){ v.innerHTML = '<div class="ivwrap">'+ivsNameHtml()+'</div>'; var ni = document.getElementById('ivs-me-new'); if (ni && !(ivsSettings && (ivsSettings.interviewers||[]).length)) ni.focus(); return; }
   if (ivsScreen === 'rounds' || !ivsRound){ v.innerHTML = '<div class="ivwrap">'+ivsRoundsHtml()+'</div>'; return; }
   var open = ivsTab === 'score' && !!ivsRow(ivsSel);
@@ -2570,5 +2584,6 @@ function ivsRender(fromPoll){
     body +
     '<div class="ivsync">Synced live — shared with everyone scoring. Final = interview '+IVS_WEIGHTS.int+'% + practical '+IVS_WEIGHTS.prac+'%, given once all '+IVS_LINES+' lines are scored or marked N/A — N/A lines are left out of the average.</div>'+
   '</div>';
+  ivsScrollPut(keep, !!fromPoll);   // the chips always stay put; the list only on a refresh
   if (fromPoll) window.scrollTo(0, y);
 }
