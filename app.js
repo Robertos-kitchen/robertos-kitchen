@@ -2050,6 +2050,10 @@ async function loadKitchenEvents(){
     KEV_CACHE = {};
     (data.events||[]).forEach(function(e){ KEV_CACHE[e.id]=e; });
     KEV_TODAY = data.today;
+    // Highlights: what the events desk put on this screen by hand from the FOH
+    // Events calendar (a client tasting, a visit) - not a briefed booking, so it
+    // never came through before. null = the feed could not read them.
+    KEV_HL = Array.isArray(data.highlights) ? data.highlights : (data.highlights === null ? null : []);
     await loadKevOverrides((data.events||[]).map(function(e){ return e.id; }));
     renderKitchenEvents(data.events||[], data.today);
   }catch(err){
@@ -2058,13 +2062,26 @@ async function loadKitchenEvents(){
   }
 }
 function kevDaysUntil(d, today){ return Math.round((new Date(String(d).slice(0,10)+'T12:00:00') - new Date(today+'T12:00:00'))/86400000); }
+// Danilo, 4 Sep 2026: a client tasting next week "is only words" - nothing on this
+// screen reminds anyone. The events desk can now put anything on it from the FOH
+// Events calendar; it arrives as `highlights` on the same feed and sits in the same
+// date order and the same 14-day window as the events, marked so it is never
+// mistaken for a booking with a menu to prep.
+var KEV_HL = [];
 function renderKitchenEvents(events, today){
   var box = document.getElementById('kev-strip'); if(!box) return;
-  if(!events || !events.length){ box.innerHTML=''; return; }
+  events = events || [];
+  var hl = KEV_HL || [];
+  var hlErr = KEV_HL === null ? '<div class="kev-err">Couldn’t check the highlights from the events desk — check the connection.</div>' : '';
+  if(!events.length && !hl.length){ box.innerHTML = hlErr; return; }
+  // One list in date order: a booking and a highlight on the same day read together.
+  var all = events.map(function(e){ return {d:String(e.date).slice(0,10), t:e.time_from||'', e:e}; })
+    .concat(hl.map(function(x){ return {d:String(x.date).slice(0,10), t:x.time_from||'', x:x}; }))
+    .sort(function(a,b){ return a.d<b.d ? -1 : a.d>b.d ? 1 : (a.t<b.t ? -1 : a.t>b.t ? 1 : 0); });
   var todayEv=[], up=[];
-  events.forEach(function(e){ if(kevDaysUntil(e.date, today)<=0) todayEv.push(e); else up.push(e); });
-  var h = '<div class="kev-band"><span class="kev-band-t">Events</span></div>';
-  todayEv.forEach(function(e){ h += kevTodayCard(e); });
+  all.forEach(function(r){ if(kevDaysUntil(r.d, today)<=0) todayEv.push(r); else up.push(r); });
+  var h = '<div class="kev-band"><span class="kev-band-t">Events</span></div>' + hlErr;
+  todayEv.forEach(function(r){ h += r.x ? kevHlToday(r.x) : kevTodayCard(r.e); });
   // Upcoming: ONLY the next 14 days reach the home screen (Francesco, 17 Sep 2026 —
   // the events desk now books enough that a count cap let a 6 Oct event sit on a
   // 17 Sep screen). The rule is a date window, not a count: nothing INSIDE the
@@ -2072,12 +2089,12 @@ function renderKitchenEvents(events, today){
   // has to prep for. Anything further out is one quiet line, never a row.
   var WINDOW_DAYS = 14, shown = 0, hidden = 0, lastLb = null;
   function bucket(n){ return n<=7 ? 'This week' : 'The week after'; }
-  up.forEach(function(e){
-    var n = kevDaysUntil(e.date, today);
+  up.forEach(function(r){
+    var n = kevDaysUntil(r.d, today);
     if(n > WINDOW_DAYS){ hidden++; return; }
     var lb = bucket(n);
     if(lb !== lastLb){ lastLb = lb; h += '<div class="kev-up-h">'+lb+'</div>'; }
-    h += kevUpRow(e); shown++;
+    h += r.x ? kevHlRow(r.x) : kevUpRow(r.e); shown++;
   });
   if(hidden>0) h += '<div class="kev-more">'+(!shown && !todayEv.length ? 'No events in the next 2 weeks &middot; '+hidden : '+ '+hidden+' more')+' event'+(hidden>1?'s':'')+' beyond 2 weeks</div>';
   box.innerHTML = h;
@@ -2135,6 +2152,20 @@ function kevUpRow(e){
       '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
     '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div></div>'+
   '</div>';
+}
+function kevHlMeta(x){ return [ (x.guests!=null?x.guests+' guests':''), kevEsc(x.time_from||'') ].filter(Boolean).join(' · '); }
+function kevHlTag(){ return '<span class="kev-hl-tag">&#9733; From the events desk</span>'; }
+function kevHlNote(x){ return x.note ? '<div class="kev-hl-note">'+kevEsc(x.note)+'</div>' : ''; }
+function kevHlToday(x){
+  return '<div class="kev-today kev-hl"><div class="kev-today-top"><div><span class="kev-chip">Today</span>'+kevHlTag()+
+    '<div class="kev-name">'+kevEsc(x.title)+'</div><div class="kev-meta">'+kevHlMeta(x)+'</div>'+kevHlNote(x)+'</div></div></div>';
+}
+function kevHlRow(x){
+  var d = kevDate(x.date);
+  return '<div class="kev-up-wrap"><div class="kev-up kev-hl">'+
+    '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
+    '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(x.title)+' '+kevHlTag()+'</div><div class="kev-up-meta">'+kevHlMeta(x)+'</div>'+kevHlNote(x)+'</div>'+
+  '</div></div>';
 }
 function kevToggle(id, rowEl){
   var b = document.getElementById('kevb-'+id); if(!b) return;
