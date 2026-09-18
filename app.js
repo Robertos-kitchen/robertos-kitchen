@@ -2178,8 +2178,10 @@ function kevToggle(id, rowEl){
 // Francesco, 18 Sep 2026: a client tasting is on the house, and what it used
 // has to come off the inventory. The Executive Chef or the Sous Chef sends Aung
 // what was actually served, signed with their own employee code.
-// The event dishes are not linked to recipes yet, so there is no cost to send:
-// the panel says so on every dish and asks once before "Send to Aung anyway".
+// Each event dish can be linked to a recipe from the recipe book; a linked,
+// costed recipe sends its cost per portion. A dish with no recipe, or with one
+// the recipe book cannot cost yet, is marked "No costed recipe yet" and the
+// panel asks once before "Send to Aung anyway".
 // Who may send is read off the kitchen staff record's DESIGNATION (not names),
 // plus the 1212 admin passcode. Aung's address is micros_settings.send_to, the
 // same row the Micros request reads — never typed here; unreadable = no send.
@@ -2188,9 +2190,142 @@ function kevToggle(id, rowEl){
 const KEV_COMP_ROLES = ['Executive Chef', 'Sous Chef'];
 const KEV_COMP_SUPER = { '1212': 'Admin (1212)' };
 const KEV_COMP_KEY = '__comp_to_aung__';
-var KEV_COMP = {};   // event id -> panel state { open, qty:{idx:string}, note, busy, msg, err }
+// Dish → recipe links live in the same table under one reserved event id, keyed
+// by the dish's name exactly as the events desk writes it, so "Il Bosco" linked
+// once is linked on every event after. Saved only when a send goes (signed).
+const KEV_LINK_EVENT = '__recipe_link__';
+var KEV_COMP = {};   // event id -> panel state
+var KEV_LINKS = null;   // dish name -> { recipe_id, by }
+// ── recipe costs ──
+// NOT a second costing. The cost is worked out by the Recipes screen's own code —
+// batchCost(), basePrice(), the FMC article reader — running in a hidden copy of
+// recipe-create.html (same site, so its functions can be called from here). A
+// second copy of the costing would drift from the one the chefs look at.
+// The recipe screen boots itself inside the frame and reloads the same globals;
+// the data is read first and the walk then runs in ONE synchronous block, so none
+// of its own loads can land half way through (the 28 Aug "no longer in the
+// catalogue" race in recipe-create.html).
+var KEV_COST = null;   // Promise<{ list:[{id,name,section,cost,why}], byId:{} }>
+function kevCostEngine(){
+  if(KEV_COST) return KEV_COST;
+  KEV_COST = new Promise(function(resolve, reject){
+    var f = document.createElement('iframe');
+    f.src = 'recipe-create.html?costing=1';
+    f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+    f.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:0;border:0;visibility:hidden';
+    var timer = setTimeout(function(){ reject(new Error('the recipe book did not answer in 40 seconds')); }, 40000);
+    f.onload = async function(){
+      try{
+        var w = f.contentWindow;
+        if(!w || typeof w.batchCost !== 'function') throw new Error('the recipe book did not load');
+        await w.loadArticles();
+        var mine = await w.sb('ingredients?venue_id=eq.robertos-difc&archived=is.false&select=*&order=created_at');
+        await w.loadBatches();
+        await w.loadWaivers();
+        var mains = await w.sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty,method');
+        var lines = await w.sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+          'trim_on,yield_pct,waste_pct,position&order=position,id');
+        // ── one synchronous block from here ──
+        if(!w.ING.length) throw new Error('the article list came back empty');
+        var have = {};
+        w.ING.forEach(function(i){ have[String(i.code).toLowerCase()] = 1; });
+        (mine||[]).forEach(function(r){ if(!have[String(r.code).toLowerCase()]) w.ING.push(w.fromMineRow(r)); });
+        var by = {};
+        (lines||[]).forEach(function(l){ (by[l.recipe_id] = by[l.recipe_id] || []).push(l); });
+        w.MAINS = {};
+        (mains||[]).forEach(function(r){ w.MAINS[r.id] = { name:r.name, makesQty:r.makes_qty, makesUnit:'portion', archived:false, lines:by[r.id] || [] }; });
+        var list = (mains||[]).map(function(r){
+          var c = w.batchCost(r.id);
+          // Same rule as the Micros request: a dish still missing its method is started,
+          // not written, and its cost is not sent.
+          var unfinished = !w.hasMethod(w.normMethod(r.method)) && !w.waivedAt(r.id, 'method');
+          // Rounded to the fils HERE, once: every line and the total are then built
+          // from the same figure the chef and Aung read, so they always add up.
+          return { id:r.id, name:r.name, section:r.section || '',
+                   cost: (c.problem || unfinished || !(c.per > 0)) ? null : Math.round(c.per*100)/100,
+                   why: unfinished ? 'recipe not finished' : (c.problem || (!(c.per > 0) ? 'it costs nothing yet' : null)) };
+        }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+        var byId = {}; list.forEach(function(x){ byId[x.id] = x; });
+        clearTimeout(timer); resolve({ list:list, byId:byId });
+      }catch(err){ clearTimeout(timer); reject(err); }
+      finally{ setTimeout(function(){ if(f.parentNode) f.parentNode.removeChild(f); }, 0); }
+    };
+    document.body.appendChild(f);
+  });
+  KEV_COST.catch(function(){ KEV_COST = null; });   // a failed read is tried again next time
+  return KEV_COST;
+}
+async function kevLoadLinks(){
+  var r = await sb.from('kitchen_event_overrides').select('dish_name,label,set_by').eq('event_id', KEV_LINK_EVENT);
+  if(r.error) throw r.error;
+  var m = {}; (r.data||[]).forEach(function(x){ if(x.label) m[x.dish_name] = { recipe_id:x.label, by:x.set_by }; });
+  KEV_LINKS = m; return m;
+}
+function kevMoney(v){ return 'AED '+(Math.round(v*100)/100).toFixed(2); }
+function kevWords(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(function(x){ return x.length > 2 && ['and','the','with','for','con','alla','della','roberto','robertos'].indexOf(x) < 0; });
+}
+// Recipes worth offering for a dish: every word of what is typed must appear;
+// with nothing typed, the ones sharing a word with the dish's own name.
+function kevRecipeOptions(eid, idx, q){
+  var st = KEV_COMP[eid], e = KEV_CACHE[eid]; if(!st || !st.eng || !e) return [];
+  var dish = kevCompRows(e)[idx], qw = kevWords(q);
+  var list = st.eng.list;
+  if(qw.length){
+    return list.filter(function(r){ var n = kevWords(r.name + ' ' + r.section).join(' ');
+      return qw.every(function(w){ return n.indexOf(w) >= 0; }); }).slice(0, 8);
+  }
+  var dw = kevWords(dish && dish.name);
+  return list.map(function(r){ var rw = kevWords(r.name);
+      return { r:r, s:dw.filter(function(w){ return rw.some(function(x){ return x.indexOf(w)===0 || w.indexOf(x)===0; }); }).length }; })
+    .filter(function(x){ return x.s > 0; })
+    .sort(function(a,b){ return b.s - a.s || a.r.name.localeCompare(b.r.name); })
+    .slice(0, 8).map(function(x){ return x.r; });
+}
+function kevOptsHtml(eid, idx, q){
+  var opts = kevRecipeOptions(eid, idx, q);
+  if(!opts.length) return '<div class="kev-comp-none">'+(String(q||'').trim() ? 'No recipe in the book matches that.' : 'No recipe in the book looks like this dish — type to search.')+'</div>';
+  return opts.map(function(r){
+    return '<button class="kev-comp-opt" onclick="kevCompPick(\''+eid+'\','+idx+',\''+r.id+'\')">'+
+      '<b>'+kevEsc(r.name)+'</b>'+(r.section?' <span class="kev-comp-sec">'+kevEsc(r.section)+'</span>':'')+
+      '<span class="kev-comp-oc">'+(r.cost!=null ? kevMoney(r.cost)+' / portion' : 'not costed yet')+'</span></button>';
+  }).join('');
+}
+// What one dish row is linked to, and what it costs — the single answer every
+// part of the panel and the email reads.
+function kevDishCost(eid, idx){
+  var st = KEV_COMP[eid], e = KEV_CACHE[eid], dish = kevCompRows(e)[idx];
+  var rid = st && st.link ? st.link[idx] : null;
+  if(!rid) return { rid:null, cost:null, why:'no recipe attached' };
+  if(!st.eng) return { rid:rid, cost:null, why:st.engErr ? 'recipe costs could not be loaded' : 'still loading the cost' };
+  var r = st.eng.byId[rid];
+  if(!r) return { rid:rid, cost:null, why:'the linked recipe is no longer in the book' };
+  return { rid:rid, r:r, cost:r.cost, why:r.cost==null ? (r.why || 'not costed yet') : null };
+}
 function kevCompSent(eid){ var o = KEV_OVR[kevOvrKey(eid, KEV_COMP_KEY)]; return o && o.label ? o.label : null; }
 function kevCompRows(e){ return kevMenuModel(e).rows; }
+function kevCompTotals(eid){
+  var st = KEV_COMP[eid], e = KEV_CACHE[eid], rows = kevCompRows(e);
+  var t = 0, costed = 0, served = 0, missing = [];
+  rows.forEach(function(m, idx){
+    var n = Number(String(st.qty[idx]||'').trim()); if(!(n > 0)) return;
+    served++;
+    var c = kevDishCost(eid, idx);
+    if(c.cost != null){ t += c.cost * n; costed++; } else missing.push(m.name);
+  });
+  return { total:t, costed:costed, served:served, missing:missing };
+}
+function kevCompTotalHtml(eid){
+  var t = kevCompTotals(eid);
+  if(!t.served) return 'Nothing entered as served yet.';
+  return '<b>'+kevMoney(t.total)+'</b> food cost for '+t.costed+' of '+t.served+' dish'+(t.served===1?'':'es')+' served'+
+    (t.missing.length ? ' &mdash; '+t.missing.length+' with no costed recipe yet, not included' : '');
+}
+function kevCompMissHtml(eid){
+  var t = kevCompTotals(eid);
+  return t.missing.length ? '<div class="kev-comp-warn"><b>'+t.missing.length+' dish'+(t.missing.length===1?' has':'es have')+' no costed recipe yet:</b> '+kevEsc(t.missing.join(', '))+'. Aung gets '+(t.missing.length===1?'its':'their')+' portions but no cost. Send to Aung anyway?</div>' : '';
+}
 function kevCompBlock(e){
   var st = KEV_COMP[e.id] || {}, sent = kevCompSent(e.id);
   if(!kevCompRows(e).length) return '';
@@ -2206,16 +2341,35 @@ function kevCompBlock(e){
   h += '<div class="kev-comp-panel" onclick="event.stopPropagation()">'+
     '<div class="kev-comp-h">Complimentary tasting &mdash; take it off the inventory</div>'+
     '<div class="kev-comp-sub">Portions actually served. Blank or 0 = not served.</div>';
+  if(!st.eng && !st.engErr) h += '<div class="kev-comp-load">Costing the dishes from the recipe book&hellip;</div>';
+  if(st.engErr) h += '<div class="kev-comp-err">Couldn&rsquo;t load the recipe costs ('+kevEsc(st.engErr)+'). You can still send &mdash; every dish goes as &ldquo;no costed recipe yet&rdquo;.</div>';
   rows.forEach(function(m, idx){
     if(m.group && m.group!==lastG){ lastG = m.group; h += '<div class="kev-grp">'+kevEsc(m.group)+'</div>'; }
     var v = st.qty[idx] != null ? st.qty[idx] : '';
-    h += '<div class="kev-comp-row"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+
-      '<div class="kev-comp-norec">No recipe attached</div></div>'+
+    var c = kevDishCost(e.id, idx), rec;
+    if(c.r && c.cost != null) rec = '<div class="kev-comp-rec">'+kevEsc(c.r.name)+(c.r.section?' &middot; '+kevEsc(c.r.section):'')+' &middot; <b>'+kevMoney(c.cost)+'</b> / portion</div>';
+    else if(c.r) rec = '<div class="kev-comp-norec">'+kevEsc(c.r.name)+' &mdash; no costed recipe yet ('+kevEsc(c.why)+')</div>';
+    else if(c.rid) rec = '<div class="kev-comp-norec">No costed recipe yet ('+kevEsc(c.why)+')</div>';
+    else rec = '<div class="kev-comp-norec">No costed recipe yet</div>';
+    var canPick = !!st.eng;
+    rec += canPick ? '<button class="kev-comp-link" onclick="kevCompPickOpen(\''+e.id+'\','+idx+')">'+(c.rid ? 'change recipe' : 'attach a recipe')+'</button>' : '';
+    h += '<div class="kev-comp-row"><div class="kev-dish"><b>'+kevEsc(m.name)+'</b>'+rec+'</div>'+
       '<input class="kev-comp-in" type="number" min="0" step="1" inputmode="numeric" value="'+kevEsc(v)+'" '+
       'oninput="kevCompQty(\''+e.id+'\','+idx+',this.value)" aria-label="Portions served of '+kevEsc(m.name)+'"></div>';
+    if(st.pick === idx){
+      h += '<div class="kev-comp-picker">'+
+        '<input class="kev-comp-q" id="kev-comp-q-'+e.id+'" type="search" placeholder="Search the recipe book" autocomplete="off" '+
+        'oninput="kevCompSearch(\''+e.id+'\','+idx+',this.value)" aria-label="Search the recipe book for '+kevEsc(m.name)+'">'+
+        '<div id="kev-comp-opts-'+e.id+'">'+kevOptsHtml(e.id, idx, '')+'</div>'+
+        '<div class="kev-comp-pbtns">'+(c.rid ? '<button class="kev-comp-link" onclick="kevCompPick(\''+e.id+'\','+idx+',null)">Take the recipe off this dish</button>' : '')+
+        '<button class="kev-comp-link" onclick="kevCompPickClose(\''+e.id+'\')">Close</button></div></div>';
+    }
   });
-  h += '<div class="kev-comp-warn"><b>These dishes don&rsquo;t have recipes attached.</b> Aung gets the dishes and the portions, but no cost. Send to Aung anyway?</div>'+
-    (sent ? '<div class="kev-comp-warn">Already sent once &mdash; this sends Aung a second email.</div>' : '')+
+  var tot = kevCompTotals(e.id);
+  h += '<div class="kev-comp-total" id="kev-comp-total-'+e.id+'">'+kevCompTotalHtml(e.id)+'</div>';
+  var anyway = tot.missing.length > 0 || !tot.served;
+  h += '<div id="kev-comp-miss-'+e.id+'">'+kevCompMissHtml(e.id)+'</div>';
+  h += (sent ? '<div class="kev-comp-warn">Already sent once &mdash; this sends Aung a second email.</div>' : '')+
     '<label class="kev-comp-lbl">Note for Aung (optional)</label>'+
     '<input class="kev-comp-note" type="text" maxlength="300" value="'+kevEsc(st.note||'')+'" oninput="kevCompNote(\''+e.id+'\',this.value)">'+
     '<label class="kev-comp-lbl">Your employee code &mdash; Executive Chef or Sous Chef</label>'+
@@ -2223,26 +2377,54 @@ function kevCompBlock(e){
     (st.err ? '<div class="kev-comp-err">'+kevEsc(st.err)+'</div>' : '')+
     '<div class="kev-comp-btns">'+
       '<button class="kev-comp-cancel" onclick="kevCompClose(\''+e.id+'\')"'+(st.busy?' disabled':'')+'>Cancel</button>'+
-      '<button class="kev-print" onclick="kevCompSend(\''+e.id+'\')"'+(st.busy?' disabled':'')+'>'+(st.busy?'Sending&hellip;':'Send to Aung anyway')+'</button>'+
+      '<button class="kev-print" id="kev-comp-go-'+e.id+'" onclick="kevCompSend(\''+e.id+'\')"'+(st.busy?' disabled':'')+'>'+(st.busy?'Sending&hellip;':(anyway?'Send to Aung anyway':'Send to Aung'))+'</button>'+
     '</div></div>';
   return h + '</div>';
 }
 function kevCompRender(eid){
-  var e = KEV_CACHE[eid], el = document.getElementById('kev-comp-'+eid);
-  if(e && el) el.innerHTML = kevCompBlock(e);
+  var e = KEV_CACHE[eid], el = document.getElementById('kev-comp-'+eid); if(!e || !el) return;
+  // A re-draw must not throw away a code that is half typed.
+  var ci = document.getElementById('kev-comp-code-'+eid), code = ci ? ci.value : '';
+  el.innerHTML = kevCompBlock(e);
+  var cn = document.getElementById('kev-comp-code-'+eid); if(cn && code) cn.value = code;
 }
-function kevCompOpen(eid){
+async function kevCompOpen(eid){
   var e = KEV_CACHE[eid]; if(!e) return;
   var qty = {};
   // Start from what the kitchen was told to cook (override first); a guests'
   // choice with no count starts blank for the chef to fill.
   kevCompRows(e).forEach(function(m, idx){ qty[idx] = (m.qty!=null && !m.ovr_label) ? String(m.qty) : ''; });
-  KEV_COMP[eid] = { open:true, qty:qty, note:'', busy:false, err:null, msg:null };
+  var st = KEV_COMP[eid] = { open:true, qty:qty, link:{}, note:'', busy:false, err:null, msg:null, eng:null, engErr:null, pick:null };
   kevCompRender(eid);
+  try{
+    var links = await kevLoadLinks();
+    kevCompRows(e).forEach(function(m, idx){ if(links[m.name]) st.link[idx] = links[m.name].recipe_id; });
+  }catch(err){ console.warn('[kev-comp] links not read', err && err.message || err); }
+  try{ st.eng = await kevCostEngine(); }
+  catch(err){ st.engErr = (err && err.message) || String(err); }
+  if(KEV_COMP[eid] === st) kevCompRender(eid);
 }
 function kevCompClose(eid){ KEV_COMP[eid] = { open:false }; kevCompRender(eid); }
-function kevCompQty(eid, idx, v){ var st = KEV_COMP[eid]; if(st) st.qty[idx] = v; }
+function kevCompQty(eid, idx, v){
+  var st = KEV_COMP[eid]; if(!st) return; st.qty[idx] = v;
+  // the total, the warning and the button all follow what is typed, live
+  var t = document.getElementById('kev-comp-total-'+eid); if(t) t.innerHTML = kevCompTotalHtml(eid);
+  var w = document.getElementById('kev-comp-miss-'+eid); if(w) w.innerHTML = kevCompMissHtml(eid);
+  var b = document.getElementById('kev-comp-go-'+eid), tt = kevCompTotals(eid);
+  if(b && !st.busy) b.textContent = (tt.missing.length || !tt.served) ? 'Send to Aung anyway' : 'Send to Aung';
+}
 function kevCompNote(eid, v){ var st = KEV_COMP[eid]; if(st) st.note = v; }
+function kevCompPickOpen(eid, idx){
+  var st = KEV_COMP[eid]; if(!st) return; st.pick = idx; kevCompRender(eid);
+  var q = document.getElementById('kev-comp-q-'+eid); if(q) q.focus();
+}
+function kevCompPickClose(eid){ var st = KEV_COMP[eid]; if(!st) return; st.pick = null; kevCompRender(eid); }
+function kevCompSearch(eid, idx, q){ var o = document.getElementById('kev-comp-opts-'+eid); if(o) o.innerHTML = kevOptsHtml(eid, idx, q); }
+function kevCompPick(eid, idx, rid){
+  var st = KEV_COMP[eid]; if(!st) return;
+  if(rid) st.link[idx] = rid; else delete st.link[idx];
+  st.pick = null; st.linkChanged = true; kevCompRender(eid);
+}
 function kevCompFail(eid, msg){ var st = KEV_COMP[eid]; if(!st) return; st.busy = false; st.err = msg; kevCompRender(eid); }
 async function kevCompSend(eid){
   var e = KEV_CACHE[eid], st = KEV_COMP[eid]; if(!e || !st || st.busy) return;
@@ -2253,7 +2435,7 @@ async function kevCompSend(eid){
     var raw = String(st.qty[i]==null?'':st.qty[i]).trim();
     if(raw==='' || raw==='0') continue;
     if(!/^\d+$/.test(raw) || Number(raw)>1000) return kevCompFail(eid, 'Portions for “'+rows[i].name+'” must be a whole number.');
-    served.push({ m:rows[i], n:Number(raw) }); total += Number(raw);
+    served.push({ m:rows[i], n:Number(raw), c:kevDishCost(eid, i) }); total += Number(raw);
   }
   if(!served.length) return kevCompFail(eid, 'Enter the portions served — nothing to send yet.');
   if(!code) return kevCompFail(eid, 'Type your employee code to send.');
@@ -2282,14 +2464,22 @@ async function kevCompSend(eid){
   // 3 — the email
   var d = kevDate(e.date);
   var stamp = new Date().toLocaleString('en-GB', { timeZone:'Asia/Dubai', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
-  var tr = '', lastG = null;
+  var td = 'padding:6px 8px;border-bottom:1px solid #E3D5C2;vertical-align:top';
+  var tr = '', lastG = null, money = 0, costed = 0, missing = [];
   served.forEach(function(x){
-    if(x.m.group && x.m.group!==lastG){ lastG = x.m.group; tr += '<tr><td colspan="3" style="background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#6B4A33;padding:5px 8px">'+kevEsc(x.m.group)+'</td></tr>'; }
-    tr += '<tr><td style="padding:6px 8px;border-bottom:1px solid #E3D5C2">'+kevEsc(x.m.name)+'</td>'+
-      '<td style="padding:6px 8px;border-bottom:1px solid #E3D5C2;text-align:right"><b>'+x.n+'</b></td>'+
-      '<td style="padding:6px 8px;border-bottom:1px solid #E3D5C2;color:#8A2A1A;font-size:12px">No recipe attached — no cost</td></tr>';
+    if(x.m.group && x.m.group!==lastG){ lastG = x.m.group; tr += '<tr><td colspan="5" style="background:#F3E9DA;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#6B4A33;padding:5px 8px">'+kevEsc(x.m.group)+'</td></tr>'; }
+    var ok = x.c.cost != null, line = ok ? x.c.cost * x.n : null;
+    if(ok){ money += line; costed++; } else missing.push(x.m.name);
+    tr += '<tr><td style="'+td+'">'+kevEsc(x.m.name)+'</td>'+
+      '<td style="'+td+';text-align:right"><b>'+x.n+'</b></td>'+
+      '<td style="'+td+';text-align:right">'+(ok ? kevMoney(x.c.cost) : '—')+'</td>'+
+      '<td style="'+td+';text-align:right">'+(ok ? '<b>'+kevMoney(line)+'</b>' : '—')+'</td>'+
+      '<td style="'+td+';font-size:12px;'+(ok?'color:#3A2A1C':'color:#8A2A1A')+'">'+
+        (ok ? kevEsc(x.c.r.name)+(x.c.r.section?' · '+kevEsc(x.c.r.section):'')
+            : 'No costed recipe yet'+(x.c.r ? ' — '+kevEsc(x.c.r.name)+': '+kevEsc(x.c.why) : ''))+'</td></tr>';
   });
-  var html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10;max-width:640px">'+
+  var th = 'padding:6px 8px;border-bottom:2px solid #410207';
+  var html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10;max-width:680px">'+
     '<div style="background:#410207;color:#f5ede0;padding:14px 18px">'+
       '<div style="font-family:Georgia,serif;font-size:19px;font-weight:700">Roberto\'s DIFC — Complimentary tasting</div>'+
       '<div style="font-size:12px;opacity:.85;margin-top:3px">Please deduct from the inventory</div></div>'+
@@ -2298,10 +2488,13 @@ async function kevCompSend(eid){
       (e.guests!=null?' · '+e.guests+' guests':'')+'</p>'+
     '<p style="font-size:14px;line-height:1.6">This tasting was complimentary. Below is what the kitchen served — <b>'+total+' portion'+(total===1?'':'s')+'</b> across '+served.length+' dish'+(served.length===1?'':'es')+'.</p>'+
     '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr>'+
-      '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #410207">Dish</th>'+
-      '<th style="text-align:right;padding:6px 8px;border-bottom:2px solid #410207">Portions</th>'+
-      '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #410207">Recipe</th></tr>'+tr+'</table>'+
-    '<p style="font-size:13px;line-height:1.6;color:#8A2A1A">None of these dishes has a recipe attached in the Kitchen App yet, so no cost is calculated here.</p>'+
+      '<th style="text-align:left;'+th+'">Dish</th><th style="text-align:right;'+th+'">Portions</th>'+
+      '<th style="text-align:right;'+th+'">Cost / portion</th><th style="text-align:right;'+th+'">Cost</th>'+
+      '<th style="text-align:left;'+th+'">Recipe</th></tr>'+tr+
+      '<tr><td colspan="3" style="padding:8px;text-align:right"><b>Food cost of the costed dishes</b></td>'+
+      '<td style="padding:8px;text-align:right;font-size:15px"><b>'+kevMoney(money)+'</b></td><td style="padding:8px;font-size:12px">'+costed+' of '+served.length+' dishes</td></tr></table>'+
+    (missing.length ? '<p style="font-size:13px;line-height:1.6;color:#8A2A1A"><b>'+missing.length+' dish'+(missing.length===1?' has':'es have')+' no costed recipe yet</b> ('+kevEsc(missing.join(', '))+') — portions only, not in the total.</p>' : '')+
+    '<p style="font-size:12px;line-height:1.6;color:#5A4632">Costs are the Kitchen App recipe book\'s, per portion, at today\'s FMC prices — the same figures the Micros request uses.</p>'+
     (st.note ? '<p style="font-size:14px;line-height:1.6"><b>Note:</b> '+kevEsc(st.note)+'</p>' : '')+
     '<p style="font-size:13px;line-height:1.6">Sent by <b>'+kevEsc(who.name)+'</b> ('+kevEsc(who.role)+') with their employee code, '+kevEsc(stamp)+'.</p>'+
     '<div style="font-size:11px;color:#8a7a55;border-top:1px solid #e1d3c2;padding-top:10px;margin-top:16px">Sent from Roberto\'s Kitchen App · Events</div></div>';
@@ -2317,7 +2510,8 @@ async function kevCompSend(eid){
     if(!res.ok) throw new Error(out.error || ('the mail server said '+res.status));
   }catch(err){ return kevCompFail(eid, 'Not sent — '+(err && err.message || err)+'. Try again.'); }
   // 4 — it has gone; write it down (after, never in front of the send)
-  var label = 'Sent to Aung by '+who.name+' · '+stamp+' · '+total+' portion'+(total===1?'':'s');
+  var label = 'Sent to Aung by '+who.name+' · '+stamp+' · '+total+' portion'+(total===1?'':'s')+
+    (costed ? ' · '+kevMoney(money)+' costed' : '')+(missing.length ? ' · '+missing.length+' not costed' : '');
   var msg = 'Sent to Aung ✓';
   try{
     var w = await sb.from('kitchen_event_overrides').upsert(
@@ -2326,6 +2520,19 @@ async function kevCompSend(eid){
     if(w && w.error) throw w.error;
     KEV_OVR[kevOvrKey(eid, KEV_COMP_KEY)] = { portions:total, label:label };
   }catch(err){ msg = 'Sent to Aung ✓ — but it could not be recorded on this screen, so it will not show as sent after a reload.'; }
+  // the dish → recipe links chosen here, remembered for the next event with the same dish
+  if(st.linkChanged){
+    try{
+      var up = [], del = [];
+      rows.forEach(function(m, idx){
+        var rid = st.link[idx], had = KEV_LINKS && KEV_LINKS[m.name] ? KEV_LINKS[m.name].recipe_id : null;
+        if(rid && rid !== had) up.push({ event_id:KEV_LINK_EVENT, dish_name:m.name, portions:null, label:rid, set_by:who.name, updated_at:new Date().toISOString() });
+        else if(!rid && had) del.push(m.name);
+      });
+      if(up.length){ var u = await sb.from('kitchen_event_overrides').upsert(up, { onConflict:'event_id,dish_name' }); if(u && u.error) throw u.error; }
+      if(del.length){ var dl = await sb.from('kitchen_event_overrides').delete().eq('event_id', KEV_LINK_EVENT).in('dish_name', del); if(dl && dl.error) throw dl.error; }
+    }catch(err){ msg += ' The recipes you attached could not be remembered for next time.'; }
+  }
   KEV_COMP[eid] = { open:false, msg:msg };
   kevCompRender(eid);
   // The panel closing shortens the page; keep the chef looking at the answer.

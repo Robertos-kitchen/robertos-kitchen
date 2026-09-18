@@ -1319,6 +1319,19 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 .kev-comp-btns{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;flex-wrap:wrap}
 .kev-comp-cancel{background:transparent;border:1px solid #B9A48A;color:#3A2A1C;border-radius:8px;padding:11px 16px;font-family:var(--font-sans);font-size:13px;cursor:pointer}
 .kev-comp-btns button[disabled]{opacity:.6;cursor:default}
+/* recipe links + costs on the complimentary panel (18 Sep 2026) */
+.kev-comp-rec{font-size:12.5px;color:#2F3A12;margin-top:1px}.kev-comp-rec b{color:#2F3A12}
+.kev-comp-link{background:transparent;border:none;color:var(--vino);font-size:12.5px;font-weight:600;text-decoration:underline;padding:6px 0;margin-right:14px;cursor:pointer;font-family:var(--font-sans);min-height:32px}
+.kev-comp-picker{background:#fff;border:1px solid #B9A48A;border-radius:10px;padding:10px;margin:4px 0 8px}
+.kev-comp-q{width:100%;box-sizing:border-box;min-height:44px;font-size:16px;border:1.5px solid #B9A48A;border-radius:8px;padding:8px 10px;color:#2C1810;font-family:var(--font-sans);margin-bottom:6px}
+.kev-comp-opt{display:block;width:100%;text-align:left;background:#FFFBF5;border:1px solid #E3D5C2;border-radius:8px;padding:10px 11px;margin-top:6px;cursor:pointer;font-family:var(--font-sans);font-size:14px;color:#2C1810;min-height:44px}
+.kev-comp-opt:active{background:#F3E9DA}.kev-comp-opt b{color:var(--vino)}
+.kev-comp-sec{font-size:12px;color:#4A3524}
+.kev-comp-oc{display:block;font-size:12.5px;color:#3A2A1C;margin-top:2px}
+.kev-comp-none{font-size:13px;color:#4A3524;padding:6px 2px}
+.kev-comp-pbtns{margin-top:6px}
+.kev-comp-total{font-size:14px;color:#2C1810;margin-top:12px;padding-top:9px;border-top:1px solid #D8C6AD}.kev-comp-total b{color:var(--vino);font-size:16px}
+.kev-comp-load{font-size:13px;color:#4A3524;font-style:italic;margin:4px 0}
 </style>
 <div id="home-view" class="home-view">
   <div class="home-title">Kitchen App</div>
@@ -1515,7 +1528,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1789748168"></script>
+<script src="app.js?v=1789749657"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
