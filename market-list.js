@@ -434,8 +434,9 @@ async function mlSetQty(itemId, weekday, value){
 // ordered, and finding a name for it elsewhere only hides that.
 // ══════════════════════════════════════════════════════════════════════════
 
-var mlArticles   = [];        // [{code,name,unit,supplier,on_assortment,retiring}]
+var mlArticles   = [];        // [{code,name,unit,supplier,on_assortment,retiring,item_group}]
 var mlArtByCode  = {};        // code -> article, for flagging existing lines
+var mlArtGroup   = {};        // code -> FMC item group, EVERY article (retiring too) - see mlAutoCategory
 var mlArtLoaded  = false;     // false until the fetch lands (or fails)
 
 // Loaded once per open, after the grid is drawn. Everything EXCEPT adding must
@@ -447,7 +448,7 @@ var mlArtLoaded  = false;     // false until the fetch lands (or fails)
 async function mlLoadArticles(){
   var rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_articles')
-      .select('code,name,unit,supplier,on_assortment,retiring')
+      .select('code,name,unit,supplier,on_assortment,retiring,item_group')
       .eq('venue_id','robertos-difc')
       .order('name');
   });
@@ -474,8 +475,10 @@ async function mlLoadArticles(){
   // articles makes the warning unreachable, and a line that cannot be ordered
   // would look perfectly healthy. Two collections, two jobs.
   mlArtByCode = {};
+  mlArtGroup = {};
   rows.forEach(function(a){
     if(a.on_assortment) mlArtByCode[String(a.code).trim()] = a;
+    if(a.item_group) mlArtGroup[String(a.code).trim()] = a.item_group;
   });
   mlArtLoaded = true;
   if(activeStation === ORDER_KEY){ mlRenderRows(mlVisibleDays()); mlRenderGlobalAdd(); }
@@ -590,10 +593,13 @@ function mlRenderPickMenu(category, safe){
   var onList = safe === 'global' ? mlOnListByCode() : {};
   var html = st.hits.map(function(a,i){
     var where = onList[String(a.code).trim()];
+    // Where it will land, said BEFORE the tap - the top box no longer asks.
+    var goes = (safe === 'global' && !where) ? mlAutoCategory(a) : null;
     return '<div class="ml-pick-opt' + (i===st.sel?' sel':'') + '" data-i="' + i + '">' +
       '<div class="ml-pick-nm">' + mlEsc(a.name) +
         (a.retiring ? '<span class="ml-flag retiring">retiring</span>' : '') +
         (where ? '<span class="ml-flag onlist">on the list · ' + mlEsc(where) + '</span>' : '') +
+        (safe === 'global' && !where ? '<span class="ml-flag goes">' + (goes ? '→ ' + mlEsc(goes.cat) : 'you pick the category') + '</span>' : '') +
         '<div class="ml-pick-meta">' + mlEsc(a.unit||'—') +
         (mlSupplierFor(a) ? ' · ' + mlEsc(mlSupplierFor(a)) : ' · <b>no supplier in FMC</b>') + '</div></div>' +
       '<span class="ml-pick-code">' + mlEsc(a.code) + '</span></div>';
@@ -685,7 +691,7 @@ function mlPickChoose(category, safe, i){
 // on the list looking real. Everything below assumes `art` exists; the gate
 // that makes that true is the first thing in the function, because all three
 // routes in - the Add button, Enter, and a pick from the menu - land here.
-async function mlAddCustom(category, safe){
+async function mlAddCustom(category, safe, auto){
   if(!mlMayEditList('Adding an item')) return;
   const inp = document.getElementById('mladd-' + safe);
   if(!inp) return;
@@ -740,22 +746,7 @@ async function mlAddCustom(category, safe){
   // Sorted on the name as SHOWN, which for a coded line is FMC's name, not the
   // one typed here - mlApplyFmcFacts overwrites it on every load, so sorting on
   // anything else puts the row somewhere the eye will not find it.
-  const newName = ((art ? art.name : typed) || '').trim().toLowerCase();
-  const inCat = mlItems.filter(i=>i.category===category)
-                       .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
-  let before = null, after = null;
-  for(const i of inCat){
-    if(((i.name||'').trim().toLowerCase()) <= newName) before = i;
-    else { after = i; break; }
-  }
-  let slot;
-  if(!inCat.length)      slot = 10;
-  else if(!before)       slot = (after.sort_order||10) - 5;
-  else if(!after)        slot = (before.sort_order||0) + 10;
-  else                   slot = Math.floor(((before.sort_order||0) + (after.sort_order||0)) / 2);
-  if(before && slot <= (before.sort_order||0)){         // no gap left - append instead
-    slot = Math.max(...inCat.map(i=>i.sort_order||0)) + 10;
-  }
+  const slot = mlSlotFor(category, (art ? art.name : typed));
 
   const row = { name: art.name, category,
                 unit: art.unit || '',
@@ -777,11 +768,90 @@ async function mlAddCustom(category, safe){
   mlRenderRows(mlVisibleDays());
   mlRenderSummary();
   if(typeof kToast === 'function'){
-    kToast('✓ ' + art.name + ' added' + (safe === 'global' ? ' to ' + category : '') + ' · ' + art.code + ' · ' + (art.unit||'') + ' · ' + artSupplier);
+    // The automatic one names its reason instead of code and unit - the menu
+    // showed those a second ago, and on a phone the toast has four lines.
+    var said = auto
+      ? '✓ ' + art.name + ' added to ' + category + ' (' + auto.why + ') · ' + artSupplier
+      : '✓ ' + art.name + ' added' + (safe === 'global' ? ' to ' + category : '')
+        + ' · ' + art.code + ' · ' + (art.unit||'') + ' · ' + artSupplier;
+    // A category the app chose is one tap from being put right: the same
+    // editor tapping the row opens, where the category is a picker.
+    // 6s, not the 12s an Undo gets: on a phone this toast sits over the add
+    // box, and adding several in a row is the job. Tapping the row does the same.
+    if(auto) kToast(said, false, { label:'Wrong category?', ms:6000, onClick:function(){ mlOpenEditor(data.id); } });
+    else kToast(said);
   }
   // keep focus flowing: re-focus the same category's add box
   const again = document.getElementById('mladd-' + safe);
   if(again) again.focus();
+}
+
+// Where a line named `name` belongs inside `category`, as a sort_order.
+// Moved out of mlAddCustom 19 Sep 2026 so moving a line to another category
+// slots it by exactly the same rule an add does. `skipId` leaves the line being
+// moved out of its own neighbours.
+function mlSlotFor(category, name, skipId){
+  const newName = (name || '').trim().toLowerCase();
+  const inCat = mlItems.filter(i=>i.category===category && i.id!==skipId)
+                       .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  let before = null, after = null;
+  for(const i of inCat){
+    if(((i.name||'').trim().toLowerCase()) <= newName) before = i;
+    else { after = i; break; }
+  }
+  let slot;
+  if(!inCat.length)      slot = 10;
+  else if(!before)       slot = (after.sort_order||10) - 5;
+  else if(!after)        slot = (before.sort_order||0) + 10;
+  else                   slot = Math.floor(((before.sort_order||0) + (after.sort_order||0)) / 2);
+  if(before && slot <= (before.sort_order||0)){         // no gap left - append instead
+    slot = Math.max(...inCat.map(i=>i.sort_order||0)) + 10;
+  }
+  return slot;
+}
+
+// ── which category, without asking ────────────────────────────────────────
+// Antonio asked 19 Sep 2026 (Tell us, inbox 7abb21f9): when he adds something
+// he should not have to choose the category - it should go into the right one
+// by itself.
+//
+// Nothing here is a table of ours. FMC files every article under an item group
+// ("Vegetables Fresh", "Beef and Veal"...), and the market list already shows
+// where WE keep each group. So the answer is read off the list as it stands:
+//   1. the same article is already on the list  -> where it already sits;
+//   2. lines from the same FMC group whose name starts with the same word all
+//      sit in one category -> that one (Veal... -> VEAL, not BEEF; Basil... ->
+//      HERBS, not VEGETABLES);
+//   3. otherwise, where most of that group's lines sit - but only if it is at
+//      least 60% of them.
+// Anything else returns null and the box asks, exactly as it did before. A
+// guess with nothing behind it would put the line somewhere nobody looks.
+//
+// Measured on the live list 19 Sep 2026, each of the 382 lines hidden in turn
+// and re-guessed from the other 381: 361 right, 17 wrong, 4 asked. The 17 are
+// lines the list itself keeps both ways (honey and sugar in DRY GOODS and in
+// PASTRY; loose herbs in HERBS and in VEGETABLES) - hence "Wrong category?" on
+// the toast, and the category picker in the editor.
+function mlAutoCategory(art){
+  if(!art) return null;
+  const code = String(art.code == null ? '' : art.code).trim();
+  const here = mlItems.find(function(i){ return (i.code||'').trim() === code && code; });
+  if(here) return { cat: here.category, why: 'where it already is' };
+  const grp = art.item_group || mlArtGroup[code];
+  if(!grp) return null;
+  const same = mlItems.filter(function(i){ return mlArtGroup[(i.code||'').trim()] === grp; });
+  if(!same.length) return null;
+  const first = function(n){ const m = String(n||'').toLowerCase().match(/[a-zà-ü]{3,}/); return m ? m[0] : ''; };
+  const w = first(art.name);
+  const byWord = {};
+  if(w) same.forEach(function(i){ if(first(i.name) === w) (byWord[i.category] = byWord[i.category] || []).push(i); });
+  const wc = Object.keys(byWord);
+  if(wc.length === 1) return { cat: wc[0], why: 'next to ' + byWord[wc[0]][0].name };
+  const n = {};
+  same.forEach(function(i){ n[i.category] = (n[i.category]||0) + 1; });
+  const top = Object.keys(n).sort(function(a,b){ return n[b]-n[a]; })[0];
+  if(n[top] / same.length < 0.6) return null;
+  return { cat: top, why: 'with ' + n[top] + ' of our ' + same.length + ' FMC "' + grp + '" items' };
 }
 
 // ── the one search box at the top ─────────────────────────────────────────
@@ -796,10 +866,12 @@ function mlOnListByCode(){
   return m;
 }
 
+// The picker starts on "automatic" and is only there to overrule it. It used
+// to start on the category filter; that would now quietly beat the automatic
+// choice, so a filter left on DAIRY would put basil in DAIRY.
 function mlGlobalAddHtml(){
-  var cur = mlCatFilter || '';
-  var opts = '<option value="">Category…</option>' + ML_CAT_ORDER.map(function(c){
-    return '<option value="' + mlEsc(c) + '"' + (c === cur ? ' selected' : '') + '>' + mlEsc(c) + '</option>';
+  var opts = '<option value="">Category: automatic</option>' + ML_CAT_ORDER.map(function(c){
+    return '<option value="' + mlEsc(c) + '">' + mlEsc(c) + '</option>';
   }).join('');
   return '<div class="ml-gadd">'
     + '<div class="ml-catadd-combo">'
@@ -838,14 +910,24 @@ async function mlGlobalAdd(){
   if(!inp || !(inp.value||'').trim()) return;
   if(!st || !st.picked){ mlAddCustom('', 'global'); return; }   // refuses out loud, same words as every box
   var cat = sel ? sel.value : '';
+  var auto = null;
   if(!cat){
+    auto = mlAutoCategory(st.picked);
+    if(auto) cat = auto.cat;
+  }
+  if(!cat){
+    // Only when the list gives no answer: nothing from this FMC group is on it
+    // yet, or its lines are split with no clear home.
     if(sel){ sel.classList.add('need'); sel.focus(); setTimeout(function(){ sel.classList.remove('need'); }, 1800); }
-    if(typeof kToast === 'function') kToast('Which category does ' + st.picked.name + ' go in? Pick it next to the search box.');
+    var grp = st.picked.item_group || mlArtGroup[String(st.picked.code).trim()];
+    if(typeof kToast === 'function') kToast('The list has no clear place for ' + st.picked.name
+      + (grp ? ' yet (FMC calls it ' + grp + ')' : '') + ' — pick its category next to the search box.');
     return;
   }
+  if(sel) sel.value = '';                      // the next add starts automatic again
   var where = mlOnListByCode()[String(st.picked.code).trim()];
   if(where && !(await kAsk(st.picked.name + ' (' + st.picked.code + ') is already on the list under ' + where + '.\n\nAdd it again under ' + cat + '?', { ok:'Add again' }))) return;
-  mlAddCustom(cat, 'global');
+  mlAddCustom(cat, 'global', auto);
 }
 
 // ── repointing a dead code ────────────────────────────────────────────────
@@ -1775,6 +1857,13 @@ function mlInjectCss(){
     '.ml-flag.none{background:#FDF4E0;color:#8a5a00;border:1px solid #E4C98A}',
     '.ml-flag.retiring{background:#EEF2FA;color:#2a4a7a;border:1px solid #C3D2EA}',
     '.ml-flag.onlist{background:#EAF4EC;color:#1f5a2c;border:1px solid #B9D8C0}',
+    '.ml-flag.goes{background:#F5EDE0;color:#400207;border:1px solid #D9C4A8}',
+    // The editor's category, as a picker while the list is unlocked. 16px or
+    // iOS zooms the whole page on tap; cream on vino like the label it replaces.
+    '.ml-ed-catpick{font:600 16px var(--font-sans,sans-serif);letter-spacing:1px;opacity:1;',
+      'color:#F5EDE0;background:transparent;border:1px solid rgba(245,237,224,.55);border-radius:6px;',
+      'padding:4px 8px;margin:0 0 4px;max-width:100%}',
+    '.ml-ed-catpick option{color:#1a1a1a;background:#fff}',
     // ── the top "add any item" box (unlocked only) ──
     '.ml-gadd{display:flex;gap:8px;align-items:center;margin:0 0 12px;padding:10px 12px;',
       'background:#FBF6EC;border:1px solid rgba(64,2,7,.18);border-radius:8px}',
@@ -2342,6 +2431,41 @@ async function mlRowPickSupplier(itemId, idx){
 // Both undo paths share this. Returns an error STRING, or null when the write
 // landed — mlUndoLast keeps the step on the stack whenever this reports a
 // failure, so a dropped connection cannot swallow the way back.
+// Moving a line to another category (19 Sep 2026). Added with the automatic
+// category on the top box: a choice the app makes has to be one tap from being
+// put right, and before this the only way to change a category was to take the
+// line off and add it again. The row keeps its id, so every quantity on it
+// stays; it is slotted A-Z into the new category by the same rule as an add.
+async function mlMoveItem(itemId, cat){
+  var it = (mlItems||[]).find(function(x){ return x.id === itemId; });
+  if(!it || !cat || cat === it.category) return;
+  var pick = document.querySelector('#ml-editor .ml-ed-catpick');
+  if(!mlMayEditList('Moving an item')){ if(pick) pick.value = it.category; return; }
+  var was = { category: it.category, sort_order: it.sort_order };
+  var err = await mlSetCategory(itemId, cat, mlSlotFor(cat, it.name, itemId));
+  if(err){
+    if(pick) pick.value = it.category;
+    if(typeof kToast === 'function') kToast('Could not move it — check the connection. ' + err, true);
+    return;
+  }
+  var step = mlPushUndo('the category of "' + it.name + '"', function(){ return mlSetCategory(itemId, was.category, was.sort_order); });
+  mlRenderRows(mlVisibleDays());
+  if(typeof kToast === 'function')
+    kToast('✓ ' + it.name + ' moved to ' + cat + '.', false, { label:'Undo', onClick:function(){ mlUndoStep(step); } });
+}
+
+async function mlSetCategory(itemId, cat, slot){
+  mlQuickEditEchoUntil = Date.now() + 3000;      // same reason as mlRemoveItem
+  var r = await sb.from('order_items').update({ category: cat, sort_order: slot }).eq('id', itemId);
+  if(r && r.error){ mlQuickEditEchoUntil = 0; return r.error.message; }
+  var it = (mlItems||[]).find(function(x){ return x.id === itemId; });
+  if(it){ it.category = cat; it.sort_order = slot; }
+  mlItems.sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0); });
+  var pick = document.querySelector('#ml-editor .ml-ed-catpick');
+  if(pick && mlEditItemId === itemId) pick.value = cat;
+  return null;
+}
+
 async function mlRestoreSupplier(itemId, was){
   var r = await sb.from('order_items').update({ supplier: was }).eq('id', itemId);
   if(r && r.error) return r.error.message;
@@ -2573,7 +2697,12 @@ function mlOpenEditor(itemId){
   box.innerHTML = `
     <div class="ml-ed-modal" onclick="event.stopPropagation()">
       <div class="ml-ed-head">
-        <div class="ml-ed-cat">${it.category}</div>
+        ${mlEditUnlocked
+          ? `<select class="ml-ed-cat ml-ed-catpick" aria-label="Category" onchange="mlMoveItem(${it.id},this.value)">${
+              (ML_CAT_ORDER.indexOf(it.category) === -1 ? [it.category] : []).concat(ML_CAT_ORDER).map(function(c){
+                return '<option value="' + mlEsc(c) + '"' + (c === it.category ? ' selected' : '') + '>' + mlEsc(c) + '</option>'; }).join('')
+            }</select>`
+          : `<div class="ml-ed-cat">${it.category}</div>`}
         <div class="ml-ed-name">${it.name}</div>
         ${mlUnitFor(it)?`<div class="ml-ed-unit">${mlUnitFor(it)}</div>`:''}
         ${(()=>{ const fl = mlArticleFlag(it); if(!fl) return '';
