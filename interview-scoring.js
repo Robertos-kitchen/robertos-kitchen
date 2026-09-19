@@ -177,9 +177,12 @@ var IVS_CV_MAX = 8 * 1024 * 1024;
 var ivsQ = '';            // candidate search, kept across re-renders
 var ivsBulk = null;       // the bulk-CV window's state while it is open
 var IVS_MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';
+var IVS_OCR = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';     // only for a scanned CV
+var IVS_OCR_LANG = 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int';
 var ivsActs = [];         // the email log for this event: one row per Reject / Shortlist / HR attempt
 var ivsMail = null;       // the email window's state while it is open
 var ivsMailRead = {};     // candidate id -> the email on the sheet came off the CV and nobody has typed over it
+var ivsMailScan = {};     // candidate id -> { mail, img } read off a scanned CV: shown with its picture, saved only on a tap
 var ivsMailTried = {};    // candidate id -> the stored CV was already searched for an email this session
 var ivsStatusAt = 0;
 var IVS_FN = '/functions/v1/interview-email';
@@ -472,6 +475,12 @@ function ivsInjectCss(){
     '.ivbkft .sum{flex:1 1 200px;font-size:13.5px;color:#5a4a3a}',
     '.ivb:disabled{opacity:.5;cursor:default}',
     '.ivdf.wide{grid-column:1/-1}',
+    '.ivscan{grid-column:1/-1;background:#fff;border:1px solid var(--isd);border-radius:5px;padding:10px 12px}',
+    '.ivscan .t{font-size:13px;color:#4a3a2a}',
+    '.ivscan img{display:block;max-width:100%;height:auto;margin:8px 0;border:1px solid var(--isd);border-radius:3px}',
+    '.ivscan .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}',
+    '.ivscan b{flex:1 1 200px;min-width:0;font-size:17px;overflow-wrap:anywhere;color:var(--ik)}',
+    '.ivscan button{min-height:44px;padding:0 16px;border-radius:4px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;font-size:14px;background:var(--iv);color:#fff;border:1px solid var(--iv)}',
     '.ivdf em{display:block;font-style:normal;font-size:12.5px;color:#5a4a3a;margin-top:3px;min-height:16px}',
     '.ivbkr .em{flex:1 1 100%;font-size:12.5px;color:#5a4a3a;overflow-wrap:anywhere}',
     // decision card — the three emails
@@ -854,6 +863,7 @@ function ivsDetailsHtml(r){
       (mail ? ' type="email" inputmode="email" autocapitalize="off" spellcheck="false"' : '')+
       ' placeholder="'+ivsEsc(d[2])+'" value="'+ivsEsc(r[d[0]])+'" oninput="ivsDetail(this)" onchange="ivsDetailFlush(this)">'+
       (mail ? '<em id="ivs-mailhint">'+ivsEsc(ivsMailHint(r))+'</em>' : '')+'</label>';
+    if (mail) h += ivsMailScanHtml(r);
     if (d[3].length) h += '<datalist id="ivs-dl-'+d[0]+'">'+d[3].map(function(o){ return '<option value="'+ivsEsc(o)+'">'; }).join('')+'</datalist>';
   });
   return h + '</div>';
@@ -1214,7 +1224,7 @@ async function ivsCvReadInto(candId, f){
   if (kind !== 'pdf' && kind !== 'docx') return;
   var cand = ivsRow(candId); if (!cand) return;
   ivsMailTried[candId] = true;
-  var got = [];
+  var got = [], scanned = false;
   try {
     if (!(cand.name || '').trim() && !ivsNameT){
       var nm = await ivsReadName(f, kind);
@@ -1228,9 +1238,10 @@ async function ivsCvReadInto(candId, f){
     }
     var mail = await ivsReadEmail(f, kind, (ivsRow(candId) || {}).name);
     if (ivsMailApply(candId, mail)) got.push('email');
+    else if (!mail && kind === 'pdf') scanned = await ivsMailScanFor(candId, f, (ivsRow(candId) || {}).name);
   } catch(e){ /* unreadable here — the chef types them */ }
   if (got.length) kToast('Read from the CV: ' + got.join(' and ') + ' — check ' + (got.length > 1 ? 'them' : 'it') + '.');
-  else if (ivsSel === candId && !((ivsRow(candId) || {}).email || '').trim()){
+  else if (!scanned && ivsSel === candId && !((ivsRow(candId) || {}).email || '').trim()){
     var hint = document.getElementById('ivs-mailhint'); if (hint) hint.textContent = 'No email found on the CV — type it here.';
   }
 }
@@ -1458,7 +1469,10 @@ function ivsMailValid(e){
 }
 function ivsMailsIn(text){
   var t = String(text||''), out = [];
-  [t, t.replace(/\s*@\s*/g, '@').replace(/(@[A-Za-z0-9.\-]*[A-Za-z0-9])\s*\.\s*(com|net|org|ae|in|np|ph|pk|lk|bd|it|uk|co)\b/gi, '$1.$2')].forEach(function(v){
+  function tight(s){ return s.replace(/\s*@\s*/g, '@').replace(/(@[A-Za-z0-9.\-]*[A-Za-z0-9])\s*\.\s*(com|net|org|ae|in|np|ph|pk|lk|bd|it|uk|co)\b/gi, '$1.$2'); }
+  // "s r e e r a g @ g m a i l . c o m": a letter-spaced line, one character per word
+  var spaced = t.replace(/(^|\s)((?:\S ){3,}\S)(?=\s|$)/g, function(m, a, run){ return a + run.replace(/ /g, ''); });
+  [t, tight(t), tight(spaced)].forEach(function(v){
     (v.match(IVS_MAIL_RE) || []).forEach(function(m){
       m = m.replace(/^[._\-]+/, '').replace(/[.\-]+$/, '').toLowerCase();
       if (ivsMailValid(m) && out.indexOf(m) < 0) out.push(m);
@@ -1500,14 +1514,41 @@ async function ivsReadEmail(file, kind, name){
           if (!L){ L = byY[y] = { y:y, parts:[] }; }
           L.parts.push({ x: it.transform[4], w: it.width || 0, s: it.str, h: Math.hypot(it.transform[2], it.transform[3]) || it.height || 10 });
         });
-        Object.keys(byY).map(function(k){ return byY[k]; }).sort(function(a,b){ return b.y - a.y; }).forEach(function(L){
-          var txt = '', end = null;
+        var rows = Object.keys(byY).map(function(k){ return byY[k]; }).sort(function(a,b){ return b.y - a.y; });
+        rows.forEach(function(L){
+          var txt = '', end = null, toks = [], cur = null;
+          L.h = 10;
           L.parts.sort(function(a,b){ return a.x - b.x; }).forEach(function(p){
             // pieces of one word arrive as separate items: close the gap when there is none on the page
-            txt += (end === null || p.x - end < p.h * 0.18 ? '' : ' ') + p.s;
-            end = p.x + p.w;
+            var gap = !(end === null || p.x - end < p.h * 0.18);
+            txt += (gap ? ' ' : '') + p.s;
+            end = p.x + p.w; L.h = p.h;
+            // the same line as words with where they start, for an address that wraps onto the next line
+            var bits = p.s.split(/(\s+)/), at = 0, len = p.s.length || 1;
+            bits.forEach(function(b){
+              var bx = p.x + p.w * at / len; at += b.length;
+              if (/^\s+$/.test(b)){ cur = null; return; }
+              if (!b) return;
+              if (!cur || (gap && at - b.length === 0)){ cur = { s:'', x:bx }; toks.push(cur); }
+              cur.s += b;
+            });
+            if (/\s$/.test(p.s)) cur = null;
           });
+          L.toks = toks;
           ivsMailsIn(txt).forEach(function(m){ found.push({ mail:m, page:pg }); });
+        });
+        // "mongarcia30146@" with "gmail.com" under it: a narrow column wrapped the address
+        rows.forEach(function(L, i){
+          L.toks.forEach(function(T){
+            var head = /@$/.test(T.s) || /@[^@]*\.$/.test(T.s);
+            for (var j = i + 1; j < rows.length && L.y - rows[j].y <= L.h * 2.6; j++){
+              var U = null;
+              rows[j].toks.forEach(function(k){ if (Math.abs(k.x - T.x) <= L.h * 2 && (!U || Math.abs(k.x - T.x) < Math.abs(U.x - T.x))) U = k; });
+              if (!U) continue;
+              if (head || /^@/.test(U.s)) ivsMailsIn(T.s + U.s).forEach(function(m){ found.push({ mail:m, page:pg }); });
+              break;
+            }
+          });
         });
       }
     } finally { try { pdf.destroy(); } catch(e){} }
@@ -1526,6 +1567,105 @@ async function ivsReadEmail(file, kind, name){
     }
   }
   return ivsBestMail(found, name || ivsNameFromFile(file.name));
+}
+
+// a scanned CV has no text at all: read the picture. OCR mixes up 1/l and q/g (measured on the
+// board's 4 scans: 2 of 4 wrong), so the answer comes back WITH the strip of the page it was read
+// from — the chef compares the two and taps; nothing is saved from here on its own.
+async function ivsReadEmailScan(file, name){
+  var P = await ivsPdf();
+  var pdf = await P.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  var hits = [], worker = null;
+  try {
+    for (var pg = 1; pg <= Math.min(2, pdf.numPages); pg++){
+      var page = await pdf.getPage(pg);
+      var tc = await page.getTextContent();
+      if (tc.items.some(function(it){ return (it.str || '').trim(); })) return null;   // it has text: not a scan
+      var vp = page.getViewport({ scale: 200 / 72 });
+      var cv = document.createElement('canvas');
+      cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: cx, viewport: vp }).promise;
+      if (!worker){
+        var T = await ivsLib(IVS_OCR, 'Tesseract');
+        worker = await T.createWorker('eng', 1, { langPath: IVS_OCR_LANG });
+      }
+      var r = await worker.recognize(cv);
+      (r.data.lines || []).forEach(function(L){
+        ivsMailsIn(L.text).forEach(function(m){ hits.push({ mail:m, page:pg, b:ivsScanBox(L, m), cv:cv }); });
+      });
+      if (hits.length) break;
+    }
+  } finally {
+    try { pdf.destroy(); } catch(e){}
+    if (worker) try { worker.terminate(); } catch(e){}
+  }
+  if (!hits.length) return { mail:'', img:'' };
+  var best = ivsBestMail(hits, name || ivsNameFromFile(file.name));
+  var h = hits.filter(function(x){ return x.mail === best; })[0];
+  var pad = 14, x0 = Math.max(0, h.b.x0 - pad), y0 = Math.max(0, h.b.y0 - pad);
+  var cw = Math.min(h.cv.width, h.b.x1 + pad) - x0, ch = Math.min(h.cv.height, h.b.y1 + pad) - y0;
+  var strip = document.createElement('canvas'); strip.width = cw; strip.height = ch;
+  strip.getContext('2d').drawImage(h.cv, x0, y0, cw, ch, 0, 0, cw, ch);
+  return { mail: best, img: strip.toDataURL('image/png') };
+}
+// the picture shows the address alone: a scanned "line" can run across both columns of the page
+function ivsScanBox(L, mail){
+  var ws = (L.words || []).filter(function(w){ return (w.text || '').trim(); });
+  var i = -1, local = mail.split('@')[0];
+  ws.forEach(function(w, k){ if (i < 0 && w.text.indexOf('@') >= 0) i = k; });
+  if (i < 0) return L.bbox;
+  var b = { x0: ws[i].bbox.x0, y0: ws[i].bbox.y0, x1: ws[i].bbox.x1, y1: ws[i].bbox.y1 };
+  var h = Math.max(8, b.y1 - b.y0), txt = ws[i].text.toLowerCase();
+  // "a1 products 1286@gmail.com": the name part may have been read as more than one word
+  for (var k = i - 1; k >= 0 && txt.split('@')[0].length < local.length; k--){
+    if (b.x0 - ws[k].bbox.x1 > h * 1.2) break;
+    txt = ws[k].text.toLowerCase() + txt;
+    b.x0 = Math.min(b.x0, ws[k].bbox.x0); b.y0 = Math.min(b.y0, ws[k].bbox.y0); b.y1 = Math.max(b.y1, ws[k].bbox.y1);
+  }
+  for (var j = i + 1; j < ws.length && !/\.[a-z]{2,}$/i.test(txt); j++){
+    if (ws[j].bbox.x0 - b.x1 > h * 1.2) break;
+    txt += ws[j].text.toLowerCase();
+    b.x1 = Math.max(b.x1, ws[j].bbox.x1); b.y0 = Math.min(b.y0, ws[j].bbox.y0); b.y1 = Math.max(b.y1, ws[j].bbox.y1);
+  }
+  return b;
+}
+async function ivsMailScanFor(candId, file, name){
+  var hint = document.getElementById('ivs-mailhint');
+  if (hint && ivsSel === candId) hint.textContent = 'This CV is a scanned picture — reading it…';
+  var res = null;
+  try { res = await ivsReadEmailScan(file, name); } catch(e){ res = null; }
+  var row = ivsRow(candId);
+  if (!res || !row) return false;
+  if (res.mail) ivsMailScan[candId] = res;
+  if (ivsSel === candId){
+    var el = document.getElementById('ivs-mailscan'); if (el) el.outerHTML = ivsMailScanHtml(row);
+    hint = document.getElementById('ivs-mailhint');
+    if (hint) hint.textContent = (row.email || '').trim() ? ivsMailHint(row)
+      : res.mail ? '' : 'No email found on the scanned CV — type it here.';
+  }
+  return true;
+}
+function ivsMailScanHtml(r){
+  var s = r && ivsMailScan[r.id];
+  if (!s || (r.email || '').trim()) return '<div id="ivs-mailscan" hidden></div>';
+  return '<div id="ivs-mailscan" class="ivscan">'+
+    '<div class="t">The CV is a scanned picture. Compare the address with the picture, letter by letter:</div>'+
+    '<img src="'+s.img+'" alt="The email line on the CV">'+
+    '<div class="row"><b>'+ivsEsc(s.mail)+'</b>'+
+    '<button type="button" class="v" onclick="ivsMailScanUse(\''+r.id+'\')">Use this address</button></div>'+
+    '<div class="t">If one letter is different, type the address in the box above instead.</div></div>';
+}
+function ivsMailScanUse(candId){
+  var s = ivsMailScan[candId], row = ivsRow(candId);
+  if (!s || !row) return;
+  delete ivsMailScan[candId];
+  row.email = s.mail;
+  ivsSave(candId, { email: s.mail });
+  ivsHistLoad(candId);
+  var inp = document.getElementById('ivs-d-email'); if (inp) inp.value = s.mail;
+  var el = document.getElementById('ivs-mailscan'); if (el) el.outerHTML = ivsMailScanHtml(row);
+  var hint = document.getElementById('ivs-mailhint'); if (hint) hint.textContent = '';
 }
 
 function ivsMailHint(r){
@@ -1557,15 +1697,17 @@ async function ivsMailBackfill(candId){
   ivsMailTried[candId] = true;
   var hint = document.getElementById('ivs-mailhint');
   if (hint && ivsSel === candId) hint.textContent = 'Looking for the email on the CV…';
-  var mail = '';
+  var mail = '', file = null, kind = ivsCvKind(cv.filename, cv.mime);
   try {
     var r = await sb.rpc('interview_cv_get', { p_code: ivsCode, p_id: cv.id });
     if (r.error) throw r.error;
     var bin = atob(r.data), bytes = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    mail = await ivsReadEmail(new File([bytes], cv.filename), ivsCvKind(cv.filename, cv.mime), row.name);
+    file = new File([bytes], cv.filename);
+    mail = await ivsReadEmail(file, kind, row.name);
   } catch(e){ delete ivsMailTried[candId]; }                // no connection: try again next time
   var ok = ivsMailApply(candId, mail);
+  if (!ok && !mail && file && kind === 'pdf' && await ivsMailScanFor(candId, file, row.name)) return;
   hint = document.getElementById('ivs-mailhint');
   if (hint && ivsSel === candId && !ok){
     var now = ivsRow(candId);
@@ -2555,6 +2697,8 @@ function ivsRender(fromPoll){
       var inp = document.getElementById('ivs-d-'+d[0]);
       if (inp && inp !== ae && !ivsDetT[d[0]] && inp.value !== (r[d[0]]||'')) inp.value = r[d[0]]||'';
     });
+    var msEl = document.getElementById('ivs-mailscan');
+    if (r && msEl && ivsMailScan[r.id] && (r.email || '').trim()) msEl.outerHTML = ivsMailScanHtml(r);   // another chef filled it
     if (r) document.querySelectorAll('#interviews-view .ivs').forEach(function(g){
       var k = g.getAttribute('data-k'), raw = (r.scores||{})[k], cur = raw == null ? -1 : +raw;
       g.querySelectorAll('button').forEach(function(b){ var on = cur === +b.getAttribute('data-v'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
