@@ -2087,17 +2087,36 @@ function renderKitchenEvents(events, today){
   // 17 Sep screen). The rule is a date window, not a count: nothing INSIDE the
   // window is ever hidden, because an event within two weeks is one the kitchen
   // has to prep for. Anything further out is one quiet line, never a row.
-  var WINDOW_DAYS = 14, shown = 0, hidden = 0, lastLb = null;
+  // Antonio, 20 Sep 2026: "+ 1 more event beyond 2 weeks" told him an event
+  // existed and gave him no way to see it. The line is now a button that opens
+  // those rows in place - same rows, same tap-to-open menu - and stays closed by
+  // default, so the home screen is still only two weeks long.
+  var WINDOW_DAYS = 14, shown = 0, hidden = 0, lastLb = null, later = '';
   function bucket(n){ return n<=7 ? 'This week' : 'The week after'; }
   up.forEach(function(r){
     var n = kevDaysUntil(r.d, today);
-    if(n > WINDOW_DAYS){ hidden++; return; }
+    if(n > WINDOW_DAYS){ hidden++; later += r.x ? kevHlRow(r.x) : kevUpRow(r.e); return; }
     var lb = bucket(n);
     if(lb !== lastLb){ lastLb = lb; h += '<div class="kev-up-h">'+lb+'</div>'; }
     h += r.x ? kevHlRow(r.x) : kevUpRow(r.e); shown++;
   });
-  if(hidden>0) h += '<div class="kev-more">'+(!shown && !todayEv.length ? 'No events in the next 2 weeks &middot; '+hidden : '+ '+hidden+' more')+' event'+(hidden>1?'s':'')+' beyond 2 weeks</div>';
+  if(hidden>0){
+    h += '<button type="button" class="kev-more'+(KEV_LATER_OPEN?' open':'')+'" aria-expanded="'+KEV_LATER_OPEN+'" aria-controls="kev-later" onclick="kevLaterToggle(this)">'+
+      (!shown && !todayEv.length ? 'No events in the next 2 weeks &middot; '+hidden : '+ '+hidden+' more')+' event'+(hidden>1?'s':'')+' beyond 2 weeks'+
+      ' <span class="kev-more-act">'+(KEV_LATER_OPEN?'Hide':'Show')+'</span> <span class="kev-chev">&#9662;</span></button>'+
+      '<div class="kev-later" id="kev-later"'+(KEV_LATER_OPEN?'':' style="display:none"')+'><div class="kev-up-h">Later</div>'+later+'</div>';
+  }
   box.innerHTML = h;
+}
+// Open state survives a re-render (a portion edit redraws the whole strip).
+var KEV_LATER_OPEN = false;
+function kevLaterToggle(btn){
+  var b = document.getElementById('kev-later'); if(!b) return;
+  KEV_LATER_OPEN = b.style.display === 'none';
+  b.style.display = KEV_LATER_OPEN ? '' : 'none';
+  btn.classList.toggle('open', KEV_LATER_OPEN);
+  btn.setAttribute('aria-expanded', String(KEV_LATER_OPEN));
+  var a = btn.querySelector('.kev-more-act'); if(a) a.textContent = KEV_LATER_OPEN ? 'Hide' : 'Show';
 }
 // Shared prep list (dishes/courses + quantities + allergens + total + dietary).
 function kevPrepRows(e){
