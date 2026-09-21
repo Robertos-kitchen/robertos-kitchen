@@ -2158,7 +2158,7 @@ function kevTodayCard(e){
   // scrolling past the whole first menu. Tap the card to open it.
   return '<div class="kev-today"><div class="kev-today-top clickable" onclick="kevToggle(\''+e.id+'\',this)"><div><span class="kev-chip">Event today</span>'+
     '<div class="kev-name">'+kevEsc(e.name)+kevDraftTag(e)+' <span class="kev-chev">&#9662;</span></div><div class="kev-meta">'+meta+'</div></div>'+
-    '<button class="kev-print" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
+    '<div class="kev-acts">'+kevCompQuickBtn(e)+'<button class="kev-print" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div></div>'+
     '<div class="kev-prep" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div><div id="kev-comp-'+e.id+'">'+kevCompBlock(e)+'</div></div></div>';
 }
 function kevUpRow(e){
@@ -2168,7 +2168,7 @@ function kevUpRow(e){
     '<div class="kev-up clickable" onclick="kevToggle(\''+e.id+'\',this)">'+
       '<div class="kev-badge"><div class="kev-bd-day">'+d.day+'</div><div class="kev-bd-mon">'+d.mon+'</div></div>'+
       '<div class="kev-up-mid"><div class="kev-up-name">'+kevEsc(e.name)+kevDraftTag(e)+' <span class="kev-chev">&#9662;</span></div><div class="kev-up-meta">'+meta+'</div></div>'+
-      '<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div>'+
+      '<div class="kev-acts">'+kevCompQuickBtn(e, true)+'<button class="kev-print sm" onclick="event.stopPropagation();kevPrintMenu(\''+e.id+'\')">Print menu</button></div></div>'+
     '<div class="kev-up-body" id="kevb-'+e.id+'" style="display:none"><div id="kev-prep-'+e.id+'">'+kevPrepRows(e)+'</div><div id="kev-comp-'+e.id+'">'+kevCompBlock(e)+'</div></div>'+
   '</div>';
 }
@@ -2231,7 +2231,12 @@ function kevCostEngine(){
     var f = document.createElement('iframe');
     f.src = 'recipe-create.html?costing=1';
     f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
-    f.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:0;border:0;visibility:hidden';
+    // Fixed + inert: the recipe book focuses its own name box as it boots, and a focused
+    // frame pinned to the top of the PAGE threw the chef back to the top of Home a second
+    // after the panel opened (found 21 Sep 2026). Inert takes focus away; fixed means
+    // that even if something does reach it, there is nothing to scroll to.
+    f.setAttribute('inert', '');
+    f.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:0;border:0;visibility:hidden';
     var timer = setTimeout(function(){ reject(new Error('the recipe book did not answer in 40 seconds')); }, 40000);
     f.onload = async function(){
       try{
@@ -2406,6 +2411,25 @@ function kevCompRender(eid){
   var ci = document.getElementById('kev-comp-code-'+eid), code = ci ? ci.value : '';
   el.innerHTML = kevCompBlock(e);
   var cn = document.getElementById('kev-comp-code-'+eid); if(cn && code) cn.value = code;
+  var q = document.getElementById('kev-cq-'+eid); if(q) q.innerHTML = kevCompQuickLabel(eid);
+}
+// Chef Andrea, 21 Sep 2026 (Tell us): asked for a button to send a tasting to
+// Aung — it existed, but only inside the closed event card, so nobody found it
+// (zero sends in its first three days). The same panel now also has a button on
+// the row itself, next to Print menu: one tap opens the card AND the panel.
+function kevCompQuickLabel(eid){ return kevCompSent(eid) ? 'Sent to Aung &#10003;' : 'Send to Aung'; }
+function kevCompQuickBtn(e, sm){
+  if(!kevCompRows(e).length) return '';
+  return '<button class="kev-cq'+(sm?' sm':'')+'" id="kev-cq-'+e.id+'" title="Complimentary tasting &mdash; send what was served to Aung" '+
+    'onclick="event.stopPropagation();kevCompQuick(\''+e.id+'\')">'+kevCompQuickLabel(e.id)+'</button>';
+}
+function kevCompQuick(eid){
+  var b = document.getElementById('kevb-'+eid); if(!b) return;
+  if(b.style.display==='none' || !b.style.display) kevToggle(eid, b.previousElementSibling);
+  var st = KEV_COMP[eid]; if(!st || !st.open) kevCompOpen(eid);
+  var box = document.getElementById('kev-comp-'+eid);
+  // Not smooth: the panel re-draws while it loads, and that can cancel a smooth scroll.
+  if(box && box.scrollIntoView) setTimeout(function(){ box.scrollIntoView({ block:'start' }); }, 60);
 }
 async function kevCompOpen(eid){
   var e = KEV_CACHE[eid]; if(!e) return;
