@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tasting — Roberto's Kitchen</title>
+<!-- Before any code below can call fetch(): on the DEV host this blocks every write. -->
+<script src="dev-guard.js?v=1789747927"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=DM+Sans:wght@400;500;700&display=swap');
+/* The Kitchen app's own tokens (index.html :root) and the Recipes paper (.rcp-*). */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--terra:#c0481f;--oliva:#4b5128;
+  --ink:#2a1a10;--cream:#f5ede0;--paper:#fbf7f1;--door:#f4ede2;--muted:#6b5b50;
+  --ok:#2f5d1e;--ok-bg:#e4ecd9;--below:#7a4200;--below-bg:#f6e6cc;--err:#8f1d12;
+  --display:'Bodoni Moda',Didot,'Times New Roman',serif;
+  --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px}
+body{background:linear-gradient(90deg,rgba(196,168,133,.28) 1px,transparent 1px) 0 0/80px 100%,
+  radial-gradient(circle at 86% 0,rgba(217,118,63,.12),transparent 520px),var(--paper);min-height:100vh}
+button{font-family:inherit;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--terra);outline-offset:2px}
+.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 40px;display:grid;gap:18px}
+.crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.back{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);
+  border:1px solid var(--sabbia-dark);border-radius:3px;padding:8px 12px;cursor:pointer;min-height:36px}
+.crumb h2{font-family:var(--display);font-weight:400;color:var(--vino);font-size:26px;margin:0;line-height:1.15}
+.who{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--door);border:1px solid rgba(66,1,7,.13);border-radius:8px;padding:10px 12px}
+.who .lbl{font-weight:700;color:var(--vino);margin-right:4px}
+.who.ask{border:2px solid var(--terra)}
+.chip{border:1px solid var(--sabbia-dark);background:#fff;border-radius:18px;padding:8px 13px;font-size:13.5px;cursor:pointer;min-height:40px}
+.chip.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.other{display:flex;gap:6px;align-items:center}
+.other input{border:1px solid var(--sabbia-dark);border-radius:18px;padding:8px 12px;font:inherit;width:170px;max-width:100%}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sec-h h3{font-family:var(--display);font-weight:400;color:var(--vino);font-size:23px;margin:0}
+.sec-h small{color:var(--muted);font-size:12.5px}
+.mark{font-size:12.5px;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:4px;padding:6px 10px}
+.num{font-variant-numeric:tabular-nums}
+.list{display:grid;gap:10px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:center;background:#fff;
+  border:1px solid rgba(66,1,7,.12);border-radius:8px;padding:14px;text-align:left;cursor:pointer;width:100%}
+.row:hover{border-color:var(--terra)}
+.rname{font-family:var(--display);font-size:20px;color:var(--vino);line-height:1.2;overflow-wrap:anywhere}
+.rsub{font-size:12.5px;color:var(--muted);grid-column:1}
+.rsub b{color:var(--terra);font-weight:700}
+.score{grid-row:1/span 2;grid-column:2;text-align:right}
+.big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink);line-height:1}
+.big small{font-size:13px;font-weight:500;color:var(--muted)}
+.pill{display:inline-block;margin-top:6px;font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;border-radius:3px;padding:4px 8px}
+.p-ok{background:var(--ok-bg);color:var(--ok)}
+.p-below{background:var(--below-bg);color:var(--below)}
+.p-none{background:var(--sabbia-light);color:var(--muted)}
+.p-done{background:var(--vino);color:var(--cream)}
+.meter{grid-column:1/-1;position:relative;height:8px;background:var(--sabbia-light);border-radius:4px;margin-top:4px}
+.meter i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--oliva)}
+.meter i.lo{background:#c28a3a}
+.meter b{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--vino)}
+.addrow{border:1px dashed var(--sabbia-dark);background:transparent;border-radius:8px;padding:13px;text-align:left;color:var(--vino);font-size:14px;cursor:pointer;min-height:48px}
+.empty{background:#fff;border:1px dashed var(--sabbia-dark);border-radius:8px;padding:16px;color:var(--muted);line-height:1.6}
+details{font-size:13px;color:var(--muted)}
+details summary{cursor:pointer;color:var(--vino);font-weight:500;min-height:32px}
+details p{margin:8px 0 0;line-height:1.6;max-width:65ch}
+.sheet{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.sheet{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}}
+.card{background:#fff;border:1px solid rgba(66,1,7,.12);border-radius:10px;padding:16px;display:grid;gap:12px;align-content:start}
+.card h4{margin:0;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--vino)}
+.flab{font-weight:500;margin-bottom:6px}
+.scale{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px}
+@media (max-width:460px){.scale{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.scale button{min-height:44px;border:1px solid var(--sabbia-dark);background:var(--paper);border-radius:6px;font-size:15px;font-weight:500;cursor:pointer;font-variant-numeric:tabular-nums}
+.scale button.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.ends{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:4px}
+textarea{width:100%;min-height:70px;border:1px solid var(--sabbia-dark);border-radius:6px;padding:10px;font:inherit;font-size:14px;background:var(--paper)}
+.btn{border:none;border-radius:6px;padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;background:var(--vino);color:var(--cream);min-height:44px}
+.btn.ghost{background:transparent;color:var(--vino);border:1px solid var(--sabbia-dark)}
+.btn.go{background:var(--ok);color:#fff}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.msg{font-size:13px;font-weight:500}
+.msg.ok{color:var(--ok)} .msg.bad{color:var(--err)}
+.others{display:grid;gap:8px}
+.oth{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 12px;align-items:baseline;border-bottom:1px solid var(--sabbia-light);padding-bottom:8px;font-size:13.5px}
+.oth .n{font-weight:500;overflow-wrap:anywhere}
+.oth .v{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12.5px}
+.oth .t{grid-column:1/-1;color:var(--muted);font-size:12.5px;font-style:italic}
+.avg{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.approve{border:2px solid var(--vino);background:var(--paper)}
+.opt{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;cursor:pointer;font-size:14px;background:#fff;min-height:44px}
+.opt input{accent-color:var(--vino);width:18px;height:18px;flex:0 0 auto}
+.codein{width:120px;letter-spacing:6px;text-align:center;font-size:18px;padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;font-family:inherit}
+.what{font-size:13.5px;line-height:1.6;background:var(--sabbia-light);border-radius:6px;padding:10px 12px}
+.warn{color:var(--below);font-weight:700}
+.done{background:var(--ok-bg);border:1px solid #b9cfa4;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.6;color:var(--ok);display:grid;gap:10px}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.5}
+.line{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.setmark input{width:74px;padding:9px;border:1px solid var(--sabbia-dark);border-radius:6px;font-size:15px;font-family:inherit}
+.pick{display:grid;gap:8px}
+.pick input[type=search]{width:100%;padding:11px 12px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:15px}
+.pick .res{display:grid;gap:6px;max-height:320px;overflow:auto}
+.pick .res button{text-align:left;background:#fff;border:1px solid var(--sabbia-dark);border-radius:6px;padding:10px 12px;cursor:pointer;min-height:44px}
+.pick .res small{color:var(--muted);margin-left:6px}
+.fail{background:#fbe9e6;border:1px solid #e3b4ab;color:var(--err);border-radius:8px;padding:12px 14px;line-height:1.5}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"><div class="hint">Loading the tasting…</div></div>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   TASTING — Chef Andrea's idea through Tell us, 21 Sep 2026: score the dishes at a
+   tasting, and when a dish reaches the mark it goes onto the à la carte.
+
+   Francesco's call: everyone scores, the screen shows the average against a pass
+   mark, and HE still approves. Nothing moves by itself.
+
+   · The dishes waiting are the ones on the menu "Upcoming dishes a la carte" in the
+     Recipe book (tasting_settings.upcoming_menu_id). Nothing is copied: the book IS
+     the list, so a dish cannot be waiting here and missing there.
+   · One score per person per dish (tasting_scores, unique recipe_id + scored_by).
+     A person only ever changes their own. Dish score = mean over people of
+     (taste + look) / 2, the same sum the approve RPC stores.
+   · Approve / Not this time / Undo / pass mark go through security-definer RPCs
+     that check the approver code in the database (tasting_secret, unreadable to the
+     anon key). Approve adds the dish to the chosen à la carte section AND its parent
+     (the Recipe book's section rule) and takes it off Upcoming, in one transaction.
+     Every decision is a new row in tasting_decisions — nothing is overwritten.
+   ════════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+
+/* Who is scoring. The same remembered name the recipe screens use (rcpWho, 12 hours),
+   so a chef who signed a recipe is already signed in here. The shortlist is
+   Francesco plus the three recipe writers; anyone else types their name once. */
+var WHOLS = 'rcpWho', WHOFOR = 12*60*60*1000;
+var NAMES = ['Francesco', 'Andrea Falcone', 'Antonio Stellacci', 'Danilo Valla'];
+var WHO = (function(){
+  try { var v = JSON.parse(localStorage.getItem(WHOLS) || 'null');
+        if (v && v.name && v.at && (Date.now() - v.at) < WHOFOR) return { emp_id:v.emp_id||null, name:v.name };
+  } catch(e){}
+  return null;
+})();
+function rememberWho(name){
+  var s = (STAFF || []).filter(function(p){ return (p.name||'').trim().toLowerCase() === name.toLowerCase(); })[0];
+  WHO = { emp_id: s && s.emp_id ? String(s.emp_id) : null, name: name };
+  try { localStorage.setItem(WHOLS, JSON.stringify({ emp_id:WHO.emp_id, name:WHO.name, at:Date.now() })); } catch(e){}
+}
+
+var S = { screen:'list', rid:null, draft:{}, adding:false, q:'', otherOpen:false };
+var D = { settings:null, up:[], scores:[], decisions:[], menus:[], names:{}, loaded:false, err:null };
+var STAFF = null, BOOK = null;
+var CODE = '';        /* the approver code, typed once — kept for this visit only */
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function $(id){ return document.getElementById(id); }
+
+function api(path, opts){
+  opts = opts || {};
+  var h = { apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json' };
+  if (opts.prefer) h.Prefer = opts.prefer;
+  return fetch(SB_URL + '/rest/v1/' + path, { method:opts.method||'GET', headers:h,
+      body: opts.body ? JSON.stringify(opts.body) : undefined, cache:'no-store' })
+    .then(function(r){
+      return r.text().then(function(t){
+        var j = null; try { j = t ? JSON.parse(t) : null; } catch(e){}
+        if (!r.ok) {
+          var m = (j && (j.message || j.error)) || ('HTTP ' + r.status);
+          var e = new Error(m); e.status = r.status; throw e;
+        }
+        return j;
+      });
+    });
+}
+function rpc(fn, args){ return api('rpc/' + fn, { method:'POST', body:args }); }
+function say(err){
+  var m = String(err && err.message || err);
+  if (/wrong_code/.test(m)) return 'That code is not right. Only Chef Francesco’s code approves.';
+  if (/no_menu/.test(m)) return 'That menu has been removed from the Recipe book. Pick another.';
+  if (/no_recipe/.test(m)) return 'This recipe has been removed from the Recipe book, so it cannot go on a menu.';
+  if (/not_latest/.test(m)) return 'Something newer has been decided on this dish since. Reload to see it.';
+  if (/read-only/i.test(m)) return m;
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
+  return 'It did not save: ' + m;
+}
+
+/* ── data ── */
+function load(){
+  return api('tasting_settings?select=*&venue_id=eq.robertos-difc').then(function(st){
+    var s = st && st[0];
+    if (!s) throw new Error('The tasting is not set up yet (no settings row).');
+    D.settings = s;
+    var T = s.target_menu_id, U = s.upcoming_menu_id;
+    return Promise.all([
+      U ? api('recipe_menus?select=recipe_id,position,created_at,recipes(id,name,section,kind,archived)&menu_id=eq.' + U + '&order=position,created_at')
+        : Promise.resolve([]),
+      api('tasting_scores?select=*&order=created_at'),
+      api('tasting_decisions?select=*&order=created_at.desc&limit=1000'),
+      T ? api('menus?select=id,name,parent_id,archived,position&archived=is.false&or=(id.eq.' + T + ',parent_id.eq.' + T + ')&order=position,name')
+        : Promise.resolve([]),
+      U ? api('menus?select=id,name&id=eq.' + U) : Promise.resolve([])
+    ]);
+  }).then(function(r){
+    D.up = (r[0] || []).filter(function(x){ return x.recipes && !x.recipes.archived; });
+    D.scores = r[1] || []; D.decisions = r[2] || []; D.menus = r[3] || [];
+    D.upName = (r[4] && r[4][0] && r[4][0].name) || 'Upcoming';
+    D.up.forEach(function(x){ D.names[x.recipe_id] = x.recipes; });
+    var need = [];
+    latestByRecipe().forEach(function(d){ if (!D.names[d.recipe_id]) need.push(d.recipe_id); });
+    return need.length ? api('recipes?select=id,name,section,kind,archived&id=in.(' + need.join(',') + ')') : [];
+  }).then(function(rs){
+    (rs || []).forEach(function(x){ D.names[x.id] = x; });
+    D.loaded = true; D.err = null;
+  }).catch(function(e){ D.err = e; });
+}
+function loadStaff(){
+  if (STAFF) return Promise.resolve(STAFF);
+  return api('staff?select=name,emp_id&active=is.true').then(function(r){ STAFF = r || []; return STAFF; })
+    .catch(function(){ STAFF = []; return STAFF; });
+}
+function latestByRecipe(){
+  var seen = {}, out = [];
+  D.decisions.forEach(function(d){ if (!seen[d.recipe_id]) { seen[d.recipe_id] = 1; out.push(d); } });
+  return out;
+}
+function latestOf(rid){ return D.decisions.filter(function(d){ return d.recipe_id === rid; })[0] || null; }
+function scoresOf(rid){ return D.scores.filter(function(s){ return s.recipe_id === rid; }); }
+function avgOf(rid){
+  var ss = scoresOf(rid); if (!ss.length) return null;
+  var a = 0, t = 0, l = 0;
+  ss.forEach(function(s){ a += (s.taste + s.look) / 2; t += s.taste; l += s.look; });
+  return { v: a / ss.length, t: t / ss.length, l: l / ss.length, n: ss.length };
+}
+function mark(){ return Number(D.settings && D.settings.pass_mark) || 8; }
+function f1(x){ return (Math.round(x * 10) / 10).toFixed(1); }
+function menuName(id){
+  var m = D.menus.filter(function(x){ return x.id === id; })[0];
+  if (!m) return 'a menu that has since been removed';
+  if (!m.parent_id) return m.name;
+  var p = D.menus.filter(function(x){ return x.id === m.parent_id; })[0];
+  return (p ? p.name + ' · ' : '') + m.name;
+}
+function when(ts){
+  try { return new Date(ts).toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'Asia/Dubai' }); }
+  catch(e){ return ''; }
+}
+function pill(a){
+  if (!a) return '<span class="pill p-none">Not scored yet</span>';
+  return a.v >= mark() - 1e-9 ? '<span class="pill p-ok">Reached the mark</span>' : '<span class="pill p-below">Below the mark</span>';
+}
+function meterHtml(a){
+  return '<span class="meter"><i style="width:' + (a ? a.v * 10 : 0) + '%" class="' + (a && a.v < mark() - 1e-9 ? 'lo' : '') + '"></i>' +
+         '<b style="left:' + (mark() * 10) + '%"></b></span>';
+}
+
+/* ── the name strip ── */
+function whoHtml(){
+  var need = !(WHO && WHO.name);
+  var known = WHO && NAMES.indexOf(WHO.name) < 0 ? [WHO.name] : [];
+  return '<div class="who' + (need ? ' ask' : '') + '"><span class="lbl">' + (need ? 'Who is scoring? Tap your name' : 'Scoring as') + '</span>' +
+    NAMES.concat(known).map(function(n){
+      return '<button class="chip' + (WHO && WHO.name === n ? ' on' : '') + '" data-who="' + esc(n) + '">' + esc(n) + '</button>';
+    }).join('') +
+    (S.otherOpen
+      ? '<span class="other"><input id="otherName" maxlength="60" placeholder="Your name" aria-label="Your name">' +
+        '<button class="chip" data-othersave="1">Use</button></span>'
+      : '<button class="chip" data-other="1">Someone else</button>') +
+  '</div>';
+}
+
+/* ── screen 1: the list ── */
+function listHtml(){
+  var rows = D.up.map(function(x){
+    var r = x.recipes, a = avgOf(r.id), last = latestOf(r.id), mine = WHO && scoresOf(r.id).some(function(s){ return s.scored_by === WHO.name; });
+    var sub = [esc(r.section || 'No section')];
+    sub.push(a ? a.n + (a.n === 1 ? ' person' : ' people') + ' scored' : 'nobody has scored yet');
+    if (WHO) sub.push(mine ? 'you scored' : '<b>you haven’t scored</b>');
+    if (last && last.decision === 'not_yet') sub.push('not this time, ' + esc(when(last.created_at)));
+    return '<button class="row" data-dish="' + r.id + '"><span class="rname">' + esc(r.name) + '</span>' +
+      '<span class="rsub">' + sub.join(' · ') + '</span>' +
+      '<span class="score"><span class="big">' + (a ? f1(a.v) : '—') + '<small> /10</small></span><br>' + pill(a) + '</span>' +
+      meterHtml(a) + '</button>';
+  }).join('');
+  var upIds = {}; D.up.forEach(function(x){ upIds[x.recipe_id] = 1; });
+  var done = latestByRecipe().filter(function(d){ return d.decision === 'approved' && !upIds[d.recipe_id]; }).slice(0, 12);
+  var doneRows = done.map(function(d){
+    var r = D.names[d.recipe_id] || { name:'A recipe' };
+    return '<button class="row" data-dish="' + d.recipe_id + '"><span class="rname">' + esc(r.name) + '</span>' +
+      '<span class="rsub">Approved ' + esc(when(d.created_at)) + ' by ' + esc(d.decided_by) + ' → ' + esc(menuName(d.menu_id)) + '</span>' +
+      '<span class="score"><span class="big">' + (d.score_avg != null ? f1(Number(d.score_avg)) : '—') + '<small> /10</small></span><br><span class="pill p-done">On the menu</span></span></button>';
+  }).join('');
+  return '<div class="crumb"><h2>Tasting</h2></div>' + whoHtml() +
+    '<div class="sec-h"><h3>Waiting to be tasted</h3><span class="mark">Pass mark <b class="num">' + f1(mark()) + '</b> / 10</span></div>' +
+    '<div class="list">' + (rows || '<div class="empty">Nothing is waiting. Put a dish on <b>' + esc(D.upName) + '</b> in the Recipe book, or add one below.</div>') + '</div>' +
+    (S.adding ? pickHtml() : '<button class="addrow" data-add="1">+ Taste another dish from the recipe book</button>') +
+    (doneRows ? '<div class="sec-h"><h3>Approved</h3><small>kept here; nothing is deleted</small></div><div class="list">' + doneRows + '</div>' : '') +
+    '<details><summary>How this works</summary>' +
+      '<p>Every dish on the menu <b>' + esc(D.upName) + '</b> in the Recipe book shows up here. Everyone at the tasting taps their name and scores taste and look, each out of 10. You only ever change your own score. The dish’s score is the average across everyone who scored.</p>' +
+      '<p>A dish at or above the pass mark turns green. Nothing moves by itself: Chef Francesco approves it with his code, picks where it goes on the à la carte, and it moves there from ' + esc(D.upName) + '.</p>' +
+    '</details>';
+}
+function pickHtml(){
+  var upIds = {}; D.up.forEach(function(x){ upIds[x.recipe_id] = 1; });
+  var q = S.q.trim().toLowerCase();
+  var res = (BOOK || []).filter(function(r){ return !upIds[r.id] && (!q || (r.name + ' ' + (r.section||'')).toLowerCase().indexOf(q) >= 0); }).slice(0, 30);
+  return '<div class="card pick"><h4>Put a dish on ' + esc(D.upName) + '</h4>' +
+    '<input type="search" id="pickq" placeholder="Search the recipe book" value="' + esc(S.q) + '" aria-label="Search the recipe book">' +
+    '<div class="res" id="pickres">' + (BOOK === null ? '<div class="hint">Loading the recipe book…</div>' :
+      (res.map(function(r){ return '<button data-put="' + r.id + '">' + esc(r.name) + '<small>' + esc(r.section || '') + '</small></button>'; }).join('') ||
+       '<div class="hint">No dish matches. A dish that is not written yet goes in Create new recipes first.</div>')) + '</div>' +
+    '<div class="line"><button class="btn ghost" data-addclose="1">Done</button><span class="msg" id="pickmsg"></span></div></div>';
+}
+
+/* ── screen 2: one dish ── */
+function dishHtml(){
+  var rid = S.rid, r = D.names[rid] || { name:'This dish' };
+  var onUp = D.up.some(function(x){ return x.recipe_id === rid; });
+  var last = latestOf(rid);
+  var mine = WHO ? scoresOf(rid).filter(function(s){ return s.scored_by === WHO.name; })[0] : null;
+  if (!S.draft.rid || S.draft.rid !== rid || S.draft.who !== (WHO && WHO.name)) {
+    S.draft = { rid:rid, who: WHO && WHO.name, t: mine ? mine.taste : null, l: mine ? mine.look : null, note: mine ? (mine.note || '') : '' };
+  }
+  return '<div class="crumb"><button class="back" data-list="1">&lsaquo; Tasting</button><h2>' + esc(r.name) + '</h2></div>' + whoHtml() +
+    '<div class="sheet">' +
+      '<div class="card"><h4>Your score' + (WHO ? ' · ' + esc(WHO.name) : '') + '</h4>' +
+        (WHO ? '' : '<div class="hint warn">Tap your name above first.</div>') +
+        '<div><div class="flab">Taste</div><div class="scale" id="scT">' + scaleHtml('t', S.draft.t) + '</div></div>' +
+        '<div><div class="flab">Look on the plate</div><div class="scale" id="scL">' + scaleHtml('l', S.draft.l) + '</div>' +
+          '<div class="ends"><span>1 = not good enough</span><span>10 = perfect</span></div></div>' +
+        '<div><div class="flab">What would you change?</div><textarea id="note" maxlength="500" placeholder="Optional">' + esc(S.draft.note) + '</textarea></div>' +
+        '<div class="line"><button class="btn" id="save"' + (WHO ? '' : ' disabled') + '>' + (mine ? 'Save my new score' : 'Save my score') + '</button><span class="msg" id="savemsg"></span></div>' +
+      '</div>' +
+      '<div class="card"><h4>The table</h4><div id="tbl"></div></div>' +
+    '</div>' +
+    '<div id="decide"></div>';
+}
+function scaleHtml(k, v){
+  var h = '';
+  for (var n = 1; n <= 10; n++) h += '<button type="button" class="' + (n === v ? 'on' : '') + '" data-k="' + k + '" data-v="' + n + '" aria-label="' + (k === 't' ? 'Taste ' : 'Look ') + n + '">' + n + '</button>';
+  return h;
+}
+function tblHtml(){
+  var a = avgOf(S.rid), ss = scoresOf(S.rid);
+  return '<div class="avg"><span class="big">' + (a ? f1(a.v) + '<small> /10 · ' + a.n + (a.n === 1 ? ' person' : ' people') + '</small>' : '—') + '</span>' + pill(a) + '</div>' +
+    meterHtml(a).replace('class="meter"', 'class="meter" style="display:block"') +
+    '<div class="hint">' + (a ? 'Taste ' + f1(a.t) + ' · Look ' + f1(a.l) + ' on average. ' : '') + 'Pass mark ' + f1(mark()) + '.</div>' +
+    '<div class="others">' + (ss.length ? ss.map(function(s){
+      return '<div class="oth"><span class="n">' + esc(s.scored_by) + (WHO && s.scored_by === WHO.name ? ' (you)' : '') + '</span>' +
+        '<span class="v">Taste ' + s.taste + '</span><span class="v">Look ' + s.look + '</span>' +
+        (s.note ? '<span class="t">“' + esc(s.note) + '”</span>' : '') + '</div>';
+    }).join('') : '<div class="hint">Nobody has scored this dish yet.</div>') + '</div>';
+}
+function decideHtml(){
+  var rid = S.rid, last = latestOf(rid), onUp = D.up.some(function(x){ return x.recipe_id === rid; });
+  if (last && last.decision === 'approved' && !onUp) {
+    return '<div class="done"><div><b>' + esc((D.names[rid] || {}).name || 'This dish') + '</b> is on <b>' + esc(menuName(last.menu_id)) + '</b>, approved by ' + esc(last.decided_by) + ' on ' + esc(when(last.created_at)) +
+      (last.score_avg != null ? ' at ' + f1(Number(last.score_avg)) + ' / 10 from ' + last.scorers + (last.scorers === 1 ? ' person' : ' people') : '') + '. The Recipe book shows it there.</div>' +
+      '<div class="line"><input class="codein" id="code" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
+      '<button class="btn ghost" id="undo" data-dec="' + last.id + '">Undo: take it off and put it back on ' + esc(D.upName) + '</button></div>' + dmsgHtml() + '</div>';
+  }
+  if (!onUp) return '<div class="empty">This dish is not on ' + esc(D.upName) + ' any more, so there is nothing to approve here.</div>';
+  var kids = D.menus.filter(function(m){ return m.parent_id; });
+  var top = D.menus.filter(function(m){ return !m.parent_id; })[0];
+  if (!top) return '<div class="fail">The à la carte menu this screen puts dishes on is not in the Recipe book any more. Nothing can be approved until it is set again.</div>';
+  var opts = kids.map(function(m){ return { id:m.id, label: top.name + ' · ' + m.name }; });
+  opts.push({ id: top.id, label: top.name + ' · on the menu itself, no section' });
+  if (!S.where || !opts.some(function(o){ return o.id === S.where; })) S.where = opts[opts.length - 1].id;
+  return '<div class="card approve"><h4>Chef Francesco · approve for the à la carte</h4>' +
+    '<div class="hint">Anyone can see this. Only Chef Francesco’s code approves.</div>' +
+    (last && last.decision === 'not_yet' ? '<div class="hint">Marked <b>not this time</b> on ' + esc(when(last.created_at)) + ' by ' + esc(last.decided_by) + '.</div>' : '') +
+    '<div class="pick">' + opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="w" value="' + o.id + '"' + (o.id === S.where ? ' checked' : '') + '> ' + esc(o.label) + '</label>';
+    }).join('') + '</div>' +
+    '<div class="what" id="what"></div>' +
+    '<div class="line"><input class="codein" id="code" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
+      '<button class="btn go" id="approve">Approve and put it on the menu</button>' +
+      '<button class="btn ghost" id="notyet">Not this time</button></div>' +
+    dmsgHtml() +
+    '<div class="line setmark"><span>Pass mark</span><input id="markIn" type="number" min="1" max="10" step="0.5" value="' + f1(mark()) + '" aria-label="Pass mark out of 10">' +
+      '<button class="btn ghost" id="setmark">Change</button><span class="hint">out of 10 · only Chef Francesco’s code changes it</span></div>' +
+  '</div>';
+}
+function whatHtml(){
+  var rid = S.rid, a = avgOf(rid), r = D.names[rid] || {};
+  var t = 'It moves <b>' + esc(r.name) + '</b> off <b>' + esc(D.upName) + '</b> and onto <b>' + esc(menuName(S.where)) + '</b>. You can undo it from this dish afterwards.';
+  if (!a) t += '<br><span class="warn">Nobody has scored it yet.</span>';
+  else if (a.v < mark() - 1e-9) t += '<br><span class="warn">It is at ' + f1(a.v) + ', below the pass mark of ' + f1(mark()) + '. You can still approve it.</span>';
+  return t;
+}
+
+/* ── drawing ── */
+function render(){
+  var root = $('root');
+  if (D.err && !D.loaded) { root.innerHTML = '<div class="fail">The tasting could not load: ' + esc(D.err.message) + '. Check the connection and open it again.</div>'; return; }
+  if (!D.loaded) return;
+  if (S.screen === 'dish' && S.rid) {
+    root.innerHTML = dishHtml(); drawParts(true);
+  } else {
+    S.screen = 'list'; root.innerHTML = listHtml();
+    if (S.adding) { var q = $('pickq'); if (q) { q.focus({ preventScroll:true }); q.setSelectionRange(q.value.length, q.value.length); } }
+  }
+}
+/* The parts other people change. Redrawn on every refresh without touching the
+   score buttons, the note or the code field someone may be typing into. */
+function drawParts(full){
+  if (S.screen !== 'dish') return;
+  var t = $('tbl'); if (t) t.innerHTML = tblHtml();
+  var d = $('decide');
+  var busy = document.activeElement && d && d.contains(document.activeElement);
+  if (d && (full || !busy)) { d.innerHTML = decideHtml(); }
+  var w = $('what'); if (w) w.innerHTML = whatHtml();
+}
+function refresh(){
+  return load().then(function(){
+    if (S.screen === 'list') {
+      var typing = document.activeElement && (document.activeElement.id === 'pickq' || document.activeElement.id === 'otherName');
+      if (!typing) render();
+    } else drawParts(false);
+  });
+}
+function msg(id, text, ok){
+  /* The 6-second refresh redraws the decide panel, so its message lives in state or it
+     vanishes before anyone has read it. */
+  if (id === 'decmsg') S.dmsg = { rid:S.rid, text:text, ok:ok };
+  var m = $(id); if (m) { m.className = 'msg ' + (ok ? 'ok' : 'bad'); m.innerHTML = text; }
+}
+function dmsgHtml(){
+  var m = S.dmsg && S.dmsg.rid === S.rid ? S.dmsg : null;
+  return '<span class="msg' + (m ? (m.ok ? ' ok' : ' bad') : '') + '" id="decmsg">' + (m ? m.text : '') + '</span>';
+}
+
+/* ── actions ── */
+document.addEventListener('click', function(e){
+  var t = e.target.closest('button, [data-dish]'); if (!t) return;
+  if (t.dataset.who) { rememberWho(t.dataset.who); S.otherOpen = false; render(); return; }
+  if (t.dataset.other) { S.otherOpen = true; render(); var o = $('otherName'); if (o) o.focus({ preventScroll:true }); return; }
+  if (t.dataset.othersave) { var v = ($('otherName').value || '').trim(); if (v) { rememberWho(v); S.otherOpen = false; render(); } return; }
+  if (t.dataset.dish) { S.screen = 'dish'; S.rid = t.dataset.dish; S.draft = {}; S.dmsg = null; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.list) { S.screen = 'list'; S.rid = null; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.add) { S.adding = true; S.q = ''; render(); loadBook(); return; }
+  if (t.dataset.addclose) { S.adding = false; render(); return; }
+  if (t.dataset.put) { putOnUpcoming(t.dataset.put, t); return; }
+  if (t.dataset.k) {
+    S.draft[t.dataset.k] = +t.dataset.v;
+    $(t.dataset.k === 't' ? 'scT' : 'scL').innerHTML = scaleHtml(t.dataset.k, S.draft[t.dataset.k]); return;
+  }
+  if (t.id === 'save') { saveScore(t); return; }
+  if (t.id === 'approve') { decide('approve', t); return; }
+  if (t.id === 'notyet') { decide('notyet', t); return; }
+  if (t.id === 'undo') { decide('undo', t); return; }
+  if (t.id === 'setmark') { decide('mark', t); return; }
+});
+document.addEventListener('input', function(e){
+  if (e.target.id === 'note') S.draft.note = e.target.value;
+  if (e.target.id === 'code') CODE = e.target.value.trim();
+  if (e.target.id === 'pickq') { S.q = e.target.value; var r = $('pickres'); if (r) { var tmp = document.createElement('div'); tmp.innerHTML = pickHtml(); r.innerHTML = tmp.querySelector('#pickres').innerHTML; } }
+});
+document.addEventListener('change', function(e){
+  if (e.target.name === 'w') { S.where = e.target.value; var w = $('what'); if (w) w.innerHTML = whatHtml(); }
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Enter' && e.target.id === 'otherName') { var v = e.target.value.trim(); if (v) { rememberWho(v); S.otherOpen = false; render(); } }
+});
+
+function loadBook(){
+  if (BOOK) { render(); return; }
+  api('recipes?select=id,name,section&kind=eq.main&archived=is.false&order=name').then(function(r){ BOOK = r || []; })
+    .catch(function(){ BOOK = []; }).then(function(){ if (S.adding) render(); });
+}
+function putOnUpcoming(rid, btn){
+  var U = D.settings.upcoming_menu_id; if (!U) return;
+  btn.disabled = true;
+  var pos = D.up.reduce(function(m, x){ return Math.max(m, x.position || 0); }, -1) + 1;
+  api('recipe_menus', { method:'POST', body:{ recipe_id:rid, menu_id:U, position:pos }, prefer:'return=minimal' })
+    .then(function(){ return load(); })
+    .then(function(){ S.q = ''; render(); msg('pickmsg', 'Added. It is on ' + esc(D.upName) + ' in the Recipe book too.', true); })
+    .catch(function(e){ btn.disabled = false; msg('pickmsg', esc(say(e)), false); });
+}
+function saveScore(btn){
+  if (!WHO) { msg('savemsg', 'Tap your name first.', false); return; }
+  if (!S.draft.t || !S.draft.l) { msg('savemsg', 'Tap a number for taste and one for look first.', false); return; }
+  btn.disabled = true; msg('savemsg', 'Saving…', true);
+  var row = { recipe_id:S.rid, scored_by:WHO.name, emp_id:WHO.emp_id, taste:S.draft.t, look:S.draft.l,
+              note:(S.draft.note || '').trim() || null, updated_at:new Date().toISOString() };
+  api('tasting_scores?on_conflict=recipe_id,scored_by', { method:'POST', body:row, prefer:'resolution=merge-duplicates,return=minimal' })
+    .then(function(){ return load(); })
+    .then(function(){ drawParts(false); btn.disabled = false; btn.textContent = 'Save my new score'; msg('savemsg', 'Saved. Everyone can see it now.', true); })
+    .catch(function(e){ btn.disabled = false; msg('savemsg', esc(say(e)), false); });
+}
+function decide(kind, btn){
+  CODE = ($('code') && $('code').value.trim()) || CODE;
+  if (!CODE) { msg('decmsg', 'Type Chef Francesco’s code first.', false); var c = $('code'); if (c) c.focus(); return; }
+  var by = (WHO && WHO.name) || 'Francesco', p;
+  if (kind === 'approve') p = rpc('tasting_approve', { p_code:CODE, p_recipe:S.rid, p_menu:S.where, p_by:by });
+  if (kind === 'notyet')  p = rpc('tasting_not_yet', { p_code:CODE, p_recipe:S.rid, p_by:by });
+  if (kind === 'undo')    p = rpc('tasting_undo', { p_code:CODE, p_decision:btn.dataset.dec, p_by:by });
+  if (kind === 'mark') {
+    var v = parseFloat(String($('markIn').value).replace(',', '.'));
+    if (!(v >= 1 && v <= 10)) { msg('decmsg', 'The pass mark is a number from 1 to 10.', false); return; }
+    p = rpc('tasting_set_mark', { p_code:CODE, p_mark:v, p_by:by });
+  }
+  btn.disabled = true; msg('decmsg', 'Saving…', true);
+  p.then(function(){ return load(); })
+   .then(function(){
+     drawParts(true);
+     var t = { approve:'Approved. It is on ' + esc(menuName(S.where)) + ' in the Recipe book now.',
+               notyet:'Marked not this time. It stays on ' + esc(D.upName) + ' with its scores, so it can be tasted again.',
+               undo:'Undone. It is back on ' + esc(D.upName) + ' and off the à la carte.',
+               mark:'Pass mark is now ' + f1(mark()) + '.' }[kind];
+     msg('decmsg', t, true);
+   })
+   .catch(function(e){ btn.disabled = false; msg('decmsg', esc(say(e)), false); });
+}
+
+/* Other phones at the same tasting: look again every 6 seconds while this screen is
+   showing, never while it is hidden. */
+setInterval(function(){ if (!document.hidden && D.loaded) refresh(); }, 6000);
+window.__rcpFreshen = function(){ refresh(); };
+
+loadStaff();
+load().then(render);
+</script>
+</body>
+</html>

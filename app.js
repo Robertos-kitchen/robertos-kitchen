@@ -1890,7 +1890,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2668,6 +2668,9 @@ var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
    name:'Create new recipes',
    meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
+  {code:'TASTE', view:'tasting-view', page:'tasting.html?embed=1',
+   name:'Tasting',
+   meta:'Score the dishes waiting for the à la carte. Chef Francesco approves, and the dish moves onto the menu.'},
   {code:'PASS', view:'recipecard-view', page:'recipe-card.html?embed=1',
    name:'Recipe card',
    meta:'The station card: the dish and every batch inside it, scaled, printable.'},
@@ -2788,7 +2791,7 @@ function openRecipeScreen(viewId){
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -2810,7 +2813,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';

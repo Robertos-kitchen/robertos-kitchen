@@ -1466,6 +1466,9 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
      how the next person reading this loses an afternoon. micros-view stays where it is,
      empty and unused, because nothing is gained by taking it out. -->
 <div id="recipebook-view" class="ops-view" style="display:none"></div>
+<!-- Tasting (21 Sep 2026): the dishes on "Upcoming dishes a la carte", scored by the
+     chefs; Chef Francesco approves and the dish moves onto the à la carte. -->
+<div id="tasting-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1544,7 +1547,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1789978892"></script>
+<script src="app.js?v=1789981760"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1571,7 +1574,7 @@ window.FB_INBOX = {
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
       'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
-      'foodbible-view':'Food bible', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
+      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
       'menuplan-view':'Menu development plan', 'calendar-view':'Calendar', 'team-view':'Team survey',
       'scheduling-view':'Schedule' };
