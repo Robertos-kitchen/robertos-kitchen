@@ -5881,10 +5881,14 @@ function renderSchedDay() {
 
 // ── Edit modal ──
 // ══════════════════════════════════════════════════════════════════════════
-//  QUICK-FILL SHIFT PRESETS — 4 shared, editable buttons in the shift editor.
+//  QUICK-FILL SHIFT PRESETS — shared, editable buttons in the shift editor
+//  (as many as the team needs, up to SCHED_PRESET_MAX; 4 until someone adds one).
 //  Shown on BOTH the real schedule and the Roster tool (same editor). One tap
-//  fills + saves the shift. "Edit" changes the 4 presets for the whole team.
+//  fills + saves the shift. "Edit" adds, removes and changes them for the whole team.
+//  Rows live in sched_shift_presets keyed 1..N by `slot`; a save renumbers and
+//  deletes any slot above N, so a removed button is gone for everyone.
 // ══════════════════════════════════════════════════════════════════════════
+var SCHED_PRESET_MAX = 12;
 var SCHED_PRESET_DEFAULTS = [
   { slot:1, label:'Lunch',    status:'working', shift_start:'10:00', shift_end:'15:00', shift_start2:'19:00', shift_end2:'00:00' },
   { slot:2, label:'Dinner',   status:'working', shift_start:'15:00', shift_end:'03:00', shift_start2:null,    shift_end2:null },
@@ -5896,8 +5900,9 @@ async function loadShiftPresets(){
   try{
     var res = await sb.from('sched_shift_presets').select('*').order('slot');
     if(res.error || !res.data || !res.data.length) return;   // table not there yet → keep defaults
-    var byslot={}; res.data.forEach(function(r){ byslot[r.slot]=r; });
-    schedShiftPresets = [1,2,3,4].map(function(n){ var r=byslot[n]||SCHED_PRESET_DEFAULTS[n-1]; return { slot:n, label:r.label, status:r.status||'working', shift_start:r.shift_start||null, shift_end:r.shift_end||null, shift_start2:r.shift_start2||null, shift_end2:r.shift_end2||null }; });
+    // Every saved row, in slot order — no longer cut at 4.
+    schedShiftPresets = res.data.slice().sort(function(a,b){ return a.slot-b.slot; }).map(function(r){ return { slot:r.slot, label:r.label, status:r.status||'working', shift_start:r.shift_start||null, shift_end:r.shift_end||null, shift_start2:r.shift_start2||null, shift_end2:r.shift_end2||null }; });
+    schedRenderPresets();   // an editor already open when this lands shows the full set
   }catch(e){}
 }
 function schedPresetSub(p){
@@ -5930,8 +5935,11 @@ function schedApplyPreset(i){
   }
   schedSaveShift();
 }
-// ── Edit the 4 presets (shared with the team) ──
-function schedOpenPresetEditor(){
+// ── Edit the presets (shared with the team) ──
+// `list` = the rows to draw; omitted = what is saved. Add/Remove redraw from the
+// editor's own unsaved state, so nothing touches the team's buttons until Save.
+function schedOpenPresetEditor(list){
+  list = list || schedShiftPresets;
   var host=document.getElementById('sch-preset-editor');
   if(!host){ host=document.createElement('div'); host.id='sch-preset-editor'; document.body.appendChild(host); }
   var STATS=[['working','Working'],['off','Day off'],['wo','Week off'],['sl','Sick leave'],['al','Annual leave'],['ph','Public holiday'],['em','Emergency'],['tr','Training'],['cat','Catering']];
@@ -5939,10 +5947,11 @@ function schedOpenPresetEditor(){
   function mOpts(sel){ return ['00','15','30','45'].map(function(m){ return '<option value="'+m+'"'+(m===sel?' selected':'')+'>'+m+'</option>'; }).join(''); }
   function pt(t,part){ if(!t) return part==='h'?'14':'00'; var p=String(t).split(':'); return part==='h'?(p[0]||'14'):(p[1]||'00'); }
   function sOpts(sel){ return STATS.map(function(s){ return '<option value="'+s[0]+'"'+(s[0]===sel?' selected':'')+'>'+s[1]+'</option>'; }).join(''); }
-  var rows=schedShiftPresets.map(function(p,i){
+  var rows=list.map(function(p,i){
     var w=p.status==='working', hasSplit=!!(p.shift_start2&&p.shift_end2);
     return '<div class="sch-pe-row" data-i="'+i+'">'
-      +'<input type="text" class="sch-pe-label" value="'+String(p.label||'').replace(/"/g,'&quot;')+'" placeholder="Name" />'
+      +'<div class="sch-pe-head"><input type="text" class="sch-pe-label" value="'+String(p.label||'').replace(/"/g,'&quot;')+'" placeholder="Name" />'
+      +(list.length>1 ? '<button type="button" class="sch-pe-del" onclick="schedPresetEditorRemove('+i+')" aria-label="Remove this button">Remove</button>' : '')+'</div>'
       +'<select class="sch-pe-status" onchange="schedPresetEditorToggle('+i+')">'+sOpts(p.status)+'</select>'
       +'<div class="sch-pe-times" id="sch-pe-times-'+i+'" style="display:'+(w?'block':'none')+'">'
         +'<div class="sch-pe-time"><span>Start</span><select class="sch-pe-sh">'+hOpts(pt(p.shift_start,'h'))+'</select>:<select class="sch-pe-sm">'+mOpts(pt(p.shift_start,'m'))+'</select>'
@@ -5954,8 +5963,11 @@ function schedOpenPresetEditor(){
   }).join('');
   host.innerHTML='<div class="sch-pe-ov" onclick="schedClosePresetEditor(event)"><div class="sch-pe-box" onclick="event.stopPropagation()">'
     +'<div class="sch-pe-title">Edit quick-fill presets</div>'
-    +'<div style="font-size:12px;color:var(--vino-light);margin-bottom:12px">These 4 buttons are shared with the whole team. Change the name, what it does, and the times.</div>'
+    +'<div style="font-size:12px;color:var(--vino-light);margin-bottom:12px">These '+list.length+' buttons are shared with the whole team. Add one, remove one, or change the name, what it does and the times.</div>'
     +rows
+    +(list.length<SCHED_PRESET_MAX
+      ? '<button type="button" class="sch-pe-add" onclick="schedPresetEditorAdd()">+ Add a quick-fill button</button>'
+      : '<div class="sch-pe-max">'+SCHED_PRESET_MAX+' buttons is the most that fit — remove one to add another.</div>')
     +'<div class="sch-pe-actions"><button class="sch-modal-cancel" onclick="schedClosePresetEditor()">Cancel</button><button class="sch-modal-save" onclick="schedSavePresets()">Save presets</button></div>'
   +'</div></div>';
 }
@@ -5967,7 +5979,33 @@ function schedPresetEditorToggle(i){
   document.getElementById('sch-pe-split2-'+i).style.display = (working && chk && chk.checked)?'block':'none';
 }
 function schedClosePresetEditor(ev){ if(ev && ev.target && !ev.target.classList.contains('sch-pe-ov')) return; var h=document.getElementById('sch-preset-editor'); if(h) h.innerHTML=''; }
+function schedPresetEditorAdd(){
+  var list=schedReadPresetEditor(); if(list.length>=SCHED_PRESET_MAX) return;
+  list.push({ slot:list.length+1, label:'', status:'working', shift_start:'14:00', shift_end:'00:00', shift_start2:null, shift_end2:null });
+  schedOpenPresetEditor(list);
+  var rows=document.querySelectorAll('#sch-preset-editor .sch-pe-row'), last=rows[rows.length-1];
+  if(last){ last.scrollIntoView({block:'nearest'}); var inp=last.querySelector('.sch-pe-label'); if(inp) inp.focus(); }
+}
+function schedPresetEditorRemove(i){
+  var box=document.querySelector('#sch-preset-editor .sch-pe-box'), top=box?box.scrollTop:0;
+  var list=schedReadPresetEditor(); if(list.length<=1) return;
+  list.splice(i,1);
+  schedOpenPresetEditor(list);
+  box=document.querySelector('#sch-preset-editor .sch-pe-box'); if(box) box.scrollTop=top;
+}
 async function schedSavePresets(){
+  var out=schedReadPresetEditor();
+  schedShiftPresets=out; schedRenderPresets(); schedClosePresetEditor();
+  if(!DEV_READ_ONLY){
+    var res=await sb.from('sched_shift_presets').upsert(out.map(function(p){ return { slot:p.slot, label:p.label, status:p.status, shift_start:p.shift_start, shift_end:p.shift_end, shift_start2:p.shift_start2, shift_end2:p.shift_end2, updated_at:new Date().toISOString() }; }), { onConflict:'slot' });
+    if(res.error){ alert('Presets are set on this screen, but couldn’t be saved for the team: '+res.error.message+(res.error.code==='42P01'?'\n\nRun kitchen-shift-presets-schema.sql once first.':'')); return; }
+    // Buttons removed in the editor: drop their rows, only once the kept ones are safely saved.
+    var del=await sb.from('sched_shift_presets').delete().gt('slot', out.length);
+    if(del.error){ alert('Presets are saved, but a removed button couldn’t be taken off for the team: '+del.error.message); }
+  }
+}
+// The editor's current (unsaved) rows, numbered 1..N in screen order.
+function schedReadPresetEditor(){
   var rows=document.querySelectorAll('#sch-preset-editor .sch-pe-row'); var out=[];
   Array.prototype.forEach.call(rows, function(r,i){
     var label=(r.querySelector('.sch-pe-label').value||'').trim() || ('Preset '+(i+1));
@@ -5981,11 +6019,7 @@ async function schedSavePresets(){
     }
     out.push(p);
   });
-  schedShiftPresets=out; schedRenderPresets(); schedClosePresetEditor();
-  if(!DEV_READ_ONLY){
-    var res=await sb.from('sched_shift_presets').upsert(out.map(function(p){ return { slot:p.slot, label:p.label, status:p.status, shift_start:p.shift_start, shift_end:p.shift_end, shift_start2:p.shift_start2, shift_end2:p.shift_end2, updated_at:new Date().toISOString() }; }), { onConflict:'slot' });
-    if(res.error){ alert('Presets are set on this screen, but couldn’t be saved for the team: '+res.error.message+(res.error.code==='42P01'?'\n\nRun kitchen-shift-presets-schema.sql once first.':'')); }
-  }
+  return out;
 }
 
 function schedOpenEdit(staffId, date) {
