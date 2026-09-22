@@ -73,6 +73,15 @@
 // together. A folder is the old `wave` column with a typed name instead of Wave 1–4.
 // Tap a folder chip above the list to see only it; the search finds it by name.
 //
+// CV database + archive (22 Sep 2026, Chef Andrea via Tell us): "a Database where we
+// can move all the cv once they are finished" and "an archive where we can keep CV of
+// good candidate that we were not able to hire at that moment", each with "a small
+// note ... why are kept". A candidate's `shelf` is '' (in the round), 'database'
+// (finished) or 'archive' (a future hire — the database refuses it without a note).
+// A shelved candidate leaves the round's working list and counters but stays on the
+// leaderboard; nothing is deleted, and "Back to the round" undoes it. The CV database
+// screen lists every shelved candidate from EVERY round, with their CVs.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad(),
 // SUPABASE_URL, SUPABASE_KEY.
 // ══════════════════════════════════════════════════════════════════════════
@@ -154,11 +163,17 @@ var ivsRounds = [];        // every round, open first
 var ivsRound = null;       // the round on screen
 var ivsSets = [];          // question sets from the database
 var ivsSettings = null;    // interviewers + recipient lists
-var ivsScreen = 'main';    // main | name | rounds
+var ivsScreen = 'main';    // main | name | rounds | shelf
 var ivsHist = {};          // email -> rows from other rounds (or 'loading')
 var ivsHistT = null;
 var ivsSetEdit = null;     // the question-set editor's state while open
 var ivsRoundNew = null;    // the new-round form's state while open
+var ivsShelved = [];       // this round's candidates already moved to the CV database / archive
+var ivsShelfRows = null;   // the CV database screen: every shelved candidate of every round (null = not loaded)
+var ivsShelfQ = '';        // its search
+var ivsShelfTab = 'archive';   // archive | database | all
+var ivsShelfEdit = null;   // { id, to, note } while a note is being written (sheet or database screen)
+var IVS_SHELVES = { database: 'CV database', archive: 'Archive — future hire' };
 var IVS_STAGES = [['new','New'],['scoring','Being scored'],['decide','To decide'],['shortlist','Shortlisted'],['hr','Sent to HR'],['reject','Rejected']];
 
 var ivsCode  = null;
@@ -548,6 +563,22 @@ function ivsInjectCss(){
     '.ivhist{background:#f3e9c4;color:#4a3900;border-radius:5px;padding:9px 11px;font-size:13.5px;margin-top:10px;line-height:1.45}',
     '.ivhist b{font-weight:700}',
     '.ivrounds{max-width:720px;margin:0 auto}',
+    '.ivshbox{background:#fff;border:1px solid var(--isd);border-radius:6px;padding:10px 12px;margin:10px 0 2px}',
+    '.ivshbox .hd b{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl)}',
+    '.ivshbox p{font-size:13.5px;line-height:1.45;color:#5a4a3a;margin:6px 0 0}',
+    '.ivshbox .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.ivshbox .btns button{flex:1 1 180px}',
+    '.ivshnote{width:100%;box-sizing:border-box;min-height:74px;font-family:"DM Sans",sans-serif;font-size:15px;border:1px solid var(--iv);border-radius:5px;background:#fff;padding:9px 10px;color:var(--ik);margin-top:8px}',
+    '.ivshkept{background:#e9efe0;color:#2f4a1e;border-radius:5px;padding:9px 11px;font-size:14px;line-height:1.45;margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.ivshkept b{font-weight:700}',
+    '.ivshline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:13px;color:#5a4a3a;padding:6px 0 2px}',
+    '.ivshline button{background:none;border:0;padding:0;min-height:36px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:13.5px;font-weight:600;text-decoration:underline;cursor:pointer}',
+    '.ivshc{background:#faf4ea;border-radius:8px;padding:12px 14px;margin-top:10px;box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}',
+    '.ivshc .t{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.ivshc .t b{font-size:17px;color:var(--iv)}',
+    '.ivshc .m{font-size:13px;color:#5a4a3a;margin-top:3px;line-height:1.45;overflow-wrap:anywhere}',
+    '.ivshc .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ivshc .btns button{flex:0 1 auto;padding:0 14px}',
+    '.ivshtabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 8px}',
+    '.ivshq{width:100%;box-sizing:border-box;font-family:"DM Sans",sans-serif;font-size:16px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:#fff;padding:0 12px;color:var(--ik)}',
+    '.ivshempty{background:#faf4ea;border-radius:8px;padding:20px 14px;margin-top:10px;color:#5a4a3a;font-size:14px}',
     '.ivround{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid var(--isd);border-radius:6px;padding:12px 14px;margin-top:8px;min-height:60px;cursor:pointer;font-family:"DM Sans",sans-serif;color:var(--ik)}',
     '.ivround:hover{border-color:var(--iv)}.ivround.closed{background:var(--isl)}',
     '.ivround .t{flex:1;min-width:0}.ivround .t b{display:block;font-size:16px;font-weight:600}.ivround .t span{display:block;font-size:12.5px;color:#5a4a3a;margin-top:2px}',
@@ -638,7 +669,7 @@ async function ivsBoot(){
 async function ivsRoundUse(r){
   ivsRound = r; IVS_EVENT = r.event;
   ivsUseSet(ivsSetByKey(r.question_set));
-  ivsRows = []; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsStageQ = ''; ivsAddOpen = false; ivsRen = null; ivsHist = {}; ivsTab = 'score';
+  ivsRows = []; ivsShelved = []; ivsShelfEdit = null; ivsCvs = []; ivsActs = []; ivsSel = null; ivsQ = ''; ivsFolderQ = ''; ivsStageQ = ''; ivsAddOpen = false; ivsRen = null; ivsHist = {}; ivsTab = 'score';
   try { localStorage.setItem(IVS_ROUND_STORE, r.event); } catch(e){}
   var ok = await ivsLoad();
   if (ok){ ivsScreen = 'main'; ivsStartPoll(); }
@@ -719,6 +750,8 @@ async function ivsLoad(quiet){
     ivsKeepTyping(x, m.old);                 // not sent yet — the typing wins
     return x;
   });
+  ivsShelved = ivsRows.filter(function(x){ return x.shelf; });
+  ivsRows = ivsRows.filter(function(x){ return !x.shelf; });
   if (ivsSel && !ivsRows.some(function(x){ return x.id === ivsSel; })) ivsSel = null;
   ivsMailStatus();
   return true;
@@ -737,7 +770,7 @@ async function ivsUnlock(){
 function ivsLock(){
   if (ivsBulk && ivsBulk.running){ kToast('CVs are still uploading — wait for them to finish, then lock.', true); return; }
   if (ivsMail && ivsMail.step === 'sending'){ kToast('An email is being sent — wait for it to finish, then lock.', true); return; }
-  ivsCode = null; ivsRows = []; ivsSel = null; ivsCvs = []; ivsActs = []; ivsQ = ''; ivsRound = null; IVS_EVENT = ''; ivsHist = {}; ivsScreen = 'main'; ivsViewerClose(); ivsBulkClose(true); ivsMailClose(true);
+  ivsCode = null; ivsRows = []; ivsShelved = []; ivsShelfRows = null; ivsShelfEdit = null; ivsSel = null; ivsCvs = []; ivsActs = []; ivsQ = ''; ivsRound = null; IVS_EVENT = ''; ivsHist = {}; ivsScreen = 'main'; ivsViewerClose(); ivsBulkClose(true); ivsMailClose(true);
   try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
   if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
   ivsRender();
@@ -1036,7 +1069,7 @@ function ivsSearchClear(){
 }
 
 function ivsListHtml(){
-  if (!ivsRows.length) return '<div class="ivempty">No candidates yet. Add the first one above, or add a folder of CVs in bulk.</div>';
+  if (!ivsRows.length) return '<div class="ivempty">'+(ivsShelved.length ? 'Every candidate of this round is in the CV database.' : 'No candidates yet. Add the first one above, or add a folder of CVs in bulk.')+'</div>'+ivsShelfLineHtml();
   var folders = ivsFolders(), h = '';
   if (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER && !folders.some(function(f){ return f.name === ivsFolderQ; })) ivsFolderQ = '';   // the folder was renamed away
   var unfiled = ivsRows.filter(function(r){ return !(r.wave || '').trim(); }).length;
@@ -1052,7 +1085,7 @@ function ivsListHtml(){
   var filtered = !!(ivsStageQ || ivsFolderQ || ivsQ.trim());
   h += '<div class="ivfindn"><span>'+(filtered ? hits.length+' of '+ivsRows.length+(ivsStageQ ? ' · '+ivsEsc(ivsStageWord(ivsStageQ)) : '') : 'All '+ivsRows.length)+'</span>'+
     (ivsFolderQ && ivsFolderQ !== IVS_NOFOLDER && !ivsRen ? '<button type="button" onclick="ivsFolderRename()">Rename folder</button>' : '')+
-    (filtered ? '<button type="button" onclick="ivsFiltersClear()">Clear filters</button>' : '')+'</div></div><div class="ivlrows">';
+    (filtered ? '<button type="button" onclick="ivsFiltersClear()">Clear filters</button>' : '')+'</div>'+ivsShelfLineHtml()+'</div><div class="ivlrows">';
   if (!hits.length) h += '<div class="ivempty">'+(ivsQ.trim() ? 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”.' : 'No candidates here.')+'</div>';
   var groups = {}; hits.forEach(function(r){ var k = ivsStage(r); (groups[k] = groups[k] || []).push(r); });
   // what needs a decision first, then what is half-done, then the rest
@@ -1144,7 +1177,7 @@ function ivsEditorHtml(){
     '<input id="ivs-wave" class="ivsel" style="flex:1 1 200px;min-width:0" list="ivs-dl-folder" maxlength="80" autocomplete="off" placeholder="Folder — e.g. Monday 21st interview" aria-label="Folder" value="'+ivsEsc(r.wave||'')+'" oninput="ivsWave(this)" onchange="ivsWaveFlush(this)">'+
     ivsFolderListHtml()+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
-  '</div>' + ivsDetailsHtml(r) + '<div id="ivs-hist">'+ivsHistHtml(r)+'</div>' + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r);
+  '</div>' + ivsDetailsHtml(r) + '<div id="ivs-hist">'+ivsHistHtml(r)+'</div>' + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r) + ivsShelfBoxHtml(r);
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
@@ -1263,7 +1296,7 @@ function ivsViewerClose(){
 function ivsViewerKey(e){ if (e.key === 'Escape') ivsViewerClose(); }
 
 async function ivsCvView(id){
-  var c = ivsCvs.filter(function(x){ return x.id === id; })[0]; if (!c) return;
+  var c = ivsCvs.concat(ivsShelfCvs()).filter(function(x){ return x.id === id; })[0]; if (!c) return;
   ivsViewerClose();
   var kind = ivsCvKind(c.filename, c.mime);
   var v = document.createElement('div'); v.id = 'ivs-viewer';
@@ -2404,6 +2437,7 @@ function ivsRoundsHtml(){
     '<div><button class="ivlock" onclick="ivsLock()">Lock</button></div></div>';
   if (ivsRoundNew) h += ivsRoundNewHtml();
   else h += '<button class="ivb" style="width:100%" onclick="ivsRoundNewOpen()">+ New round</button>';
+  h += '<button class="ivb2" style="width:100%;margin-top:8px" onclick="ivsShelfOpen()">CV database &amp; archive</button>';
   h += '<div class="ivlbl" style="margin-top:16px">Open</div>';
   h += open.length ? open.map(row).join('') : '<div class="ivnote">No open round. Start one above.</div>';
   if (closed.length) h += '<details style="margin-top:16px"><summary class="ivlbl" style="cursor:pointer">Past rounds · '+closed.length+'</summary>'+closed.map(row).join('')+'</details>';
@@ -2476,6 +2510,172 @@ function ivsHistHtml(r){
     if (x.last_action) bits.push((IVS_ACTIONS[x.last_action] || { done: x.last_action }).done + ' ' + ivsWhen(x.last_action_at).split(',')[0]);
     return bits.join(' · ');
   }).join('; ')+'.</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CV database + archive — where a finished candidate goes, from every round
+// ══════════════════════════════════════════════════════════════════════════
+function ivsFinished(r){ var k = ivsStage(r); return k === 'hr' || k === 'reject'; }
+function ivsShelfCvs(){ var out = []; (ivsShelfRows || []).forEach(function(r){ out = out.concat(r.cvs || []); }); return out; }
+function ivsShelfWhen(iso){ return iso ? ivsWhen(iso).split(',')[0] : ''; }
+
+// the working list says where the moved ones went, and offers to move the finished ones
+function ivsShelfLineHtml(){
+  var fin = ivsRows.filter(ivsFinished).length, gone = ivsShelved.length;
+  if (!fin && !gone) return '';
+  return '<div class="ivshline">'+
+    (fin ? '<span>'+fin+' finished (sent to HR or rejected)</span><button type="button" onclick="ivsShelfMoveFinished()">Move '+(fin === 1 ? 'it' : 'all '+fin)+' to the CV database</button>' : '')+
+    (gone ? '<span>'+gone+' already in the CV database</span><button type="button" onclick="ivsShelfOpen()">Open it</button>' : '')+'</div>';
+}
+
+// the box at the foot of a candidate's sheet
+function ivsShelfBoxHtml(r){
+  var ed = ivsShelfEdit && ivsShelfEdit.id === r.id ? ivsShelfEdit : null;
+  var h = '<div class="ivshbox" id="ivs-shbox"><div class="hd"><b>Finished with this candidate?</b></div>';
+  if (ed) return h + '<p>Why are we keeping <b>'+ivsEsc(ivsCandLabel(r))+'</b> for a future hire? This note goes with the CV into the archive.</p>'+
+    '<textarea id="ivs-shnote" class="ivshnote" maxlength="1000" placeholder="e.g. Strong on pasta, calm under pressure — no CDP opening in September. Call for the next one." oninput="ivsShelfEdit.note=this.value">'+ivsEsc(ed.note)+'</textarea>'+
+    '<div class="btns"><button type="button" class="ivb2" onclick="ivsShelfEdit=null;ivsShelfBoxPaint()">Cancel</button>'+
+    '<button type="button" class="ivb" onclick="ivsShelfSave()">Keep in the archive</button></div></div>';
+  return h + '<p>Move them out of this round\'s list. Nothing is deleted — the CV, scores and emails go with them, and they can be brought back.</p>'+
+    '<div class="btns"><button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'database\')">Move to the CV database</button>'+
+    '<button type="button" class="ivb" onclick="ivsShelfNote(\''+r.id+'\',\'archive\')">Keep in the archive — future hire…</button></div></div>';
+}
+function ivsShelfBoxPaint(){
+  var r = ivsRow(ivsSel), el = document.getElementById('ivs-shbox');
+  if (r && el) el.outerHTML = ivsShelfBoxHtml(r);
+  var t = document.getElementById('ivs-shnote'); if (t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+}
+function ivsShelfNote(id, to){
+  var r = ivsRow(id) || (ivsShelfRows || []).filter(function(x){ return x.id === id; })[0];
+  ivsShelfEdit = { id: id, to: to, note: (r && r.shelf_note) || '' };
+  if (ivsScreen === 'shelf'){ ivsRender(); var t = document.getElementById('ivs-shnote'); if (t) t.focus(); }
+  else ivsShelfBoxPaint();
+}
+function ivsShelfSave(){
+  var ed = ivsShelfEdit; if (!ed) return;
+  var note = String(ed.note || '').trim();
+  if (note.length < 3){ kToast('Write a line on why we are keeping them.', true); var t = document.getElementById('ivs-shnote'); if (t) t.focus(); return; }
+  ivsShelfTo(ed.id, ed.to, note);
+}
+// one move: into the database, into the archive (with its note), or back to the round ('')
+async function ivsShelfTo(id, to, note){
+  var patch = { shelf: to };
+  if (note != null) patch.shelf_note = note;
+  var r = await sb.rpc('interview_patch', { p_code: ivsCode, p_id: id, p_patch: patch, p_by: ivsMe || '' });
+  if (r.error){ kToast('Not moved — ' + (r.error.message || 'no connection') + '. Try again.', true); return false; }
+  var row = r.data;
+  ivsShelfEdit = null;
+  // this round's lists
+  if (row.event === IVS_EVENT){
+    ivsRows = ivsRows.filter(function(x){ return x.id !== id; });
+    ivsShelved = ivsShelved.filter(function(x){ return x.id !== id; });
+    (row.shelf ? ivsShelved : ivsRows).push(row);
+    if (ivsSel === id && row.shelf) ivsSel = null;
+  }
+  // the database screen
+  if (ivsShelfRows){
+    var i = ivsShelfRows.findIndex(function(x){ return x.id === id; });
+    if (i >= 0){ if (row.shelf) Object.assign(ivsShelfRows[i], { shelf: row.shelf, shelf_note: row.shelf_note, shelved_at: row.shelved_at, shelved_by: row.shelved_by }); else ivsShelfRows.splice(i, 1); }
+  }
+  kToast(!row.shelf ? (ivsCandLabel(row) + ' is back in the round.') : ivsCandLabel(row) + (row.shelf === 'archive' ? ' kept in the archive.' : ' moved to the CV database.'));
+  ivsRender();
+  return true;
+}
+async function ivsShelfMoveFinished(){
+  var list = ivsRows.filter(ivsFinished);
+  if (!list.length) return;
+  if (!(await ivsAsk({ title: 'Move ' + list.length + ' finished candidate' + (list.length === 1 ? '' : 's') + ' to the CV database?',
+    body: 'Everyone sent to HR or rejected leaves this list. Their CVs, scores and emails go with them, and each can be brought back. To keep someone for a future hire, open them and choose Archive instead.',
+    ok: 'Move ' + list.length })) ) return;
+  var ok = 0, bad = 0;
+  for (var i = 0; i < list.length; i++){
+    var r = await sb.rpc('interview_patch', { p_code: ivsCode, p_id: list[i].id, p_patch: { shelf: 'database' }, p_by: ivsMe || '' });
+    if (r.error) bad++; else ok++;
+  }
+  await ivsLoad(true);
+  ivsRender();
+  kToast(ok + ' moved to the CV database.' + (bad ? ' ' + bad + ' not moved — try again.' : ''), !!bad);
+}
+
+// ── the CV database screen ──
+async function ivsShelfOpen(focusId){
+  if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
+  ivsScreen = 'shelf'; ivsShelfEdit = null;
+  var v = document.getElementById('interviews-view');
+  if (v) v.innerHTML = '<div style="padding:40px;text-align:center;opacity:.6">Opening the CV database…</div>';
+  var r = await sb.rpc('interview_shelf_list', { p_code: ivsCode });
+  if (ivsScreen !== 'shelf') return;
+  if (r.error){ ivsShelfRows = []; kToast('Could not read the CV database — ' + (r.error.message || 'no connection'), true); }
+  else ivsShelfRows = r.data || [];
+  if (focusId){
+    var f = ivsShelfRows.filter(function(x){ return x.id === focusId; })[0];
+    if (f){ ivsShelfTab = f.shelf; ivsShelfQ = f.name || ''; }
+  }
+  ivsRender();
+  window.scrollTo(0, 0);
+}
+async function ivsShelfBack(){
+  ivsShelfEdit = null;
+  if (ivsRound){
+    ivsScreen = 'main';
+    await ivsLoad(true);
+    ivsRender(); ivsStartPoll();
+  } else { ivsScreen = 'rounds'; ivsRender(); }
+}
+function ivsShelfTabPick(k){ ivsShelfTab = k; ivsShelfEdit = null; ivsRender(); }
+function ivsShelfSearch(el){
+  ivsShelfQ = el.value;
+  var l = document.getElementById('ivs-shl'); if (l) l.innerHTML = ivsShelfListHtml();
+}
+function ivsShelfHits(){
+  var words = ivsNorm(ivsShelfQ).split(' ').filter(Boolean);
+  return (ivsShelfRows || []).filter(function(r){
+    if (ivsShelfTab !== 'all' && r.shelf !== ivsShelfTab) return false;
+    if (!words.length) return true;
+    var hay = ' ' + ivsNorm([r.name, r.email, r.round_title, r.round_position, r.position_applied, r.shelf_note, r.notes, r.visa_status]
+      .concat((r.cvs || []).map(function(c){ return c.filename; })).join(' '));
+    return words.every(function(w){ return hay.indexOf(w) >= 0; });
+  });
+}
+function ivsShelfHtml(){
+  var all = ivsShelfRows || [];
+  var n = { archive: 0, database: 0 }; all.forEach(function(r){ n[r.shelf] = (n[r.shelf] || 0) + 1; });
+  var tab = function(k, label, c){ return '<button type="button" class="ivb2'+(ivsShelfTab === k ? ' on' : '')+'" aria-pressed="'+(ivsShelfTab === k)+'" onclick="ivsShelfTabPick(\''+k+'\')">'+label+' · '+c+'</button>'; };
+  return '<div class="ivrounds"><div class="ivhd"><div><small>Roberto\'s Dubai · Kitchen · every round</small><h2>CV database</h2>'+
+    '<div class="ivwho"><button onclick="ivsShelfBack()">‹ Back to '+(ivsRound ? ivsEsc(ivsRound.title) : 'the rounds')+'</button></div></div>'+
+    '<div><button class="ivlock" onclick="ivsLock()">Lock</button></div></div>'+
+    '<div class="ivshtabs" role="group" aria-label="Which shelf">'+tab('archive', 'Archive — future hires', n.archive)+tab('database', 'Finished', n.database)+tab('all', 'All', all.length)+'</div>'+
+    '<input id="ivs-shq" class="ivshq" type="search" placeholder="Search name, email, position, round or note" aria-label="Search the CV database" autocomplete="off" value="'+ivsEsc(ivsShelfQ)+'" oninput="ivsShelfSearch(this)">'+
+    '<div id="ivs-shl">'+ivsShelfListHtml()+'</div></div>';
+}
+function ivsShelfListHtml(){
+  var hits = ivsShelfHits();
+  if (!hits.length) return '<div class="ivshempty">'+(ivsShelfQ.trim() ? 'Nobody here matches “'+ivsEsc(ivsShelfQ.trim())+'”.'
+    : ivsShelfTab === 'archive' ? 'No one kept for a future hire yet. Open a candidate in a round and choose “Keep in the archive — future hire”.'
+    : 'No CVs here yet. Open a candidate in a round and choose “Move to the CV database”, or move every finished one from the round\'s list.')+'</div>';
+  return hits.map(ivsShelfCardHtml).join('');
+}
+function ivsShelfCardHtml(r){
+  var c = ivsCalcWith(r, ivsSetByKey(r.question_set));
+  var ed = ivsShelfEdit && ivsShelfEdit.id === r.id ? ivsShelfEdit : null;
+  var act = r.last_action ? (IVS_ACTIONS[r.last_action] || { done: r.last_action }).done + ' ' + ivsShelfWhen(r.last_action_at) : 'No email sent';
+  var h = '<div class="ivshc"><div class="t"><b>'+ivsEsc(ivsCandLabel(r))+'</b><span class="ivpill'+(c.done ? ' '+c.verdict.c : '')+'">'+(c.done ? c.final+'/100 · '+c.verdict.t : c.scored ? 'Part-scored' : 'Not scored')+'</span>'+
+    (ivsShelfTab === 'all' ? '<span class="ivpill">'+ivsEsc(r.shelf === 'archive' ? 'Archive' : 'Finished')+'</span>' : '')+'</div>'+
+    '<div class="m">'+[r.position_applied || r.round_position, r.round_title, act].filter(Boolean).map(ivsEsc).join(' · ')+'</div>'+
+    '<div class="m">'+[r.email, r.visa_status && 'Visa: '+r.visa_status, r.salary_expectation && 'Salary: '+r.salary_expectation, r.notice_period && 'Notice: '+r.notice_period].filter(Boolean).map(ivsEsc).join(' · ')+'</div>';
+  if (ed) h += '<textarea id="ivs-shnote" class="ivshnote" maxlength="1000" placeholder="Why are we keeping them for a future hire?" oninput="ivsShelfEdit.note=this.value">'+ivsEsc(ed.note)+'</textarea>'+
+    '<div class="btns"><button type="button" class="ivb2" onclick="ivsShelfEdit=null;ivsRender()">Cancel</button><button type="button" class="ivb" onclick="ivsShelfSave()">'+(r.shelf === 'archive' ? 'Save the note' : 'Keep in the archive')+'</button></div>';
+  else if (r.shelf === 'archive') h += '<div class="ivshkept"><b>Why we kept them:</b> '+ivsEsc(r.shelf_note)+'</div>';
+  h += '<div class="m">'+(r.shelf === 'archive' ? 'Archived' : 'Moved here')+' '+ivsEsc(ivsShelfWhen(r.shelved_at))+(r.shelved_by ? ' by '+ivsEsc(r.shelved_by) : '')+'</div>';
+  if (!ed){
+    h += '<div class="btns">'+(r.cvs || []).map(function(cv){ return '<button type="button" class="ivb" onclick="ivsCvView(\''+cv.id+'\')" title="'+ivsEsc(cv.filename)+'">Open CV'+((r.cvs || []).length > 1 ? ' · '+ivsEsc(cv.filename) : '')+'</button>'; }).join('')+
+      (!(r.cvs || []).length ? '<span class="m">No CV on file.</span>' : '')+
+      (r.shelf === 'archive' ? '<button type="button" class="ivb2" onclick="ivsShelfNote(\''+r.id+'\',\'archive\')">Edit the note</button>'+
+                               '<button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'database\')">Move to Finished</button>'
+                             : '<button type="button" class="ivb2" onclick="ivsShelfNote(\''+r.id+'\',\'archive\')">Keep in the archive…</button>')+
+      '<button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'\')">Back to the round</button></div>';
+  }
+  return h + '</div>';
 }
 
 // ── Emails tab ──
@@ -2636,8 +2836,8 @@ function ivsLib(src, globalName){
 }
 
 function ivsBoardHtml(){
-  if (!ivsRows.length) return '<div class="ivcard"><div class="ivempty">No candidates yet.</div></div>';
-  var rows = ivsRows.map(function(r){ return { r:r, c:ivsCalc(r) }; });
+  if (!ivsRows.length && !ivsShelved.length) return '<div class="ivcard"><div class="ivempty">No candidates yet.</div></div>';
+  var rows = ivsRows.concat(ivsShelved).map(function(r){ return { r:r, c:ivsCalc(r) }; });
   rows.sort(function(a,b){
     if (a.c.done !== b.c.done) return a.c.done ? -1 : 1;
     if (a.c.done) return b.c.final - a.c.final;
@@ -2649,7 +2849,7 @@ function ivsBoardHtml(){
   var rank = 0;
   rows.forEach(function(x){
     if (x.c.done) rank++;
-    h += '<tr onclick="ivsPick(\''+x.r.id+'\')">'+
+    h += '<tr onclick="'+(x.r.shelf ? 'ivsShelfOpen(\''+x.r.id+'\')' : 'ivsPick(\''+x.r.id+'\')')+'">'+
       '<td class="n">'+(x.c.done ? rank : '—')+'</td>'+
       '<td><b>'+ivsEsc(ivsCandLabel(x.r))+'</b></td>'+
       '<td class="hm">'+ivsEsc(x.r.wave || '—')+'</td>'+
@@ -2658,7 +2858,7 @@ function ivsBoardHtml(){
       '<td class="n">'+(x.c.done ? '<span class="ivbar"><i style="width:'+x.c.final+'%"></i></span><b>'+x.c.final+'</b>' : '—')+'</td>'+
       '<td>'+(x.c.done ? '<span class="ivpill '+x.c.verdict.c+'">'+x.c.verdict.t+'</span>'
                        : '<span class="ivpill">'+(x.c.scored === IVS_LINES ? 'All N/A' : x.c.scored ? (IVS_LINES-x.c.scored)+' to score' : 'Not scored')+'</span>')+'</td>'+
-      '<td class="hm ivdc">'+ivsEsc(ivsStageWord(ivsStage(x.r)))+(ivsActLine(x.r.id) ? '<br><span style="font-size:12px;color:#5a4a3a">'+ivsEsc(ivsActLine(x.r.id))+'</span>' : '')+'</td>'+
+      '<td class="hm ivdc">'+ivsEsc(x.r.shelf ? IVS_SHELVES[x.r.shelf] : ivsStageWord(ivsStage(x.r)))+(ivsActLine(x.r.id) ? '<br><span style="font-size:12px;color:#5a4a3a">'+ivsEsc(ivsActLine(x.r.id))+'</span>' : '')+'</td>'+
     '</tr>';
   });
   return h + '</tbody></table>';
@@ -2679,7 +2879,7 @@ function ivsRender(fromPoll){
   }
   // while a chef is typing, a poll only refreshes the parts that are not under their thumb
   var ae = document.activeElement;
-  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-wave' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || ae.id === 'ivs-ren' || /^ivs-d-/.test(ae.id || ''));
+  var typing = ae && (ae.id === 'ivs-name' || ae.id === 'ivs-wave' || ae.id === 'ivs-notes' || ae.id === 'ivs-search' || ae.id === 'ivs-ren' || ae.id === 'ivs-shnote' || /^ivs-d-/.test(ae.id || ''));
   if (fromPoll && typing){
     ivsRenderList();
     var r = ivsRow(ivsSel), sumEl = document.getElementById('ivs-sum');
@@ -2708,6 +2908,7 @@ function ivsRender(fromPoll){
   }
   var y = window.scrollY, keep = ivsScrollGrab();
   if (ivsScreen === 'name'){ v.innerHTML = '<div class="ivwrap">'+ivsNameHtml()+'</div>'; var ni = document.getElementById('ivs-me-new'); if (ni && !(ivsSettings && (ivsSettings.interviewers||[]).length)) ni.focus(); return; }
+  if (ivsScreen === 'shelf'){ v.innerHTML = '<div class="ivwrap">'+ivsShelfHtml()+'</div>'; return; }
   if (ivsScreen === 'rounds' || !ivsRound){ v.innerHTML = '<div class="ivwrap">'+ivsRoundsHtml()+'</div>'; return; }
   var open = ivsTab === 'score' && !!ivsRow(ivsSel);
   var body = ivsTab === 'board' ? ivsBoardHtml() : ivsTab === 'emails' ? ivsEmailsHtml() : ivsTab === 'setup' ? ivsSetupHtml()
@@ -2719,7 +2920,7 @@ function ivsRender(fromPoll){
   v.style.setProperty('--ivhd', ((hd && hd.offsetHeight) || 0) + 'px');
   v.innerHTML = '<div class="ivwrap'+(open ? ' ivopen' : '')+'">'+
     '<div class="ivhd"><div><small>Roberto\'s Dubai · Kitchen · '+ivsEsc(ivsRound.position || 'Hiring')+(ivsRound.closed_on ? ' · closed' : '')+'</small><h2>'+ivsEsc(ivsRound.title)+'</h2>'+
-      '<div class="ivwho">Scoring as <b>'+ivsEsc(ivsMe)+'</b><button onclick="ivsMeChange()">change</button> · <button onclick="ivsRoundsOpen()">other rounds</button></div></div>'+
+      '<div class="ivwho">Scoring as <b>'+ivsEsc(ivsMe)+'</b><button onclick="ivsMeChange()">change</button> · <button onclick="ivsRoundsOpen()">other rounds</button> · <button onclick="ivsShelfOpen()">CV database</button></div></div>'+
       '<div id="ivs-stats">'+ivsStatsHtml()+'</div></div>'+
     '<div class="ivtabs">'+tab('score','Score')+tab('board','Leaderboard')+tab('emails','Emails')+tab('setup','Set-up')+
       '<button type="button" class="ivlock" onclick="ivsLock()" aria-label="Lock the board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Lock</span></button>'+
