@@ -82,6 +82,14 @@
 // leaderboard; nothing is deleted, and "Back to the round" undoes it. The CV database
 // screen lists every shelved candidate from EVERY round, with their CVs.
 //
+// No show (22 Sep 2026, Chef Andrea via Tell us): "a voice NO show which will give us
+// a red flag in the future if apply again". A candidate who did not turn up is marked
+// on their sheet (who and when is kept; Undo clears it). The mark lives on the
+// candidate row in the database, so it outlives the round: whenever someone with the
+// same email, or the same full name, is on any board later, their row carries a red
+// flag and their sheet says where and when they did not show. Same email is a match;
+// same name is said as "same name" so the chef checks it is the same person.
+//
 // Reuses app.js globals: sb, hideAllPages(), kToast(), activeStation, lazyLoad(),
 // SUPABASE_URL, SUPABASE_KEY.
 // ══════════════════════════════════════════════════════════════════════════
@@ -174,7 +182,8 @@ var ivsShelfQ = '';        // its search
 var ivsShelfTab = 'archive';   // archive | database | all
 var ivsShelfEdit = null;   // { id, to, note } while a note is being written (sheet or database screen)
 var IVS_SHELVES = { database: 'CV database', archive: 'Archive — future hire' };
-var IVS_STAGES = [['new','New'],['scoring','Being scored'],['decide','To decide'],['shortlist','Shortlisted'],['hr','Sent to HR'],['reject','Rejected']];
+var IVS_STAGES = [['new','New'],['scoring','Being scored'],['decide','To decide'],['shortlist','Shortlisted'],['hr','Sent to HR'],['reject','Rejected'],['noshow','No show']];
+var ivsNoShows = [];       // every candidate marked no-show, in ANY round — the red flag on a re-application
 
 var ivsCode  = null;
 var ivsRows  = [];
@@ -263,6 +272,7 @@ function ivsSetByKey(k){ return ivsSets.filter(function(x){ return x.key === k; 
 function ivsStage(r){
   var sent = ivsActsFor(r.id).filter(function(a){ return a.status === 'sent'; });
   if (sent.length){ var last = sent[sent.length - 1].action; return last === 'hr' ? 'hr' : last === 'reject' ? 'reject' : 'shortlist'; }
+  if (r.no_show_at) return 'noshow';
   var c = ivsCalc(r);
   return c.done ? 'decide' : c.scored ? 'scoring' : 'new';
 }
@@ -353,9 +363,9 @@ function ivsInjectCss(){
     '.ivaddm[hidden]{display:none}',
     '.ivaddm button{background:none;border:0;text-align:left;padding:0 12px;min-height:46px;border-radius:5px;font-family:"DM Sans",sans-serif;font-size:15px;color:var(--ik);cursor:pointer}',
     '.ivaddm button:hover{background:var(--isl)}',
-    '.ivdot.s-new{background:#b5a591}.ivdot.s-scoring{background:#c99a1e}.ivdot.s-decide{background:#a3261c}.ivdot.s-shortlist{background:#3e6b24}.ivdot.s-hr{background:var(--iv)}.ivdot.s-reject{background:#7a6a5a}',
+    '.ivdot.s-new{background:#b5a591}.ivdot.s-scoring{background:#c99a1e}.ivdot.s-decide{background:#a3261c}.ivdot.s-shortlist{background:#3e6b24}.ivdot.s-hr{background:var(--iv)}.ivdot.s-reject{background:#7a6a5a}.ivdot.s-noshow{background:#1f1a17}',
     '.ivspill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:20px;padding:5px 11px;white-space:nowrap;background:#efe7dc;color:#4a3a2a}',
-    '.ivspill.s-scoring{background:#f6e7b8;color:#4f3b00}.ivspill.s-decide{background:#f5dcd5;color:#6a1410}.ivspill.s-shortlist{background:#dce8cf;color:#2f4a1e}.ivspill.s-hr{background:var(--iv);color:#fff}.ivspill.s-reject{background:#e4dcd2;color:#3a2e24}',
+    '.ivspill.s-scoring{background:#f6e7b8;color:#4f3b00}.ivspill.s-decide{background:#f5dcd5;color:#6a1410}.ivspill.s-shortlist{background:#dce8cf;color:#2f4a1e}.ivspill.s-hr{background:var(--iv);color:#fff}.ivspill.s-reject{background:#e4dcd2;color:#3a2e24}.ivspill.s-noshow{background:#2a2320;color:#fff}',
     '.ivselbar{display:flex;align-items:center;gap:10px;margin:0 0 8px}',
     '.ivback{order:3;margin-left:auto;background:none;border:0;padding:0;min-height:40px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:14px;font-weight:600;text-decoration:underline;cursor:pointer}',
     '.ivback .m{display:none}.ivselsc{display:none}',
@@ -562,6 +572,12 @@ function ivsInjectCss(){
     '.ivby{display:inline-block;font-size:11px;color:#5a4a3a;margin-left:6px;font-weight:400}',
     '.ivhist{background:#f3e9c4;color:#4a3900;border-radius:5px;padding:9px 11px;font-size:13.5px;margin-top:10px;line-height:1.45}',
     '.ivhist b{font-weight:700}',
+    '.ivflag{background:#fbe3e1;color:#6a0f0c;border:1px solid #c9362b;border-left:6px solid #b3261e;border-radius:5px;padding:10px 12px;font-size:14px;margin-top:10px;line-height:1.45}',
+    '.ivflag b{font-weight:700}.ivflag small{display:block;font-size:12.5px;color:#6a0f0c;margin-top:3px}',
+    '.ivrf{display:inline-block;background:#b3261e;color:#fff;font-size:11px;font-weight:700;letter-spacing:.04em;border-radius:4px;padding:2px 7px;margin-right:6px;vertical-align:1px;white-space:nowrap}',
+    '.ivns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--is);font-size:14px}',
+    '.ivns.on{background:#2a2320;color:#fff;border-radius:6px;padding:10px 12px;border-top:0}',
+    '.ivns .ivb2{min-height:44px}',
     '.ivrounds{max-width:720px;margin:0 auto}',
     '.ivshbox{background:#fff;border:1px solid var(--isd);border-radius:6px;padding:10px 12px;margin:10px 0 2px}',
     '.ivshbox .hd b{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl)}',
@@ -721,11 +737,13 @@ async function ivsLoad(quiet){
   var both = await Promise.all([
     sb.rpc('interview_list',    { p_code: ivsCode, p_event: IVS_EVENT }),
     sb.rpc('interview_cv_list', { p_code: ivsCode, p_event: IVS_EVENT }),
-    sb.rpc('interview_actions_list', { p_code: ivsCode, p_event: IVS_EVENT })
+    sb.rpc('interview_actions_list', { p_code: ivsCode, p_event: IVS_EVENT }),
+    sb.rpc('interview_noshows', { p_code: ivsCode })
   ]);
   var r = both[0];
   if (!both[1].error) ivsCvs = both[1].data || [];
   if (!both[2].error) ivsActs = both[2].data || [];
+  if (!both[3].error) ivsNoShows = both[3].data || [];
   if (r.error){
     if (/passcode/i.test(r.error.message || '')){
       ivsCode = null; try { localStorage.removeItem(IVS_CODE_STORE); } catch(e){}
@@ -1089,7 +1107,7 @@ function ivsListHtml(){
   if (!hits.length) h += '<div class="ivempty">'+(ivsQ.trim() ? 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”.' : 'No candidates here.')+'</div>';
   var groups = {}; hits.forEach(function(r){ var k = ivsStage(r); (groups[k] = groups[k] || []).push(r); });
   // what needs a decision first, then what is half-done, then the rest
-  ['decide','scoring','new','shortlist','hr','reject'].map(function(k){ return [k, ivsStageWord(k)]; }).forEach(function(st){
+  ['decide','scoring','new','shortlist','hr','reject','noshow'].map(function(k){ return [k, ivsStageWord(k)]; }).forEach(function(st){
     var rows = groups[st[0]]; if (!rows || !rows.length) return;
     // the ones to decide best first; the ones being scored nearest to done first
     if (st[0] === 'decide') rows = rows.slice().sort(function(a, b){ return ivsCalc(b).final - ivsCalc(a).final; });
@@ -1101,7 +1119,7 @@ function ivsListHtml(){
         .filter(function(x, i, arr){ return x && arr.indexOf(x) === i; }).join(' · ');   // a search hit in the folder name is not said twice
       h += '<button type="button" class="ivcand'+(r.id===ivsSel?' on':'')+'" onclick="ivsPick(\''+r.id+'\')">'+
         '<span class="ivdot s-'+st[0]+'"></span>'+
-        '<span class="nmw"><b>'+ivsEsc(ivsCandLabel(r))+'</b><small>'+ivsEsc(where)+'</small></span>'+
+        '<span class="nmw"><b>'+(ivsFlagFor(r).length ? '<span class="ivrf" title="Did not show up before">⚑ No-show before</span>' : '')+ivsEsc(ivsCandLabel(r))+'</b><small>'+ivsEsc(where)+'</small></span>'+
         '<i>'+(c.done ? c.final : (c.scored ? c.scored+'/'+IVS_LINES : ''))+'</i></button>';
     });
   });
@@ -1177,7 +1195,7 @@ function ivsEditorHtml(){
     '<input id="ivs-wave" class="ivsel" style="flex:1 1 200px;min-width:0" list="ivs-dl-folder" maxlength="80" autocomplete="off" placeholder="Folder — e.g. Monday 21st interview" aria-label="Folder" value="'+ivsEsc(r.wave||'')+'" oninput="ivsWave(this)" onchange="ivsWaveFlush(this)">'+
     ivsFolderListHtml()+
     '<button class="ivdel" onclick="ivsDelete()">Delete</button>'+
-  '</div>' + ivsDetailsHtml(r) + '<div id="ivs-hist">'+ivsHistHtml(r)+'</div>' + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r) + ivsShelfBoxHtml(r);
+  '</div>' + '<div id="ivs-flag">'+ivsFlagHtml(r)+'</div>' + ivsDetailsHtml(r) + '<div id="ivs-hist">'+ivsHistHtml(r)+'</div>' + ivsSumHtml(r) + ivsCvsHtml(r) + ivsActsHtml(r) + ivsShelfBoxHtml(r);
   IVS_SECTIONS.forEach(function(s){
     h += '<div class="ivsec">'+ivsEsc(s.title)+'</div>';
     s.items.forEach(function(it){
@@ -1828,6 +1846,8 @@ function ivsBulkPlan(row){
     var ex = ivsCandByName(name);
     row.state = 'ready';
     row.note = ex ? 'CV goes to ' + ivsCandLabel(ex) + ' (already on the board)' : 'New candidate';
+    var ns = ivsFlagFor({ id: ex ? ex.id : '', name: name, email: ex ? ex.email : '' })[0];
+    if (ns) row.note += ' — ⚑ did not show up before (' + (ns.round_title || 'another round') + ')';
     row.cls = ex ? 'add' : 'new';
   } else { row.state = 'skip'; row.note = 'Left out'; }
 }
@@ -2098,7 +2118,50 @@ function ivsActsHtml(r){
       h += '<div class="ivactl bad"><b>'+ivsEsc(A.btn)+' — NOT sent</b> '+ivsEsc(ivsWhen(a.created_at))+' <span>'+ivsEsc(a.error || '')+'</span></div>';
     }
   });
+  h += r.no_show_at
+    ? '<div class="ivns on"><span><b>No show</b> — marked '+ivsEsc(ivsWhen(r.no_show_at))+(r.no_show_by ? ' by '+ivsEsc(r.no_show_by) : '')+'. Flagged if they apply again.</span>'+
+      '<button type="button" class="ivb2" onclick="ivsNoShow(false)">Undo — they came</button></div>'
+    : '<div class="ivns"><span>Did not turn up?</span><button type="button" class="ivb2" onclick="ivsNoShow(true)">Mark as no-show</button></div>';
   return h + '</div>';
+}
+
+// ── No show: the mark, and the red flag when the same person is on a board again ──
+async function ivsNoShow(on){
+  var row = ivsRow(ivsSel); if (!row) return;
+  var id = row.id, keep = { at: row.no_show_at, by: row.no_show_by };
+  row.no_show_at = on ? new Date().toISOString() : null; row.no_show_by = on ? (ivsMe || '') : null;
+  ivsNoShows = ivsNoShows.filter(function(n){ return n.candidate_id !== id; });
+  if (on) ivsNoShows.unshift({ candidate_id:id, event:IVS_EVENT, round_title:(ivsRound && ivsRound.title) || '', name:row.name || '', email:(row.email || '').trim().toLowerCase(), no_show_at:row.no_show_at, no_show_by:row.no_show_by });
+  ivsRender(true);
+  ivsPending[id] = (ivsPending[id] || 0) + 1;
+  var q = await sb.rpc('interview_patch', { p_code: ivsCode, p_id: id, p_patch: { no_show: !!on }, p_by: ivsMe || '' });
+  ivsPending[id]--; if (!ivsPending[id]) delete ivsPending[id];
+  if (q.error){
+    var back = ivsRow(id); if (back){ back.no_show_at = keep.at; back.no_show_by = keep.by; }
+    kToast('Not saved — ' + (q.error.message || 'no connection') + '. Tap it again.', true);
+    await ivsLoad(true); ivsRender(true); return;
+  }
+  await ivsLoad(true); ivsRender(true);
+  kToast(on ? ivsCandLabel(row) + ' marked as no-show — flagged if they apply again.' : 'No-show mark taken off.');
+}
+// other candidates, in any round, marked no-show who look like this one: same email, or same full name
+function ivsFlagFor(r){
+  if (!r || !ivsNoShows.length) return [];
+  var em = (r.email || '').trim().toLowerCase(), nm = ivsNorm(r.name);
+  var nameOk = nm.split(' ').length >= 2;          // one word ("Ali") is not enough to call it the same person
+  return ivsNoShows.filter(function(n){
+    if (n.candidate_id === r.id) return false;
+    return (ivsMailValid(em) && n.email === em) || (nameOk && ivsNorm(n.name) === nm);
+  }).map(function(n){
+    return Object.assign({ how: ivsMailValid(em) && n.email === em ? 'email' : 'name' }, n);
+  });
+}
+function ivsFlagHtml(r){
+  var f = ivsFlagFor(r); if (!f.length) return '';
+  return '<div class="ivflag" role="alert"><b>⚑ Did not show up before</b> — '+f.map(function(n){
+    return ivsEsc(n.round_title || 'another round')+', '+ivsEsc(ivsWhen(n.no_show_at).split(',')[0])+(n.no_show_by ? ' (marked by '+ivsEsc(n.no_show_by)+')' : '')+
+      ' · '+(n.how === 'email' ? 'same email' : 'same name — check it is the same person');
+  }).join('; ')+'.</div>';
 }
 function ivsActsRefresh(){
   var r = ivsRow(ivsSel), el = document.getElementById('ivs-acts');
@@ -2508,6 +2571,7 @@ function ivsHistHtml(r){
     var bits = [ivsEsc(x.round_title)];
     bits.push(c.done ? c.final + '/100 · ' + c.verdict.t : c.scored ? 'part-scored' : 'not scored');
     if (x.last_action) bits.push((IVS_ACTIONS[x.last_action] || { done: x.last_action }).done + ' ' + ivsWhen(x.last_action_at).split(',')[0]);
+    if (ivsNoShows.some(function(n){ return n.candidate_id === x.candidate_id; })) bits.push('NO SHOW');
     return bits.join(' · ');
   }).join('; ')+'.</div>';
 }
@@ -2892,6 +2956,8 @@ function ivsRender(fromPoll){
     if (r && cvEl) cvEl.outerHTML = ivsCvsHtml(r);
     var acEl = document.getElementById('ivs-acts');
     if (r && acEl) acEl.outerHTML = ivsActsHtml(r);
+    var flEl = document.getElementById('ivs-flag');
+    if (r && flEl) flEl.innerHTML = ivsFlagHtml(r);
     // another chef's detail edits land in the fields this chef is not typing in
     if (r) IVS_DETAILS.forEach(function(d){
       var inp = document.getElementById('ivs-d-'+d[0]);
