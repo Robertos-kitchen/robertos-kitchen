@@ -2544,7 +2544,7 @@ async function kevCompSend(eid){
   try{
     var res = await fetch(SUPABASE_URL + '/functions/v1/send-stock-take', {
       method:'POST',
-      headers:{ 'Content-Type':'application/json', apikey:SUPABASE_KEY, Authorization:'Bearer ' + SUPABASE_KEY },
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + SUPABASE_KEY },
       body: JSON.stringify({ to:to, cc:cc,
         subject:'Complimentary tasting — '+e.name+' · '+d.full+' — please deduct from inventory',
         html:html })
