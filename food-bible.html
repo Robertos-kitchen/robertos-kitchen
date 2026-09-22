@@ -1237,7 +1237,7 @@ function render(){
                      waiter opening the wrong page, so a repeated name says where it is. */
                   var twice = hits.filter(function(j){ return DISHES[j].name === DISHES[i].name; }).length > 1;
                   return '<option value="'+i+'"'+(i===idx?' selected':'')+'>'+esc(DISHES[i].name) +
-                    (twice && DISHES[i].section ? ' · ' + esc(DISHES[i].section) : '') + '</option>'; }).join('')
+                    (twice && DISHES[i].cat ? ' · ' + esc(DISHES[i].cat) : '') + '</option>'; }).join('')
               : '<option>nothing matches</option>') +
           '</select>' +
           (bq ? '<button class="btn ghost" id="bclr">Clear</button>' : '') +
