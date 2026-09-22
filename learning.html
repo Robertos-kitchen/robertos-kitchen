@@ -329,8 +329,15 @@ function drawChef(){
   }
   var r = role(), tabs = [];
   if (r === 'checker' || r === 'francesco') tabs.push(['check', 'To check (' + countStatus('draft') + ')']);
+  // A checker's work used to vanish the moment he finished it: once every question was
+  // checked, 'To check' read (0) and 'Live' read (0), because what he had checked was
+  // sitting with Chef Francesco on a tab only Chef Francesco could see. Chef Andrea, 22 Sep
+  // 2026, after checking all 273: "All question has been answered". Same tab, same list,
+  // named for who is holding it now.
   if (r === 'francesco') tabs.push(['approve', 'To approve (' + countStatus('checked') + ')']);
+  else if (r === 'checker') tabs.push(['approve', 'With Chef Francesco (' + countStatus('checked') + ')']);
   tabs.push(['live', 'Live (' + countStatus('approved') + ')']);
+  if (r === 'checker' || r === 'francesco') tabs.push(['out', 'Thrown out (' + countStatus('rejected') + ')']);
   tabs.push(['write', 'Write']);
   if (r === 'checker' || r === 'francesco') tabs.push(['recipes', 'Recipe book']);
   if (r === 'francesco' || (S.me && S.me.viewer)) tabs.push(['scores', 'Scores']);
@@ -340,21 +347,41 @@ function drawChef(){
     '<div class="tabs" role="tablist">' + tabs.map(function(t){
       return '<button class="tab' + (S.ctab === t[0] ? ' on' : '') + '" role="tab" aria-selected="' + (S.ctab === t[0]) + '" data-ctab="' + t[0] + '">' + esc(t[1]) + '</button>'; }).join('') + '</div>' +
     (S.cmsg ? '<div class="msg ' + (/^✓/.test(S.cmsg) ? 'ok' : 'bad') + '" role="status">' + esc(S.cmsg) + '</div>' : '') +
-    ({ check:drawQueue, approve:drawQueue, live:drawQueue, write:drawWrite, recipes:drawRecipes, scores:drawScores })[S.ctab]();
+    ({ check:drawQueue, approve:drawQueue, live:drawQueue, out:drawQueue, write:drawWrite, recipes:drawRecipes, scores:drawScores })[S.ctab]();
 }
 function countStatus(st){
   return S.cq.pages.filter(function(p){ return p.status === st; }).length + S.cq.questions.filter(function(q){ return q.status === st; }).length;
 }
 function drawQueue(){
-  var want = { check:'draft', approve:'checked', live:'approved' }[S.ctab];
+  var want = { check:'draft', approve:'checked', live:'approved', out:'rejected' }[S.ctab];
   var items = S.cq.pages.map(function(p){ return { k:'p', x:p }; }).concat(S.cq.questions.map(function(q){ return { k:'q', x:q }; }))
     .filter(function(it){ return it.x.status === want && (!S.ctopic || it.x.topic_id === S.ctopic); });
   var head = '<div class="filters"><label class="lbl" for="ctopic">Topic</label><select id="ctopic"><option value="">All topics</option>' +
     S.cq.topics.map(function(t){ return '<option value="' + esc(t.id) + '"' + (S.ctopic === t.id ? ' selected' : '') + '>' + esc(t.title) + '</option>'; }).join('') +
     '</select><span class="me">' + items.length + ' here</span></div>';
-  if (!items.length) return head + '<div class="empty">Nothing here' + (S.ctopic ? ' for this topic' : '') + '.</div>';
+  if (!items.length) return head + '<div class="empty">' + esc(nothingHere(want)) + '</div>';
   return head + items.slice(0, S.cshow).map(drawItem).join('') +
     (items.length > S.cshow ? '<button class="btn ghost" id="more">Show more (' + (items.length - S.cshow) + ' left)</button>' : '');
+}
+// An empty list must say where the work went, not just that it is empty. This is the
+// sentence Chef Andrea needed on 22 Sep 2026 and did not get.
+function nothingHere(want){
+  if (S.ctopic) return 'Nothing here for this topic.';
+  var r = role(), waiting = countStatus('checked'), live = countStatus('approved');
+  if (want === 'draft') {
+    if (waiting) return 'Nothing left to check. All ' + waiting + ' are with Chef Francesco to approve \u2014 they are on the next tab.';
+    if (live) return 'Nothing left to check. All ' + live + ' are live for the team.';
+    return 'Nothing to check yet.';
+  }
+  if (want === 'checked') {
+    if (r === 'francesco') return 'Nothing waiting for you to approve.';
+    return 'Nothing is with Chef Francesco right now.' + (live ? ' ' + live + ' are live for the team.' : '');
+  }
+  if (want === 'approved') {
+    return 'Nothing is live for the team yet.' + (waiting ? ' The ' + waiting + ' that are checked are waiting for Chef Francesco to approve them.' : '');
+  }
+  if (want === 'rejected') return 'Nothing has been thrown out.';
+  return 'Nothing here.';
 }
 function drawItem(it){
   var x = it.x, r = role(), id = x.id, editing = S.edit === id;
