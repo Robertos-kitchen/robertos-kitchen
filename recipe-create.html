@@ -825,6 +825,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .macard{background:#fff;border:1px solid rgba(64,2,7,.16);border-radius:4px;padding:13px 15px;margin-bottom:9px}
 .macard.run{border-color:var(--oro);border-left-width:4px}
 .macard.away{background:rgba(232,217,199,.35);opacity:.75}
+.macard.sec{margin-left:28px;border-left:3px solid var(--sabbia-dark)}
 .matop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .mahd{font-family:var(--serif);font-size:20px;line-height:1.15;color:var(--vino)}
 .mabadge{font-family:var(--sans);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
@@ -1366,6 +1367,13 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .mrun{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;background:var(--oro);color:#2a1a10;
   border-radius:2px;padding:2px 6px}
 .moff{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;opacity:.55}
+/* a menu with sections: its own row, the sections beside it — inside the menu, not peers of it */
+.mfam{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.msecs{font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--vino);margin:0 2px 0 8px}
+.msecs::before{content:'└ ';letter-spacing:0}
+.mchip.sec{border-style:dashed;font-size:13px}
+.mchip.sec.on{border-style:solid}
 .mnew{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
 .mnew input{flex:1 1 220px;min-width:0;border:1px solid var(--sabbia-dark);border-radius:5px;
   padding:11px 13px;font-size:16px;font-family:var(--sans);background:#fff;outline:none}
@@ -4128,6 +4136,39 @@ function kidsSay(list){
 function sectionKids(parentId){
   return SAVEDMENUS.filter(function(k){
     return k.parent_id === parentId && !k.archived && monthIndex(k.name) < 0; });
+}
+/* ── a section on the recipe sheet ──
+   Chef Andrea, 22 Sep 2026, from the menu picker in the bar of a dish: "secondi di carne e
+   secondi di pesce which is been recognized as a menu instead of a sections inside a menu".
+   The book knew what they were; the sheet's picker and its chips still listed every child as
+   one more menu to tick, peers of A la carte 2026. So on the sheet a section is drawn INSIDE
+   its menu and ticked by the book's rules: in a section means on its menu too, in one section
+   of a menu at a time, and off the menu means out of its sections. */
+function isSectionKid(m){ return !!m && !!m.parent_id && monthIndex(m.name) < 0; }
+function menuById(id){ return MENUS.filter(function(x){ return x.id === id; })[0]; }
+/* tick or untick one entry on the sheet; says whether it is now on */
+function toggleSheetMenu(id){
+  var on = S.menus = S.menus || [], m = menuById(id);
+  var sib = function(pid, keep){ return function(x){ var k = menuById(x);
+    return !(isSectionKid(k) && k.parent_id === pid && k.id !== keep); }; };
+  if (on.indexOf(id) > -1){
+    S.menus = on.filter(function(x){ return x !== id; });
+    if (m && !m.parent_id) S.menus = S.menus.filter(sib(id, null));
+    return false;
+  }
+  on.push(id);
+  if (isSectionKid(m)){
+    if (on.indexOf(m.parent_id) < 0) on.push(m.parent_id);
+    S.menus = on.filter(sib(m.parent_id, id));
+  }
+  return true;
+}
+/* what the bar says after a tick — a section is never "On Secondi di carne" as if it were a menu */
+function sheetMenuSaid(id, nowOn){
+  var m = menuById(id);
+  if (!isSectionKid(m)) return (nowOn ? 'On ' : 'Taken off ') + menuName(id) + ' ✓';
+  var p = menuById(m.parent_id), pn = p ? p.name : 'its menu';
+  return nowOn ? 'In ' + m.name + ' on ' + pn + ' ✓' : 'Out of ' + m.name + ' — still on ' + pn + ' ✓';
 }
 function rmAdd(recipeId, menuId){
   return sb('recipe_menus', { method:'POST', prefer:'return=minimal',
@@ -10856,13 +10897,14 @@ function menusInner(){
     var n = MENUADM.counts[m.id] || 0;
     var asking = MENUADM.ask === m.id;
     var ren    = MENUADM.rename === m.id;
-    return '<div class="macard' + (m.archived ? ' away' : '') + (m.running ? ' run' : '') + '">' +
+    return '<div class="macard' + (m.archived ? ' away' : '') + (m.running ? ' run' : '') + (isSectionKid(m) ? ' sec' : '') + '">' +
       '<div class="matop">' +
         (ren
           ? '<input class="maren" id="maren" value="' + esc(m.name) + '">' +
             '<button class="okb" data-marensave="' + m.id + '">Save the name</button>' +
             '<button class="newr" style="margin:0" data-marencx="1">Cancel</button>'
           : '<span class="mahd">' + esc(menuLabel(m, MENUADM.all)) + '</span>' +
+            (isSectionKid(m) ? '<span class="mabadge">section</span>' : '') +
             (m.running ? '<span class="mabadge run">running now</span>' : '') +
             (!m.archived && !m.active ? '<span class="mabadge off">off</span>' : '') +
             (m.archived ? '<span class="mabadge away">put away</span>' : '')) +
@@ -10919,9 +10961,15 @@ function menusInner(){
 function barMenuLabel(){
   var on = (S.menus || []).filter(function(id){
     return MENUS.some(function(m){ return m.id === id; }); });
+  /* a section is where the dish sits on its menu, not one more menu to count */
+  var menus = on.filter(function(id){ return !isSectionKid(menuById(id)); });
   if (!on.length) return 'Which menu?';
-  if (on.length === 1) return menuName(on[0]);
-  return on.length + ' menus';
+  if (menus.length === 1){
+    var sec = on.filter(function(id){ var k = menuById(id); return isSectionKid(k) && k.parent_id === menus[0]; })[0];
+    return menuName(menus[0]) + (sec ? ' · ' + menuById(sec).name : '');
+  }
+  if (!menus.length) return menuName(on[0]);
+  return menus.length + ' menus';
 }
 function drawBarMenu(){
   var bm = $('bmn'); if (!bm) return;
@@ -10932,13 +10980,23 @@ function drawBarMenu(){
   /* Only the menus in use, plus any this dish is already on. A menu for one night is
      turned off when the night is over, and an off menu has no business in a picker a
      chef uses every day — that is what keeps this list five long instead of a hundred. */
-  var live = menuTree(MENUS).filter(function(m){ return MENUSALL || m.active || on.indexOf(m.id) > -1; });
+  var shows = function(m){ return MENUSALL || m.active || on.indexOf(m.id) > -1; };
+  /* a section shows under its menu or not at all */
+  var live = menuTree(MENUS).filter(function(m){
+    if (!shows(m)) return false;
+    var p = isSectionKid(m) && menuById(m.parent_id);
+    return !p || shows(p);
+  });
   var hidden = MENUS.length - live.length;
   bm.innerHTML =
     '<option value="">' + esc(barMenuLabel()) + '</option>' +
     live.map(function(m){
       var yes = on.indexOf(m.id) > -1;
-      return '<option value="' + m.id + '">' + (yes ? '✓ ' : '＋ ') + esc(menuLabel(m, MENUS)) +
+      var nested = isSectionKid(m) && live.indexOf(menuById(m.parent_id)) > -1;
+      return '<option value="' + m.id + '">' +
+             (nested ? '     └ section: ' : '') +
+             (yes ? '✓ ' : '＋ ') + esc(nested ? m.name : menuLabel(m, MENUS)) +
+             (isSectionKid(m) && !nested ? ' (a section)' : '') +
              (m.running ? ' — running now' : (m.active ? '' : ' — off')) + '</option>';
     }).join('') +
     (hidden ? '<option value="__all">… and ' + hidden + ' turned off — show ' +
@@ -11046,12 +11104,23 @@ function menuInner(){
     howto('menus', 'A dish can be on more than one — Burrata is on the à la carte and on Christmas. ' +
       'This is what the recipe card and the Food Bible filter by, so a waiter training on one menu ' +
       'sees only its dishes. <b>A dish on no menu shows on no card at all.</b>', 'What menus do') +
-    '<div class="mchips">' + menuTree(MENUS).map(function(m){
-      var yes = on.indexOf(m.id) > -1;
-      return '<button class="mchip'+(yes?' on':'')+'" data-menu="'+m.id+'">' +
-        (yes ? '✓ ' : '') + esc(menuLabel(m, MENUS)) +
-        (m.running ? '<span class="mrun">running now</span>' : (m.active ? '' : '<span class="moff">off</span>')) +
-      '</button>'; }).join('') + '</div>' +
+    '<div class="mchips">' + (function(){
+      var chip = function(m, nested){
+        var yes = on.indexOf(m.id) > -1;
+        return '<button class="mchip'+(yes?' on':'')+(isSectionKid(m)?' sec':'')+'" data-menu="'+m.id+'">' +
+          (yes ? '✓ ' : '') + esc(nested ? m.name : menuLabel(m, MENUS)) +
+          (isSectionKid(m) && !nested ? '<span class="moff">section</span>' : '') +
+          (m.running ? '<span class="mrun">running now</span>' : (m.active ? '' : '<span class="moff">off</span>')) +
+        '</button>'; };
+      /* a menu with sections gets a row of its own, its sections beside it after "sections" */
+      return menuTree(MENUS).map(function(m){
+        if (isSectionKid(m) && menuById(m.parent_id)) return '';
+        var secs = MENUS.filter(function(k){ return k.parent_id === m.id && isSectionKid(k); });
+        if (!secs.length) return chip(m, false);
+        return '<div class="mfam">' + chip(m, false) + '<span class="msecs">sections</span>' +
+          secs.map(function(k){ return chip(k, true); }).join('') + '</div>';
+      }).join('');
+    })() + '</div>' +
     (!on.length
       ? '<div class="msub bad">This dish is on no menu, so nobody will find it on the pass card or in the Food Bible. Tap one above.</div>'
       : '') +
@@ -13524,8 +13593,7 @@ document.addEventListener('click', function(e){
      it goes with everything else rather than being a separate thing to remember */
   var mch = e.target.closest('[data-menu]');
   if (mch){
-    var mid = mch.dataset.menu, at = (S.menus||[]).indexOf(mid);
-    if (at > -1) S.menus.splice(at,1); else (S.menus = S.menus || []).push(mid);
+    toggleSheetMenu(mch.dataset.menu);
     drawSaveBar(); drawBarMenu();
     var box = $('mnubox'); if (box) box.innerHTML = menuInner();
     return;
@@ -13900,11 +13968,10 @@ $('bmn').addEventListener('change', function(){
   if (v === '__new'){ openNewMenu(); return; }
   if (v === '__all'){ MENUSALL = true; drawBarMenu(); return; }
   if (v === '__manage'){ openMenus(); return; }
-  var at = (S.menus || []).indexOf(v);
-  if (at > -1) S.menus.splice(at, 1); else (S.menus = S.menus || []).push(v);
+  var nowOn = toggleSheetMenu(v);
   drawBarMenu(); drawSaveBar();
   var box = $('mnubox'); if (box) box.innerHTML = menuInner();
-  persistMenus(at > -1 ? 'Taken off ' + menuName(v) + ' ✓' : 'On ' + menuName(v) + ' ✓');
+  persistMenus(sheetMenuSaid(v, nowOn));
 });
 $('bmnok').addEventListener('click', makeMenuFromBar);
 $('bmncx').addEventListener('click', closeNewMenu);
