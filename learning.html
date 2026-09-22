@@ -117,7 +117,7 @@ textarea{width:100%;min-height:80px;line-height:1.5}
      best score kept. Food Safety expires after 12 months.
    · The test is marked in the database (learn_finish), never on the phone: the right
      answers are not sent until the test is handed in.
-   · Nothing reaches the team until Chef Danilo or Chef Antonio has checked it AND Chef
+   · Nothing reaches the team until Chef Danilo, Chef Antonio or Chef Andrea has checked it AND Chef
      Francesco has approved it (Chef's corner). Recipe questions come from what is actually
      written in the Recipe book; a recipe that changes sends its question back for checking.
    Schema: learning-schema.sql.
@@ -157,7 +157,7 @@ function say(err){
   if (/wrong_code/.test(m)) return 'That code is not right.';
   if (/not_allowed/.test(m)) return 'Your employee ID cannot do this here.';
   if (/not_draft/.test(m)) return 'Someone has already checked this one. Reload to see it.';
-  if (/not_checked/.test(m)) return 'This one has not been checked by Chef Danilo or Chef Antonio yet.';
+  if (/not_checked/.test(m)) return 'This one has not been checked by Chef Danilo, Chef Antonio or Chef Andrea yet.';
   if (/already_finished/.test(m)) return 'This test was already handed in.';
   if (/read-only/i.test(m)) return 'This is the DEV site, which cannot save anything. Use the live Kitchen app.';
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
@@ -213,7 +213,7 @@ function drawHome(){
       '<button class="btn" data-busy id="go" type="submit">Start</button>' +
       (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
       '<details><summary>What is this?</summary><p>Short pages to read and a 5-question test for each topic. ' +
-      'Everything here has been checked by Chef Danilo or Chef Antonio and approved by Chef Francesco. ' +
+      'Everything here has been checked by Chef Danilo, Chef Antonio or Chef Andrea and approved by Chef Francesco. ' +
       'Your employee ID is how the app knows your level and keeps your score.</p></details></form>' +
       '<button class="link" id="chef">Chef’s corner — check and approve questions</button>';
   }
@@ -299,7 +299,7 @@ function drawResult(){
     '<div class="acts"><button class="btn" data-busy id="again">Take it again</button><button class="btn ghost" id="home">Back to topics</button></div>';
 }
 
-/* ── Chef's corner: check (Danilo, Antonio), approve (Francesco), write, recipes, scores ── */
+/* ── Chef's corner: check (Danilo, Antonio, Andrea), approve (Francesco), write, recipes, scores ── */
 function chefSignIn(){
   var emp = ($('cemp') && $('cemp').value.trim()) || '', code = ($('ccode') && $('ccode').value.trim()) || '';
   S.tryCemp = emp;
@@ -324,7 +324,7 @@ function drawChef(){
       '<label for="ccode">Or Chef Francesco’s code</label><input id="ccode" type="password" inputmode="numeric" autocomplete="off">' +
       '<button class="btn" data-busy id="csign" type="submit">Open</button>' +
       (S.cmsg ? '<div class="msg bad" role="alert">' + esc(S.cmsg) + '</div>' : '') +
-      '<details><summary>Who can do what</summary><p>Chef Danilo and Chef Antonio check every page and question first. ' +
+      '<details><summary>Who can do what</summary><p>Chef Danilo, Chef Antonio and Chef Andrea check every page and question first. ' +
       'Chef Francesco approves second. Only then does the team see it. Any senior chef can write a page or a question; it goes through the same two checks.</p></details></form>';
   }
   var r = role(), tabs = [];
@@ -402,7 +402,7 @@ function step(kind, id, action, fields, note){
   return post('learn_step', { p_emp:S.chef.emp, p_code:S.chef.code, p_kind:kind, p_id:id, p_action:action, p_fields:fields || {}, p_note:note || null })
     .then(function(){
       S.cmsg = '✓ ' + ({ ok:'Checked — it goes to Chef Francesco next.', approve:'Approved — the team can see it now.', reject:'Thrown out.',
-                         edit:'Saved. It goes back to Chef Danilo or Chef Antonio to check.' })[action];
+                         edit:'Saved. It goes back to Chef Danilo, Chef Antonio or Chef Andrea to check.' })[action];
       S.edit = null; S.rejecting = null; return reloadQueue();
     }).catch(function(e){ S.cmsg = say(e); }).then(function(){ setBusy(false); draw(); });
 }
@@ -446,7 +446,7 @@ function drawWrite(){
     '<span class="lbl">Page — about 250 words, one phone screen</span><textarea id="n-b" style="min-height:240px"></textarea>' +
     '<span class="lbl">Photo (optional)</span><input type="file" id="n-p" accept="image/*"></div>' +
     '<button class="btn" data-busy id="wsave">Save</button>' +
-    '<div class="me">It goes to Chef Danilo or Chef Antonio to check' + (r === 'francesco' ? '' : ', then to Chef Francesco') + ' before the team sees it.</div></div>';
+    '<div class="me">It goes to Chef Danilo, Chef Antonio or Chef Andrea to check' + (r === 'francesco' ? '' : ', then to Chef Francesco') + ' before the team sees it.</div></div>';
 }
 function saveWrite(){
   var kind = $('wk').value, topic = $('wt').value, p;

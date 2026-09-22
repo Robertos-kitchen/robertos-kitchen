@@ -9,7 +9,7 @@
 --   · Anyone in `staff` with an employee ID signs in with it (Andrea: "a login to start the test").
 --   · Level comes from staff.designation: sous/executive/development/head = senior,
 --     CDP/DCDP = cdp, everything else = commis. Senior-only topics are hidden below senior.
---   · Checkers = learn_checkers (Chef Danilo, Chef Antonio). They check every page and question
+--   · Checkers = learn_checkers (Chef Danilo, Chef Antonio; Chef Andrea added 22 Sep 2026 on Francesco's word). They check every page and question
 --     FIRST; Francesco approves SECOND with his code (tasting_secret — the same code as Tasting).
 --     Nothing reaches the team before both.
 --   · Scores are visible only to people ticked in learn_viewers, or with Francesco's code.
@@ -85,7 +85,7 @@ alter table learn_checkers  enable row level security;
 alter table learn_viewers   enable row level security;
 
 insert into learn_checkers(staff_id)
-  select id from staff where active and name in ('Danilo Valla','Antonio Stellacci')
+  select id from staff where active and name in ('Danilo Valla','Antonio Stellacci','Andrea Falcone')
   on conflict do nothing;
 
 -- ── who is signing in ──────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ begin
 end $$;
 
 -- ── the chefs' side ────────────────────────────────────────────────────────
--- role: 'francesco' with the code; 'checker' for Danilo/Antonio; 'writer' for any senior.
+-- role: 'francesco' with the code; 'checker' for Danilo/Antonio/Andrea; 'writer' for any senior.
 create or replace function learn_role(p_emp text, p_code text) returns jsonb
 language plpgsql stable security definer set search_path to 'public' as $$
 declare s staff;
@@ -225,7 +225,7 @@ end $$;
 -- One step on one page or question.
 --   checker:   ok (draft -> checked), reject; a fix + ok in one call counts as the check.
 --   francesco: approve (checked -> approved), back (-> draft with a note), reject. He does NOT check:
---              a fix he makes goes back to draft for Danilo / Antonio.
+--              a fix he makes goes back to draft for the checkers.
 -- p_fields edits the text first (q, answer, wrong, why, level, title, body, photo) — an edit to an
 -- approved item sends it back through both checks, so nothing changes on the team's screen unseen.
 create or replace function learn_step(p_emp text, p_code text, p_kind text, p_id uuid, p_action text, p_fields jsonb, p_note text)
@@ -258,7 +258,7 @@ begin
   end if;
 
   if p_action = 'ok' then
-    -- Francesco's rule, 22 Sep 2026: Chef Danilo / Chef Antonio check FIRST, he approves SECOND.
+    -- Francesco's rule, 22 Sep 2026: the checkers (Danilo, Antonio, Andrea) check FIRST, he approves SECOND.
     if v_role <> 'checker' then raise exception 'not_allowed' using errcode = 'P0001'; end if;
     if cur <> 'draft' then raise exception 'not_draft' using errcode = 'P0001'; end if;
     if p_kind = 'q' then update learn_questions set status='checked', checked_by=who, checked_at=now(), note=nullif(trim(coalesce(p_note,'')),''), updated_at=now() where id=p_id;
