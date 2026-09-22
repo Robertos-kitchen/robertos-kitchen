@@ -2684,7 +2684,7 @@ async function ivsShelfDiscard(id){
   if (!(await ivsAsk({ title: 'Discard ' + nm + '?',
     body: (r.shelf === 'archive' ? 'They will NOT be kept in the archive. ' : '') +
       'Their CV' + (n > 1 ? 's' : '') + ', scores and notes' + (r.shelf === 'archive' ? ', and the note on why we kept them,' : '') +
-      ' are deleted for good. Nobody can bring them back, and they will not be there if they apply again. ' +
+      ' are deleted for good. Nobody can bring them back, and we will have no record of them if they apply again. ' +
       'The emails already sent stay in the round\'s Emails log.',
     ok: 'Discard for good', danger: true }))) return;
   var q = await sb.rpc('interview_delete', { p_code: ivsCode, p_id: id });
