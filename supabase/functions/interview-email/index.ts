@@ -65,7 +65,7 @@ const CRITERIA: [string, string][] = [
 const RATING_WORD: Record<string, string> = { E: "Excellent", G: "Good", A: "Average", P: "Poor", na: "Not applicable" };
 const DECISION_WORD: Record<string, string> = { hired: "Hired", hold: "On Hold" };
 
-type Evaluation = { interviewers: string; decision: string; department: string; ratings: Record<string, string>; overall: string; comments: string };
+type Evaluation = { interviewers: string; decision: string; department: string; salary: string; ratings: Record<string, string>; overall: string; comments: string };
 
 function readEvaluation(raw: any): { ev: Evaluation; problems: string[] } {
   const r = raw && typeof raw === "object" ? raw : {};
@@ -74,7 +74,7 @@ function readEvaluation(raw: any): { ev: Evaluation; problems: string[] } {
   for (const [k] of CRITERIA) ratings[k] = String(src[k] ?? "");
   const ev: Evaluation = {
     interviewers: clean(r.interviewers), decision: String(r.decision ?? ""), department: clean(r.department),
-    ratings, overall: String(r.overall ?? ""),
+    salary: clean(r.salary), ratings, overall: String(r.overall ?? ""),
     comments: String(r.comments ?? "").replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim(),
   };
   const problems: string[] = [];
@@ -84,6 +84,9 @@ function readEvaluation(raw: any): { ev: Evaluation; problems: string[] } {
   const missing = CRITERIA.filter(([k]) => k === "r11" ? !/^(E|G|A|P|na)$/.test(ratings[k]) : !/^(E|G|A|P)$/.test(ratings[k]));
   if (missing.length) problems.push("Evaluation form: " + missing.length + (missing.length === 1 ? " rating is" : " ratings are") + " not filled — " + missing.map(([, t]) => t.split(" (")[0]).join("; ") + ".");
   if (!/^(E|G|A|P)$/.test(ev.overall)) problems.push("Evaluation form: the overall rating is not filled.");
+  // the recommended salary: free text, read by HR exactly as typed (never turned into a number)
+  if (ev.decision === "hired" && !/\d/.test(ev.salary)) problems.push("Evaluation form: type the recommended salary.");
+  if (ev.salary.length > 120) problems.push("Evaluation form: the recommended salary is too long.");
   if (ev.comments.length > 600) problems.push("Evaluation form: the comments are over 600 characters — shorten them.");
   return { ev, problems };
 }
@@ -96,7 +99,7 @@ async function fillForm(ev: Evaluation, name: string, position: string): Promise
   const doc = zip.file("word/document.xml");
   if (!doc) throw new Error("form template is broken");
   const text: Record<string, string> = {
-    NAME: name, INTERVIEWERS: ev.interviewers, POSITION: position, DEPARTMENT: ev.department,
+    NAME: name, INTERVIEWERS: ev.interviewers, POSITION: position, DEPARTMENT: ev.department, SALARY: ev.salary || "—",
     COMMENTS: ev.comments, SIGNATURE: ev.interviewers, DATE: dubaiDate(),
   };
   const tick: Record<string, string> = { D: ev.decision === "hired" ? "HIRED" : ev.decision === "hold" ? "HOLD" : "", RO: ev.overall };
@@ -175,7 +178,7 @@ function htmlOf(text: string): string {
 
 type Mail = { from: string; to: string[]; cc: string[]; reply_to: string[]; subject: string; text: string };
 
-function buildMail(action: string, name: string, email: string, position: string, L: Lists): Mail {
+function buildMail(action: string, name: string, email: string, position: string, L: Lists, salary = ""): Mail {
   if (action === "reject") {
     return {
       from: FROM_NOREPLY, to: [email], cc: [], reply_to: [],
@@ -197,7 +200,7 @@ function buildMail(action: string, name: string, email: string, position: string
     from: FROM_TEAM, to: L.hr_to.slice(), cc: L.hr_cc.filter((a) => !L.hr_to.includes(a)), reply_to: L.hr_reply_to.slice(),
     subject: `Hiring Request – ${name} – ${position}`,
     text: `Dear HR Team,\n\nPlease find attached the CV and hiring form for the candidate below:\n\n` +
-      `Name: ${name}\nEmail: ${email}\nPosition: ${position}\nDate: ${dubaiDate()}\n\nKind regards,\n${TEAM}`,
+      `Name: ${name}\nEmail: ${email}\nPosition: ${position}\n${salary ? `Recommended salary: ${salary}\n` : ""}Date: ${dubaiDate()}\n\nKind regards,\n${TEAM}`,
   };
 }
 
@@ -293,7 +296,7 @@ Deno.serve(async (req) => {
   const repeats = previous.filter((p) => p.action === action);
 
   const lists = listsFrom(st.data);
-  const mail = buildMail(action, name, email, position, lists);
+  const mail = buildMail(action, name, email, position, lists, evaluation?.salary || "");
   const real = { to: mail.to.slice(), cc: mail.cc.slice(), reply_to: mail.reply_to.slice() };
   if (isTest) {
     mail.to = TEST_TO.slice(); mail.cc = []; mail.reply_to = mail.reply_to.length ? TEST_TO.slice() : [];
@@ -315,6 +318,7 @@ Deno.serve(async (req) => {
     form_file: formB64 ? { filename: formName, b64: formB64 } : null,
     form_answers: evaluation && formB64 ? [
       ["Interviewer(s)", evaluation.interviewers], ["Decision", DECISION_WORD[evaluation.decision]], ["Department", evaluation.department],
+      ["Recommended salary", evaluation.salary || "—"],
       ...CRITERIA.map(([k, t]) => [t.split(" (")[0], RATING_WORD[evaluation!.ratings[k]]]),
       ["Overall rating", RATING_WORD[evaluation.overall]], ["Comments", evaluation.comments || "—"],
     ] : null,

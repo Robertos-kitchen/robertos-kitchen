@@ -2249,7 +2249,7 @@ function ivsMailCv(el, id){
 // two answers the button itself implies — a hiring request is "Hired", in the Kitchen
 function ivsEvStart(r){
   var e = (r && r.evaluation) || {}, rt = e.ratings || {}, out = { interviewers: e.interviewers || ivsMe || '', decision: e.decision || 'hired',
-    department: e.department || 'Kitchen', overall: e.overall || '', comments: e.comments || '', ratings: {} };
+    department: e.department || 'Kitchen', salary: e.salary || '', overall: e.overall || '', comments: e.comments || '', ratings: {} };
   IVS_EV_ROWS.forEach(function(row){ out.ratings[row[0]] = rt[row[0]] || (row[0] === 'r11' ? 'na' : ''); });
   return out;
 }
@@ -2281,17 +2281,24 @@ function ivsEvType(el){
   var f = el.getAttribute('data-e'); m.ev[f] = el.value; el.classList.remove('bad');
   if (f === 'comments'){ var c = document.getElementById('ivs-evcount'); if (c) c.textContent = el.value.length + ' / 600'; }
   clearTimeout(ivsEvT);
-  ivsEvT = setTimeout(function(){ ivsEvT = null; if (ivsMail === m) ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, comments: m.ev.comments }); }, 700);
+  ivsEvT = setTimeout(function(){ ivsEvT = null; if (ivsMail === m) ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, salary: m.ev.salary, comments: m.ev.comments }); }, 700);
 }
 function ivsEvFlush(){
   var m = ivsMail; if (!m || !ivsEvT) return;
   clearTimeout(ivsEvT); ivsEvT = null;
-  ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, comments: m.ev.comments });
+  ivsEvSave({ interviewers: m.ev.interviewers, department: m.ev.department, salary: m.ev.salary, comments: m.ev.comments });
 }
 function ivsEvButtons(group, cur, opts, handler){
   return '<div class="ivevb" data-ev="'+group+'" role="group">'+opts.map(function(o){
     return '<button type="button" data-v="'+o[0]+'" class="'+(cur===o[0]?'on':'')+'" aria-pressed="'+(cur===o[0])+'" onclick="'+handler+'(\''+group+'\',\''+o[0]+'\')">'+ivsEsc(o[1])+'</button>';
   }).join('')+'</div>';
+}
+// Recommended salary (22 Sep 2026): what the chef proposes to HR, typed as HR should read it; the
+// candidate's own expectation (Details) sits under it for comparison. Required for Hired.
+function ivsEvSalaryHtml(m, bad){
+  var r = ivsRow(m.candId), exp = r && r.salary_expectation ? String(r.salary_expectation).trim() : '';
+  return '<label class="ivdf"><span>Recommended salary</span><input id="ivs-e-salary" data-e="salary" maxlength="120" autocomplete="off" placeholder="e.g. AED 4,500 / month + accommodation" class="'+(bad.salary?'bad':'')+'" value="'+ivsEsc(m.ev.salary)+'" oninput="ivsEvType(this)" onchange="ivsEvFlush()">'+
+    '<em>'+(exp ? 'Candidate expects: '+ivsEsc(exp) : 'No salary expectation on the candidate\u2019s details.')+'</em></label>';
 }
 function ivsEvFormHtml(m, bad){
   var ev = m.ev;
@@ -2299,6 +2306,7 @@ function ivsEvFormHtml(m, bad){
     '<p class="lead" style="margin:4px 0 0">This is the hiring form HR receives, as a Word file, with your answers in it. HR is not emailed until it is complete.</p>'+
     '<label class="ivdf"><span>Name of interviewer(s)</span><input id="ivs-e-interviewers" data-e="interviewers" maxlength="160" autocomplete="off" placeholder="e.g. Andrea Falcone, Danilo Valla" class="'+(bad.interviewers?'bad':'')+'" value="'+ivsEsc(ev.interviewers)+'" oninput="ivsEvType(this)" onchange="ivsEvFlush()"></label>'+
     '<label class="ivdf"><span>Department</span><input id="ivs-e-department" data-e="department" maxlength="80" autocomplete="off" class="'+(bad.department?'bad':'')+'" value="'+ivsEsc(ev.department)+'" oninput="ivsEvType(this)" onchange="ivsEvFlush()"></label>'+
+    ivsEvSalaryHtml(m, bad)+
     '<div class="ivev"><div class="q"><b>Decision</b><span>Ticked at the top of the form.</span></div>'+ivsEvButtons('decision', ev.decision, [['hired','Hired'],['hold','On Hold']], 'ivsEvPick')+'</div>';
   IVS_EV_ROWS.forEach(function(row){
     var opts = row[0] === 'r11' ? IVS_EV_RATES.concat([['na','Not applicable']]) : IVS_EV_RATES;
@@ -2324,6 +2332,7 @@ function ivsMailLocalProblems(m){
     if (!m.cvIds.length) p.push(['cv', ivsCvsFor(m.candId).length ? 'Tick the CV to send.' : 'No CV is attached. Close this window and upload the candidate’s CV first.']);
     if (m.ev.interviewers.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['interviewers', 'Evaluation form: type the name of the interviewer(s).']);
     if (m.ev.department.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['department', 'Evaluation form: the department is missing.']);
+    if (m.ev.decision === 'hired' && !/\d/.test(m.ev.salary || '')) p.push(['salary', 'Evaluation form: type the recommended salary.']);
     if (ivsEvLeft(m.ev)) p.push(['ratings', 'Evaluation form: ' + ivsEvProgress(m.ev) + ' They are marked in red — HR is not emailed with a blank rating.']);
   }
   return p;

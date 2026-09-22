@@ -40,6 +40,29 @@ def put(tc, token, center=False, tick=False, para=None):
     t=etree.SubElement(r,q('t')); t.text='{{%s}}'%token
     t.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
 
+# "Recommended Salary:" is not on HR's blank form (added 22 Sep 2026): a copy of the Position row,
+# its value cell spanning the rest of the row
+W14='http://schemas.microsoft.com/office/word/2010/wordml'
+def add_salary_row(pos_tr):
+    tr=copy.deepcopy(pos_tr)
+    for el in tr.iter():
+        for a in list(el.attrib):
+            if a.startswith('{%s}'%W14): del el.attrib[a]
+    cs=cells(tr)
+    ts=cs[0].findall('.//'+q('t')); ts[0].text='Recommended Salary:'
+    for t in ts[1:]: t.text=''
+    span=sum(int(c.find(q('tcPr')).find(q('gridSpan')).get(q('val'))) for c in cs[1:])
+    width=sum(int(c.find(q('tcPr')).find(q('tcW')).get(q('w'))) for c in cs[1:])
+    v=cs[1]
+    v.find(q('tcPr')).find(q('gridSpan')).set(q('val'),str(span))
+    v.find(q('tcPr')).find(q('tcW')).set(q('w'),str(width))
+    for c in cs[2:]: tr.remove(c)
+    ps=v.findall(q('p'))
+    for extra in ps[1:]: v.remove(extra)
+    t=ps[0].findall('.//'+q('t')); assert len(t)==1 and t[0].text=='{{POSITION}}'
+    t[0].text='{{SALARY}}'
+    pos_tr.addnext(tr)
+
 rows=main.findall(q('tr'))
 done=[]
 for tr in rows:
@@ -56,6 +79,7 @@ for tr in rows:
         for tc in (cs[1],cs[3]):
             jc=tc.findall(q('p'))[0].find(q('pPr')).find(q('jc'))
             if jc is not None: jc.set(q('val'),'left'); done+= ['POSITION','DEPARTMENT']
+        add_salary_row(tr); done.append('SALARY')
     elif re.match(r'^(\d+)\.\s',first) or first.startswith('OVERALL RATING'):
         m=re.match(r'^(\d+)\.',first); key='R'+m.group(1) if m else 'RO'
         assert len(cs)==5,(key,len(cs))
