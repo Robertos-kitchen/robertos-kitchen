@@ -602,6 +602,7 @@ function ivsInjectCss(){
     '.ivshc .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ivshc .btns button{flex:0 1 auto;padding:0 14px}',
     '.ivshtabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 8px}',
     '.ivshq{width:100%;box-sizing:border-box;font-family:"DM Sans",sans-serif;font-size:16px;min-height:46px;border:1px solid var(--isd);border-radius:4px;background:#fff;padding:0 12px;color:var(--ik)}',
+    '.ivshc .btns .ivdiscard{margin-left:auto;color:#7a1218;border-color:#c9a9a4}',
     '.ivshempty{background:#faf4ea;border-radius:8px;padding:20px 14px;margin-top:10px;color:#5a4a3a;font-size:14px}',
     '.ivround{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid var(--isd);border-radius:6px;padding:12px 14px;margin-top:8px;min-height:60px;cursor:pointer;font-family:"DM Sans",sans-serif;color:var(--ik)}',
     '.ivround:hover{border-color:var(--iv)}.ivround.closed{background:var(--isl)}',
@@ -2673,6 +2674,28 @@ async function ivsShelfMoveFinished(){
   kToast(ok + ' moved to the CV database.' + (bad ? ' ' + bad + ' not moved — try again.' : ''), !!bad);
 }
 
+// Discard (22 Sep 2026, Francesco: archived CVs stay until someone discards them by hand,
+// and the panel must say clearly the CV will not be kept). The same delete as the sheet's
+// Delete: the candidate row and their CVs go; the emails already sent stay in the round's
+// Emails log under their name; a no-show mark lives on the row, so it goes too.
+async function ivsShelfDiscard(id){
+  var r = (ivsShelfRows || []).filter(function(x){ return x.id === id; })[0]; if (!r) return;
+  var nm = ivsCandLabel(r), n = (r.cvs || []).length;
+  if (!(await ivsAsk({ title: 'Discard ' + nm + '?',
+    body: (r.shelf === 'archive' ? 'They will NOT be kept in the archive. ' : '') +
+      'Their CV' + (n > 1 ? 's' : '') + ', scores and notes' + (r.shelf === 'archive' ? ', and the note on why we kept them,' : '') +
+      ' are deleted for good. Nobody can bring them back, and they will not be there if they apply again. ' +
+      'The emails already sent stay in the round\'s Emails log.',
+    ok: 'Discard for good', danger: true }))) return;
+  var q = await sb.rpc('interview_delete', { p_code: ivsCode, p_id: id });
+  if (q.error){ kToast('Not discarded — ' + (q.error.message || 'no connection') + '. Try again.', true); return; }
+  ivsShelfRows = ivsShelfRows.filter(function(x){ return x.id !== id; });
+  ivsShelved = ivsShelved.filter(function(x){ return x.id !== id; });
+  if (ivsShelfEdit && ivsShelfEdit.id === id) ivsShelfEdit = null;
+  ivsRender();
+  kToast(nm + ' discarded — the CV is not kept.');
+}
+
 // ── the CV database screen ──
 async function ivsShelfOpen(focusId){
   if (ivsTimer){ clearInterval(ivsTimer); ivsTimer = null; }
@@ -2749,7 +2772,8 @@ function ivsShelfCardHtml(r){
       (r.shelf === 'archive' ? '<button type="button" class="ivb2" onclick="ivsShelfNote(\''+r.id+'\',\'archive\')">Edit the note</button>'+
                                '<button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'database\')">Move to Finished</button>'
                              : '<button type="button" class="ivb2" onclick="ivsShelfNote(\''+r.id+'\',\'archive\')">Keep in the archive…</button>')+
-      '<button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'\')">Back to the round</button></div>';
+      '<button type="button" class="ivb2" onclick="ivsShelfTo(\''+r.id+'\',\'\')">Back to the round</button>'+
+      '<button type="button" class="ivb2 ivdiscard" onclick="ivsShelfDiscard(\''+r.id+'\')">Discard</button></div>';
   }
   return h + '</div>';
 }
