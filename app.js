@@ -1994,6 +1994,7 @@ async function loadKevOverrides(ids){
   try{
     var r = await sb.from('kitchen_event_overrides').select('event_id,dish_name,portions,label').in('event_id', ids);
     if(r && r.error) throw r.error;
+    KEV_COMP_DRAFT_C = {};   // drafts just came back from the table — re-read them
     (r.data||[]).forEach(function(o){ KEV_OVR[kevOvrKey(o.event_id, o.dish_name)] = { portions:o.portions, label:o.label }; });
   }catch(err){ console.warn('[kev-ovr] load skipped', err && err.message||err); }  // table missing / offline → no overrides, strip still works
 }
@@ -2215,6 +2216,101 @@ const KEV_COMP_KEY = '__comp_to_aung__';
 const KEV_LINK_EVENT = '__recipe_link__';
 var KEV_COMP = {};   // event id -> panel state
 var KEV_LINKS = null;   // dish name -> { recipe_id, by }
+// ── What the chef types is never thrown away ───────────────────────────────
+// 22 Sep 2026: a send failed four times running. The mail function's CORS
+// preflight did not allow the `apikey` header this panel was sending, so the
+// browser refused to send the POST and the app only ever saw "Failed to fetch".
+// The portions lived in this panel's memory alone, so every attempt meant
+// typing all nine dishes again, a closed tab would have lost them outright,
+// Aung waited on an email that was never coming, and nobody downstream knew.
+// The header bug is fixed. This is the rest of it: what is typed is written
+// down AS it is typed — localStorage first, which is instant and still works
+// with no connection (exactly when a send fails), then the overrides table a
+// moment later so another chef, or the same chef on another device, picks up
+// the same draft. A send that goes through clears it.
+const KEV_COMP_DRAFT = '__comp_draft__';
+var KEV_COMP_DRAFT_T = {};                     // event id -> debounce timer
+// kevCompFailed() runs once per event row on every draw of the week. Reading
+// and parsing localStorage inside a render loop is how a list gets janky on the
+// kitchen's own screens, so the parsed answer is kept until a write changes it.
+var KEV_COMP_DRAFT_C = {};                     // event id -> parsed draft | null
+function kevCompDraftLocalKey(eid){ return 'kev-comp-draft:' + eid; }
+function kevCompWhen(iso){
+  try{ return new Date(iso).toLocaleString('en-GB', { timeZone:'Asia/Dubai', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); }
+  catch(err){ return ''; }
+}
+// Keyed by dish NAME, never by row index: the events desk can reorder or add a
+// dish between the typing and the coming back, and an index would then put the
+// numbers against the wrong food.
+function kevCompHas(o, k){ return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+function kevCompDraftPayload(eid){
+  var e = KEV_CACHE[eid], st = KEV_COMP[eid]; if(!e || !st) return null;
+  var rows = kevCompRows(e), qty = {}, link = {}, any = false;
+  rows.forEach(function(m, idx){
+    var v = String(st.qty && st.qty[idx] != null ? st.qty[idx] : '').trim();
+    if(v !== ''){ qty[m.name] = v; any = true; }
+    if(st.link && st.link[idx]) link[m.name] = st.link[idx];
+  });
+  if(!any && !String(st.note||'').trim() && !st.fail) return null;
+  return { v:1, qty:qty, link:link, note:String(st.note||''), at:new Date().toISOString(), fail:st.fail || null };
+}
+function kevCompDraftClearRemote(eid){
+  delete KEV_OVR[kevOvrKey(eid, KEV_COMP_DRAFT)];
+  delete KEV_COMP_DRAFT_C[eid];
+  try{
+    sb.from('kitchen_event_overrides').delete().eq('event_id', eid).eq('dish_name', KEV_COMP_DRAFT)
+      .then(function(){}, function(err){ console.warn('[kev-comp] draft not cleared', err && err.message || err); });
+  }catch(err){ console.warn('[kev-comp] draft not cleared', err && err.message || err); }
+}
+function kevCompDraftSave(eid, now){
+  var payload = kevCompDraftPayload(eid);
+  var text = payload ? JSON.stringify(payload) : null;
+  // localStorage first and synchronously: it cannot fail for the reason the
+  // send just did, and it is what survives the tab being closed in temper.
+  try{
+    if(text) localStorage.setItem(kevCompDraftLocalKey(eid), text);
+    else localStorage.removeItem(kevCompDraftLocalKey(eid));
+  }catch(err){}                                // private window / no quota: the table copy still runs
+  delete KEV_COMP_DRAFT_C[eid];
+  if(KEV_COMP_DRAFT_T[eid]){ clearTimeout(KEV_COMP_DRAFT_T[eid]); delete KEV_COMP_DRAFT_T[eid]; }
+  var write = function(){
+    delete KEV_COMP_DRAFT_T[eid];
+    if(!text){ kevCompDraftClearRemote(eid); return; }
+    try{
+      sb.from('kitchen_event_overrides').upsert(
+        { event_id:eid, dish_name:KEV_COMP_DRAFT, portions:null, label:text, set_by:'kitchen', updated_at:payload.at },
+        { onConflict:'event_id,dish_name' }
+      ).then(function(r){
+        if(r && r.error){ console.warn('[kev-comp] draft not saved', r.error.message || r.error); return; }
+        KEV_OVR[kevOvrKey(eid, KEV_COMP_DRAFT)] = { portions:null, label:text };
+      }, function(err){ console.warn('[kev-comp] draft not saved', err && err.message || err); });
+    }catch(err){ console.warn('[kev-comp] draft not saved', err && err.message || err); }
+  };
+  // A keystroke must never wait on the network. A failed send writes at once.
+  if(now) write(); else KEV_COMP_DRAFT_T[eid] = setTimeout(write, 900);
+}
+function kevCompDraftClear(eid){
+  if(KEV_COMP_DRAFT_T[eid]){ clearTimeout(KEV_COMP_DRAFT_T[eid]); delete KEV_COMP_DRAFT_T[eid]; }
+  try{ localStorage.removeItem(kevCompDraftLocalKey(eid)); }catch(err){}
+  delete KEV_COMP_DRAFT_C[eid];
+  kevCompDraftClearRemote(eid);
+}
+// The newer of the two copies wins: the table may hold a draft another chef
+// started, localStorage may hold what was typed on this screen since.
+function kevCompDraftRead(eid){
+  if(Object.prototype.hasOwnProperty.call(KEV_COMP_DRAFT_C, eid)) return KEV_COMP_DRAFT_C[eid];
+  var out = null, row = KEV_OVR[kevOvrKey(eid, KEV_COMP_DRAFT)];
+  if(row && row.label){ try{ out = JSON.parse(row.label); }catch(err){ out = null; } }
+  var loc = null;
+  try{ var raw = localStorage.getItem(kevCompDraftLocalKey(eid)); if(raw) loc = JSON.parse(raw); }catch(err){ loc = null; }
+  if(loc && loc.qty && (!out || String(loc.at||'') > String(out.at||''))) out = loc;
+  out = out && out.qty ? out : null;
+  KEV_COMP_DRAFT_C[eid] = out;
+  return out;
+}
+// A send that failed is not the chef's private problem: it shows on the event
+// card, so whoever opens it next sees that Aung is still waiting.
+function kevCompFailed(eid){ var d = kevCompDraftRead(eid); return d && d.fail ? d.fail : null; }
 // ── recipe costs ──
 // NOT a second costing. The cost is worked out by the Recipes screen's own code —
 // batchCost(), basePrice(), the FMC article reader — running in a hidden copy of
@@ -2355,6 +2451,11 @@ function kevCompBlock(e){
   if(!kevCompRows(e).length) return '';
   var h = '<div class="kev-comp-box">';
   if(sent) h += '<div class="kev-comp-sent">&#10003; '+kevEsc(sent)+'</div>';
+  // Aung waiting on an email nobody knows failed is the whole problem. Say so
+  // on the card, where the next person to open the event reads it.
+  var failed = !sent && kevCompFailed(e.id);
+  if(failed) h += '<div class="kev-comp-err"><b>Not sent to Aung.</b> The last attempt failed '+
+    kevEsc(kevCompWhen(failed.at))+'. The portions are saved &mdash; open this and send again.</div>';
   if(!st.open){
     h += '<button class="kev-comp-open" onclick="event.stopPropagation();kevCompOpen(\''+e.id+'\')">'+
       (sent ? 'Send to Aung again' : 'Complimentary &mdash; send to Aung')+'</button>';
@@ -2365,6 +2466,8 @@ function kevCompBlock(e){
   h += '<div class="kev-comp-panel" onclick="event.stopPropagation()">'+
     '<div class="kev-comp-h">Complimentary tasting &mdash; take it off the inventory</div>'+
     '<div class="kev-comp-sub">Portions actually served. Blank or 0 = not served.</div>';
+  if(st.restored) h += '<div class="kev-comp-ok">Brought back what you typed last time &mdash; '+st.restored+
+    ' dish'+(st.restored===1?'':'es')+' still filled in. Check it, then send.</div>';
   if(!st.eng && !st.engErr) h += '<div class="kev-comp-load">Costing the dishes from the recipe book&hellip;</div>';
   if(st.engErr) h += '<div class="kev-comp-err">Couldn&rsquo;t load the recipe costs ('+kevEsc(st.engErr)+'). You can still send &mdash; every dish goes as &ldquo;no costed recipe yet&rdquo;.</div>';
   rows.forEach(function(m, idx){
@@ -2417,7 +2520,10 @@ function kevCompRender(eid){
 // Aung — it existed, but only inside the closed event card, so nobody found it
 // (zero sends in its first three days). The same panel now also has a button on
 // the row itself, next to Print menu: one tap opens the card AND the panel.
-function kevCompQuickLabel(eid){ return kevCompSent(eid) ? 'Sent to Aung &#10003;' : 'Send to Aung'; }
+function kevCompQuickLabel(eid){
+  if(kevCompSent(eid)) return 'Sent to Aung &#10003;';
+  return kevCompFailed(eid) ? 'Send to Aung &mdash; not sent yet' : 'Send to Aung';
+}
 function kevCompQuickBtn(e, sm){
   if(!kevCompRows(e).length) return '';
   return '<button class="kev-cq'+(sm?' sm':'')+'" id="kev-cq-'+e.id+'" title="Complimentary tasting &mdash; send what was served to Aung" '+
@@ -2437,12 +2543,26 @@ async function kevCompOpen(eid){
   // Start from what the kitchen was told to cook (override first); a guests'
   // choice with no count starts blank for the chef to fill.
   kevCompRows(e).forEach(function(m, idx){ qty[idx] = (m.qty!=null && !m.ovr_label) ? String(m.qty) : ''; });
-  var st = KEV_COMP[eid] = { open:true, qty:qty, link:{}, note:'', busy:false, err:null, msg:null, eng:null, engErr:null, pick:null };
+  // Anything typed here before — after a failed send, or a tab closed mid-job —
+  // comes back, so nobody retypes nine dishes to find out the send is blocked.
+  var draft = kevCompDraftRead(eid), restored = 0;
+  if(draft) kevCompRows(e).forEach(function(m, idx){
+    if(kevCompHas(draft.qty, m.name) && draft.qty[m.name] != null){ qty[idx] = String(draft.qty[m.name]); restored++; }
+  });
+  var st = KEV_COMP[eid] = { open:true, qty:qty, link:{}, note:(draft && draft.note) || '', busy:false,
+                             err:null, msg:null, eng:null, engErr:null, pick:null,
+                             fail:(draft && draft.fail) || null, restored:restored };
   kevCompRender(eid);
   try{
     var links = await kevLoadLinks();
     kevCompRows(e).forEach(function(m, idx){ if(links[m.name]) st.link[idx] = links[m.name].recipe_id; });
   }catch(err){ console.warn('[kev-comp] links not read', err && err.message || err); }
+  // A recipe attached by hand before a failed send outranks the remembered one,
+  // and is marked changed so the next successful send writes it down for good.
+  if(draft && draft.link) kevCompRows(e).forEach(function(m, idx){
+    if(!kevCompHas(draft.link, m.name)) return;
+    if(draft.link[m.name] && st.link[idx] !== draft.link[m.name]){ st.link[idx] = draft.link[m.name]; st.linkChanged = true; }
+  });
   try{ st.eng = await kevCostEngine(); }
   catch(err){ st.engErr = (err && err.message) || String(err); }
   if(KEV_COMP[eid] === st) kevCompRender(eid);
@@ -2450,13 +2570,14 @@ async function kevCompOpen(eid){
 function kevCompClose(eid){ KEV_COMP[eid] = { open:false }; kevCompRender(eid); }
 function kevCompQty(eid, idx, v){
   var st = KEV_COMP[eid]; if(!st) return; st.qty[idx] = v;
+  kevCompDraftSave(eid);
   // the total, the warning and the button all follow what is typed, live
   var t = document.getElementById('kev-comp-total-'+eid); if(t) t.innerHTML = kevCompTotalHtml(eid);
   var w = document.getElementById('kev-comp-miss-'+eid); if(w) w.innerHTML = kevCompMissHtml(eid);
   var b = document.getElementById('kev-comp-go-'+eid), tt = kevCompTotals(eid);
   if(b && !st.busy) b.textContent = (tt.missing.length || !tt.served) ? 'Send to Aung anyway' : 'Send to Aung';
 }
-function kevCompNote(eid, v){ var st = KEV_COMP[eid]; if(st) st.note = v; }
+function kevCompNote(eid, v){ var st = KEV_COMP[eid]; if(!st) return; st.note = v; kevCompDraftSave(eid); }
 function kevCompPickOpen(eid, idx){
   var st = KEV_COMP[eid]; if(!st) return; st.pick = idx; kevCompRender(eid);
   var q = document.getElementById('kev-comp-q-'+eid); if(q) q.focus();
@@ -2466,9 +2587,17 @@ function kevCompSearch(eid, idx, q){ var o = document.getElementById('kev-comp-o
 function kevCompPick(eid, idx, rid){
   var st = KEV_COMP[eid]; if(!st) return;
   if(rid) st.link[idx] = rid; else delete st.link[idx];
-  st.pick = null; st.linkChanged = true; kevCompRender(eid);
+  st.pick = null; st.linkChanged = true; kevCompDraftSave(eid); kevCompRender(eid);
 }
-function kevCompFail(eid, msg){ var st = KEV_COMP[eid]; if(!st) return; st.busy = false; st.err = msg; kevCompRender(eid); }
+// `hard` = the send itself failed, as opposed to the panel refusing a half
+// filled form. Only a hard failure is flagged on the event card, and either way
+// what the chef typed is written down before the error is shown.
+function kevCompFail(eid, msg, hard){
+  var st = KEV_COMP[eid]; if(!st) return; st.busy = false; st.err = msg;
+  if(hard) st.fail = { at:new Date().toISOString(), why:String(msg||'').slice(0, 300) };
+  kevCompDraftSave(eid, true);
+  kevCompRender(eid);
+}
 async function kevCompSend(eid){
   var e = KEV_CACHE[eid], st = KEV_COMP[eid]; if(!e || !st || st.busy) return;
   var codeEl = document.getElementById('kev-comp-code-'+eid);
@@ -2551,11 +2680,24 @@ async function kevCompSend(eid){
     });
     var out = await res.json().catch(function(){ return {}; });
     if(!res.ok) throw new Error(out.error || ('the mail server said '+res.status));
-  }catch(err){ return kevCompFail(eid, 'Not sent — '+(err && err.message || err)+'. Try again.'); }
+  }catch(err){
+    var raw = (err && err.message) || String(err);
+    // "Failed to fetch" is the browser's phrase for "this request never left the
+    // machine" — a refused preflight, no connection, a proxy in the way. Shown
+    // raw it reads as "your internet is broken", so the chef retries, and on 22
+    // Sep retrying could never have worked: four attempts, four times nothing.
+    // Say what is actually true, and what to do about it.
+    var blocked = /failed to fetch|networkerror|load failed|network request failed/i.test(raw);
+    return kevCompFail(eid, blocked
+      ? 'Couldn’t reach the mail server — Aung has NOT been emailed. Everything you typed is saved and will still be here. Sending again probably will not help: tell Francesco.'
+      : 'Not sent — '+raw+'. Everything you typed is saved. Try once more, and tell Francesco if it fails again.', true);
+  }
   // 4 — it has gone; write it down (after, never in front of the send)
   var label = 'Sent to Aung by '+who.name+' · '+stamp+' · '+total+' portion'+(total===1?'':'s')+
     (costed ? ' · '+kevMoney(money)+' costed' : '')+(missing.length ? ' · '+missing.length+' not costed' : '');
   var msg = 'Sent to Aung ✓';
+  // It has gone: the draft and any earlier failure stop being true.
+  st.fail = null; kevCompDraftClear(eid);
   try{
     var w = await sb.from('kitchen_event_overrides').upsert(
       { event_id:eid, dish_name:KEV_COMP_KEY, portions:total, label:label, set_by:who.name, updated_at:new Date().toISOString() },
