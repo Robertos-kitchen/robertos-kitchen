@@ -96,13 +96,30 @@ img{display:block;max-width:100%}
   white-space:nowrap}
 .tools .btn.ghost{background:#fff;color:var(--vino);border:1px solid var(--sabbia-dark)}
 .tools .btn.ghost:hover{border-color:var(--vino)}
-/* the next dish is named on its button; a long name must not push Print off the row */
-#next{max-width:260px;overflow:hidden;text-overflow:ellipsis}
 /* where you are in the book - state, so it stays on screen */
 .fbstat{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:12.5px;line-height:1.5;
   color:var(--vino-light)}
 /* the page itself, laid on the panel like a sheet on the pass */
-.fbpage{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:20px}
+.fbpage{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:20px;position:relative}
+/* Walking the menu: one arrow each side of the page (Chef Andrea, Tell us, 22 Sep).
+   The forward button used to carry the NEXT dish's name ("CARCIOFI ->") right above
+   the page of the dish you were on, and it read as the name of this one. An arrow
+   names nothing, so it cannot be mistaken for the dish. Each arrow rides a rail the
+   height of the page, just outside the A4, and sticks to the middle of the screen, so
+   it is beside the page wherever you have scrolled to and never over the controls. */
+.fbrail{position:absolute;top:0;bottom:0;width:56px;pointer-events:none}
+.fbrail.l{left:calc(50% - 105mm - 72px)}
+.fbrail.r{right:calc(50% - 105mm - 72px)}
+.fbarrow{position:sticky;top:calc(50vh - 48px);pointer-events:auto;width:56px;height:96px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:6px;
+  font-family:var(--sans);font-size:30px;line-height:1;box-shadow:0 8px 20px -10px rgba(20,4,4,.8)}
+.fbarrow:hover{background:var(--vino-light)}
+/* the panel is narrower than the A4 plus two arrows: sit on the page's margin instead */
+@media screen and (min-width:901px) and (max-width:1060px){
+  .fbrail.l{left:0}
+  .fbrail.r{right:0}
+}
 /* the page is one A4 by design; when the writing outgrows it, say so rather than
    printing a second sheet nobody asked for and letting the allergens land on it */
 .moved{width:100%;max-width:210mm;background:var(--vino);color:var(--cream);border-radius:3px;
@@ -286,8 +303,17 @@ img{display:block;max-width:100%}
   /* on a phone the search and the picker take a line each, and the walk shares one */
   .walk{margin-left:0;width:100%}
   .walk .btn{flex:1 1 auto}
-  #next{max-width:none;flex:2 1 0;min-width:0}
   .fbpage{margin-top:14px}
+  /* no margin beside the page on a phone: slim tabs on its edges, and the page steps
+     in far enough that they never cover a word */
+  .fbrail{width:34px}
+  .fbrail.l{left:0}
+  .fbrail.r{right:0}
+  .fbarrow{width:34px;height:72px;font-size:22px;top:calc(50vh - 36px);box-shadow:none;opacity:.94}
+  .fbrail.l .fbarrow{border-radius:0 6px 6px 0}
+  .fbrail.r .fbarrow{border-radius:6px 0 0 6px}
+  .walking .sheet{padding-left:44px;padding-right:44px}
+  .walking .moved{padding-left:44px;padding-right:44px}
   .sheet{width:100%;min-height:0;padding:20px 18px 26px;gap:20px;box-shadow:none}
   /* side by side needs width there is none of on a phone, so the name goes back under
      the photograph — the same order, read down instead of across */
@@ -1201,7 +1227,7 @@ function render(){
   if (pool.length && pool.indexOf(idx) < 0) idx = pool[0];
   var d = DISHES[idx];
   var hits = findDishes(bq);
-  var nextName = pool.length ? DISHES[pool[(Math.max(0,pool.indexOf(idx))+1) % pool.length]].name : '';
+  var walk = pool.length > 1;
   root.innerHTML = frame(
     '<div class="onpaper">' +
       '<div class="fbctl noprint">' +
@@ -1242,10 +1268,8 @@ function render(){
           '</select>' +
           (bq ? '<button class="btn ghost" id="bclr">Clear</button>' : '') +
         '</span>' +
-        /* back and forward sit together now — they used to land on two different rows */
+        /* back and forward are the two arrows either side of the page, below */
         '<span class="walk">' +
-          '<button class="btn ghost" id="prev" aria-label="Previous dish">&larr; Back</button>' +
-          '<button class="btn ghost" id="next" title="'+esc(nextName)+'">' + esc(nextName) + ' &rarr;</button>' +
           '<button class="btn" id="print">Print this page</button>' +
         '</span>' +
       '</div>' +
@@ -1262,7 +1286,11 @@ function render(){
         '<span id="fit"></span>' +
       '</div>' +
       '</div>' +
-      '<div class="fbpage">' +
+      '<div class="fbpage'+(walk?' walking':'')+'">' +
+      (walk
+        ? '<div class="fbrail l noprint"><button class="fbarrow" id="prev" aria-label="Previous dish" title="Previous dish">&larr;</button></div>' +
+          '<div class="fbrail r noprint"><button class="fbarrow" id="next" aria-label="Next dish" title="Next dish">&rarr;</button></div>'
+        : '') +
       (changed
         ? '<div class="moved noprint"><b>' + esc(d.name) + ' has been re-written in the kitchen</b> — ' +
           esc(when(changed)) + '. This page, and anything printed from it, is the older one. ' +
@@ -1315,6 +1343,16 @@ document.addEventListener('input', function(e){
   bq = e.target.value; render();
   var n = document.getElementById('bq');
   if (n){ n.focus(); try{ n.setSelectionRange(at,at); }catch(_){} }
+});
+/* the arrow keys walk the menu too — but never while typing a search or choosing in the list */
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || PH_STATE) return;
+  var t = e.target;
+  if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if (!document.getElementById('next')) return;
+  e.preventDefault();
+  step(e.key === 'ArrowRight' ? 1 : -1); changed = null; render(); window.scrollTo(0,0);
 });
 /* Enter opens the best match — the whole point is not having to reach for the list */
 document.addEventListener('keydown', function(e){
