@@ -2612,7 +2612,7 @@ function ivsShelfBoxPaint(){
 function ivsShelfNote(id, to){
   var r = ivsRow(id) || (ivsShelfRows || []).filter(function(x){ return x.id === id; })[0];
   ivsShelfEdit = { id: id, to: to, note: (r && r.shelf_note) || '' };
-  if (ivsScreen === 'shelf'){ ivsRender(); var t = document.getElementById('ivs-shnote'); if (t) t.focus(); }
+  if (ivsScreen === 'shelf'){ ivsRender(); var t = document.getElementById('ivs-shnote'); if (t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
   else ivsShelfBoxPaint();
 }
 function ivsShelfSave(){
@@ -2627,7 +2627,7 @@ async function ivsShelfTo(id, to, note){
   if (note != null) patch.shelf_note = note;
   var r = await sb.rpc('interview_patch', { p_code: ivsCode, p_id: id, p_patch: patch, p_by: ivsMe || '' });
   if (r.error){ kToast('Not moved — ' + (r.error.message || 'no connection') + '. Try again.', true); return false; }
-  var row = r.data;
+  var row = r.data, wasShelf = (ivsRow(id) || ivsShelved.concat(ivsShelfRows || []).filter(function(x){ return x.id === id; })[0] || {}).shelf;
   ivsShelfEdit = null;
   // this round's lists
   if (row.event === IVS_EVENT){
@@ -2641,7 +2641,7 @@ async function ivsShelfTo(id, to, note){
     var i = ivsShelfRows.findIndex(function(x){ return x.id === id; });
     if (i >= 0){ if (row.shelf) Object.assign(ivsShelfRows[i], { shelf: row.shelf, shelf_note: row.shelf_note, shelved_at: row.shelved_at, shelved_by: row.shelved_by }); else ivsShelfRows.splice(i, 1); }
   }
-  kToast(!row.shelf ? (ivsCandLabel(row) + ' is back in the round.') : ivsCandLabel(row) + (row.shelf === 'archive' ? ' kept in the archive.' : ' moved to the CV database.'));
+  kToast(!row.shelf ? (ivsCandLabel(row) + ' is back in the round.') : wasShelf === row.shelf ? 'Note saved.' : ivsCandLabel(row) + (row.shelf === 'archive' ? ' kept in the archive.' : ' moved to the CV database.'));
   ivsRender();
   return true;
 }
