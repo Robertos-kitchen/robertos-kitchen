@@ -253,6 +253,16 @@ img{display:block;max-width:100%}
 .shot:hover .phl.tap,.shot:focus-within .phl.tap{opacity:1}
 .phl.ask,.phl.bad{top:0;background:rgba(43,1,4,.93);color:var(--cream);flex-direction:column;justify-content:center}
 .phl.busy{top:0;background:rgba(43,1,4,.86);color:var(--cream);justify-content:center}
+/* ⚠ The three rules above never reached a dish that HAS a photograph. `.shot:not(.empty)
+   .phl` above them carries three classes to their two, so the thin bottom gradient won
+   and every full-frame panel — the "Where does this one go?" question, "Putting it on the
+   recipe…", "Not saved." — was drawn straight over the picture with nothing behind the
+   words. Measured on the live page 22 Sep 2026: background-color came back
+   rgba(0,0,0,0) with the gradient still in place. Found while adding Remove, whose
+   question sits in the same panel. Same colours, enough specificity to actually land. */
+.shot:not(.empty) .phl.ask,.shot:not(.empty) .phl.bad{
+  background-image:none;background-color:rgba(43,1,4,.93)}
+.shot:not(.empty) .phl.busy{background-image:none;background-color:rgba(43,1,4,.86)}
 .phl b{font-family:var(--serif);font-weight:400;font-size:13pt;display:block;width:100%}
 .phn{display:block;width:100%;font-size:7pt;opacity:.75;letter-spacing:.3px}
 /* 44px on every one of them: this is used on a phone, standing up, with wet hands */
@@ -260,11 +270,23 @@ img{display:block;max-width:100%}
   border:.3mm solid var(--cream);border-radius:1.5mm;background:none;color:var(--cream);cursor:pointer}
 .phb:hover{background:var(--cream);color:var(--vino-deep)}
 .phb.ghost{border-color:rgba(245,237,224,.45);opacity:.8}
+/* The resting strip sits over whatever the photograph happens to be, and a cream word
+   on a white plate is not a word — the gradient only darkens the very bottom of the
+   frame, and these buttons are above it. So each one carries its own dark plate and
+   reads on every picture. Added 22 Sep 2026 with Remove, which put a second word up
+   there and made the old barely-there treatment a real problem rather than a quiet one. */
+.phl.tap .phb{background:rgba(43,1,4,.88)}
+.phl.tap .phb.ghost{opacity:1;border-color:rgba(245,237,224,.55)}
+.phl.tap .phb:hover{background:var(--cream);color:var(--vino-deep)}
+.phb .smw{display:none}
 @media (max-width:900px){
   /* on a phone there is no hover to reveal anything, so it is simply always there */
   .phl.tap{opacity:1}
   .phl{font-size:12px}
   .phb{font-size:13px;padding:0 14px}
+  /* the short label, so Change and Remove stay on one row over the picture */
+  .phb .lgw{display:none}
+  .phb .smw{display:inline}
   .phl b{font-size:16px}
   .phn{font-size:11px}
 }
@@ -677,6 +699,64 @@ function savePhoto(dish, shot, mode){
     });
 }
 
+/* Taking a photograph OFF the recipe. Asked for by Chef Andrea on 22 September 2026:
+   a picture could be swapped for another one but never simply removed, so a photo put
+   on the wrong dish had to stay there until a better one existed to cover it.
+
+   It removes the picture that is IN THE FRAME, not "the first one" — those stop being
+   the same thing the moment somebody on the create screen reorders the photos while
+   this page is open. So it reads the record back, finds that exact picture, and takes
+   only that one out. If it is not there any more the page says so and removes nothing,
+   rather than deleting whatever happens to be in slot one now. */
+function removePhoto(dish){
+  var who = bibleWho();
+  if (frozen) return Promise.reject(new Error(
+    'this page is reading its built-in copy, not the live database, so nothing can be changed from it'));
+  var going = dish.photo;
+  if (!going) return Promise.reject(new Error('there is no photograph on this dish to remove'));
+  return fetch(SB_URL + '/rest/v1/recipes?id=eq.' + dish.id + '&select=photos',
+      { headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY } })
+    .then(function(r){
+      if (!r.ok) throw new Error('the recipe could not be read back, so nothing was changed');
+      return r.json();
+    })
+    .then(function(rows){
+      if (!rows || !rows[0]) throw new Error('that recipe is no longer there');
+      var have = Array.isArray(rows[0].photos) ? rows[0].photos : [];
+      var at = -1, i;
+      for (i = 0; i < have.length; i++){
+        if ((have[i] && (have[i].u || have[i])) === going){ at = i; break; }
+      }
+      if (at < 0){
+        /* somebody else moved it. Show the truth in the frame and stop. */
+        dish.photo = (have[0] && (have[0].u || have[0])) || null;
+        var gone = new Error('this is not the photograph on the recipe any more — ' +
+          'somebody changed it while the page was open, so nothing was removed. ' +
+          'The frame now shows what is actually there');
+        gone.stale = true;
+        throw gone;
+      }
+      var next = have.slice(0, at).concat(have.slice(at + 1));
+      var body = { photos: next, updated_at: new Date().toISOString() };
+      if (who && who.name){ body.updated_by = who.emp_id || null; body.updated_by_name = who.name; }
+      return sbWrite('recipes?id=eq.' + dish.id, { method:'PATCH', body:body })
+        .catch(function(err){
+          /* the same fallback the add carries: one unknown column must never stop this */
+          if (!/updated_by/.test(err.message || '')) throw err;
+          return sbWrite('recipes?id=eq.' + dish.id,
+            { method:'PATCH', body:{ photos: next, updated_at: body.updated_at } });
+        })
+        .then(function(out){
+          var rec = out && out[0];
+          /* we moved updated_at, so carry it — or the watcher announces our own removal
+             as "re-written in the kitchen" thirty seconds later */
+          if (rec && rec.updated_at) dish.at = rec.updated_at;
+          dish.photo = (next[0] && (next[0].u || next[0])) || null;
+          return next.length;
+        });
+    });
+}
+
 /* When the page is reading a snapshot it has to say when that snapshot was taken —
    in plain words, not an ISO string nobody parses at a service briefing. */
 function stamp(){
@@ -995,9 +1075,20 @@ function photoLayer(d){
   if (st && st.stage === 'saving')
     return '<div class="phl noprint busy">Putting it on the recipe…</div>';
 
+  if (st && st.stage === 'removing')
+    return '<div class="phl noprint busy">Taking it off the recipe…</div>';
+
+  /* Said in the words of whichever job it was. "Not saved" over a failed REMOVAL reads
+     as though the picture was kept out, which is the opposite of what happened. And
+     when the reason is that the photograph is already gone, Try again is not offered —
+     pressing it could only fail the same way. */
   if (st && st.stage === 'bad')
-    return '<div class="phl noprint bad"><b>Not saved.</b> ' + esc(st.msg) +
-           ' <button class="phb" data-shot="'+esc(d.id)+'">Try again</button>' +
+    return '<div class="phl noprint bad"><b>' +
+             (st.was === 'remove' ? 'Not removed.' : 'Not saved.') + '</b> ' + esc(st.msg) +
+           (st.noretry ? '' :
+             (st.was === 'remove'
+               ? ' <button class="phb" data-phdelyes="'+esc(d.id)+'">Try again</button>'
+               : ' <button class="phb" data-shot="'+esc(d.id)+'">Try again</button>')) +
            '<button class="phb ghost" data-phcancel="1">Leave it</button></div>';
 
   /* The question, asked only when there is something to displace. A dish with an empty
@@ -1013,9 +1104,35 @@ function photoLayer(d){
       '<span class="phn">Nothing is thrown away — the picture that is here now moves back one place.</span>' +
     '</div>';
 
+  /* Asked before it happens, the same way the create screen asks — the frame is a big
+     target on a phone and a photograph lost to a thumb is gone. It says what the page
+     will look like afterwards, because that is the real question. */
+  if (st && st.stage === 'removeask')
+    return '<div class="phl noprint ask">' +
+      '<b>Remove this photograph?</b>' +
+      '<button class="phb" data-phdelyes="'+esc(d.id)+'">Remove</button>' +
+      '<button class="phb ghost" data-phcancel="1">Keep it</button>' +
+      /* Said the same way whichever it is. A count held on the page goes stale the
+         moment somebody on the create screen adds or removes one, and a sentence that
+         is only true most of the time is worse here than one that is always true. */
+      '<span class="phn">It comes off the recipe. If there is another photograph on it, ' +
+        'that one takes its place here; if not, the frame goes empty.</span>' +
+    '</div>';
+
+  /* Remove is only drawn when there is something to remove, and it is deliberately the
+     quiet one — Change stays the obvious action.
+
+     Change carries two labels, one shown at a time by the stylesheet. On a phone the
+     strip is only as wide as the photograph under it, and "Change the photograph"
+     beside "Remove" wrapped onto a second row — 44px each, which on a wide, short
+     picture covered the whole frame. The short word is only ever read next to Remove,
+     on a picture, with the frame itself still tappable to change it. */
   return '<div class="phl noprint tap">' +
     '<button class="phb" data-shot="'+esc(d.id)+'">' +
-      (has ? 'Change the photograph' : 'Add the photograph') + '</button></div>';
+      (has ? '<span class="lgw">Change the photograph</span><span class="smw">Change</span>'
+           : 'Add the photograph') + '</button>' +
+    (has ? '<button class="phb ghost" data-phdel="'+esc(d.id)+'">Remove</button>' : '') +
+  '</div>';
 }
 
 /* a date a waiter can read, not an ISO string */
@@ -1426,6 +1543,28 @@ function commitPhoto(mode){
   });
 }
 
+function commitRemove(){
+  var d = PH_STATE && dishById(PH_STATE.id);
+  if (!d) return;
+  PH_STATE.stage = 'removing'; PH_STATE.was = 'remove'; PH_STATE.noretry = false;
+  render();
+  removePhoto(d).then(function(){
+    PH_STATE = null;
+    render();
+  }).catch(function(err){
+    if (!PH_STATE) return;
+    var m = err.message || 'it did not go through';
+    PH_STATE.stage = 'bad';
+    PH_STATE.was = 'remove';
+    PH_STATE.noretry = !!err.stale;
+    /* the fear on a removal is the opposite of the one on an upload: not "is my
+       picture lost" but "did it half-happen". Say which, every time. */
+    PH_STATE.msg = m + (/nothing was|no longer|not there/i.test(m) ? '.'
+                        : '. Nothing was removed — the photograph is still on the recipe.');
+    render();
+  });
+}
+
 document.addEventListener('click', function(e){
   var b = e.target.closest ? e.target.closest('button') : null;
   /* the frame itself, not only the button on it — the picture is the obvious thing to
@@ -1435,7 +1574,9 @@ document.addEventListener('click', function(e){
     var fid = frame.dataset.shot;
     /* mid-question or mid-save, the frame is not a way to start another one */
     if (PH_STATE && PH_STATE.id === fid &&
-        (PH_STATE.stage === 'working' || PH_STATE.stage === 'saving' || PH_STATE.stage === 'asking')) return;
+        (PH_STATE.stage === 'working' || PH_STATE.stage === 'saving' ||
+         PH_STATE.stage === 'asking' || PH_STATE.stage === 'removeask' ||
+         PH_STATE.stage === 'removing')) return;
     /* 'picking' is deliberately a state photoLayer does not draw: while the phone's own
        picker is over the page there is nothing to say, and saying "getting the photograph
        ready…" before a file exists is a lie the page would be left holding if he backs out. */
@@ -1447,6 +1588,17 @@ document.addEventListener('click', function(e){
   if (!b) return;
   if (b.dataset.phuse !== undefined){ commitPhoto(b.dataset.phuse); return; }
   if (b.dataset.phcancel !== undefined){ PH_STATE = null; render(); return; }
+  if (b.dataset.phdel !== undefined){
+    var dr = dishById(b.dataset.phdel);
+    if (!dr || !dr.photo) return;                 /* nothing there: nothing to ask about */
+    PH_STATE = { id: dr.id, stage:'removeask', shot:null, msg:'', was:'remove', noretry:false };
+    render(); return;
+  }
+  if (b.dataset.phdelyes !== undefined){
+    if (!PH_STATE || PH_STATE.id !== b.dataset.phdelyes)
+      PH_STATE = { id: b.dataset.phdelyes, stage:'removeask', shot:null, msg:'', was:'remove', noretry:false };
+    commitRemove(); return;
+  }
   if (b.id==='bclr'){ bq=''; render(); var c=document.getElementById('bq'); if (c) c.focus(); return; }
   if (b.dataset.mtab !== undefined){ menuPick = b.dataset.mtab; bq=''; changed=null; render(); window.scrollTo(0,0); return; }
   if (b.id==='reload'){
