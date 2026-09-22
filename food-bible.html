@@ -731,16 +731,21 @@ function load(){
     sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. This is the whole point for the floor: a waiter
        training on the à la carte opens the à la carte and sees nothing else. */
-    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id&order=position,name')
+    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id,fold_order&order=position,name')
       .catch(function(){ return []; }),
-    sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; })
+    sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; }),
+    /* the printed card, in the order it is printed — see menuOrder() */
+    sb('menu_items?archived=is.false&select=menu_id,name,recipe_id,position&order=position')
+      .catch(function(){ return []; })
   ]).then(function(res){
     var ALL = {}, LINKS = {};
     res[1].forEach(function(r){ ALL[r.id] = r; });
     res[2].forEach(function(l){
       if (l.child_recipe_id) (LINKS[l.recipe_id] = LINKS[l.recipe_id] || []).push(l.child_recipe_id);
     });
-    MENUS = menuTree(res[3] || []);
+    MENUROWS = (res[3] || []).filter(function(m){ return m && m.id && 'name' in m; });
+    MENUS = menuTree(MENUROWS);
+    PRINTED = (res[5] || []).filter(function(r){ return r && r.menu_id; });
     dishSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
@@ -783,6 +788,67 @@ function menuTree(list){
 }
 function onPick(d){
   return (d.menus || []).some(function(id){ return id === menuPick || KIDOF[id] === menuPick; });
+}
+
+/* ── the order a menu's dishes come in ──
+   Chef Andrea, 22 Sep 2026: "Need to organise the dishes inside as per their order on the
+   menu". Until now a menu walked A-Z by recipe section and then A-Z by name — Antipasti
+   before Crudo, Dessert before Pasta — which is no order anybody in the kitchen uses.
+   Two things the app already keeps say what the order is, and this reads both:
+   - the GROUPS (Crudo, Pasta, "Secondi di pesce"…) in `menus.fold_order` — the tiles
+     the chef drags into place in the recipe book, so every screen shows one order.
+     A group the order has never heard of goes to the end, as it does in the book.
+   - the DISHES inside a group in the printed card's order, `menu_items.position`: by
+     recipe_id where the card row is linked, otherwise by the same name on that card —
+     but only when exactly one dish on the menu carries that name (two Branzinos must
+     not borrow each other's place). A dish the card does not print goes after the
+     printed ones in its group, A-Z. Nothing here is written; it is only the walk. */
+var MENUROWS = [], PRINTED = [];
+var FB_SECTIONS = ['Crudo','Insalate','Antipasti','Pizza','Pasta','Secondi','Pesce','Carne',
+                   'Grill','Side Dish','Caviar','Bar Snacks','Dessert','Ice Cream & Sorbet',
+                   'Condiment'];                      /* SECTIONS in recipe-create.html */
+var FB_MONTH = /^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}$/i;
+function nameKey(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function menuOrder(pool){
+  var pick = MENUROWS.filter(function(m){ return m.id === menuPick; })[0];
+  if (!pick) return pool;
+  var root = pick.parent_id ? (MENUROWS.filter(function(m){ return m.id === pick.parent_id; })[0] || pick) : pick;
+  /* a section inside the menu is a group of its own on the menu itself (a month is not —
+     its dishes are only on the month) */
+  var secKids = pick === root
+    ? MENUROWS.filter(function(m){ return m.parent_id === root.id && !FB_MONTH.test(String(m.name).trim()); })
+    : [];
+  var fold = Array.isArray(pick.fold_order) && pick.fold_order.length ? pick.fold_order
+           : Array.isArray(root.fold_order) ? root.fold_order : [];
+  var at = {}; fold.forEach(function(k, i){ if (at[k] == null) at[k] = i; });
+  var card = PRINTED.filter(function(r){ return r.menu_id === pick.id || r.menu_id === root.id; });
+  var byRec = {}, byName = {};
+  card.forEach(function(r){
+    if (r.recipe_id && byRec[r.recipe_id] == null) byRec[r.recipe_id] = +r.position || 0;
+    var k = nameKey(r.name);
+    if (k && !r.recipe_id) (byName[k] = byName[k] || []).push(+r.position || 0);
+  });
+  var seen = {};
+  pool.forEach(function(i){ var k = nameKey(DISHES[i].name); seen[k] = (seen[k] || 0) + 1; });
+  var rows = pool.map(function(i, n){
+    var d = DISHES[i], sec = d.cat || '';
+    var kid = secKids.filter(function(k){ return (d.menus || []).indexOf(k.id) >= 0; })[0];
+    var key = kid ? 'm:' + kid.id : 's:' + sec;
+    var g = at[key] != null ? at[key]
+          : 1e6 + (kid ? 1000 + secKids.indexOf(kid)
+                       : (FB_SECTIONS.indexOf(sec) < 0 ? 900 : FB_SECTIONS.indexOf(sec)));
+    var nk = nameKey(d.name), p = byRec[d.id];
+    if (p == null && seen[nk] === 1 && byName[nk] && byName[nk].length === 1) p = byName[nk][0];
+    return { i:i, g:g, gn:kid ? kid.name : sec, p:(p == null ? 1e9 : p), nm:d.name || '', n:n };
+  });
+  rows.sort(function(a, b){
+    return (a.g - b.g) || a.gn.localeCompare(b.gn) || (a.p - b.p) ||
+           a.nm.localeCompare(b.nm) || (a.n - b.n);
+  });
+  return rows.map(function(r){ return r.i; });
 }
 
 
@@ -834,7 +900,7 @@ function posIn(qw, txt){
 function inMenu(){
   var all = DISHES.map(function(_,i){ return i; });
   if (!menuPick) return all;
-  return all.filter(function(i){ return onPick(DISHES[i]); });
+  return menuOrder(all.filter(function(i){ return onPick(DISHES[i]); }));
 }
 function findDishes(qRaw){
   var pool = inMenu();
@@ -858,9 +924,9 @@ function findDishes(qRaw){
         if (h == null) return; rank = 2000 + h;
       }
     }
-    hits.push({ ix:ix, rank:rank });
+    hits.push({ ix:ix, rank:rank, at:hits.length });
   });
-  hits.sort(function(a,b){ return (a.rank-b.rank) || (a.ix-b.ix); });
+  hits.sort(function(a,b){ return (a.rank-b.rank) || (a.at-b.at); });
   return hits.map(function(h){ return h.ix; });
 }
 /* it is not on this menu — but is it in the book at all, and where? */
