@@ -46,55 +46,73 @@ img{display:block;max-width:100%}
    so it is screen-only and the print block below takes it straight back off. The room is
    held under a deep vino wash so it never competes with the sheet; what you should be
    reading is the paper, and the room only has to say whose paper it is. */
-.desk{padding:22px 16px 60px;display:flex;flex-direction:column;align-items:center;gap:16px;
-  position:relative;background:#cdbba6}
+.desk{padding:0 0 60px;position:relative;background:#cdbba6;min-height:100vh}
 .desk::before{content:'';position:absolute;inset:0;background:url(venue-ristorante.jpg) center/cover;
   pointer-events:none}
 .desk::after{content:'';position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(43,1,4,.55),rgba(43,1,4,.78))}
 /* the sheet and the controls sit above the room, not in it */
 .desk > *{position:relative;z-index:1}
-.stale{color:var(--oro)}
-/* inside the Recipes module the shell picks the dish, so the walk-through goes */
-/* The walk used to be hidden when embedded, because "the module already owns which
-   dish you are looking at". It does not — the Recipes tile opens this page with no
-   dish, so hiding the walk left a waiter on whatever sorted first (an unwritten
-   Burrata) with no way to reach the dish he is actually about to serve. The walk
-   stays, and a picker is added, because before service you look up ONE dish by name
-   rather than pressing next eleven times. */
-/* the menus, above everything — for the floor this is the first choice, not a filter */
-.mbar{display:flex;flex-wrap:wrap;gap:8px;width:100%;max-width:210mm;justify-content:center}
+/* ── laid out like every other Recipes screen (22 Sep 2026, Chef Andrea: "too messy") ──
+   Recipe card and Current menu both open on the same three things: a small eyebrow and
+   a serif title on the room, then ONE sand panel holding every control, left-aligned.
+   This page had no title and floated seventeen menu buttons, the search, the picker,
+   the arrows and Print centred over the photograph in four ragged rows - the arrow back
+   on one line, the arrow forward on the next. Same column, same panel, same buttons as
+   the recipe card now; the A4 sheet itself is untouched and prints exactly as before. */
+.front{max-width:1080px;margin:0 auto;padding:44px 20px 0}
+.eyebrow{font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:#f2d3b8;margin-bottom:14px}
+.lede{font-family:var(--serif);font-size:clamp(32px,6vw,50px);line-height:1.08;color:#fbf3e9;
+  margin:0;font-weight:400}
+.onpaper{background:var(--sabbia);border-radius:10px;padding:18px 16px 24px;margin-top:22px;
+  box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}
+.fbctl{display:flex;flex-direction:column;gap:12px}
+.stale{color:var(--vino);font-weight:700}
+/* the menus, above everything - for the floor this is the first choice, not a filter */
+.mbar{display:flex;flex-wrap:wrap;gap:8px}
 .mtab{display:inline-flex;align-items:center;gap:7px;font-family:var(--sans);font-size:13px;
-  background:rgba(255,255,255,.6);border:1px solid var(--sabbia-dark);border-radius:4px;color:var(--vino);
+  background:#fff;border:1px solid var(--sabbia-dark);border-radius:5px;color:var(--vino);
   padding:11px 15px;min-height:44px;cursor:pointer}
 .mtab:hover{border-color:var(--vino)}
 .mtab.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:700}
 .mtab .mrun{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;background:var(--oro);
   color:#2a1a10;border-radius:2px;padding:2px 5px}
-.mnote{width:100%;max-width:210mm;font-family:var(--sans);font-size:13px;color:var(--cream);line-height:1.5}
-.pickwrap{display:flex;align-items:center;gap:8px;flex:1 1 340px;min-width:0;flex-wrap:wrap}
-.pickwrap select,.pickwrap input{flex:1 1 150px;min-width:0;height:40px;border:1px solid var(--sabbia-dark);
-  border-radius:3px;background:#fff;color:var(--vino);font-family:var(--sans);font-size:14px;padding:0 10px}
+.mnote{font-family:var(--sans);font-size:13px;color:var(--vino-light);line-height:1.5}
+.mnote b{color:var(--vino)}
+/* one row: find the dish on the left, walk and print on the right */
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:14px;
+  border-top:1px solid var(--sabbia-dark)}
+.pickwrap{display:flex;align-items:center;gap:8px;flex:1 1 440px;min-width:0;flex-wrap:wrap}
+.pickwrap select,.pickwrap input{flex:1 1 190px;min-width:0;height:44px;border:1px solid var(--sabbia-dark);
+  border-radius:6px;background:#fff;color:var(--vino);font-family:var(--sans);font-size:14px;padding:0 12px}
 /* 16px or iOS zooms the whole page in the second a waiter taps the box */
 .pickwrap input{font-size:16px;outline:none}
 .pickwrap input:focus{border-color:var(--vino)}
 .pickwrap select:disabled{opacity:.5}
 @media (pointer:coarse){ .pickwrap select,.pickwrap input{height:48px} }
+.walk{display:flex;gap:8px;flex:0 0 auto;margin-left:auto}
+.tools .btn{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:5px;font-family:var(--sans);
+  font-size:11px;letter-spacing:1.8px;text-transform:uppercase;font-weight:700;padding:0 16px;height:44px;cursor:pointer;
+  white-space:nowrap}
+.tools .btn.ghost{background:#fff;color:var(--vino);border:1px solid var(--sabbia-dark)}
+.tools .btn.ghost:hover{border-color:var(--vino)}
+/* the next dish is named on its button; a long name must not push Print off the row */
+#next{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+/* where you are in the book - state, so it stays on screen */
+.fbstat{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:12.5px;line-height:1.5;
+  color:var(--vino-light)}
+/* the page itself, laid on the panel like a sheet on the pass */
+.fbpage{display:flex;flex-direction:column;align-items:center;gap:16px;margin-top:20px}
 /* the page is one A4 by design; when the writing outgrows it, say so rather than
    printing a second sheet nobody asked for and letting the allergens land on it */
 .moved{width:100%;max-width:210mm;background:var(--vino);color:var(--cream);border-radius:3px;
   padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .moved b{color:var(--oro-light)}
-.moved .btn{margin-left:auto}
+.moved .btn{margin-left:auto;background:var(--cream);color:var(--vino);border:none;border-radius:4px;
+  font-family:var(--sans);font-size:11px;letter-spacing:1.6px;text-transform:uppercase;font-weight:700;
+  padding:0 16px;height:44px;cursor:pointer}
 .over{font-size:11px;letter-spacing:.4px;text-transform:none;color:#fff;background:var(--vino);
   border-radius:3px;padding:5px 9px;line-height:1.4}
-.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:210mm}
-.tools .btn{background:var(--vino);color:var(--cream);border:none;border-radius:3px;font-family:var(--sans);
-  font-size:10.5px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:0 18px;height:44px;cursor:pointer}
-.tools .btn.ghost{background:rgba(255,255,255,.5);color:var(--vino);border:1px solid var(--sabbia-dark)}
-/* cream, not vino: these two sit straight on the desk, and the desk is now a dark
-   photograph of the room. In vino they were all but invisible on it. */
-.tools .lab{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cream);opacity:.85;margin-right:auto}
 
 /* ══════════════ THE A4 PAGE ══════════════ */
 .sheet{
@@ -262,8 +280,14 @@ img{display:block;max-width:100%}
       302mm and went out on two. Paper gets the A4 layout, which is the one the whole
       sheet is measured in millimetres for. ══ */
 @media screen and (max-width:900px){
-  .desk{padding:14px 0 50px}
-  .tools{padding:0 14px}
+  .desk{padding:0 0 50px}
+  .front{padding:28px 12px 0}
+  .onpaper{padding:14px 10px 16px;margin-top:16px}
+  /* on a phone the search and the picker take a line each, and the walk shares one */
+  .walk{margin-left:0;width:100%}
+  .walk .btn{flex:1 1 auto}
+  #next{max-width:none;flex:2 1 0;min-width:0}
+  .fbpage{margin-top:14px}
   .sheet{width:100%;min-height:0;padding:20px 18px 26px;gap:20px;box-shadow:none}
   /* side by side needs width there is none of on a phone, so the name goes back under
      the photograph — the same order, read down instead of across */
@@ -305,7 +329,10 @@ img{display:block;max-width:100%}
   /* the dining room is scenery for the screen and must never reach the paper — it
      carries nothing, and printed it would put a photograph of the room behind a page
      somebody reads allergens off */
-  .desk{padding:0;gap:0;background:none}
+  .desk{padding:0;gap:0;background:none;min-height:0}
+  .front{max-width:none;padding:0}
+  .onpaper{background:none;box-shadow:none;padding:0;margin:0;border-radius:0}
+  .fbpage{margin:0;gap:0;display:block}
   .desk::before,.desk::after{display:none!important}
   .tools,.noprint{display:none!important}
   .sheet{width:210mm;min-height:297mm;box-shadow:none;background:#fff;
@@ -704,21 +731,16 @@ function load(){
     sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. This is the whole point for the floor: a waiter
        training on the à la carte opens the à la carte and sees nothing else. */
-    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id,fold_order&order=position,name')
+    sb('menus?venue_id=eq.robertos-difc&archived=is.false&active=is.true&select=id,name,running,position,parent_id&order=position,name')
       .catch(function(){ return []; }),
-    sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; }),
-    /* the printed card, in the order it is printed — see menuOrder() */
-    sb('menu_items?archived=is.false&select=menu_id,name,recipe_id,position&order=position')
-      .catch(function(){ return []; })
+    sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return []; })
   ]).then(function(res){
     var ALL = {}, LINKS = {};
     res[1].forEach(function(r){ ALL[r.id] = r; });
     res[2].forEach(function(l){
       if (l.child_recipe_id) (LINKS[l.recipe_id] = LINKS[l.recipe_id] || []).push(l.child_recipe_id);
     });
-    MENUROWS = (res[3] || []).filter(function(m){ return m && m.id && 'name' in m; });
-    MENUS = menuTree(MENUROWS);
-    PRINTED = (res[5] || []).filter(function(r){ return r && r.menu_id; });
+    MENUS = menuTree(res[3] || []);
     dishSig = listSig(res[0]);
     var ON = {};
     (res[4]||[]).forEach(function(r){ (ON[r.recipe_id] = ON[r.recipe_id] || []).push(r.menu_id); });
@@ -761,67 +783,6 @@ function menuTree(list){
 }
 function onPick(d){
   return (d.menus || []).some(function(id){ return id === menuPick || KIDOF[id] === menuPick; });
-}
-
-/* ── the order a menu's dishes come in ──
-   Chef Andrea, 22 Sep 2026: "Need to organise the dishes inside as per their order on the
-   menu". Until now a menu walked A-Z by recipe section and then A-Z by name — Antipasti
-   before Crudo, Dessert before Pasta — which is no order anybody in the kitchen uses.
-   Two things the app already keeps say what the order is, and this reads both:
-   - the GROUPS (Crudo, Pasta, "Secondi di pesce"…) in `menus.fold_order` — the tiles
-     the chef drags into place in the recipe book, so every screen shows one order.
-     A group the order has never heard of goes to the end, as it does in the book.
-   - the DISHES inside a group in the printed card's order, `menu_items.position`: by
-     recipe_id where the card row is linked, otherwise by the same name on that card —
-     but only when exactly one dish on the menu carries that name (two Branzinos must
-     not borrow each other's place). A dish the card does not print goes after the
-     printed ones in its group, A-Z. Nothing here is written; it is only the walk. */
-var MENUROWS = [], PRINTED = [];
-var FB_SECTIONS = ['Crudo','Insalate','Antipasti','Pizza','Pasta','Secondi','Pesce','Carne',
-                   'Grill','Side Dish','Caviar','Bar Snacks','Dessert','Ice Cream & Sorbet',
-                   'Condiment'];                      /* SECTIONS in recipe-create.html */
-var FB_MONTH = /^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}$/i;
-function nameKey(s){
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ').trim();
-}
-function menuOrder(pool){
-  var pick = MENUROWS.filter(function(m){ return m.id === menuPick; })[0];
-  if (!pick) return pool;
-  var root = pick.parent_id ? (MENUROWS.filter(function(m){ return m.id === pick.parent_id; })[0] || pick) : pick;
-  /* a section inside the menu is a group of its own on the menu itself (a month is not —
-     its dishes are only on the month) */
-  var secKids = pick === root
-    ? MENUROWS.filter(function(m){ return m.parent_id === root.id && !FB_MONTH.test(String(m.name).trim()); })
-    : [];
-  var fold = Array.isArray(pick.fold_order) && pick.fold_order.length ? pick.fold_order
-           : Array.isArray(root.fold_order) ? root.fold_order : [];
-  var at = {}; fold.forEach(function(k, i){ if (at[k] == null) at[k] = i; });
-  var card = PRINTED.filter(function(r){ return r.menu_id === pick.id || r.menu_id === root.id; });
-  var byRec = {}, byName = {};
-  card.forEach(function(r){
-    if (r.recipe_id && byRec[r.recipe_id] == null) byRec[r.recipe_id] = +r.position || 0;
-    var k = nameKey(r.name);
-    if (k && !r.recipe_id) (byName[k] = byName[k] || []).push(+r.position || 0);
-  });
-  var seen = {};
-  pool.forEach(function(i){ var k = nameKey(DISHES[i].name); seen[k] = (seen[k] || 0) + 1; });
-  var rows = pool.map(function(i, n){
-    var d = DISHES[i], sec = d.cat || '';
-    var kid = secKids.filter(function(k){ return (d.menus || []).indexOf(k.id) >= 0; })[0];
-    var key = kid ? 'm:' + kid.id : 's:' + sec;
-    var g = at[key] != null ? at[key]
-          : 1e6 + (kid ? 1000 + secKids.indexOf(kid)
-                       : (FB_SECTIONS.indexOf(sec) < 0 ? 900 : FB_SECTIONS.indexOf(sec)));
-    var nk = nameKey(d.name), p = byRec[d.id];
-    if (p == null && seen[nk] === 1 && byName[nk] && byName[nk].length === 1) p = byName[nk][0];
-    return { i:i, g:g, gn:kid ? kid.name : sec, p:(p == null ? 1e9 : p), nm:d.name || '', n:n };
-  });
-  rows.sort(function(a, b){
-    return (a.g - b.g) || a.gn.localeCompare(b.gn) || (a.p - b.p) ||
-           a.nm.localeCompare(b.nm) || (a.n - b.n);
-  });
-  return rows.map(function(r){ return r.i; });
 }
 
 
@@ -873,7 +834,7 @@ function posIn(qw, txt){
 function inMenu(){
   var all = DISHES.map(function(_,i){ return i; });
   if (!menuPick) return all;
-  return menuOrder(all.filter(function(i){ return onPick(DISHES[i]); }));
+  return all.filter(function(i){ return onPick(DISHES[i]); });
 }
 function findDishes(qRaw){
   var pool = inMenu();
@@ -897,9 +858,9 @@ function findDishes(qRaw){
         if (h == null) return; rank = 2000 + h;
       }
     }
-    hits.push({ ix:ix, rank:rank, at:hits.length });
+    hits.push({ ix:ix, rank:rank });
   });
-  hits.sort(function(a,b){ return (a.rank-b.rank) || (a.at-b.at); });
+  hits.sort(function(a,b){ return (a.rank-b.rank) || (a.ix-b.ix); });
   return hits.map(function(h){ return h.ix; });
 }
 /* it is not on this menu — but is it in the book at all, and where? */
@@ -1154,11 +1115,18 @@ function sheet(d){
   '</div>';
 }
 
+/* the heading every Recipes screen opens with - the room behind it, the panel under it */
+function frame(inner){
+  return '<div class="desk"><div class="front">' +
+    '<div class="noprint"><div class="eyebrow">Kitchen &nbsp;·&nbsp; Recipes</div>' +
+    '<h1 class="lede">Food Bible</h1></div>' +
+    inner +
+  '</div></div>';
+}
 function render(){
   var root = document.getElementById('root');
   if (busy){
-    root.innerHTML = '<div class="desk"><div class="tools noprint">' +
-      '<span class="lab">Reading the recipes…</span></div></div>';
+    root.innerHTML = frame('<div class="onpaper noprint"><div class="fbstat">Reading the recipes…</div></div>');
     return;
   }
   if (idx >= DISHES.length) idx = 0;
@@ -1167,10 +1135,12 @@ function render(){
   if (pool.length && pool.indexOf(idx) < 0) idx = pool[0];
   var d = DISHES[idx];
   var hits = findDishes(bq);
-  root.innerHTML =
-    '<div class="desk">' +
+  var nextName = pool.length ? DISHES[pool[(Math.max(0,pool.indexOf(idx))+1) % pool.length]].name : '';
+  root.innerHTML = frame(
+    '<div class="onpaper">' +
+      '<div class="fbctl noprint">' +
       (MENUS.length
-        ? '<div class="mbar noprint">' +
+        ? '<div class="mbar">' +
             MENUS.map(function(m){
               return '<button class="mtab'+(menuPick===m.id?' on':'')+'" data-mtab="'+m.id+'">'+esc(m.name)+
                 (m.running?'<span class="mrun">now</span>':'')+'</button>'; }).join('') +
@@ -1178,23 +1148,14 @@ function render(){
           '</div>'
         : '') +
       (MENUS.length && menuPick && !pool.length
-        ? '<div class="mnote noprint"><b>Nothing is on this menu yet.</b> The chef puts a dish on it ' +
+        ? '<div class="mnote"><b>Nothing is on this menu yet.</b> The chef puts a dish on it ' +
           'from the create screen, and it appears here. Tap <b>Everything</b> to see the whole book.</div>'
         : '') +
       /* "nothing matches" while the dish is sitting on the next menu along is a
          half-truth, and it sends a waiter looking for a page he was told is not
          there. Say where it actually is. */
       (bq && !hits.length && menuPick ? elsewhereNote(bq) : '') +
-      '<div class="tools noprint">' +
-        '<span class="lab" style="margin:0 8px 0 0">' +
-          (loadErr ? 'Could not read the recipes — ' + esc(loadErr)
-                   : 'One dish, one A4' +
-                     ' &nbsp;·&nbsp; ' + (bq ? hits.length + ' of ' + pool.length + ' match'
-                                              : (Math.max(0, pool.indexOf(idx)) + 1) + ' of ' + pool.length) +
-                     (menuPick ? ' on ' + esc((MENUS.filter(function(m){ return m.id===menuPick; })[0]||{}).name || 'this menu') : '') +
-                     (d.isSample ? ' &nbsp;·&nbsp; a finished page, written by me' : '') +
-                     (frozen && SNAP ? ' &nbsp;·&nbsp; <b class="stale">as the recipes stood ' + esc(stamp()) + '</b>' : '')) +
-        '</span>' +
+      '<div class="tools">' +
         /* by name, because before service a waiter is looking up one dish he is about
            to carry, not walking the whole book. At three hundred dishes the dropdown
            on a phone is a scroll wheel a mile long, so you type first and the list
@@ -1215,19 +1176,35 @@ function render(){
           '</select>' +
           (bq ? '<button class="btn ghost" id="bclr">Clear</button>' : '') +
         '</span>' +
-        '<button class="btn ghost" id="prev">&larr;</button>' +
-        '<button class="btn ghost" id="next">' +
-          esc(pool.length ? DISHES[pool[(Math.max(0,pool.indexOf(idx))+1) % pool.length]].name : '') + ' &rarr;</button>' +
-        '<button class="btn" id="print">Print this page</button>' +
+        /* back and forward sit together now — they used to land on two different rows */
+        '<span class="walk">' +
+          '<button class="btn ghost" id="prev" aria-label="Previous dish">&larr; Back</button>' +
+          '<button class="btn ghost" id="next" title="'+esc(nextName)+'">' + esc(nextName) + ' &rarr;</button>' +
+          '<button class="btn" id="print">Print this page</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="fbstat">' +
+        '<span>' +
+          (loadErr ? 'Could not read the recipes — ' + esc(loadErr)
+                   : (bq ? hits.length + ' of ' + pool.length + ' match'
+                         : 'Dish ' + (Math.max(0, pool.indexOf(idx)) + 1) + ' of ' + pool.length) +
+                     (menuPick ? ' on ' + esc((MENUS.filter(function(m){ return m.id===menuPick; })[0]||{}).name || 'this menu') : '') +
+                     ' &nbsp;·&nbsp; one dish, one A4' +
+                     (d.isSample ? ' &nbsp;·&nbsp; a finished page, written by me' : '') +
+                     (frozen && SNAP ? ' &nbsp;·&nbsp; <b class="stale">as the recipes stood ' + esc(stamp()) + '</b>' : '')) +
+        '</span>' +
         '<span id="fit"></span>' +
       '</div>' +
+      '</div>' +
+      '<div class="fbpage">' +
       (changed
         ? '<div class="moved noprint"><b>' + esc(d.name) + ' has been re-written in the kitchen</b> — ' +
           esc(when(changed)) + '. This page, and anything printed from it, is the older one. ' +
           '<button class="btn" id="reload">Show the new one</button></div>'
         : '') +
       sheet(d) +
-    '</div>';
+      '</div>' +
+    '</div>');
   checkOneSheet();
 }
 
