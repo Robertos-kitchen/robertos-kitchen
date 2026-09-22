@@ -254,6 +254,13 @@ function ivsCalc(r){
   var fin = done ? Math.round(((iMax ? (i/iMax)*wI : 0) + (pMax ? (p/pMax)*wP : 0)) * 100 / wT) : null;
   return { int:i, prac:p, iMax:iMax, pMax:pMax, iAll:iAll, pAll:pAll, na:na, scored:n, done:done, final:fin, verdict: done ? ivsVerdict(fin) : null };
 }
+// Send to HR needs the whole score sheet: every line 1-5 or N/A, and at least one line really scored
+function ivsHrBlock(r){
+  var c = ivsCalc(r); if (c.done) return '';
+  var left = IVS_LINES - c.scored;
+  if (left > 0) return 'Finish the score sheet first — ' + left + ' of ' + IVS_LINES + ' line' + (IVS_LINES === 1 ? '' : 's') + ' still to score. Tap N/A on a line that could not be tested.';
+  return 'Every line is N/A, so there is no score to send. Score at least one line first.';
+}
 function ivsPart(got, max, all){ return max ? got+'/'+max : (all ? 'N/A' : '—'); }
 // the same arithmetic for a candidate of another round (history)
 function ivsCalcWith(r, set){
@@ -513,6 +520,7 @@ function ivsInjectCss(){
     '.ivacts .hd b{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ivl)}',
     '.ivacts .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}',
     '.ivacts .btns button{flex:1 1 150px}',
+    '.ivhrno{margin-top:8px;font-size:14px;font-weight:600;line-height:1.4;color:#5e0a10;background:#f6dcdc;border-radius:5px;padding:8px 10px}',
     '.ivactl{font-size:13.5px;line-height:1.45;border-top:1px solid var(--isl);padding:7px 0 0;margin-top:8px;color:var(--ik);overflow-wrap:anywhere}',
     '.ivactl b{font-weight:700}.ivactl.bad{color:#7a1218}.ivactl span{color:#5a4a3a}',
     // the email window
@@ -2102,11 +2110,12 @@ function ivsDeliveryWord(a){
   return '';
 }
 function ivsActsHtml(r){
-  var list = ivsActsFor(r.id);
+  var list = ivsActsFor(r.id), hrNo = ivsHrBlock(r);
   var h = '<div class="ivacts" id="ivs-acts"><div class="hd"><b>Decision — send the email</b></div><div class="btns">'+
     '<button class="ivb2" onclick="ivsMailOpen(\'reject\')">'+IVS_ACTIONS.reject.btn+'</button>'+
     '<button class="ivb2" onclick="ivsMailOpen(\'shortlist\')">'+IVS_ACTIONS.shortlist.btn+'</button>'+
-    '<button class="ivb" onclick="ivsMailOpen(\'hr\')">'+IVS_ACTIONS.hr.btn+'</button></div>';
+    '<button class="ivb" '+(hrNo ? 'disabled aria-describedby="ivs-hrno" ' : '')+'onclick="ivsMailOpen(\'hr\')">'+IVS_ACTIONS.hr.btn+'</button></div>'+
+    (hrNo ? '<div class="ivhrno" id="ivs-hrno">'+ivsEsc(hrNo)+'</div>' : '');
   list.forEach(function(a){
     var A = IVS_ACTIONS[a.action] || { done:a.action, btn:a.action };
     if (a.status === 'sent'){
@@ -2198,6 +2207,7 @@ async function ivsMailStatus(){
 
 function ivsMailOpen(action){
   var r = ivsRow(ivsSel); if (!r || ivsMail) return;
+  if (action === 'hr' && ivsHrBlock(r)){ kToast(ivsHrBlock(r), true); return; }
   // anything typed on the sheet a moment ago goes to the database before the window opens
   ['email','position_applied'].forEach(function(k){ var el = document.getElementById('ivs-d-'+k); if (el) ivsDetailFlush(el); });
   if (ivsNameT){ clearTimeout(ivsNameT); ivsNameT = null; ivsSave(r.id, { name: r.name }); }
@@ -2309,6 +2319,7 @@ function ivsMailLocalProblems(m){
   else if (!ivsMailValid(m.email)) p.push(['email', 'The email address does not look right.']);
   if (m.position.trim().replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['position', m.position.trim() ? 'The position does not look right.' : 'The position is missing — type it.']);
   if (m.action === 'hr'){
+    var hrNo = ivsHrBlock(ivsRow(m.candId)); if (hrNo) p.push(['score', hrNo]);
     if (!m.cvIds.length) p.push(['cv', ivsCvsFor(m.candId).length ? 'Tick the CV to send.' : 'No CV is attached. Close this window and upload the candidate’s CV first.']);
     if (m.ev.interviewers.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['interviewers', 'Evaluation form: type the name of the interviewer(s).']);
     if (m.ev.department.replace(/[^A-Za-zÀ-ɏ]/g, '').length < 2) p.push(['department', 'Evaluation form: the department is missing.']);
@@ -2362,6 +2373,7 @@ function ivsMailBack(){ if (ivsMail && (ivsMail.step === 'preview' || ivsMail.st
 
 async function ivsMailSend(){
   var m = ivsMail; if (!m || m.step !== 'preview') return;
+  if (m.action === 'hr' && ivsHrBlock(ivsRow(m.candId))){ m.step = 'form'; m.problems = ivsMailLocalProblems(m); ivsMailRender(); kToast(ivsHrBlock(ivsRow(m.candId)), true); return; }
   if (m.preview.repeats && !m.again){ kToast('Tick “Send it again” first — this was already sent.', true); return; }
   m.step = 'sending'; ivsMailRender();
   var b = ivsMailBody(m); b.mode = 'send'; b.confirm_repeat = !!m.again;
