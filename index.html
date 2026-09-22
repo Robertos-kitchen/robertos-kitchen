@@ -1366,7 +1366,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span></span>
+    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
@@ -1378,6 +1378,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
     <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
+    <button class="home-tile compact" type="button" onclick="openLearning()"><span class="home-code">LRN</span><span><span class="home-name">Learning</span><span class="home-meta">Read a short page, take a 5-question test &mdash; sign in with your employee ID</span></span></button>
   </div>
   </div>
   <div class="home-section mgmt" id="mgmt-section">
@@ -1469,6 +1470,8 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <!-- Tasting (21 Sep 2026): the dishes on "Upcoming dishes a la carte", scored by the
      chefs; Chef Francesco approves and the dish moves onto the à la carte. -->
 <div id="tasting-view" class="ops-view" style="display:none"></div>
+<!-- Learning (22 Sep 2026): Chef Andrea's learning section - pages and a test per topic. -->
+<div id="learning-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1547,7 +1550,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790063651"></script>
+<script src="app.js?v=1790065331"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1574,7 +1577,7 @@ window.FB_INBOX = {
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
       'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
-      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
+      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'learning-view':'Learning', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
       'menuplan-view':'Menu development plan', 'calendar-view':'Calendar', 'team-view':'Team survey',
       'scheduling-view':'Schedule' };

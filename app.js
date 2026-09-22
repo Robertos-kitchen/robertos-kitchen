@@ -1890,7 +1890,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2785,13 +2785,36 @@ function openRecipeScreen(viewId){
   document.getElementById('foot-label').textContent=s.name;
   fitRecipeScreen();
 }
+// Learning (22 Sep 2026) - Chef Andrea's learning section: short pages and a 5-question
+// test per topic, signed in with the employee ID. Its own page in a frame, like the
+// recipe screens, riding on app.js's ?v= so a deploy reaches it at once.
+function openLearning(){
+  hideAllPages();
+  var v=document.getElementById('learning-view');
+  if(!v) return;
+  v.style.cssText='padding:0;display:flex;flex-direction:column';
+  if(!v.firstChild){
+    var bar=document.createElement('div');
+    bar.className='rcp-bar';
+    bar.innerHTML='<button class="home-btn" onclick="openHome()">&lsaquo; Home</button>'+
+      '<span class="rcp-bar-name">Learning</span>';
+    var f=document.createElement('iframe');
+    f.src=rcpPage('learning.html?embed=1'); f.title='Learning'; f.loading='eager';
+    f.style.cssText='display:block;width:100%;flex:1 1 auto;min-height:0;border:none;background:var(--sabbia)';
+    v.appendChild(bar); v.appendChild(f);
+  }
+  v.style.display='flex';
+  document.querySelector('.footer-bar').style.display='flex';
+  document.getElementById('foot-label').textContent='Learning';
+  fitRecipeScreen();
+}
 // The header wraps on a phone and the footer is a different height on a tablet, so a
 // fixed "100vh minus 116px" is wrong on most devices — it either leaves a dead strip
 // or pushes the last line under the footer bar. Measure where the open view actually
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -2813,7 +2836,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
