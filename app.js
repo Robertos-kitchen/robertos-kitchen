@@ -6290,6 +6290,8 @@ function schedToggleSplit() {
 function schedStatusChange() {
   var status = document.getElementById('sch-status-sel').value;
   document.getElementById('sch-time-fields').style.display = status === 'working' ? 'block' : 'none';
+  // Blank is not something to copy/paste — a pasted or filled blank would wipe whole days.
+  var cb = document.getElementById('sch-copy-btn'); if (cb) cb.style.display = status === 'blank' ? 'none' : '';
 }
 function schedCloseModal(e) {
   if (e && e.target !== document.getElementById('sch-modal')) return;
@@ -6321,6 +6323,9 @@ async function schedSaveShift() {
   var stationOverride = (status === 'working' && chosenSec && chosenSec !== homeSec) ? chosenSec : null;
   document.getElementById('sch-modal').style.display = 'none';
   var key = schedRosterKey(staffId, date);
+  // "Blank (+ add)" puts the day back to an empty cell — the row is removed, not
+  // saved as a status, so it reads exactly like a day nobody filled in. Undoable.
+  if (status === 'blank') { await schedClearCell(staffId, date); schedEditTarget = null; return; }
   var payload = Object.assign({}, schedRoster[key] || {}, {
     staff_id: staffId, work_date: date, status: status,
     shift_start:  status === 'working' ? (start||null)  : null,
@@ -6348,6 +6353,23 @@ async function schedSaveShift() {
     }
   }
   schedEditTarget = null;
+}
+
+async function schedClearCell(staffId, date) {
+  var key = schedRosterKey(staffId, date);
+  var prev = schedRoster[key];
+  if (!prev) return;   // already blank — nothing to undo, nothing to write
+  schedPushUndo([{ staffId: staffId, date: date }], 'clear ' + schedStaffName(staffId) + ', ' + schedDayLabel(date));
+  delete schedRoster[key];
+  renderSchedWeek();   // in the Roster tool this captures the blank into the plan, like any edit
+  if (!DEV_READ_ONLY && !schedPlanMode) {
+    var res = await sb.from('roster').delete().eq('staff_id', staffId).eq('work_date', date);
+    if (res.error) {
+      schedRoster[key] = prev; renderSchedWeek();
+      console.error('Clear error:', res.error);
+      kToast('Day not cleared — check connection and tap the day again.', true);
+    }
+  }
 }
 
 // ── Day events (up to 2 per day, shown at the top of the schedule) ──

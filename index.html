@@ -1550,7 +1550,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790099066"></script>
+<script src="app.js?v=1790184049"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1703,6 +1703,7 @@ window.FB_INBOX = {
         <option value="em">Emergency (EM)</option>
         <option value="tr">Training (TR)</option>
         <option value="cat">Catering (CAT)</option>
+        <option value="blank">Blank (+ add) — clear this day</option>
       </select>
     </div>
     <div id="sch-time-fields" class="sch-modal-times">
@@ -1754,7 +1755,7 @@ window.FB_INBOX = {
       <label class="sch-modal-label">Notes</label>
       <input type="text" id="sch-notes-inp" class="sch-modal-inp" placeholder="Optional note..."/>
     </div>
-    <button type="button" onclick="schedCopyShift()" style="width:100%;box-sizing:border-box;margin-top:14px;padding:9px;background:transparent;border:1px dashed var(--vino);border-radius:4px;cursor:pointer;font-family:var(--font-sans);color:var(--vino);font-weight:600;font-size:12px">&#128203; Copy shift — then tap cells to paste</button>
+    <button type="button" id="sch-copy-btn" onclick="schedCopyShift()" style="width:100%;box-sizing:border-box;margin-top:14px;padding:9px;background:transparent;border:1px dashed var(--vino);border-radius:4px;cursor:pointer;font-family:var(--font-sans);color:var(--vino);font-weight:600;font-size:12px">&#128203; Copy shift — then tap cells to paste</button>
     <div class="sch-modal-actions">
       <button class="sch-modal-cancel" onclick="schedCloseModal()">Cancel</button>
       <button class="sch-modal-save" onclick="schedSaveShift()">Save</button>
