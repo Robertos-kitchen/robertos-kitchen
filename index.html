@@ -96,6 +96,10 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 @media print{.sch-scroll-fade,.sch-scroll-hint{display:none}}
 
 /* â”€â”€ COUNTER â”€â”€ */
+.prep-mode{display:flex;gap:6px;padding:10px 18px 0;background:var(--sabbia-light)}
+.prep-mode>*{font-family:var(--font-sans);font-size:13.5px;font-weight:600;border-radius:999px;padding:9px 18px;min-height:40px;border:1px solid var(--sabbia-dark);background:#fff;color:var(--ink)}
+.prep-mode .pm-on{background:var(--vino);color:var(--cream);border-color:var(--vino);display:inline-flex;align-items:center}
+.prep-mode button{cursor:pointer}
 .sec-counter{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 18px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
 .sc-card{border-radius:4px;padding:10px 8px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;outline:2px solid transparent;transition:opacity .15s}
 .sc-card:hover{opacity:.88}.sc-card.filter-active{outline:2px solid var(--vino)}
@@ -1411,6 +1415,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </div>
 
 <div id="sec-counter-wrap">
+  <div class="prep-mode" role="group" aria-label="Prep or training"><span class="pm-on" aria-current="page">Prep</span><button type="button" onclick="openTraining(activeStation)">Training</button></div>
   <div class="sec-counter" id="sec-counter"></div>
   <div class="reset-bar" id="reset-bar">
     <button class="reset-all-btn" id="reset-all-btn" onclick="showResetConfirm()">&#8635; Reset all</button>
@@ -1472,6 +1477,8 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <div id="tasting-view" class="ops-view" style="display:none"></div>
 <!-- Learning (22 Sep 2026): Chef Andrea's learning section - pages and a test per topic. -->
 <div id="learning-view" class="ops-view" style="display:none"></div>
+<!-- Training sheets (23 Sep 2026): Chef Danilo's idea - a training sheet per trainee per section. -->
+<div id="training-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1550,7 +1557,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790185403"></script>
+<script src="app.js?v=1790186170"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1577,7 +1584,7 @@ window.FB_INBOX = {
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
       'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
-      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'learning-view':'Learning', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
+      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'learning-view':'Learning', 'training-view':'Training', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
       'menuplan-view':'Menu development plan', 'calendar-view':'Calendar', 'team-view':'Team survey',
       'scheduling-view':'Schedule' };

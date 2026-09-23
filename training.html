@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Training — Roberto's Kitchen</title>
+<!-- Before any code below can call fetch(): on the DEV host this blocks every write. -->
+<script src="dev-guard.js?v=1789747927"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+:root{
+  --vino:#410207;--vino-mid:#5e0a10;--sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --oliva:#4b5128;--oro:#ba9b02;--ink:#2a1a10;--cream:#f5ede0;
+  --ground:#efe7db;--card:#fffaf2;--line:#dccdb9;--muted:#5f4c3d;
+  --ok:#2f5d1e;--ok-bg:#e3ecd6;--part:#6e5400;--part-bg:#f4ead0;--err:#8f1d12;--err-bg:#fbe9e6;
+  --serif:'Cormorant Garamond',Georgia,serif;--sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px}
+button,input,select,textarea{font-family:inherit;color:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.row:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto;padding:0 0 48px}
+.bar{background:var(--vino);color:var(--cream);padding:14px 16px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.bar .bt{min-width:0}
+.bar .t{font-family:var(--serif);font-size:24px;font-weight:600;line-height:1.1}
+.bar .s{font-size:12.5px;opacity:.85;margin-top:3px}
+.bar .me{flex:none;font-size:12.5px;opacity:.9;text-align:right;order:2}
+.bar .me button{background:none;border:none;color:var(--cream);text-decoration:underline;cursor:pointer;font-size:12.5px;padding:10px 0 10px 10px;min-height:40px}
+.tabs{display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line);overflow-x:auto;background:var(--sabbia-light)}
+.tab{flex:none;padding:9px 14px;border-radius:999px;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;min-height:40px}
+.tab.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.body{padding:14px 14px 18px;display:flex;flex-direction:column;gap:12px}
+.btn{font-weight:600;font-size:14.5px;border-radius:12px;padding:12px 16px;border:1px solid var(--vino);background:var(--vino);color:var(--cream);cursor:pointer;min-height:48px}
+.btn.ghost{background:transparent;color:var(--vino);border-color:var(--sabbia-dark)}
+.btn.sm{padding:8px 12px;font-size:13px;min-height:40px;border-radius:10px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.link{background:none;border:none;color:var(--vino);text-decoration:underline;cursor:pointer;font-size:13.5px;padding:8px 2px;min-height:40px}
+.msg{font-size:14px;font-weight:500;line-height:1.5;padding:10px 12px;border-radius:10px}
+.msg.bad{color:var(--err);background:var(--err-bg)} .msg.ok{color:var(--ok);background:var(--ok-bg)}
+.sheet{border:1px solid var(--line);border-radius:14px;padding:13px;display:grid;grid-template-columns:1fr auto;gap:4px 10px;background:var(--card);text-align:left;width:100%;cursor:pointer;font-size:14px}
+.sheet:hover{border-color:var(--vino-mid)}
+.sheet .who{font-weight:700;font-size:16px}
+.sheet .role{color:var(--muted);font-size:13px}
+.sheet .meta{grid-column:1/-1;color:var(--muted);font-size:12.5px}
+.meter{grid-column:1/-1;height:7px;border-radius:99px;background:var(--sabbia-light);overflow:hidden;margin-top:4px}
+.meter i{display:block;height:100%;background:var(--oliva)}
+.pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;align-self:start;white-space:nowrap}
+.pill.go{background:var(--part-bg);color:var(--part)} .pill.done{background:var(--ok-bg);color:var(--ok)}
+.hint{font-size:13px;color:var(--muted);line-height:1.5}
+.empty{background:var(--card);border:1px dashed var(--sabbia-dark);border-radius:12px;padding:16px;color:var(--muted);line-height:1.6}
+.head{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--sabbia-light)}
+.k{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.head .v{font-weight:600}
+.head .v small{display:block;font-weight:400;color:var(--muted);font-size:12.5px}
+.head .prog{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-variant-numeric:tabular-nums;font-size:13px}
+.head .prog .meter{flex:1;margin:0}
+.day{font-family:var(--serif);font-weight:700;font-size:21px;color:var(--vino);padding:14px 14px 2px;letter-spacing:.02em}
+.dish{margin:8px 10px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.dish h3{margin:0;padding:10px 12px;font-size:14.5px;font-weight:700;background:var(--sabbia-light);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dish h3 small{font-weight:600;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.colhead{display:grid;grid-template-columns:1fr 50px 50px;gap:6px;padding:6px 12px 3px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.colhead span:not(:first-child){text-align:center}
+.row{display:grid;grid-template-columns:1fr 50px 50px;gap:6px;align-items:center;padding:7px 12px;border-top:1px solid var(--line);background:var(--card)}
+.row .n{font-size:14.5px;line-height:1.3;background:none;border:none;text-align:left;padding:6px 0;cursor:pointer;min-height:40px}
+.row .n em{display:block;font-style:normal;font-size:12px;color:var(--muted);margin-top:2px}
+.row.asm .n{font-weight:700}
+.tick{width:48px;height:44px;border-radius:10px;border:1.5px solid var(--sabbia-dark);background:var(--card);display:grid;place-items:center;align-content:center;cursor:pointer;font-size:10.5px;font-weight:700;color:var(--muted);padding:0;line-height:1.1}
+.tick.on{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.tick.on::before{content:"\2713";font-size:16px;display:block}
+.tick:disabled{cursor:default}
+.tick:disabled:not(.on){background:var(--sabbia-light);border-style:dashed}
+.note{grid-column:1/-1;font-size:13px;color:var(--ink);background:var(--cream);border-radius:8px;padding:7px 10px;border-left:3px solid var(--oro)}
+.note b{font-weight:600}
+.cbox{grid-column:1/-1;display:grid;gap:8px}
+textarea,.in,select{border:1px solid var(--line);border-radius:10px;padding:10px;font-size:15px;background:#fff;width:100%;min-height:44px}
+textarea{min-height:70px;line-height:1.45}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.signoff{margin:16px 10px 4px;border:1.5px dashed var(--sabbia-dark);border-radius:12px;padding:13px;display:flex;flex-direction:column;gap:8px;background:var(--card)}
+.signoff.done{border-style:solid;border-color:var(--ok);background:var(--ok-bg)}
+.foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;background:var(--sabbia-light);flex-wrap:wrap;margin-top:14px}
+.foot .btn{flex:1}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.from{border:1px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--cream);font-size:13.5px;line-height:1.55}
+.from b{font-variant-numeric:tabular-nums}
+.sign{max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:12px;margin:16px}
+.sign input{font-size:22px;letter-spacing:4px}
+/* edit */
+.edit .row{grid-template-columns:22px minmax(0,1fr) 40px;touch-action:none;min-height:44px;user-select:none;cursor:grab}
+.edit .row.lift{position:relative;z-index:5;box-shadow:0 8px 22px rgba(65,2,7,.22);cursor:grabbing;transition:none}
+.edit .row.shift{transition:transform .16s}
+.grip{color:var(--muted);font-size:15px;text-align:center}
+.edit .row .n{cursor:text}
+.x{width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--vino);font-size:18px;cursor:pointer}
+.gname{display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--sabbia-light)}
+.gname input{font-weight:700}
+.daypick{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--line)}
+.daypick .tab{padding:6px 11px;font-size:12.5px;min-height:36px}
+.addrow{display:flex;gap:8px;padding:8px 12px 12px;border-top:1px solid var(--line)}
+.confirm{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px}
+.newd{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.panel{margin:10px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card);display:grid;gap:10px}
+[hidden]{display:none!important}
+@media print{
+  .bar .me,.tabs,.foot,.signoff .btn,.link,.x,.cbox{display:none!important}
+  html,body{background:#fff}
+  .dish{break-inside:avoid;border-color:#999}
+  .tick{border-color:#999}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"><div class="body">Loading…</div></div>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   TRAINING — Chef Danilo's idea through Tell us, 23 Sep 2026 (inbox b32d24e6): "the training
+   format in the app for each section, same as a prep list, with the chance to edit it and
+   personalize with the name of the chef that will have the training".
+
+   It is the paper CHEF TRAINING LIST moved onto the Prep list, in the mock-up he approved:
+   · A sheet is one trainee on one section. It starts as a copy of that section's LIVE prep list
+     (each dish, its components, and "Assembly of the plate"), so it never carries dishes that
+     left the menu the way the paper one did. After that it is its own copy — editing it never
+     changes the prep list.
+   · The trainee ticks "I've done it", the trainer ticks "can do it alone" (who + when are kept).
+     Only the trainer's ticks count as progress. Any line can carry a comment.
+   · Chef Danilo (Executive Chef) signs the sheet off once every line has the trainer's tick.
+   · Chef Danilo, Chef Antonio and Chef Andrea make and edit sheets (the Learning checkers).
+     Everyone else sees only the sheets they are trainee or trainer on.
+   Sign-in is the employee ID, shared with Learning. Schema + rules: training-schema.sql.
+   ════════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var EMPLS = 'learnEmp', EMPFOR = 12*60*60*1000;   // the same sign-in as Learning
+var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var DAYNAME = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday', Sun:'Sunday' };
+
+var qs = new URLSearchParams(location.search);
+var S = { emp:null, me:null, err:'', ok:'', view:'list', station:qs.get('station') || '', stations:[],
+          list:null, sheet:null, people:null, prep:null, openLine:null, confirm:null, busy:false, tryEmp:'' };
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function $(id){ return document.getElementById(id); }
+function api(path, opts){
+  opts = opts || {};
+  var h = { apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json' };
+  return fetch(SB_URL + '/rest/v1/' + path, { method:opts.method||'GET', headers:h,
+      body: opts.body ? JSON.stringify(opts.body) : undefined, cache:'no-store' })
+    .then(function(r){ return r.text().then(function(t){
+      var j = null; try { j = t ? JSON.parse(t) : null; } catch(e){}
+      if (!r.ok) { var e = new Error((j && (j.message || j.error)) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+      return j; }); });
+}
+/* Reads go as GET (so the DEV site still browses — dev-guard blocks every POST there);
+   every write is a POST. */
+function get(fn, args){
+  var q = Object.keys(args).map(function(k){ return k + '=' + encodeURIComponent(args[k] == null ? '' : args[k]); }).join('&');
+  return api('rpc/' + fn + '?' + q);
+}
+function post(fn, args){ return api('rpc/' + fn, { method:'POST', body:args }); }
+function say(err){
+  var m = String(err && err.message || err);
+  if (/no_emp/.test(m)) return 'That employee ID is not in the kitchen staff list. Check it, or ask Chef Francesco to add it.';
+  if (/not_allowed/.test(m)) return 'Your employee ID cannot do this here. Chef Danilo, Chef Antonio or Chef Andrea can.';
+  if (/same_person/.test(m)) return 'The trainee and the trainer have to be two different people.';
+  if (/not_finished/.test(m)) return 'Not every line has the trainer’s tick yet.';
+  if (/signed/.test(m)) return 'This sheet is already signed off, so it cannot change.';
+  if (/no_sheet/.test(m)) return 'This sheet is no longer there. Go back to the list.';
+  if (/no_name/.test(m)) return 'Type a name first.';
+  if (/already_there/.test(m)) return 'That dish is already on this sheet.';
+  if (/read-only/i.test(m)) return 'This is the DEV site, which cannot save anything. Use the live Kitchen app.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
+  return 'Something went wrong: ' + m;
+}
+function dmy(t){ return t ? new Date(t).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : ''; }
+function dayLong(t){ return t ? new Date(t).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }) : ''; }
+function initials(n){ return String(n||'').split(/\s+/).filter(Boolean).map(function(w){ return w[0]; }).join('').slice(0,3).toUpperCase(); }
+function stLabel(k){ var s = S.stations.filter(function(x){ return x.key === k; })[0]; return s ? s.label : k; }
+
+/* ── signing in ── */
+function remembered(){
+  try { var v = JSON.parse(localStorage.getItem(EMPLS) || 'null');
+        if (v && v.emp && (Date.now() - v.at) < EMPFOR) return v.emp; } catch(e){}
+  return null;
+}
+function signIn(emp){
+  emp = String(emp || '').trim(); S.tryEmp = emp;
+  if (!emp) { S.err = 'Type your employee ID.'; return draw(); }
+  S.err = ''; S.busy = true; draw();
+  return get('train_me', { p_emp:emp }).then(function(me){
+    S.emp = emp; S.me = me;
+    try { localStorage.setItem(EMPLS, JSON.stringify({ emp:emp, at:Date.now() })); } catch(e){}
+    return loadList();
+  }).catch(function(e){ S.err = say(e); S.me = null; }).then(function(){ S.busy = false; draw(); });
+}
+function signOut(){
+  try { localStorage.removeItem(EMPLS); } catch(e){}
+  S.emp = null; S.me = null; S.list = null; S.sheet = null; S.view = 'list'; S.tryEmp = ''; S.err = ''; S.ok = ''; draw();
+}
+
+/* ── data ── */
+function loadStations(){
+  return api('stations?select=key,label&active=eq.true&order=sort_order,id').then(function(r){
+    S.stations = r || [];
+    if (!S.station || !S.stations.some(function(s){ return s.key === S.station; })) S.station = S.stations[0] ? S.stations[0].key : '';
+  });
+}
+function loadList(){
+  return get('train_list', { p_emp:S.emp, p_station:S.station }).then(function(r){ S.list = r || []; });
+}
+function loadSheet(id){
+  return get('train_get', { p_emp:S.emp, p_sheet:id }).then(function(r){ S.sheet = r; });
+}
+// What a new sheet would start from — read straight off the prep list, like the prep list reads it.
+function loadPrep(){
+  return Promise.all([
+    api('dishes?select=id,name&active=eq.true&station_key=eq.' + encodeURIComponent(S.station) + '&order=sort_order,id'),
+    api('dish_components?select=dish_id,name&active=eq.true&limit=5000')
+  ]).then(function(r){
+    var ids = {}; (r[0]||[]).forEach(function(d){ ids[d.id] = 1; });
+    var comps = (r[1]||[]).filter(function(c){ return ids[c.dish_id] && String(c.name||'').trim() && !/^prepare as needed$/i.test(String(c.name).trim()); });
+    S.prep = { dishes:(r[0]||[]).length, comps:comps.length };
+  });
+}
+
+/* ── drawing ── */
+function draw(){
+  var root = $('root');
+  var y = window.scrollY;
+  var ae = document.activeElement, keep = ae && ae.id && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') ? { id:ae.id, v:ae.value, s:ae.selectionStart } : null;
+  root.innerHTML = !S.me ? drawSign() : S.view === 'new' ? drawNew() : S.view === 'sheet' ? drawSheet() : S.view === 'edit' ? drawEdit() : drawList();
+  if (keep) { var el = $(keep.id); if (el) { el.value = keep.v; el.focus(); try { el.setSelectionRange(keep.s, keep.s); } catch(e){} } }
+  window.scrollTo(0, y);
+}
+function barHtml(title, sub){
+  return '<div class="bar">' + (S.me ? '<div class="me">' + esc(S.me.name) + '<br><button id="out" type="button">Not you?</button></div>' : '') +
+    '<div class="bt"><div class="t">' + esc(title) + '</div><div class="s">' + esc(sub) + '</div></div></div>';
+}
+function msgs(){
+  return (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
+         (S.ok ? '<div class="msg ok" role="status">' + esc(S.ok) + '</div>' : '');
+}
+function drawSign(){
+  return barHtml('Training', 'Training sheets for each section') +
+    '<form class="sign" id="fsign"><label class="k" for="emp">Your employee ID</label>' +
+    '<input id="emp" class="in" inputmode="numeric" autocomplete="off" enterkeyhint="go" value="' + esc(S.tryEmp) + '">' +
+    '<button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Open training</button>' + msgs() +
+    '<div class="hint">The same ID you use for Learning. It tells the app whose sheet is whose.</div></form>';
+}
+function progress(c){ return c && c.lines ? Math.round(c.trainer / c.lines * 100) : 0; }
+function drawList(){
+  var L = S.list || [];
+  return barHtml(stLabel(S.station), 'Training · ' + L.length + (L.length === 1 ? ' sheet' : ' sheets')) +
+    '<div class="tabs" role="tablist">' + S.stations.map(function(s){
+      return '<button class="tab' + (s.key === S.station ? ' on' : '') + '" type="button" data-st="' + esc(s.key) + '">' + esc(s.label) + '</button>'; }).join('') + '</div>' +
+    '<div class="body">' + msgs() +
+    (S.me.editor ? '<button class="btn" type="button" id="new">+ New training sheet</button>' : '') +
+    (L.length ? L.map(function(t){
+      var c = t.counts || {}, done = t.status === 'signed';
+      return '<button class="sheet" type="button" data-open="' + t.id + '">' +
+        '<div><div class="who">' + esc(t.trainee_name) + '</div><div class="role">' + esc(t.trainee_role) + ' · trainer ' + esc(t.trainer_name) + '</div></div>' +
+        '<span class="pill ' + (done ? 'done' : 'go') + '">' + (done ? 'Signed off' : 'In training') + '</span>' +
+        '<div class="meta">' + (done ? 'Signed off by ' + esc(t.signed_by) + ' · ' + esc(dayLong(t.signed_at))
+                                    : 'Started ' + esc(dayLong(t.start_date)) + (t.last_tick ? ' · last tick ' + esc(dayLong(t.last_tick)) : '')) + '</div>' +
+        '<div class="meter"><i style="width:' + progress(c) + '%"></i></div>' +
+        '<div class="meta">' + (c.trainer||0) + ' of ' + (c.lines||0) + ' lines signed by trainer</div></button>';
+    }).join('') : '<div class="empty">' + (S.me.editor ? 'No training sheets for ' + esc(stLabel(S.station)) + ' yet. Make one with the button above.'
+        : 'You are not on a training sheet for ' + esc(stLabel(S.station)) + '. Chef Danilo, Chef Antonio or Chef Andrea make them.') + '</div>') +
+    '<div class="hint">Every section has its own list. A signed-off sheet stays here on record.</div></div>';
+}
+function personOpts(sel, id){
+  return '<option value="">Choose…</option>' + (S.people || []).map(function(p){
+    return '<option value="' + p.id + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.name) + (p.designation ? ' — ' + esc(p.designation) : '') + '</option>'; }).join('');
+}
+function drawNew(){
+  var p = S.prep, today = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+  return barHtml('New training sheet', stLabel(S.station)) +
+    '<form class="body" id="fnew">' + msgs() +
+    '<div class="field"><label for="f-trainee">Trainee</label><select id="f-trainee" required>' + personOpts(S.nv && S.nv.trainee) + '</select></div>' +
+    '<div class="field"><label for="f-trainer">Trainer</label><select id="f-trainer" required>' + personOpts(S.nv && S.nv.trainer) + '</select></div>' +
+    '<div class="field"><label for="f-start">Start</label><input id="f-start" class="in" type="date" value="' + esc((S.nv && S.nv.start) || today) + '"></div>' +
+    '<div class="from">' + (p ? 'Starts from the <b>' + esc(stLabel(S.station)) + '</b> prep list today:<br><b>' + p.dishes + '</b> dishes · <b>' + p.comps +
+       '</b> components · plus one <i>Assembly of the plate</i> line per dish = <b>' + (p.dishes + p.comps) + '</b> lines.<br>'
+       : 'Reading the prep list…<br>') +
+      'You can change any line on this sheet. The prep list itself is never touched.</div>' +
+    '<div class="acts"><button class="btn ghost" type="button" id="cancel">Cancel</button><button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Create sheet</button></div></form>';
+}
+function dayBlocks(groups){
+  var out = [], by = {};
+  groups.forEach(function(g){ var k = g.day || ''; (by[k] = by[k] || []).push(g); });
+  DAYS.concat(['']).forEach(function(k){ if (by[k]) out.push({ day:k, groups:by[k] }); });
+  return out;
+}
+function canTick(line, col){
+  var d = S.sheet, m = d.me;
+  if (d.sheet.status === 'signed') return false;
+  if (col === 'trainee') return m.trainee || m.trainer || m.editor;
+  return m.trainer || m.editor;
+}
+function drawSheet(){
+  var d = S.sheet, t = d.sheet, c = d.counts || {}, signed = t.status === 'signed';
+  var blocks = dayBlocks(d.groups || []);
+  var html = barHtml(t.trainee_name + ' · ' + stLabel(t.station_key), "Training program · Roberto's DIFC") +
+    '<div class="head"><div><div class="k">Trainee</div><div class="v">' + esc(t.trainee_name) + '<small>' + esc(t.trainee_role) + '</small></div></div>' +
+    '<div><div class="k">Trainer</div><div class="v">' + esc(t.trainer_name) + '<small>' + esc(t.trainer_role) + '</small></div></div>' +
+    '<div class="prog"><span>' + (c.trainer||0) + ' of ' + (c.lines||0) + ' signed by trainer · started ' + esc(dayLong(t.start_date)) + '</span>' +
+    '<div class="meter"><i style="width:' + progress(c) + '%"></i></div></div></div>' +
+    (S.err || S.ok ? '<div class="body" style="padding-bottom:0">' + msgs() + '</div>' : '');
+  if (!(d.groups || []).length) html += '<div class="body"><div class="empty">This sheet has no lines yet.' + (d.me.editor ? ' Tap Edit sheet to add some.' : '') + '</div></div>';
+  blocks.forEach(function(b){
+    html += '<div class="day">' + (b.day ? DAYNAME[b.day] : (blocks.length > 1 ? 'Any day' : '')) + '</div>';
+    b.groups.forEach(function(g){
+      var n = g.lines.length, on = g.lines.filter(function(l){ return l.trainer_at; }).length;
+      html += '<div class="dish"><h3>' + esc(g.name) + ' <small>' + on + ' / ' + n + '</small></h3>' +
+        '<div class="colhead"><span>Line</span><span>Trainee</span><span>Trainer</span></div>' +
+        g.lines.map(function(l){
+          var open = S.openLine === l.id;
+          return '<div class="row' + (l.is_assembly ? ' asm' : '') + '">' +
+            '<button class="n" type="button" data-line="' + l.id + '" aria-expanded="' + open + '">' + esc(l.name) + '</button>' +
+            '<button class="tick' + (l.trainee_at ? ' on' : '') + '" type="button" data-tick="trainee" data-id="' + l.id + '" aria-pressed="' + !!l.trainee_at + '"' +
+              (canTick(l,'trainee') ? '' : ' disabled') + ' aria-label="Trainee: ' + esc(l.name) + '" title="' + (l.trainee_at ? 'Done by the trainee ' + esc(dayLong(l.trainee_at)) : 'Trainee') + '">' + (l.trainee_at ? esc(dmy(l.trainee_at)) : '') + '</button>' +
+            '<button class="tick' + (l.trainer_at ? ' on' : '') + '" type="button" data-tick="trainer" data-id="' + l.id + '" aria-pressed="' + !!l.trainer_at + '"' +
+              (canTick(l,'trainer') ? '' : ' disabled') + ' aria-label="Trainer: ' + esc(l.name) + '" title="' + (l.trainer_at ? 'Signed by ' + esc(l.trainer_by) + ' · ' + esc(dayLong(l.trainer_at)) : 'Trainer') + '">' + (l.trainer_at ? esc(initials(l.trainer_by)) : '') + '</button>' +
+            (l.comment && !open ? '<div class="note"><b>' + esc(l.comment_by) + ':</b> ' + esc(l.comment) + '</div>' : '') +
+            (open ? '<div class="cbox">' + (l.trainer_at ? '<div class="hint">Trainer’s tick: ' + esc(l.trainer_by) + ' · ' + esc(dayLong(l.trainer_at)) + '</div>' : '') +
+               (signed ? (l.comment ? '<div class="note"><b>' + esc(l.comment_by) + ':</b> ' + esc(l.comment) + '</div>' : '<div class="hint">No comment.</div>')
+                : '<textarea id="c-' + l.id + '" placeholder="A comment on this line — e.g. again tomorrow, portioning uneven">' + esc(l.comment || '') + '</textarea>' +
+                  '<div class="acts"><button class="btn sm" type="button" data-csave="' + l.id + '">Save comment</button><button class="btn sm ghost" type="button" data-line="' + l.id + '">Close</button></div>') + '</div>' : '') +
+            '</div>';
+        }).join('') + '</div>';
+    });
+  });
+  var left = (c.lines||0) - (c.trainer||0);
+  html += signed
+    ? '<div class="signoff done"><div class="k">Executive Chef sign-off</div><div><b>Signed off by ' + esc(t.signed_by) + '</b> · ' + esc(dayLong(t.signed_at)) + '</div></div>'
+    : '<div class="signoff"><div class="k">Executive Chef sign-off</div>' +
+      '<div class="hint">Opens when every line has the trainer’s tick. Chef Danilo signs, and the sheet moves to <i>Signed off</i>.</div>' +
+      (d.me.exec
+        ? (S.confirm === 'sign'
+            ? '<div class="acts"><span>Sign off ' + esc(t.trainee_name) + ' on ' + esc(stLabel(t.station_key)) + '?</span><button class="btn sm" type="button" id="signyes">Yes, sign off</button><button class="btn sm ghost" type="button" id="signno">No</button></div>'
+            : '<button class="btn' + (left ? ' ghost' : '') + '" type="button" id="sign"' + (left ? ' disabled' : '') + '>Sign off as ' + esc(S.me.name) + ' · ' + (c.trainer||0) + ' of ' + (c.lines||0) + '</button>')
+        : '<div class="hint">' + (left ? left + ' line' + (left === 1 ? '' : 's') + ' still to be signed by the trainer.' : 'Every line is signed. Waiting for Chef Danilo.') + '</div>') + '</div>';
+  html += '<div class="foot"><button class="btn ghost" type="button" id="back">‹ All sheets</button>' +
+    (d.me.editor && !signed ? '<button class="btn ghost" type="button" id="edit">Edit sheet</button>' : '') +
+    '<button class="btn ghost" type="button" id="print">Print / PDF</button></div>';
+  return html;
+}
+function drawEdit(){
+  var d = S.sheet, t = d.sheet;
+  var html = barHtml('Edit · ' + t.trainee_name + ' · ' + stLabel(t.station_key), 'Changes stay on this sheet. The prep list is not changed.') +
+    (S.err || S.ok ? '<div class="body" style="padding-bottom:0">' + msgs() + '</div>' : '') +
+    '<div class="panel"><div class="k">People</div>' +
+      '<div class="field"><label for="e-trainee">Trainee</label><select id="e-trainee">' + personOpts(t.trainee_id) + '</select></div>' +
+      '<div class="field"><label for="e-trainer">Trainer</label><select id="e-trainer">' + personOpts(t.trainer_id) + '</select></div></div>';
+  (d.groups || []).forEach(function(g){
+    var cf = S.confirm === 'g:' + g.id;
+    html += '<div class="dish edit" data-group="' + g.id + '">' +
+      '<div class="gname"><input class="in" id="gn-' + g.id + '" value="' + esc(g.name) + '" aria-label="Dish or topic name" data-gname="' + g.id + '">' +
+        '<button class="x" type="button" data-gdel="' + g.id + '" aria-label="Remove ' + esc(g.name) + '">×</button></div>' +
+      (cf ? '<div class="panel" style="margin:8px 12px"><div class="confirm">Remove <b>' + esc(g.name) + '</b> and its ' + g.lines.length + ' lines from this sheet?' +
+             '<button class="btn sm" type="button" data-gdelyes="' + g.id + '">Remove</button><button class="btn sm ghost" type="button" data-cancel>Keep it</button></div></div>' : '') +
+      '<div class="daypick" role="group" aria-label="Training day">' + DAYS.map(function(k){
+        return '<button class="tab' + (g.day === k ? ' on' : '') + '" type="button" data-day="' + k + '" data-g="' + g.id + '" aria-pressed="' + (g.day === k) + '">' + k + '</button>'; }).join('') + '</div>' +
+      '<div class="lines" data-lines="' + g.id + '">' +
+      g.lines.map(function(l, i){
+        var cfl = S.confirm === 'l:' + l.id, ed = S.editLine === l.id;
+        return '<div class="row' + (l.is_assembly ? ' asm' : '') + '" data-row="' + i + '" data-lid="' + l.id + '" title="Drag to reorder">' +
+          '<span class="grip" aria-hidden="true">⠿</span>' +
+          (ed ? '<input class="in" id="ln-' + l.id + '" value="' + esc(l.name) + '" data-lname="' + l.id + '" aria-label="Line name">'
+              : '<button class="n" type="button" data-lren="' + l.id + '">' + esc(l.name) + '</button>') +
+          '<button class="x" type="button" data-ldel="' + l.id + '" aria-label="Remove ' + esc(l.name) + '">×</button>' +
+          (cfl ? '<div class="confirm">Remove this line' + (l.trainer_at || l.trainee_at ? ' and its ticks' : '') + '?<button class="btn sm" type="button" data-ldelyes="' + l.id + '">Remove</button><button class="btn sm ghost" type="button" data-cancel>Keep it</button></div>' : '') +
+          '</div>';
+      }).join('') + '</div>' +
+      '<form class="addrow" data-addto="' + g.id + '"><input class="in" id="al-' + g.id + '" placeholder="+ Add a line" aria-label="New line for ' + esc(g.name) + '"><button class="btn sm" type="submit">Add</button></form></div>';
+  });
+  var nd = d.new_dishes || [];
+  html += '<div class="panel"><div class="k">Add a dish or topic</div>' +
+    (nd.length ? '<div class="hint">New on the menu — on the ' + esc(stLabel(t.station_key)) + ' prep list but not on this sheet:</div>' +
+       nd.map(function(x){ return '<div class="newd"><span>' + esc(x.name) + '</span><button class="btn sm ghost" type="button" data-adddish="' + x.id + '">Add</button></div>'; }).join('') : '') +
+    '<form class="addrow" id="fgroup" style="padding:0;border:none"><input class="in" id="ng" placeholder="e.g. Fish display, Closing down the section" aria-label="New dish or topic"><button class="btn sm" type="submit">Add</button></form>' +
+    '<div class="hint">Drag a line by any part of the row to move it. Tap a line’s name to rename it.</div></div>' +
+    '<div class="panel">' + (S.confirm === 'archive'
+        ? '<div class="confirm">Take this sheet off the list? Its ticks are kept in the database.<button class="btn sm" type="button" id="archyes">Take it off</button><button class="btn sm ghost" type="button" data-cancel>Keep it</button></div>'
+        : '<button class="link" type="button" id="arch">Take this sheet off the list</button>') + '</div>' +
+    '<div class="foot"><button class="btn" type="button" id="done">Done</button></div>';
+  return html;
+}
+
+/* ── actions ── */
+function fail(e){ S.err = say(e); S.ok = ''; draw(); }
+function openSheet(id){
+  S.err = ''; S.ok = ''; S.openLine = null; S.confirm = null;
+  return loadSheet(id).then(function(){ S.view = 'sheet'; window.scrollTo(0,0); draw(); }).catch(fail);
+}
+function refreshSheet(){ return loadSheet(S.sheet.sheet.id).then(draw).catch(fail); }
+function findLine(id){
+  var hit = null; (S.sheet.groups || []).forEach(function(g){ g.lines.forEach(function(l){ if (l.id === id) hit = l; }); }); return hit;
+}
+function tick(id, col){
+  var l = findLine(id); if (!l) return;
+  var on = col === 'trainee' ? !l.trainee_at : !l.trainer_at, now = new Date().toISOString();
+  var before = { a:l.trainee_at, b:l.trainer_at, by:l.trainer_by, c:S.sheet.counts && S.sheet.counts.trainer };
+  if (col === 'trainee') l.trainee_at = on ? now : null;
+  else { l.trainer_at = on ? now : null; l.trainer_by = on ? S.me.name : null; S.sheet.counts.trainer += on ? 1 : -1; }
+  S.err = ''; S.ok = ''; draw();
+  post('train_tick', { p_emp:S.emp, p_line:id, p_col:col, p_on:on }).then(function(r){
+    if (r && r.counts) S.sheet.counts = r.counts;
+    draw();
+  }).catch(function(e){
+    l.trainee_at = before.a; l.trainer_at = before.b; l.trainer_by = before.by; if (before.c != null) S.sheet.counts.trainer = before.c;
+    fail(e);
+  });
+}
+function edit(op, args, after){
+  S.err = ''; S.ok = '';
+  return post('train_edit', { p_emp:S.emp, p_sheet:S.sheet.sheet.id, p_op:op, p_args:args || {} })
+    .then(function(r){ return loadSheet(S.sheet.sheet.id).then(function(){ if (after) after(r); draw(); }); })
+    .catch(fail);
+}
+
+document.addEventListener('submit', function(e){
+  e.preventDefault();
+  var f = e.target;
+  if (f.id === 'fsign') return signIn($('emp').value);
+  if (f.id === 'fnew') {
+    var te = $('f-trainee').value, tr = $('f-trainer').value, st = $('f-start').value;
+    S.nv = { trainee:te, trainer:tr, start:st };
+    if (!te || !tr) { S.err = 'Choose the trainee and the trainer.'; return draw(); }
+    if (te === tr) { S.err = say('same_person'); return draw(); }
+    S.busy = true; S.err = ''; draw();
+    return post('train_create', { p_emp:S.emp, p_station:S.station, p_trainee:te, p_trainer:tr, p_start:st || null })
+      .then(function(r){ S.nv = null; S.busy = false; return openSheet(r.id); })
+      .catch(function(err){ S.busy = false; fail(err); });
+  }
+  if (f.dataset.addto) {
+    var inp = $('al-' + f.dataset.addto), v = inp.value.trim();
+    if (!v) return;
+    return edit('add_line', { group:f.dataset.addto, name:v }, function(){ var el = $('al-' + f.dataset.addto); if (el) { el.value = ''; } });
+  }
+  if (f.id === 'fgroup') {
+    var g = $('ng').value.trim(); if (!g) return;
+    return edit('add_group', { name:g }, function(){ S.ok = '“' + g + '” added at the end of the sheet.'; var el = $('ng'); if (el) el.value = ''; });
+  }
+});
+
+document.addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b || b.disabled) return;
+  var ds = b.dataset;
+  if (b.id === 'out') return signOut();
+  if (ds.st) { S.station = ds.st; S.list = null; S.err = ''; S.ok = '';
+    try { history.replaceState(null, '', '?embed=1&station=' + encodeURIComponent(S.station)); } catch(x){}
+    return loadList().then(draw).catch(fail); }
+  if (b.id === 'new') {
+    S.view = 'new'; S.err = ''; S.ok = ''; S.prep = null; draw();
+    return Promise.all([S.people ? null : get('train_people', { p_emp:S.emp }).then(function(p){ S.people = p; }), loadPrep()]).then(draw).catch(fail);
+  }
+  if (b.id === 'cancel') { S.view = 'list'; S.err = ''; return draw(); }
+  if (ds.open) return openSheet(ds.open);
+  if (b.id === 'back') { S.view = 'list'; S.err = ''; S.ok = ''; return loadList().then(draw).catch(fail); }
+  if (ds.tick) return tick(ds.id, ds.tick);
+  if (ds.line) { S.openLine = S.openLine === ds.line ? null : ds.line; return draw(); }
+  if (ds.csave) {
+    var txt = $('c-' + ds.csave).value;
+    return post('train_comment', { p_emp:S.emp, p_line:ds.csave, p_text:txt }).then(function(){
+      var l = findLine(ds.csave); if (l) { l.comment = txt.trim() || null; l.comment_by = txt.trim() ? S.me.name : null; }
+      S.openLine = null; S.ok = 'Comment saved.'; draw(); }).catch(fail);
+  }
+  if (b.id === 'sign') { S.confirm = 'sign'; return draw(); }
+  if (b.id === 'signno' || 'cancel' in ds) { S.confirm = null; return draw(); }
+  if (b.id === 'signyes') return post('train_signoff', { p_emp:S.emp, p_sheet:S.sheet.sheet.id }).then(function(){
+      S.confirm = null; S.ok = 'Signed off.'; return refreshSheet(); }).catch(fail);
+  if (b.id === 'print') return window.print();
+  if (b.id === 'edit') {
+    S.view = 'edit'; S.err = ''; S.ok = ''; S.confirm = null; S.editLine = null; window.scrollTo(0,0); draw();
+    if (!S.people) get('train_people', { p_emp:S.emp }).then(function(p){ S.people = p; draw(); }).catch(fail);
+    return;
+  }
+  if (b.id === 'done') { S.view = 'sheet'; S.err = ''; S.ok = ''; S.confirm = null; return draw(); }
+  if (ds.day) { var g = (S.sheet.groups||[]).filter(function(x){ return x.id === ds.g; })[0];
+    return edit('set_day', { id:ds.g, day: g && g.day === ds.day ? '' : ds.day }); }
+  if (ds.gdel) { S.confirm = 'g:' + ds.gdel; return draw(); }
+  if (ds.gdelyes) { S.confirm = null; return edit('remove_group', { id:ds.gdelyes }); }
+  if (ds.ldel) { S.confirm = 'l:' + ds.ldel; return draw(); }
+  if (ds.ldelyes) { S.confirm = null; return edit('remove_line', { id:ds.ldelyes }); }
+  if (ds.lren) { if (dragMoved) return; S.editLine = ds.lren; draw(); var el = $('ln-' + ds.lren); if (el) { el.focus(); el.select(); } return; }
+  if (ds.adddish) return edit('add_dish', { dish:+ds.adddish }, function(){ S.ok = 'Added at the end of the sheet.'; });
+  if (b.id === 'arch') { S.confirm = 'archive'; return draw(); }
+  if (b.id === 'archyes') return post('train_edit', { p_emp:S.emp, p_sheet:S.sheet.sheet.id, p_op:'archive', p_args:{} })
+      .then(function(){ S.view = 'list'; S.sheet = null; S.confirm = null; S.ok = 'Sheet taken off the list.'; return loadList(); }).then(draw).catch(fail);
+});
+// Renames save when the field is left (or Enter), so a half-typed word is never lost to a redraw.
+document.addEventListener('change', function(e){
+  var el = e.target, ds = el.dataset;
+  if (ds.gname) { var v = el.value.trim(); if (v) edit('rename_group', { id:ds.gname, name:v }); return; }
+  if (ds.lname) { var w = el.value.trim(); S.editLine = null; if (w) edit('rename_line', { id:ds.lname, name:w }); else draw(); return; }
+  if (el.id === 'e-trainee' || el.id === 'e-trainer') {
+    var te = $('e-trainee').value, tr = $('e-trainer').value;
+    if (te && tr) edit('set_people', { trainee:te, trainer:tr }, function(){ S.ok = 'People updated.'; });
+  }
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Enter' && e.target.dataset && e.target.dataset.lname) { e.preventDefault(); e.target.blur(); }
+  if (e.key === 'Escape' && S.editLine) { S.editLine = null; draw(); }
+});
+
+/* ── drag to reorder (edit screen) ──
+   The same drag as the Fish Display / Market List / Calendar: press anywhere on the row, it
+   lifts after 6px of travel (under that it is still a tap — tap the name to rename), the row
+   is glued to the finger, the others slide aside, and nothing in the DOM moves until the drop.
+   The drop is ONE write: the moved line takes the midpoint of its new neighbours' positions. */
+var drag = null, dragMoved = false;
+function scroller(){ return document.scrollingElement || document.documentElement; }
+document.addEventListener('pointerdown', function(e){
+  if (S.view !== 'edit' || e.button > 0) return;
+  var row = e.target.closest('.edit .row'); if (!row) return;
+  if (e.target.closest('input,.x,.confirm')) return;
+  var box = row.parentNode, rows = [].slice.call(box.children), sy = scroller().scrollTop;
+  drag = { row:row, box:box, rows:rows, idx:rows.indexOf(row), y0:e.clientY, sy0:sy, live:false, pid:e.pointerId,
+    geo:rows.map(function(r){ var b = r.getBoundingClientRect(); return { top:b.top + sy, h:b.height }; }) };
+  dragMoved = false;
+});
+document.addEventListener('pointermove', function(e){
+  if (!drag || e.pointerId !== drag.pid) return;
+  var dy = e.clientY - drag.y0 + (scroller().scrollTop - drag.sy0);
+  if (!drag.live) {
+    if (Math.abs(e.clientY - drag.y0) < 6) return;
+    drag.live = true; dragMoved = true;
+    try { drag.row.setPointerCapture(e.pointerId); } catch(x){}
+    drag.row.classList.add('lift');
+    drag.rows.forEach(function(r){ if (r !== drag.row) r.classList.add('shift'); });
+  }
+  e.preventDefault();
+  drag.dy = dy; drag.cy = e.clientY;
+  if (!drag.raf) drag.raf = requestAnimationFrame(dragFrame);
+}, { passive:false });
+function dragFrame(){
+  if (!drag) return; drag.raf = null;
+  var g = drag.geo, me = g[drag.idx], first = g[0], last = g[g.length - 1];
+  var centre = me.top + me.h / 2 + drag.dy;
+  centre = Math.max(first.top, Math.min(last.top + last.h, centre));  // clamp to the column's edges
+  var slot = 0;
+  g.forEach(function(x, i){ if (i !== drag.idx && x.top + x.h / 2 < centre) slot++; });
+  drag.slot = slot;
+  drag.row.style.transform = 'translateY(' + drag.dy + 'px)';
+  drag.rows.forEach(function(r, i){
+    if (i === drag.idx) return;
+    var shift = 0;
+    if (i > drag.idx && i <= slot) shift = -me.h;
+    if (i < drag.idx && i >= slot) shift = me.h;
+    r.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+  });
+  // edge auto-scroll
+  var vh = window.innerHeight, sp = 0;
+  if (drag.cy < 70) sp = -12; else if (drag.cy > vh - 70) sp = 12;
+  if (sp) { scroller().scrollTop += sp; drag.dy += sp; drag.raf = requestAnimationFrame(dragFrame); }
+}
+function dragEnd(e){
+  if (!drag || (e && e.pointerId !== drag.pid)) return;
+  var d = drag; drag = null;
+  if (d.raf) cancelAnimationFrame(d.raf);
+  d.rows.forEach(function(r){ r.style.transform = ''; r.classList.remove('lift','shift'); });
+  if (!d.live || d.slot == null || d.slot === d.idx) { setTimeout(function(){ dragMoved = false; }, 400); return; }
+  var gid = d.box.dataset.lines, g = (S.sheet.groups || []).filter(function(x){ return x.id === gid; })[0];
+  if (!g) return;
+  var lines = g.lines.slice(), moved = lines.splice(d.idx, 1)[0];
+  lines.splice(d.slot, 0, moved);
+  var i = d.slot, prev = lines[i - 1], next = lines[i + 1];
+  var pos = prev && next ? (Number(prev.pos) + Number(next.pos)) / 2 : prev ? Number(prev.pos) + 10 : next ? Number(next.pos) - 10 : 10;
+  g.lines = lines; moved.pos = pos; draw();                    // show it where it was dropped at once
+  setTimeout(function(){ dragMoved = false; }, 400);
+  edit('move_line', { id:moved.id, pos:pos });
+}
+document.addEventListener('pointerup', dragEnd);
+document.addEventListener('pointercancel', dragEnd);
+document.addEventListener('keydown', function(e){          // a keyboard's drag: Alt+↑/↓ on a focused row name
+  if (S.view !== 'edit' || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  var row = e.target.closest && e.target.closest('.edit .row'); if (!row) return;
+  var gid = row.parentNode.dataset.lines, g = (S.sheet.groups || []).filter(function(x){ return x.id === gid; })[0];
+  var idx = +row.dataset.row, to = idx + (e.key === 'ArrowUp' ? -1 : 1);
+  if (!g || to < 0 || to >= g.lines.length) return;
+  e.preventDefault();
+  var a = g.lines[idx], b2 = g.lines[to], nb = g.lines[to + (to > idx ? 1 : -1)];
+  var pos = nb ? (Number(b2.pos) + Number(nb.pos)) / 2 : Number(b2.pos) + (to > idx ? 10 : -10);
+  edit('move_line', { id:a.id, pos:pos }, function(){ var el = document.querySelector('[data-lren="' + a.id + '"]'); if (el) el.focus(); });
+});
+
+/* ── keep two phones in step: the trainee and the trainer tick on different phones ── */
+function freshen(){
+  if (!S.me || document.hidden || drag || S.busy) return;
+  if (S.view === 'sheet' && !S.openLine && !S.confirm) loadSheet(S.sheet.sheet.id).then(draw).catch(function(){});
+  else if (S.view === 'list') loadList().then(draw).catch(function(){});
+}
+setInterval(freshen, 30000);
+document.addEventListener('visibilitychange', freshen);
+
+/* ── start ── */
+loadStations().then(function(){
+  var emp = remembered();
+  if (emp) return signIn(emp);
+  draw();
+}).catch(function(e){ S.err = say(e); draw(); });
+</script>
+</body>
+</html>
