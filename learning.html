@@ -64,6 +64,15 @@ h3{font-family:var(--display);font-weight:400;color:var(--vino);font-size:22px;m
 .qtext{font-size:19px;line-height:1.4;font-weight:500}
 .choice{display:block;width:100%;text-align:left;padding:14px;border:1px solid var(--sabbia-dark);border-radius:8px;background:var(--paper);cursor:pointer;font-size:15.5px;line-height:1.4;min-height:52px}
 .choice.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+/* Photographs of the plate beside its name: nobody on the team knows "CMS Cera Flat
+   rectangular plate 320x120 mm", everybody knows it when they see it (Chef Andrea, 22 Sep 2026). */
+.choice.pic{display:flex;align-items:center;gap:14px;padding:10px 14px}
+.shots{display:flex;gap:6px;flex:none}
+.shots img{width:84px;height:84px;object-fit:contain;background:#fff;border:1px solid var(--sabbia-light);border-radius:6px;display:block}
+.res .shots img,.item .shots img{width:64px;height:64px}
+.pline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.nopic{font-size:12.5px;color:var(--below);background:var(--below-bg);border-radius:4px;padding:2px 7px}
+@media (max-width:480px){.shots img{width:64px;height:64px}}
 .bar{height:6px;background:var(--sabbia-light);border-radius:3px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--oliva)}
 .score{font-family:var(--display);font-size:44px;color:var(--vino);line-height:1}
@@ -131,6 +140,12 @@ var S = { view:'home', emp:null, me:null, topics:null, topic:null, pages:[], pi:
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function $(id){ return document.getElementById(id); }
+// shots = [{name, thumb}] from the database, one per piece of crockery in the answer.
+function shotsHtml(sh){
+  if (!sh || !sh.length) return '';
+  return '<span class="shots">' + sh.map(function(x){
+    return '<img src="' + esc(x.thumb) + '" alt="' + esc(x.name) + '" title="' + esc(x.name) + '" loading="lazy">'; }).join('') + '</span>';
+}
 
 function api(path, opts){
   opts = opts || {};
@@ -267,7 +282,9 @@ function drawTest(){
     '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + '</div>' +
     '<div class="qtext">' + esc(q.q) + '</div>' +
     q.choices.map(function(c, i){
-      return '<button class="choice' + (pick === c ? ' on' : '') + '" data-pick="' + i + '" aria-pressed="' + (pick === c) + '">' + esc(c) + '</button>';
+      var sh = q.shots && q.shots[c];
+      return '<button class="choice' + (sh ? ' pic' : '') + (pick === c ? ' on' : '') + '" data-pick="' + i + '" aria-pressed="' + (pick === c) + '">' +
+        shotsHtml(sh) + '<span>' + esc(c) + '</span></button>';
     }).join('') +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
     '<div class="pager"><span>' + (S.qi > 0 ? '<button class="btn ghost sm" id="qprev">‹ Back</button>' : '') + '</span>' +
@@ -289,12 +306,12 @@ function drawResult(){
     '<div class="msg ' + (r.passed ? 'ok' : 'bad') + '">' + (r.passed ? 'Passed.' : 'Not passed this time — 4 right answers are needed. You can take it again: the questions change.') + '</div></div>' +
     (wrong.length ? '<h3>What to learn from this</h3>' + wrong.map(function(x){
       return '<div class="res"><div class="q">' + esc(x.q) + '</div>' +
-        '<div class="you">You answered: ' + esc(x.picked || '—') + '</div>' +
-        '<div class="ans">Right answer: ' + esc(x.answer) + '</div>' +
+        '<div class="you pline">' + shotsHtml(x.pshot) + '<span>You answered: ' + esc(x.picked || '—') + '</span></div>' +
+        '<div class="ans pline">' + shotsHtml(x.shot) + '<span>Right answer: ' + esc(x.answer) + '</span></div>' +
         (x.why ? '<div class="why">' + esc(x.why) + '</div>' : '') + '</div>';
     }).join('') : '') +
     (right.length ? '<details><summary>' + right.length + ' you got right</summary>' + right.map(function(x){
-      return '<div class="res right"><div class="q">' + esc(x.q) + '</div><div class="ans">' + esc(x.answer) + '</div></div>';
+      return '<div class="res right"><div class="q">' + esc(x.q) + '</div><div class="ans pline">' + shotsHtml(x.shot) + '<span>' + esc(x.answer) + '</span></div></div>';
     }).join('') + '</details>' : '') +
     '<div class="acts"><button class="btn" data-busy id="again">Take it again</button><button class="btn ghost" id="home">Back to topics</button></div>';
 }
@@ -306,9 +323,35 @@ function chefSignIn(){
   if (!emp && !code) emp = S.emp || '';
   S.cmsg = ''; setBusy(true);
   post('learn_queue', { p_emp:emp || null, p_code:code || null }).then(function(q){
-    S.chef = { emp:emp || null, code:code || null }; S.cq = q; S.code = code;
+    S.chef = { emp:emp || null, code:code || null }; S.cq = q; S.code = code; loadCrockery();
     S.ctab = q.role.role === 'francesco' ? 'approve' : (q.role.role === 'checker' ? 'check' : 'write');
   }).catch(function(e){ S.cmsg = say(e); }).then(function(){ setBusy(false); draw(); });
+}
+// The same rule as learn_plate_key()/learn_plate_shot() in the database: split on commas,
+// trim, lower-case, one space. Read from the Crockery table, never a copy of it.
+function plateKey(t){ return String(t == null ? '' : t).trim().replace(/\s+/g, ' ').toLowerCase(); }
+function loadCrockery(){
+  if (S.crock) return;
+  S.crock = {};
+  api('crockery?select=name,thumb&archived=is.false').then(function(rows){
+    var m = {};
+    (rows || []).sort(function(a, b){ return a.name < b.name ? -1 : 1; }).forEach(function(r){
+      var k = plateKey(r.name); if (r.thumb && !m[k]) m[k] = { name:r.name, thumb:r.thumb }; });
+    S.crock = m; if (S.view === 'chef') draw();
+  }).catch(function(){ S.crock = null; });
+}
+function plateShots(t){
+  var parts = String(t == null ? '' : t).split(',').map(function(p){ return p.trim(); }).filter(Boolean);
+  if (!parts.length || !S.crock) return null;
+  var out = parts.map(function(p){ return S.crock[plateKey(p)] || null; });
+  return out.some(function(x){ return !x; }) ? null : out;
+}
+// A plate question with a name Crockery does not know shows the team no pictures at all,
+// so the checker is told which name to fix.
+function plateLine(cls, mark, t, isPlate){
+  var sh = isPlate ? plateShots(t) : null;
+  return '<div class="' + cls + (isPlate ? ' pline' : '') + '">' + shotsHtml(sh) + '<span>' + mark + ' ' + esc(t) + '</span>' +
+    (isPlate && !sh && S.crock && Object.keys(S.crock).length ? '<span class="nopic">no photo: not a Crockery name</span>' : '') + '</div>';
 }
 function reloadQueue(){
   return post('learn_queue', { p_emp:S.chef.emp, p_code:S.chef.code }).then(function(q){ S.cq = q; });
@@ -384,7 +427,7 @@ function nothingHere(want){
   return 'Nothing here.';
 }
 function drawItem(it){
-  var x = it.x, r = role(), id = x.id, editing = S.edit === id;
+  var x = it.x, r = role(), id = x.id, editing = S.edit === id, isPlate = it.k === 'q' && /^plate:/.test(x.gen_key || '');
   var meta = '<div class="meta"><b>' + esc(topicName(x.topic_id)) + '</b> · ' + (it.k === 'p' ? 'Page' : 'Question · ' + esc(LVL[x.level] || x.level)) +
     ' · ' + esc(SRC[x.source] || x.source) + ' · by ' + esc(x.written_by) +
     (x.checked_by ? ' · checked by ' + esc(x.checked_by) : '') + '</div>';
@@ -400,8 +443,8 @@ function drawItem(it){
       '<span class="lbl">Photo</span>' + (x.photo ? '<img src="' + esc(x.photo) + '" alt="" style="max-width:220px;border-radius:6px">' : '') +
       '<input type="file" id="e-p" accept="image/*"></div>';
   else body = it.k === 'q'
-    ? '<div class="iq">' + esc(x.q) + '</div><div class="ia">✓ ' + esc(x.answer) + '</div>' +
-      x.wrong.map(function(w){ return '<div class="iw">✗ ' + esc(w) + '</div>'; }).join('') +
+    ? '<div class="iq">' + esc(x.q) + '</div>' + plateLine('ia', '✓', x.answer, isPlate) +
+      x.wrong.map(function(w){ return plateLine('iw', '✗', w, isPlate); }).join('') +
       (x.why ? '<div class="iw"><i>Why: ' + esc(x.why) + '</i></div>' : '')
     : '<h3>' + esc(x.title) + '</h3>' + (x.photo ? '<img src="' + esc(x.photo) + '" alt="" style="max-width:260px;border-radius:6px">' : '') +
       '<div class="body" style="font-size:14px">' + esc(x.body) + '</div>';
