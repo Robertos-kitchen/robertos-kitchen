@@ -209,7 +209,7 @@ create table if not exists public.interview_actions (
   id               uuid primary key default gen_random_uuid(),
   candidate_id     uuid references public.interview_candidates(id) on delete set null,
   event            text not null default '',
-  action           text not null check (action in ('reject','shortlist','hr')),
+  action           text not null check (action in ('reject','shortlist','future','hr')),
   candidate_name   text not null,
   candidate_email  text not null,
   position         text not null,
@@ -653,3 +653,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- 18 Sep 2026: a folder inside a round ("Monday 21st interview") is the wave column with a typed name — 80 characters.
+
+-- 24 Sep 2026: "Keep for the future" email (Chef Andrea, Tell us 70e28770) — run on the live DB:
+-- alter table public.interview_actions drop constraint interview_actions_action_check,
+--   add constraint interview_actions_action_check check (action = any (array['reject','shortlist','future','hr']));

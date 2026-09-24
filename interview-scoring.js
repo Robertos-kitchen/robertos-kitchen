@@ -182,7 +182,7 @@ var ivsShelfQ = '';        // its search
 var ivsShelfTab = 'archive';   // archive | database | all
 var ivsShelfEdit = null;   // { id, to, note } while a note is being written (sheet or database screen)
 var IVS_SHELVES = { database: 'CV database', archive: 'Archive — future hire' };
-var IVS_STAGES = [['new','New'],['scoring','Being scored'],['decide','To decide'],['shortlist','Shortlisted'],['hr','Sent to HR'],['reject','Rejected'],['noshow','No show']];
+var IVS_STAGES = [['new','New'],['scoring','Being scored'],['decide','To decide'],['shortlist','Shortlisted'],['hr','Sent to HR'],['future','Kept for the future'],['reject','Rejected'],['noshow','No show']];
 var ivsNoShows = [];       // every candidate marked no-show, in ANY round — the red flag on a re-application
 
 var ivsCode  = null;
@@ -229,6 +229,7 @@ var ivsEvT = null;        // debounce for the form's typed fields
 var IVS_ACTIONS = {
   reject:    { btn:'Reject',                 done:'Rejected',    title:'Reject — email the candidate' },
   shortlist: { btn:'Shortlist',              done:'Shortlisted', title:'Shortlist — email the candidate' },
+  future:    { btn:'Keep for the future',    done:'Kept for the future', title:'Keep for the future — email the candidate' },
   hr:        { btn:'Send to HR for hiring',  done:'Sent to HR',  title:'Send to HR for hiring' }
 };
 
@@ -278,7 +279,7 @@ function ivsSetByKey(k){ return ivsSets.filter(function(x){ return x.key === k; 
 // where a candidate stands, from what has happened — nobody types a status
 function ivsStage(r){
   var sent = ivsActsFor(r.id).filter(function(a){ return a.status === 'sent'; });
-  if (sent.length){ var last = sent[sent.length - 1].action; return last === 'hr' ? 'hr' : last === 'reject' ? 'reject' : 'shortlist'; }
+  if (sent.length){ var last = sent[sent.length - 1].action; return last === 'hr' ? 'hr' : last === 'reject' ? 'reject' : last === 'future' ? 'future' : 'shortlist'; }
   if (r.no_show_at) return 'noshow';
   var c = ivsCalc(r);
   return c.done ? 'decide' : c.scored ? 'scoring' : 'new';
@@ -370,9 +371,9 @@ function ivsInjectCss(){
     '.ivaddm[hidden]{display:none}',
     '.ivaddm button{background:none;border:0;text-align:left;padding:0 12px;min-height:46px;border-radius:5px;font-family:"DM Sans",sans-serif;font-size:15px;color:var(--ik);cursor:pointer}',
     '.ivaddm button:hover{background:var(--isl)}',
-    '.ivdot.s-new{background:#b5a591}.ivdot.s-scoring{background:#c99a1e}.ivdot.s-decide{background:#a3261c}.ivdot.s-shortlist{background:#3e6b24}.ivdot.s-hr{background:var(--iv)}.ivdot.s-reject{background:#7a6a5a}.ivdot.s-noshow{background:#1f1a17}',
+    '.ivdot.s-new{background:#b5a591}.ivdot.s-scoring{background:#c99a1e}.ivdot.s-decide{background:#a3261c}.ivdot.s-shortlist{background:#3e6b24}.ivdot.s-hr{background:var(--iv)}.ivdot.s-reject{background:#7a6a5a}.ivdot.s-future{background:#2f5d73}.ivdot.s-noshow{background:#1f1a17}',
     '.ivspill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:20px;padding:5px 11px;white-space:nowrap;background:#efe7dc;color:#4a3a2a}',
-    '.ivspill.s-scoring{background:#f6e7b8;color:#4f3b00}.ivspill.s-decide{background:#f5dcd5;color:#6a1410}.ivspill.s-shortlist{background:#dce8cf;color:#2f4a1e}.ivspill.s-hr{background:var(--iv);color:#fff}.ivspill.s-reject{background:#e4dcd2;color:#3a2e24}.ivspill.s-noshow{background:#2a2320;color:#fff}',
+    '.ivspill.s-scoring{background:#f6e7b8;color:#4f3b00}.ivspill.s-decide{background:#f5dcd5;color:#6a1410}.ivspill.s-shortlist{background:#dce8cf;color:#2f4a1e}.ivspill.s-hr{background:var(--iv);color:#fff}.ivspill.s-reject{background:#e4dcd2;color:#3a2e24}.ivspill.s-future{background:#d6e6ee;color:#173848}.ivspill.s-noshow{background:#2a2320;color:#fff}',
     '.ivselbar{display:flex;align-items:center;gap:10px;margin:0 0 8px}',
     '.ivback{order:3;margin-left:auto;background:none;border:0;padding:0;min-height:40px;color:var(--iv);font-family:"DM Sans",sans-serif;font-size:14px;font-weight:600;text-decoration:underline;cursor:pointer}',
     '.ivback .m{display:none}.ivselsc{display:none}',
@@ -1116,7 +1117,7 @@ function ivsListHtml(){
   if (!hits.length) h += '<div class="ivempty">'+(ivsQ.trim() ? 'No candidate matches “'+ivsEsc(ivsQ.trim())+'”.' : 'No candidates here.')+'</div>';
   var groups = {}; hits.forEach(function(r){ var k = ivsStage(r); (groups[k] = groups[k] || []).push(r); });
   // what needs a decision first, then what is half-done, then the rest
-  ['decide','scoring','new','shortlist','hr','reject','noshow'].map(function(k){ return [k, ivsStageWord(k)]; }).forEach(function(st){
+  ['decide','scoring','new','shortlist','hr','future','reject','noshow'].map(function(k){ return [k, ivsStageWord(k)]; }).forEach(function(st){
     var rows = groups[st[0]]; if (!rows || !rows.length) return;
     // the ones to decide best first; the ones being scored nearest to done first
     if (st[0] === 'decide') rows = rows.slice().sort(function(a, b){ return ivsCalc(b).final - ivsCalc(a).final; });
@@ -2115,6 +2116,7 @@ function ivsActsHtml(r){
   var h = '<div class="ivacts" id="ivs-acts"><div class="hd"><b>Decision — send the email</b></div><div class="btns">'+
     '<button class="ivb2" onclick="ivsMailOpen(\'reject\')">'+IVS_ACTIONS.reject.btn+'</button>'+
     '<button class="ivb2" onclick="ivsMailOpen(\'shortlist\')">'+IVS_ACTIONS.shortlist.btn+'</button>'+
+    '<button class="ivb2" onclick="ivsMailOpen(\'future\')">'+IVS_ACTIONS.future.btn+'</button>'+
     '<button class="ivb" '+(hrNo ? 'disabled aria-describedby="ivs-hrno" ' : '')+'onclick="ivsMailOpen(\'hr\')">'+IVS_ACTIONS.hr.btn+'</button></div>'+
     (hrNo ? '<div class="ivhrno" id="ivs-hrno">'+ivsEsc(hrNo)+'</div>' : '');
   list.forEach(function(a){
@@ -2789,7 +2791,7 @@ function ivsShelfCardHtml(r){
 
 // ── Emails tab ──
 function ivsEmailsHtml(){
-  if (!ivsActs.length) return '<div class="ivcard"><div class="ivempty">No email has been sent in this round yet. Open a candidate and choose Reject, Shortlist or Send to HR.</div></div>';
+  if (!ivsActs.length) return '<div class="ivcard"><div class="ivempty">No email has been sent in this round yet. Open a candidate and choose Reject, Shortlist, Keep for the future or Send to HR.</div></div>';
   var rows = ivsActs.slice().sort(function(a,b){ return String(b.created_at).localeCompare(String(a.created_at)); });
   var h = '<table class="ivtab"><thead><tr><th>When</th><th>Candidate</th><th>Email</th><th class="hm">To</th><th class="hm">By</th><th>Status</th></tr></thead><tbody>';
   rows.forEach(function(a){

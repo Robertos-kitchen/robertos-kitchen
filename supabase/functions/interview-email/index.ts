@@ -1,5 +1,5 @@
 // supabase/functions/interview-email/index.ts
-// Interviews module — the three candidate emails: Reject, Shortlist, Send to HR.
+// Interviews module — the candidate emails: Reject, Shortlist, Keep for the future, Send to HR.
 //
 // CV data is confidential, so the browser names NOTHING but the candidate:
 //   - the HR list, the shortlist CC and every Reply-To come from interview_settings
@@ -116,7 +116,7 @@ async function fillForm(ev: Evaluation, name: string, position: string): Promise
   return await zip.generateAsync({ type: "base64", compression: "DEFLATE" });
 }
 
-const ACTIONS = ["reject", "shortlist", "hr"];
+const ACTIONS = ["reject", "shortlist", "future", "hr"];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -186,6 +186,16 @@ function buildMail(action: string, name: string, email: string, position: string
       text: `Dear ${name},\n\nThank you for your interest in the ${position} role at Roberto's Dubai and for the time you took to apply.\n\n` +
         `After careful review, we have decided not to move forward with your application at this time. We will keep your details on file and may contact you should a suitable opportunity arise.\n\n` +
         `We wish you every success in your career.\n\nKind regards,\n${TEAM}\n\nThis is an automated message; please do not reply.`,
+    };
+  }
+  // a good interview and tasting, but no opening today (Chef Andrea, Tell us 70e28770, 24 Sep 2026)
+  if (action === "future") {
+    return {
+      from: FROM_TEAM, to: [email], cc: [], reply_to: L.shortlist_reply_to.slice(),
+      subject: `Your interview – ${position} at Roberto's Dubai`,
+      text: `Dear ${name},\n\nThank you for coming to Roberto's Dubai for your interview and food tasting for the ${position} role, and for the time and effort you put into it.\n\n` +
+        `We are pleased to tell you that your interview and food tasting were positive. Although we do not have a position available for you at the moment, we will keep your details on file and we will contact you if a suitable opportunity arises in the future.\n\n` +
+        `We wish you every success in the meantime.\n\nKind regards,\n${TEAM}`,
     };
   }
   if (action === "shortlist") {
