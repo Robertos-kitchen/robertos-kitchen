@@ -80,7 +80,8 @@ declare s staff;
 begin
   s := learn_who(p_emp);
   return jsonb_build_object('staff_id', s.id, 'name', s.name, 'designation', s.designation,
-    'editor', train_is_editor(s.id), 'exec', train_is_exec(s.designation));
+    'editor', train_is_editor(s.id), 'exec', train_is_exec(s.designation),
+    'review', train_is_editor(s.id) or train_is_exec(s.designation));
 end $$;
 
 -- The people a sheet can name: everyone active in the kitchen staff list.
@@ -309,3 +310,70 @@ revoke all on function train_seed_dish(uuid,int,numeric), train_can_see(staff,tr
 grant execute on function train_me(text), train_people(text), train_list(text,text), train_get(text,uuid),
   train_create(text,text,uuid,uuid,date), train_tick(text,uuid,text,boolean), train_comment(text,uuid,text),
   train_signoff(text,uuid), train_edit(text,uuid,text,jsonb) to anon, authenticated;
+
+-- ── People: who has had training (24 Sep 2026) ─────────────────────────────
+-- Francesco: "this need to be seen by danilo andrea falcone and antonio". Only the editors
+-- (learn_checkers) and the Executive Chef may call these; everyone else gets not_allowed from
+-- the database, not just a hidden tab. Every number is read off the sheets; nothing is typed twice.
+create or replace function train_can_review(s staff) returns boolean
+language sql stable security definer set search_path to 'public' as $$
+  select train_is_editor(s.id) or train_is_exec(s.designation)
+$$;
+
+create or replace function train_people_overview(p_emp text) returns jsonb
+language plpgsql stable security definer set search_path to 'public' as $$
+declare s staff;
+begin
+  s := learn_who(p_emp);
+  if not train_can_review(s) then raise exception 'not_allowed' using errcode = 'P0001'; end if;
+  return jsonb_build_object(
+    'stations', coalesce((select jsonb_agg(jsonb_build_object('key', key, 'label', label) order by sort_order, id) from stations where active), '[]'::jsonb),
+    'people', coalesce((select jsonb_agg(jsonb_build_object('id', st.id, 'name', st.name, 'designation', st.designation,
+        -- per section, the sheet that says most: a signed one first, then the newest open one
+        'sheets', coalesce((select jsonb_object_agg(x.station_key, jsonb_build_object('id', x.id, 'status', x.status,
+             'trainer', x.trainer_name, 'counts', train_sheet_counts(x.id), 'signed_at', x.signed_at))
+           from (select distinct on (t.station_key) t.*
+                 from train_sheets t where t.trainee_id = st.id and not t.archived
+                 order by t.station_key, (t.status = 'signed') desc, t.created_at desc) x), '{}'::jsonb))
+      order by st.name)
+      from staff st where st.active and coalesce(st.designation,'') !~* 'steward'), '[]'::jsonb));
+end $$;
+
+create or replace function train_person(p_emp text, p_staff uuid) returns jsonb
+language plpgsql stable security definer set search_path to 'public' as $$
+declare s staff; p staff;
+begin
+  s := learn_who(p_emp);
+  if not train_can_review(s) then raise exception 'not_allowed' using errcode = 'P0001'; end if;
+  select * into p from staff where id = p_staff;
+  if p.id is null then raise exception 'no_person' using errcode = 'P0001'; end if;
+  return jsonb_build_object(
+    'person', jsonb_build_object('id', p.id, 'name', p.name, 'designation', p.designation, 'has_emp', coalesce(trim(p.emp_id),'') <> ''),
+    'stations', coalesce((select jsonb_agg(jsonb_build_object('key', key, 'label', label) order by sort_order, id) from stations where active), '[]'::jsonb),
+    'as_trainee', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'station_key', t.station_key, 'status', t.status, 'archived', t.archived,
+        'trainer', t.trainer_name, 'start_date', t.start_date, 'signed_by', t.signed_by, 'signed_at', t.signed_at, 'created_by', t.created_by,
+        'counts', train_sheet_counts(t.id),
+        'last_tick', (select max(greatest(l.trainee_at, l.trainer_at)) from train_groups g join train_lines l on l.group_id = g.id where g.sheet_id = t.id))
+      order by t.archived, (t.status = 'signed') desc, t.created_at desc)
+      from train_sheets t where t.trainee_id = p.id), '[]'::jsonb),
+    'as_trainer', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'station_key', t.station_key, 'status', t.status,
+        'trainee', t.trainee_name, 'start_date', t.start_date, 'counts', train_sheet_counts(t.id)) order by t.created_at desc)
+      from train_sheets t where t.trainer_id = p.id and not t.archived), '[]'::jsonb),
+    'history', coalesce((select jsonb_agg(e order by e.at desc) from (
+        select t.signed_at at, 'signed' kind, t.station_key, t.signed_by who, null::text other
+          from train_sheets t where t.trainee_id = p.id and t.signed_at is not null
+        union all
+        select t.created_at, 'started', t.station_key, t.created_by, t.trainer_name
+          from train_sheets t where t.trainee_id = p.id
+        union all
+        select (select max(l.trainer_at) from train_groups g join train_lines l on l.group_id = g.id where g.sheet_id = t.id),
+               'last_tick', t.station_key, t.trainer_name, null
+          from train_sheets t where t.trainee_id = p.id
+        union all
+        select t.created_at, 'trains', t.station_key, null, t.trainee_name
+          from train_sheets t where t.trainer_id = p.id
+      ) e where e.at is not null), '[]'::jsonb));
+end $$;
+
+revoke all on function train_can_review(staff) from public, anon, authenticated;
+grant execute on function train_people_overview(text), train_person(text,uuid) to anon, authenticated;

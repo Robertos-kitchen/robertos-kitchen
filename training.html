@@ -86,6 +86,37 @@ textarea{min-height:70px;line-height:1.45}
 .from b{font-variant-numeric:tabular-nums}
 .sign{max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:12px;margin:16px}
 .sign input{font-size:22px;letter-spacing:4px}
+.lockn{font-size:11px;color:var(--muted);align-self:center;margin-left:auto;white-space:nowrap}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sum div{border:1px solid var(--line);border-radius:12px;padding:9px 10px;background:var(--card)}
+.sum b{display:block;font-family:var(--serif);font-size:28px;line-height:1;font-variant-numeric:tabular-nums}
+.sum span{font-size:12px;color:var(--muted)}
+.sum .ok b{color:var(--ok)} .sum .go b{color:var(--part)} .sum .no b{color:var(--muted)}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters .tab{padding:6px 12px;font-size:12.5px;min-height:36px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+.pgrid{display:grid}
+.ghead,.prow{display:grid;gap:6px;align-items:center}
+.ghead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:0 2px 4px}
+.ghead span:not(:first-child){text-align:center}
+.prow{border-top:1px solid var(--line);padding:6px 2px}
+.pnm{background:none;border:none;text-align:left;padding:6px 0;cursor:pointer;font-weight:600;font-size:14px;line-height:1.25;min-height:44px;color:var(--ink)}
+.pnm small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.cell{height:40px;border-radius:9px;display:grid;place-items:center;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;padding:0;font-family:inherit}
+button.cell{cursor:pointer}
+.c-ok{background:var(--ok-bg);color:var(--ok);border:1.5px solid var(--ok)}
+.c-go{background:var(--part-bg);color:var(--part);border:1.5px solid var(--part)}
+.c-no{background:var(--sabbia-light);color:var(--muted);border:1.5px dashed var(--sabbia-dark)}
+.phead{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--sabbia-light);font-size:13.5px;color:var(--muted);display:grid;gap:6px}
+.warnl{color:var(--part);background:var(--part-bg);border-radius:8px;padding:7px 10px;font-size:13px}
+.sec{border:1px solid var(--line);border-radius:12px;padding:11px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 10px;background:var(--card)}
+.sec .sn{font-weight:700;font-size:14.5px}
+.sec .meta{grid-column:1/-1;color:var(--muted);font-size:12.5px;line-height:1.5}
+.sec .meter{margin:0}
+.sec .btn{grid-column:1/-1;justify-self:start}
+.p-ok{background:var(--ok-bg);color:var(--ok)} .p-go{background:var(--part-bg);color:var(--part)} .p-no{background:var(--sabbia-light);color:var(--muted)}
+.hist{font-size:13px;line-height:1.6;border-left:3px solid var(--oro);padding:6px 10px;background:var(--cream);border-radius:0 8px 8px 0}
 /* edit */
 .edit .row{grid-template-columns:22px minmax(0,1fr) 40px;touch-action:none;min-height:44px;user-select:none;cursor:grab}
 .edit .row.lift{position:relative;z-index:5;box-shadow:0 8px 22px rgba(65,2,7,.22);cursor:grabbing;transition:none}
@@ -128,6 +159,8 @@ textarea{min-height:70px;line-height:1.45}
      Only the trainer's ticks count as progress. Any line can carry a comment.
    · Chef Danilo (Executive Chef) signs the sheet off once every line has the trainer's tick.
    · Chef Danilo, Chef Antonio and Chef Andrea make and edit sheets (the Learning checkers).
+     Chef Danilo, Chef Andrea and Chef Antonio also get a People tab: who has had training, per
+     section, and each person's record (24 Sep 2026).
      Everyone signed in can see every sheet (24 Sep 2026); only the sheet's own trainee and trainer
      tick it, and only those three make and edit sheets.
    Sign-in is the employee ID, shared with Learning. Schema + rules: training-schema.sql.
@@ -231,7 +264,7 @@ function draw(){
   var root = $('root');
   var y = window.scrollY;
   var ae = document.activeElement, keep = ae && ae.id && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') ? { id:ae.id, v:ae.value, s:ae.selectionStart } : null;
-  root.innerHTML = !S.me ? drawSign() : S.view === 'new' ? drawNew() : S.view === 'sheet' ? drawSheet() : S.view === 'edit' ? drawEdit() : drawList();
+  root.innerHTML = !S.me ? drawSign() : S.view === 'people' ? drawPeople() : S.view === 'person' ? drawPerson() : S.view === 'new' ? drawNew() : S.view === 'sheet' ? drawSheet() : S.view === 'edit' ? drawEdit() : drawList();
   if (keep) { var el = $(keep.id); if (el) { el.value = keep.v; el.focus(); try { el.setSelectionRange(keep.s, keep.s); } catch(e){} } }
   window.scrollTo(0, y);
 }
@@ -253,7 +286,7 @@ function drawSign(){
 function progress(c){ return c && c.lines ? Math.round(c.trainer / c.lines * 100) : 0; }
 function drawList(){
   var L = S.list || [];
-  return barHtml(stLabel(S.station), 'Training · ' + L.length + (L.length === 1 ? ' sheet' : ' sheets')) +
+  return barHtml(stLabel(S.station), 'Training · ' + L.length + (L.length === 1 ? ' sheet' : ' sheets')) + segHtml('sheets') +
     '<div class="tabs" role="tablist">' + S.stations.map(function(s){
       return '<button class="tab' + (s.key === S.station ? ' on' : '') + '" type="button" data-st="' + esc(s.key) + '">' + esc(s.label) + '</button>'; }).join('') + '</div>' +
     '<div class="body">' + msgs() +
@@ -345,7 +378,7 @@ function drawSheet(){
             ? '<div class="acts"><span>Sign off ' + esc(t.trainee_name) + ' on ' + esc(stLabel(t.station_key)) + '?</span><button class="btn sm" type="button" id="signyes">Yes, sign off</button><button class="btn sm ghost" type="button" id="signno">No</button></div>'
             : '<button class="btn' + (left ? ' ghost' : '') + '" type="button" id="sign"' + (left ? ' disabled' : '') + '>Sign off as ' + esc(S.me.name) + ' · ' + (c.trainer||0) + ' of ' + (c.lines||0) + '</button>')
         : '<div class="hint">' + (left ? left + ' line' + (left === 1 ? '' : 's') + ' still to be signed by the trainer.' : 'Every line is signed. Waiting for Chef Danilo.') + '</div>') + '</div>';
-  html += '<div class="foot"><button class="btn ghost" type="button" id="back">‹ All sheets</button>' +
+  html += '<div class="foot"><button class="btn ghost" type="button" id="back">' + (S.back === 'person' && S.person ? '‹ ' + esc(S.person.person.name) : S.back === 'people' ? '‹ People' : '‹ All sheets') + '</button>' +
     (d.me.editor && !signed ? '<button class="btn ghost" type="button" id="edit">Edit sheet</button>' : '') +
     '<button class="btn ghost" type="button" id="print">Print / PDF</button></div>';
   return html;
@@ -456,13 +489,27 @@ document.addEventListener('click', function(e){
   if (ds.st) { S.station = ds.st; S.list = null; S.err = ''; S.ok = '';
     try { history.replaceState(null, '', '?embed=1&station=' + encodeURIComponent(S.station)); } catch(x){}
     return loadList().then(draw).catch(fail); }
+  if (b.id === 'topeople') return goPeople();
+  if (b.id === 'tosheets') { S.view = 'list'; S.back = null; S.err = ''; S.ok = ''; return loadList().then(draw).catch(fail); }
+  if (ds.pf) { S.pf = ds.pf; return draw(); }
+  if (ds.person) return goPerson(ds.person);
+  if (ds.psheet) { S.back = S.view === 'person' ? 'person' : 'people'; return openSheet(ds.psheet); }
+  if (ds.startfor) {
+    S.station = ds.startfor; S.nv = { trainee:S.person.person.id }; S.view = 'new'; S.err = ''; S.ok = ''; S.prep = null; draw();
+    return Promise.all([S.people ? null : get('train_people', { p_emp:S.emp }).then(function(p){ S.people = p; }), loadPrep()]).then(draw).catch(fail);
+  }
   if (b.id === 'new') {
-    S.view = 'new'; S.err = ''; S.ok = ''; S.prep = null; draw();
+    S.nv = null; S.view = 'new'; S.err = ''; S.ok = ''; S.prep = null; draw();
     return Promise.all([S.people ? null : get('train_people', { p_emp:S.emp }).then(function(p){ S.people = p; }), loadPrep()]).then(draw).catch(fail);
   }
   if (b.id === 'cancel') { S.view = 'list'; S.err = ''; return draw(); }
   if (ds.open) return openSheet(ds.open);
-  if (b.id === 'back') { S.view = 'list'; S.err = ''; S.ok = ''; return loadList().then(draw).catch(fail); }
+  if (b.id === 'back') {
+    var bk = S.back; S.back = null; S.err = ''; S.ok = '';
+    if (bk === 'person' && S.person) return goPerson(S.person.person.id);
+    if (bk === 'people') return goPeople();
+    S.view = 'list'; return loadList().then(draw).catch(fail);
+  }
   if (ds.tick) return tick(ds.id, ds.tick);
   if (ds.line) { S.openLine = S.openLine === ds.line ? null : ds.line; return draw(); }
   if (ds.csave) {
@@ -590,11 +637,124 @@ document.addEventListener('keydown', function(e){          // a keyboard's drag:
   edit('move_line', { id:a.id, pos:pos }, function(){ var el = document.querySelector('[data-lren="' + a.id + '"]'); if (el) el.focus(); });
 });
 
+/* ── People: who has had training (24 Sep 2026) ──
+   Only Chef Danilo, Chef Andrea and Chef Antonio (me.review). The database refuses everyone else
+   (train_people_overview / train_person), so this is not just a hidden tab. Every number comes off
+   the sheets: a square is green only once the Executive Chef has signed that sheet off, and the %
+   is trainer ticks ÷ lines. */
+var PF = { all:'Everyone', go:'In training', ok:'Signed off', no:'No training yet' };
+function shortSt(label){ var w = String(label||'').split(/[\s&]+/)[0]; return w.length > 6 ? w.slice(0,4) + '.' : w; }
+function pct(c){ return c && c.lines ? Math.round(c.trainer / c.lines * 100) : 0; }
+function personState(p){
+  var v = Object.keys(p.sheets || {}).map(function(k){ return p.sheets[k].status; });
+  if (v.indexOf('open') > -1) return 'go';
+  if (v.indexOf('signed') > -1) return 'ok';
+  return 'no';
+}
+function loadPeople(){ return get('train_people_overview', { p_emp:S.emp }).then(function(r){ S.pv = r; }); }
+function loadPerson(id){ return get('train_person', { p_emp:S.emp, p_staff:id }).then(function(r){ S.person = r; }); }
+function segHtml(on){
+  if (!S.me || !S.me.review) return '';
+  return '<div class="tabs" role="tablist" aria-label="Sheets or people">' +
+    '<button class="tab' + (on === 'sheets' ? ' on' : '') + '" type="button" id="tosheets" aria-pressed="' + (on === 'sheets') + '">Sheets</button>' +
+    '<button class="tab' + (on === 'people' ? ' on' : '') + '" type="button" id="topeople" aria-pressed="' + (on === 'people') + '">People</button>' +
+    '<span class="lockn">only Danilo · Andrea · Antonio</span></div>';
+}
+function drawPeople(){
+  var pv = S.pv;
+  if (!pv) return barHtml('Training', 'People') + segHtml('people') + '<div class="body">' + msgs() + '<div class="hint">Reading the sheets…</div></div>';
+  var P = pv.people || [], st = pv.stations || [], q = (S.pq || '').toLowerCase(), f = S.pf || 'all';
+  var n = { ok:0, go:0, no:0 }; P.forEach(function(p){ n[personState(p)]++; });
+  var shown = P.filter(function(p){ return (f === 'all' || personState(p) === f) && p.name.toLowerCase().indexOf(q) > -1; });
+  var cols = 'grid-template-columns:minmax(0,1fr) repeat(' + st.length + ',44px)';
+  return barHtml('Training', 'People · ' + P.length + ' kitchen staff') + segHtml('people') +
+    '<div class="body">' + msgs() +
+    '<div class="sum"><div class="ok"><b>' + n.ok + '</b><span>signed off</span></div><div class="go"><b>' + n.go + '</b><span>in training</span></div><div class="no"><b>' + n.no + '</b><span>no training yet</span></div></div>' +
+    '<input class="in" id="pq" placeholder="Search a name" aria-label="Search a name" autocomplete="off" value="' + esc(S.pq || '') + '">' +
+    '<div class="filters">' + Object.keys(PF).map(function(k){
+      return '<button class="tab' + (f === k ? ' on' : '') + '" type="button" data-pf="' + k + '" aria-pressed="' + (f === k) + '">' + PF[k] + '</button>'; }).join('') + '</div>' +
+    '<div class="legend"><span><i class="c-ok"></i>signed off</span><span><i class="c-go"></i>in training (%)</span><span><i class="c-no"></i>none</span></div>' +
+    '<div class="pgrid"><div class="ghead" style="' + cols + '"><span>Person</span>' + st.map(function(s){ return '<span title="' + esc(s.label) + '">' + esc(shortSt(s.label)) + '</span>'; }).join('') + '</div>' +
+    (shown.length ? shown.map(function(p){
+      return '<div class="prow" style="' + cols + '"><button class="pnm" type="button" data-person="' + p.id + '">' + esc(p.name) + '<small>' + esc(p.designation || '') + '</small></button>' +
+        st.map(function(s){
+          var x = (p.sheets || {})[s.key];
+          if (!x) return '<span class="cell c-no" title="' + esc(s.label) + ': no training">—</span>';
+          var done = x.status === 'signed', c = x.counts || {};
+          return '<button class="cell ' + (done ? 'c-ok' : 'c-go') + '" type="button" data-psheet="' + x.id + '" title="' + esc(s.label) + ': ' +
+            (done ? 'signed off' : c.trainer + ' of ' + c.lines + ' · trainer ' + esc(x.trainer)) + '">' + (done ? '✓' : pct(c) + '%') + '</button>';
+        }).join('') + '</div>';
+    }).join('') : '<div class="empty">Nobody matches.</div>') + '</div>' +
+    '<div class="hint">Tap a name to see their record. Tap a coloured square to open that sheet.</div></div>';
+}
+function drawPerson(){
+  var r = S.person;
+  if (!r) return barHtml('Training', 'Training record') + '<div class="body">' + msgs() + '<div class="hint">Reading…</div></div>';
+  var p = r.person, st = r.stations || [], T = r.as_trainee || [];
+  var byKey = {}; T.forEach(function(t){ if (!t.archived && !byKey[t.station_key]) byKey[t.station_key] = t; });
+  var nOk = st.filter(function(s){ return byKey[s.key] && byKey[s.key].status === 'signed'; }).length;
+  var nGo = st.filter(function(s){ return byKey[s.key] && byKey[s.key].status === 'open'; }).length;
+  var html = barHtml(p.name, (p.designation || '') + ' · training record') +
+    '<div class="phead"><div>Signed off on <b>' + nOk + '</b> of ' + st.length + ' sections · in training on <b>' + nGo + '</b></div>' +
+    (p.has_emp ? '' : '<div class="warnl">' + esc(p.name) + ' has no employee ID in the staff list, so they cannot sign in to tick their own side.</div>') + '</div>' +
+    '<div class="body">' + msgs();
+  st.forEach(function(s){
+    var t = byKey[s.key];
+    if (!t) {
+      html += '<div class="sec"><div class="sn">' + esc(s.label) + '</div><span class="pill p-no">No training</span>' +
+        (S.me.editor ? '<button class="btn sm" type="button" data-startfor="' + esc(s.key) + '">+ Start a sheet for ' + esc(p.name) + '</button>' : '') + '</div>';
+      return;
+    }
+    var c = t.counts || {}, done = t.status === 'signed';
+    html += '<div class="sec"><div class="sn">' + esc(s.label) + '</div><span class="pill ' + (done ? 'p-ok">Signed off' : 'p-go">In training · ' + pct(c) + '%') + '</span>' +
+      '<div class="meta">Trainer ' + esc(t.trainer) + ' · ' + (done ? esc(dayLong(t.start_date)) + ' → ' + esc(dayLong(t.signed_at)) : 'started ' + esc(dayLong(t.start_date))) +
+        ' · ' + (c.trainer || 0) + ' of ' + (c.lines || 0) + (!done && t.last_tick ? ' · last tick ' + esc(dayLong(t.last_tick)) : '') +
+        (done ? '<br>Signed off by ' + esc(t.signed_by) + ' · ' + esc(dayLong(t.signed_at)) : '') + '</div>' +
+      (done ? '' : '<div class="meter"><i style="width:' + pct(c) + '%"></i></div>') +
+      '<button class="btn sm ghost" type="button" data-psheet="' + t.id + '">Open the sheet</button></div>';
+  });
+  var older = T.filter(function(t){ return t.archived || byKey[t.station_key] !== t; });
+  if (older.length) html += '<div class="k">Earlier sheets</div>' + older.map(function(t){
+      return '<div class="sec"><div class="sn">' + esc(stLabel(t.station_key)) + '</div><span class="pill p-no">' + (t.archived ? 'Taken off' : (t.status === 'signed' ? 'Signed off' : 'In training')) + '</span>' +
+        '<div class="meta">Trainer ' + esc(t.trainer) + ' · started ' + esc(dayLong(t.start_date)) + ' · ' + (t.counts.trainer || 0) + ' of ' + (t.counts.lines || 0) + '</div></div>'; }).join('');
+  var R = r.as_trainer || [];
+  if (R.length) html += '<div class="k">Trains others</div>' + R.map(function(t){
+      var c = t.counts || {}, done = t.status === 'signed';
+      return '<div class="sec"><div class="sn">' + esc(t.trainee) + ' · ' + esc(stLabel(t.station_key)) + '</div><span class="pill ' + (done ? 'p-ok">Signed off' : 'p-go">In training · ' + pct(c) + '%') + '</span>' +
+        '<div class="meta">' + esc(p.name) + ' is the trainer · started ' + esc(dayLong(t.start_date)) + ' · ' + (c.trainer || 0) + ' of ' + (c.lines || 0) + '</div>' +
+        (done ? '' : '<div class="meter"><i style="width:' + pct(c) + '%"></i></div>') +
+        '<button class="btn sm ghost" type="button" data-psheet="' + t.id + '">Open the sheet</button></div>'; }).join('');
+  var H = r.history || [];
+  if (H.length) html += '<div class="k">History</div><div class="hist">' + H.map(function(e){
+      var d = esc(dmy(e.at)) + ' — ', sl = esc(stLabel(e.station_key));
+      if (e.kind === 'signed') return d + '<b>' + sl + ' signed off</b> by ' + esc(e.who);
+      if (e.kind === 'started') return d + sl + ' sheet started by ' + esc(e.who) + ', trainer ' + esc(e.other);
+      if (e.kind === 'last_tick') return d + 'last trainer tick on ' + sl + ' (' + esc(e.who) + ')';
+      return d + 'started training ' + esc(e.other) + ' on ' + sl;
+    }).join('<br>') + '</div>';
+  html += '<div class="hint">Sheets taken off the list stay on this record, so it is never lost.</div></div>' +
+    '<div class="foot"><button class="btn ghost" type="button" id="topeople">‹ People</button></div>';
+  return html;
+}
+function goPeople(){
+  S.view = 'people'; S.err = ''; S.ok = ''; S.back = null; draw();
+  return loadPeople().then(draw).catch(fail);
+}
+function goPerson(id){
+  S.view = 'person'; S.person = null; S.err = ''; S.ok = ''; window.scrollTo(0,0); draw();
+  return loadPerson(id).then(draw).catch(fail);
+}
+document.addEventListener('input', function(e){
+  if (e.target.id !== 'pq') return;
+  S.pq = e.target.value; draw();
+});
+
 /* ── keep two phones in step: the trainee and the trainer tick on different phones ── */
 function freshen(){
   if (!S.me || document.hidden || drag || S.busy) return;
   if (S.view === 'sheet' && !S.openLine && !S.confirm) loadSheet(S.sheet.sheet.id).then(draw).catch(function(){});
   else if (S.view === 'list') loadList().then(draw).catch(function(){});
+  else if (S.view === 'people' && !S.pq) loadPeople().then(draw).catch(function(){});
 }
 setInterval(freshen, 30000);
 document.addEventListener('visibilitychange', freshen);
