@@ -19,7 +19,9 @@
 --     Trainer column. Only the trainer's ticks count as progress.
 --   · Sign-off = the Executive Chef (designation "Executive Chef" — Chef Danilo), only once every
 --     line has the trainer's tick. A signed sheet is read-only.
---   · Anyone else signed in sees only the sheets they are trainee or trainer on.
+--   · Everyone signed in can SEE every sheet of every section (Francesco, 24 Sep 2026: "unlock
+--     this for everyone so they are able to see"). Ticking stays with the sheet's own trainee and
+--     trainer; making and editing stay with the editors; comments with the people on the sheet.
 
 create table if not exists train_sheets (
   id uuid primary key default gen_random_uuid(),
@@ -100,17 +102,16 @@ $$;
 
 create or replace function train_list(p_emp text, p_station text) returns jsonb
 language plpgsql stable security definer set search_path to 'public' as $$
-declare s staff; ed boolean;
+declare s staff;
 begin
-  s := learn_who(p_emp); ed := train_is_editor(s.id) or train_is_exec(s.designation);
+  s := learn_who(p_emp);
   return coalesce((select jsonb_agg(x order by x.status, x.start_date desc, x.trainee_name) from (
     select t.id, t.station_key, t.trainee_id, t.trainee_name, t.trainee_role, t.trainer_id, t.trainer_name, t.trainer_role,
       t.start_date, t.status, t.signed_by, t.signed_at, t.created_at,
       (select max(greatest(l.trainee_at, l.trainer_at)) from train_groups g join train_lines l on l.group_id = g.id where g.sheet_id = t.id) last_tick,
       train_sheet_counts(t.id) counts
     from train_sheets t
-    where not t.archived and t.station_key = p_station
-      and (ed or t.trainee_id = s.id or t.trainer_id = s.id)) x), '[]'::jsonb);
+    where not t.archived and t.station_key = p_station) x), '[]'::jsonb);
 end $$;
 
 create or replace function train_can_see(s staff, t train_sheets) returns boolean
@@ -125,7 +126,6 @@ begin
   s := learn_who(p_emp);
   select * into t from train_sheets where id = p_sheet and not archived;
   if t.id is null then raise exception 'no_sheet' using errcode = 'P0001'; end if;
-  if not train_can_see(s, t) then raise exception 'not_allowed' using errcode = 'P0001'; end if;
   return jsonb_build_object('sheet', to_jsonb(t), 'counts', train_sheet_counts(t.id),
     'groups', coalesce((select jsonb_agg(jsonb_build_object('id', g.id, 'dish_id', g.dish_id, 'name', g.name, 'day', g.day, 'pos', g.pos,
         'lines', coalesce((select jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name, 'is_assembly', l.is_assembly, 'pos', l.pos,

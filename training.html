@@ -128,7 +128,8 @@ textarea{min-height:70px;line-height:1.45}
      Only the trainer's ticks count as progress. Any line can carry a comment.
    · Chef Danilo (Executive Chef) signs the sheet off once every line has the trainer's tick.
    · Chef Danilo, Chef Antonio and Chef Andrea make and edit sheets (the Learning checkers).
-     Everyone else sees only the sheets they are trainee or trainer on.
+     Everyone signed in can see every sheet (24 Sep 2026); only the sheet's own trainee and trainer
+     tick it, and only those three make and edit sheets.
    Sign-in is the employee ID, shared with Learning. Schema + rules: training-schema.sql.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
@@ -267,7 +268,7 @@ function drawList(){
         '<div class="meter"><i style="width:' + progress(c) + '%"></i></div>' +
         '<div class="meta">' + (c.trainer||0) + ' of ' + (c.lines||0) + ' lines signed by trainer</div></button>';
     }).join('') : '<div class="empty">' + (S.me.editor ? 'No training sheets for ' + esc(stLabel(S.station)) + ' yet. Make one with the button above.'
-        : 'You are not on a training sheet for ' + esc(stLabel(S.station)) + '. Chef Danilo, Chef Antonio or Chef Andrea make them.') + '</div>') +
+        : 'No training sheets for ' + esc(stLabel(S.station)) + ' yet. Chef Danilo, Chef Antonio or Chef Andrea make them.') + '</div>') +
     '<div class="hint">Every section has its own list. A signed-off sheet stays here on record.</div></div>';
 }
 function personOpts(sel, id){
@@ -301,13 +302,15 @@ function canTick(line, col){
 }
 function drawSheet(){
   var d = S.sheet, t = d.sheet, c = d.counts || {}, signed = t.status === 'signed';
+  var onIt = d.me.trainee || d.me.trainer || d.me.editor || d.me.exec;   // everyone else only looks
   var blocks = dayBlocks(d.groups || []);
   var html = barHtml(t.trainee_name + ' · ' + stLabel(t.station_key), "Training program · Roberto's DIFC") +
     '<div class="head"><div><div class="k">Trainee</div><div class="v">' + esc(t.trainee_name) + '<small>' + esc(t.trainee_role) + '</small></div></div>' +
     '<div><div class="k">Trainer</div><div class="v">' + esc(t.trainer_name) + '<small>' + esc(t.trainer_role) + '</small></div></div>' +
     '<div class="prog"><span>' + (c.trainer||0) + ' of ' + (c.lines||0) + ' signed by trainer · started ' + esc(dayLong(t.start_date)) + '</span>' +
     '<div class="meter"><i style="width:' + progress(c) + '%"></i></div></div></div>' +
-    (S.err || S.ok ? '<div class="body" style="padding-bottom:0">' + msgs() + '</div>' : '');
+    (S.err || S.ok ? '<div class="body" style="padding-bottom:0">' + msgs() + '</div>' : '') +
+    (!onIt && !signed ? '<div class="body" style="padding-bottom:0"><div class="hint">You can look at this sheet. Only ' + esc(t.trainee_name) + ' and ' + esc(t.trainer_name) + ' tick it.</div></div>' : '');
   if (!(d.groups || []).length) html += '<div class="body"><div class="empty">This sheet has no lines yet.' + (d.me.editor ? ' Tap Edit sheet to add some.' : '') + '</div></div>';
   blocks.forEach(function(b){
     html += '<div class="day">' + (b.day ? DAYNAME[b.day] : (blocks.length > 1 ? 'Any day' : '')) + '</div>';
@@ -325,7 +328,7 @@ function drawSheet(){
               (canTick(l,'trainer') ? '' : ' disabled') + ' aria-label="Trainer: ' + esc(l.name) + '" title="' + (l.trainer_at ? 'Signed by ' + esc(l.trainer_by) + ' · ' + esc(dayLong(l.trainer_at)) : 'Trainer') + '">' + (l.trainer_at ? esc(initials(l.trainer_by)) : '') + '</button>' +
             (l.comment && !open ? '<div class="note"><b>' + esc(l.comment_by) + ':</b> ' + esc(l.comment) + '</div>' : '') +
             (open ? '<div class="cbox">' + (l.trainer_at ? '<div class="hint">Trainer’s tick: ' + esc(l.trainer_by) + ' · ' + esc(dayLong(l.trainer_at)) + '</div>' : '') +
-               (signed ? (l.comment ? '<div class="note"><b>' + esc(l.comment_by) + ':</b> ' + esc(l.comment) + '</div>' : '<div class="hint">No comment.</div>')
+               (signed || !onIt ? (l.comment ? '<div class="note"><b>' + esc(l.comment_by) + ':</b> ' + esc(l.comment) + '</div>' : '<div class="hint">No comment.</div>')
                 : '<textarea id="c-' + l.id + '" placeholder="A comment on this line — e.g. again tomorrow, portioning uneven">' + esc(l.comment || '') + '</textarea>' +
                   '<div class="acts"><button class="btn sm" type="button" data-csave="' + l.id + '">Save comment</button><button class="btn sm ghost" type="button" data-line="' + l.id + '">Close</button></div>') + '</div>' : '') +
             '</div>';
