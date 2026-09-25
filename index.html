@@ -1230,6 +1230,21 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 #scroll-top-btn{position:fixed;bottom:20px;right:14px;width:46px;height:46px;border-radius:50%;background:var(--vino);color:var(--cream);border:none;font-size:22px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(65,2,7,.45);z-index:9998;transition:opacity .2s,transform .15s;-webkit-tap-highlight-color:transparent}
 #scroll-top-btn:active{transform:scale(.92)}
 @media print{#scroll-top-btn{display:none !important}}
+/* Home's own scroll bar (Antonio, Tell us e165cdfd, 25 Sep 2026). iOS hides the
+   page's scroll bar except while a finger is moving, so a long Home looked like it
+   ended at the bottom of the phone. This one stays up while there is more page than
+   screen: it lives in Home's empty 20px right margin (never over a tile, the ↑ or
+   Tell us), and it can be dragged or tapped to jump. The id is what beats
+   body.roomstep>*{position:relative}. */
+#home-sbar{position:fixed;right:0;width:20px;z-index:9997;display:none;touch-action:none;
+  -webkit-tap-highlight-color:transparent;cursor:pointer}
+#home-sbar.on{display:block}
+#home-sbar .hsb-track{position:absolute;top:0;bottom:0;right:6px;width:6px;border-radius:3px;
+  background:rgba(251,243,233,.26);box-shadow:inset 0 0 0 1px rgba(20,4,4,.18)}
+#home-sbar .hsb-thumb{position:absolute;right:4px;width:10px;border-radius:5px;
+  background:#fbf3e9;box-shadow:0 1px 4px rgba(20,4,4,.7);transition:background .12s}
+#home-sbar.drag .hsb-thumb{background:var(--oro)}
+@media print{#home-sbar{display:none !important}}
 </style>
 </head>
 <body>
@@ -1563,7 +1578,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790346008"></script>
+<script src="app.js?v=1790347353"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1937,6 +1952,76 @@ function showUpdateBanner(newSW) {
   // once at boot and stay stale all day. Poll every 5 min — check() only reloads
   // when the server's ETag actually changed (new deploy) and never mid-typing.
   setInterval(check, 5 * 60 * 1000);
+})();
+</script>
+<script>
+/* ── Home's scroll bar (see #home-sbar in the styles) ──
+   Up only while Home is showing (body.roomstep — kRoom() in app.js puts it on for
+   Home and takes it off at every station door), only when Home is taller than the
+   screen, and only where the browser's own bar is an overlay that hides itself
+   (iPhone, iPad, Android, Mac). A laptop with a real bar already has one. */
+(function(){
+  var bar = document.createElement('div');
+  bar.id = 'home-sbar';
+  bar.setAttribute('aria-hidden', 'true');            // the page itself is the accessible scroller
+  bar.innerHTML = '<div class="hsb-track"></div><div class="hsb-thumb"></div>';
+  document.body.appendChild(bar);
+  var thumb = bar.querySelector('.hsb-thumb');
+  var geo = null, grab = -1;
+
+  function maxScroll(){ return Math.max(0, document.documentElement.scrollHeight - window.innerHeight); }
+  function onHome(){
+    var hv = document.getElementById('home-view');
+    return document.body.classList.contains('roomstep') && hv && hv.offsetParent !== null;
+  }
+  function update(){
+    var max = maxScroll();
+    var overlay = window.innerWidth - document.documentElement.clientWidth === 0;
+    if(!onHome() || max < 4 || !overlay){ bar.classList.remove('on'); geo = null; return; }
+    // Start where the header ends at the top of the page, and stay there: on Home
+    // the header scrolls away (body.roomstep>* outranks its sticky), and a bar that
+    // followed it would change length — and its thumb size — on every scroll.
+    var hd = document.querySelector('.app-header');
+    var top = (hd ? hd.offsetHeight : 0) + 8;
+    var h = window.innerHeight - top - 12;
+    if(h < 60){ bar.classList.remove('on'); geo = null; return; }
+    var th = Math.max(40, Math.round(h * window.innerHeight / document.documentElement.scrollHeight));
+    geo = { top: top, h: h, th: th, max: max };
+    bar.style.top = top + 'px';
+    bar.style.height = h + 'px';
+    thumb.style.height = th + 'px';
+    var y = Math.min(max, window.pageYOffset || document.documentElement.scrollTop || 0);
+    thumb.style.top = Math.round((h - th) * y / max) + 'px';
+    bar.classList.add('on');
+  }
+  // Finger at clientY → the page position that puts the thumb there.
+  function scrollToFinger(clientY){
+    if(!geo) return;
+    var pos = Math.min(geo.h - geo.th, Math.max(0, clientY - geo.top - grab));
+    window.scrollTo(0, Math.round(pos / (geo.h - geo.th) * geo.max));
+  }
+  bar.addEventListener('pointerdown', function(e){
+    update(); if(!geo) return;
+    var r = thumb.getBoundingClientRect();
+    // On the thumb: hold it where it was caught. On the track: jump there, centred.
+    grab = (e.clientY >= r.top && e.clientY <= r.bottom) ? e.clientY - r.top : geo.th / 2;
+    bar.classList.add('drag');
+    try { bar.setPointerCapture(e.pointerId); } catch(err){}
+    scrollToFinger(e.clientY);
+    e.preventDefault();
+  });
+  bar.addEventListener('pointermove', function(e){ if(grab >= 0){ scrollToFinger(e.clientY); e.preventDefault(); } });
+  function release(){ grab = -1; bar.classList.remove('drag'); }
+  bar.addEventListener('pointerup', release);
+  bar.addEventListener('pointercancel', release);
+
+  window.addEventListener('scroll', update, {passive:true});
+  window.addEventListener('resize', update);
+  // Home grows and shrinks on its own — Daily Operations / Management opening, the
+  // events strip arriving from the FOH feed — and none of that is a scroll or resize.
+  if(window.ResizeObserver) new ResizeObserver(update).observe(document.body);
+  new MutationObserver(update).observe(document.body, { attributes:true, attributeFilter:['class'] });
+  update();
 })();
 </script>
 <script>
