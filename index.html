@@ -368,6 +368,9 @@ body.roomstep::after{background:linear-gradient(180deg,
   rgba(43,1,4,calc(.38*var(--scrim))) 55%,
   rgba(43,1,4,calc(.62*var(--scrim))) 100%)}
 body.roomstep>*{position:relative;z-index:1}
+/* ...except the header, which is sticky on every other screen. The line above came
+   over from the Recipes steps and quietly unstuck it, so on Home it scrolled away. */
+body.roomstep>.app-header{position:sticky;z-index:50}
 body.roomstep .home-view{background:transparent}
 body.roomstep .home-title{color:#fbf3e9}
 body.roomstep .home-subtitle{color:#f2d3b8;opacity:1}
@@ -1578,7 +1581,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790347353"></script>
+<script src="app.js?v=1790348373"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
