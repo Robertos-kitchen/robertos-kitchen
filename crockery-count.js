@@ -165,12 +165,15 @@ async function crkcLoadMonths(){
   var r = await sb.from('crockery_takes').select('*')
     .eq('venue_id', CRKC_VENUE).order('month', { ascending:false });
   crkcMonths = (r.error ? [] : (r.data || []));
+  if (r.error && typeof kToast === 'function') kToast('Crockery months could not be loaded — reopen before counting.', true);
 }
 async function crkcLoadCounts(month, into){
   var r = await sb.from('crockery_counts').select('crockery_id,store,opp,total')
     .eq('venue_id', CRKC_VENUE).eq('month', month);
   var out = {};
   (r.error ? [] : (r.data || [])).forEach(function(c){ out[c.crockery_id] = c; });
+  // Without this a failed read showed "0 of 76 counted" and breakage of AED 0 as if real.
+  if (r.error && typeof kToast === 'function') kToast((into === 'prev' ? 'Last month’s counts' : 'This month’s counts') + ' could not be loaded — the figures shown are incomplete. Reopen to retry.', true);
   if (into === 'prev'){ crkcPrev = out; } else { crkcCounts = out; }
 }
 async function crkcOpenMonth(month){

@@ -475,6 +475,7 @@ Deno.serve(async (req) => {
           ok: true, date: eventsProbe, rows: t.length,
           devices: Object.values(agg).map((a) => ({
             controller: a.ctrl, device: a.device, punches: a.punches, distinct_users: a.users.size,
+            users: [...a.users],
             skew_min: a.skews.length ? Math.round(a.skews.reduce((x, y) => x + y, 0) / a.skews.length) : null,
           })).sort((x, y) => y.punches - x.punches),
           users_total: Object.keys(byUser).length,

@@ -215,6 +215,8 @@ function stPrevText(it){
 async function stLoadSheet(){
   var res = await sb.from('stock_take_sheets').select('*')
     .eq('venue_id',STOCK_VENUE).eq('dept',STOCK_DEPT);
+  // A failed read is not "no stock take this month" — say so instead of showing an empty month.
+  if(res.error && typeof kToast==='function') kToast('Stock take could not be loaded — check connection and reopen.', true);
   stSheet = stSortKeysDesc(res.data)[0] || null;   // latest by real date, see stSortKeysDesc
   stMonth = stSheet ? stSheet.month : null;
 }

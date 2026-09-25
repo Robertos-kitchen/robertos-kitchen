@@ -679,8 +679,8 @@ function renderCheckItem(stKey,ssKey,dish,item){
   const noteId='note-'+encodeURIComponent(id);
   return `<div class="check-prep-row">
     <div class="check-prep-main">
-      <div class="check-prep-name">${item}</div>
-      ${chk&&chk.note?`<div class="check-prep-note">${chk.note}</div>`:''}
+      <div class="check-prep-name">${escHtml(item)}</div>
+      ${chk&&chk.note?`<div class="check-prep-note">${escHtml(chk.note)}</div>`:''}
     </div>
     <div class="check-command-btns">
       <button class="check-command ok${status==='ok'?' active':''}" onclick="setItemCheck('${esc}','ok')">OK</button>
@@ -847,12 +847,16 @@ async function logReset(who, action, scope, count){
 async function resetChefChecklist(){
   var who = await resetIdentity('reset all chef checklist checks for today');
   if(!who) return;
+  // Delete on the server FIRST: supabase returns errors instead of throwing, so the
+  // old try/catch cleared the board and logged a reset even when nothing was deleted.
+  if(!DEV_READ_ONLY){
+    var delErr=null;
+    try{ var dr=await sb.from('chef_checks').delete().eq('service_date',TODAY); delErr=dr&&dr.error; }
+    catch(e){ delErr=e; }
+    if(delErr){ console.warn('Chef checklist reset failed',delErr); kToast('Reset did not go through — the checks are still saved. Try again.', true); return; }
+  }
   chefChecks=[];
   saveChefChecks();
-  if(!DEV_READ_ONLY){
-    try{await sb.from('chef_checks').delete().eq('service_date',TODAY);}
-    catch(e){console.warn('Chef checklist reset sync failed',e);}
-  }
   logReset(who, 'chef_checklist_reset', TODAY, null);
   renderAfterChefCheckSync();
 }
@@ -865,9 +869,9 @@ function renderStationChecks(stKey){
       ${checks.map(c=>`<div class="station-check-item">
         <span class="check-badge ${c.status}">${checkStatusLabel(c.status)}</span>
         <div class="check-card-main">
-          <div class="check-card-title">${c.item}</div>
+          <div class="check-card-title">${escHtml(c.item)}</div>
           <div class="check-card-meta">${subsectionLabel(c.stationKey,c.subsectionKey)} · ${c.dish||'Mise en place'} · ${c.createdAt}</div>
-          ${c.note?`<div class="check-card-note">${c.note}</div>`:''}
+          ${c.note?`<div class="check-card-note">${escHtml(c.note)}</div>`:''}
         </div>
       </div>`).join('')}
     </div>
@@ -890,7 +894,8 @@ async function loadCovers() {
   // future row forever and would eventually hit the 1000-row default cap (and
   // truncate the wrong end). Window it and cap it.
   var coversTo = formatDate(addDays(new Date(TODAY + 'T12:00:00'), 21));
-  const { data } = await sb.from('covers').select('*').gte('service_date', TODAY).lte('service_date', coversTo).order('service_date').limit(60);
+  const { data, error } = await sb.from('covers').select('*').gte('service_date', TODAY).lte('service_date', coversTo).order('service_date').limit(60);
+  window.__dashCoversErr = !!error;   // the card must not say "Not synced" when the read itself failed
   dashCovers = {};
   if (data) data.forEach(function(r){ dashCovers[r.service_date] = r; });
 }
@@ -950,9 +955,9 @@ async function renderDashboard(){
     <div class="critical-item">
       <span class="check-badge ${r.status==='sos'?'discard':r.status==='bu'?'review':r.status}">${statusLabel(r.status)}</span>
       <div>
-        <div class="critical-text">${r.item}</div>
-        <div class="critical-meta">${r.type} · ${r.station} · ${r.dish}</div>
-        ${r.note?`<div class="check-card-note">${r.note}</div>`:''}
+        <div class="critical-text">${escHtml(r.item)}</div>
+        <div class="critical-meta">${escHtml(r.type)} · ${escHtml(r.station)} · ${escHtml(r.dish)}</div>
+        ${r.note?`<div class="check-card-note">${escHtml(r.note)}</div>`:''}
       </div>
     </div>`).join(''):`<div class="report-no-data">No critical items at the moment</div>`;
 
@@ -1004,7 +1009,7 @@ async function renderDashboard(){
     : `<div class="ops-card dash-covers-card dash-no-covers">
         <div class="ops-num">—</div>
         <div class="ops-label">Tonight's covers booked</div>
-        <div class="dash-covers-sync">Not synced — use laptop to sync</div>
+        <div class="dash-covers-sync">${window.__dashCoversErr ? 'Could not load covers — check connection' : 'Not synced — use laptop to sync'}</div>
        </div>`;
 
   document.getElementById('dashboard-view').innerHTML=`
@@ -1084,6 +1089,10 @@ function flowPanelHead(ds){
 // (the panel simply never appears, as before). If a chef deliberately picked a
 // day, always show the panel so the tap isn't silently ignored.
 function flowPanelHtml(flow, ds){
+  if (flow && flow.failed) {
+    return '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
+      '<div class="flow-empty">Couldn’t reach SevenRooms for ' + flowDayLabel(ds) + ' — this is not the same as no bookings. It retries on the next refresh.</div></div>';
+  }
   if (!flow) {
     if (ds === TODAY) return '';
     return '<div class="ops-panel" style="margin-bottom:16px">' + flowPanelHead(ds) +
@@ -1249,12 +1258,14 @@ async function fetchCoverFlow(date) {
       }
     });
     var data = await res.json();
-    var out = (!res.ok || !data.ok || !data.slots || !data.slots.length) ? null : data;
+    // A failed call is not "no bookings": return a marker, and never cache it for 5 minutes.
+    if (!res.ok || !data.ok) return { failed: true };
+    var out = (!data.slots || !data.slots.length) ? null : data;
     if (d !== TODAY) flowCache[d] = { t: Date.now(), v: out };
     return out;
   } catch (err) {
     console.error('Cover flow fetch error:', err);
-    return null;
+    return { failed: true };
   }
 }
 
@@ -1996,7 +2007,11 @@ async function loadKevOverrides(ids){
     if(r && r.error) throw r.error;
     KEV_COMP_DRAFT_C = {};   // drafts just came back from the table — re-read them
     (r.data||[]).forEach(function(o){ KEV_OVR[kevOvrKey(o.event_id, o.dish_name)] = { portions:o.portions, label:o.label }; });
-  }catch(err){ console.warn('[kev-ovr] load skipped', err && err.message||err); }  // table missing / offline → no overrides, strip still works
+  }catch(err){
+    console.warn('[kev-ovr] load skipped', err && err.message||err);   // table missing / offline → no overrides, strip still works
+    // …but the chef must know the portions shown may be missing a change (once per session, not every poll).
+    if(!window.__kevOvrWarned){ window.__kevOvrWarned=true; kToast('Portion changes could not be loaded — the counts shown are the events desk figures.', true); }
+  }
 }
 async function kevUnlockEdit(){
   if(KEV_CAN_EDIT) return true;
@@ -3290,6 +3305,8 @@ async function loadSchedData() {
     sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd).limit(3000),
     sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000)
   ]);
+  // A failed read would otherwise draw an empty week that reads as "nobody rostered".
+  if (res[0].error || res[1].error) kToast('Schedule did not load fully — ' + (res[0].error ? 'staff' : 'shifts') + ' could not be read. Reopen before changing anything.', true);
   schedStaff = (res[0].data || []).filter(function(s){ return s.in_schedule!==false; });   // FOH Admin "show in schedule" toggle (staff.in_schedule); null/absent = shown
   schedRoster = {};
   var rosterRows = res[1].data || [];
@@ -3325,6 +3342,7 @@ async function loadAttendance() {
   if (!ids.length) { schedAttendance = {}; return; }
   var res = await sb.from('attendance').select('*')
     .in('emp_id', ids).gte('att_date', from).lte('att_date', to).limit(2000);
+  if (res.error) kToast('Clock-ins could not be loaded — hours shown may be incomplete.', true);
   // Same row-cap guard as the roster load above: if this window ever fills the
   // limit, punches are being silently dropped and hours totals would undercount.
   // A console.warn is invisible to a chef, so this also puts a strip on the

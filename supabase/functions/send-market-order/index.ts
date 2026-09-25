@@ -13,6 +13,11 @@ serve(async (req) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST',
+        // 22 Sept 2026 — widened from 'Content-Type, Authorization' for the same
+        // reason as send-stock-take: a caller that also sends an `apikey` header
+        // had its POST refused by the browser at the preflight, which surfaces
+        // as "Failed to fetch" with no request ever reaching the function. This
+        // is the set the project's other functions already accept.
         'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
       },
     });

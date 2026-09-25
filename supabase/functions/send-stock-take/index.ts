@@ -13,6 +13,13 @@ serve(async (req) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST',
+        // 22 Sept 2026 — this list used to be 'Content-Type, Authorization'. The
+        // Events comp-tasting send also sent an `apikey` header, so the browser
+        // answered the preflight, saw apikey missing from the allow-list and
+        // refused to send the POST: the chef got "Failed to fetch" four times
+        // and no request ever reached here. The app no longer sends apikey, but
+        // a caller that does must not be silently blocked again — so accept the
+        // same set the project's seven other functions already accept.
         'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
       },
     });

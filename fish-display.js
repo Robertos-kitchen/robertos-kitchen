@@ -12,6 +12,7 @@
 const FISH_KEY = 'fish_display';
 
 let fdItems = [];      // [{id,name,kind,sort_order,active}]
+let fdLoadFailed = false;   // today's sheet read failed → saving is refused until reopened
 let fdDoc   = null;    // { entries:{item_id:{qty,kg,price|gr}}, oyster, low85:[], out86:[], push:[], blank_rows }
 let fdChannel = null;
 let fdCtx = null;      // active editor context
@@ -88,8 +89,15 @@ async function loadFishDisplay(){
   fdDirty.clear();                 // whatever we were defending, we are about to replace
   const it = await sb.from('fish_display_items').select('*').eq('active', true).order('kind').order('sort_order');
   fdItems = (it.data || []);
+  if(it.error) fdWarn('The fish list could not be loaded — reopen Fish display.');
   const sh = await sb.from('fish_display_sheet').select('doc').eq('biz_date', fdBizDate).maybeSingle();
-  if(sh && sh.data){
+  // A failed read of TODAY's sheet is not "no sheet yet": carrying yesterday forward and then
+  // saving would overwrite today's real sheet. Show nothing new and refuse to save until reopened.
+  fdLoadFailed = !!(sh && sh.error);
+  if(fdLoadFailed){
+    fdDoc = fdNormalise(null);
+    fdWarn('Today’s fish sheet could not be loaded — reopen before editing, so nothing is overwritten.');
+  } else if(sh && sh.data){
     fdDoc = fdNormalise(sh.data.doc);
   } else {
     // No sheet for today yet — carry the most recent previous day's sheet forward so the
@@ -150,7 +158,9 @@ function fdFlashSync(){ const dot=document.getElementById('realtime-dot'); if(!d
 
 // ── save the whole day's doc (shared live) ───────────────────────────────────
 let fdSaveTimer = null;
+function fdWarn(msg){ if(typeof kToast === 'function') kToast(msg, true); else console.warn(msg); }
 async function fdSave(){
+  if(fdLoadFailed){ fdWarn('Not saved — today’s sheet did not load. Reopen Fish display first.'); return; }
   const snapshot = JSON.parse(JSON.stringify(fdDoc));
   snapshot._tab = FD_TAB;            // so this tab knows its own echo; fdNormalise drops it on read
   fdPruneClaims();

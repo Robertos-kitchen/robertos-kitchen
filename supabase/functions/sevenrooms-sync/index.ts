@@ -199,44 +199,191 @@ function srVisitRow(r: any) {
   };
 }
 
+// ---- WHAT THEY ORDERED ---------------------------------------------------
+// Simphony posts the itemised check to SevenRooms and it rides on the
+// reservation as pos_tickets[].items -- name, price, quantity, modifiers, notes
+// and the course. Verified 7 Aug 2026 on the live account: 5 Aug carried 28
+// tickets over 27 bookings, every one of them itemised (table 32, check 18939:
+// Bread Basket, Coke Btl x2, Burrata, Arrabbiata, Margherita, Choc-Choc).
+//
+// TIMING, AND WHY THE APP MUST NOT READ AN EMPTY LIST AS "ATE NOTHING".
+// SevenRooms links the check on a delay -- 6 Aug's 39 tickets were all present
+// by 05:49 the next morning, but 2 Aug never posted a single one and 27 Jul was
+// still empty the following day. An empty items list therefore means "not
+// posted (yet)", never "no order". The caller gets `items: null` in that case,
+// which is a different thing from an empty array, and the app says so in words.
+//
+// The course separators Simphony writes as check lines ("1st____________",
+// "2nd Pick Up") are kitchen firing instructions at price 0, not something the
+// guest ate. They are dropped here so a manager reads a menu, not a POS tape.
+// Only zero-priced lines that OPEN with an ordinal are dropped -- a real dish at
+// price 0 (the bread basket, the Arabic coffee) stays on the list, because a
+// comped or included item is exactly the kind of thing a manager wants to see.
+const SR_COURSE_MARKER = /^\d+(st|nd|rd|th)\b/i;
+
+function srCheckItems(r: any) {
+  const tickets = Array.isArray(r.pos_tickets) ? r.pos_tickets : [];
+  const items: any[] = [];
+  let open = false;
+  for (const t of tickets) {
+    if (String(t?.status || "").toLowerCase() === "open") open = true;
+    const lines = Array.isArray(t?.items) ? t.items : [];
+    for (const it of lines) {
+      // The underscores are padding Simphony uses to make the separator span the
+      // printed check; collapsing whitespace also handles the trailing spaces
+      // that would otherwise print as a gap in a single-line cell.
+      const name = String(it?.name || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+      if (!name) continue;
+      // `price` IS THE LINE TOTAL, NOT THE UNIT PRICE. Reconciled 7 Aug 2026
+      // against three checks from 6 Aug: 18979 (713), 18968 (660), 18974 (525)
+      // each tie EXACTLY to the sum of their item prices as they stand, and
+      // 18979's "2 x Elysium GL" carries a single 150 for the pair. Multiplying
+      // by quantity turned that 713 check into 983. Never multiply this field.
+      const price = Number(it?.price) || 0;
+      const qty = Number(it?.quantity) || 1;
+      if (!price && SR_COURSE_MARKER.test(name)) continue;
+      // Modifiers arrive either as objects or as plain strings depending on how
+      // the item was rung in; both reduce to the words a manager reads.
+      const mods = (Array.isArray(it?.modifiers) ? it.modifiers : [])
+        .map((m: any) => String((m && (m.name ?? m)) || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+      const note = String(it?.notes || "").replace(/\s+/g, " ").trim();
+      items.push({
+        name,
+        qty,
+        // The line total. Named plainly so nothing downstream is tempted to
+        // multiply it -- see the note above.
+        price,
+        mods: mods.length ? mods : null,
+        note: note || null,
+      });
+    }
+  }
+  // Identical lines rung in separately read as noise on a screen ("Margherita"
+  // three times over). Merged on the dish, its modifiers and its note --
+  // deliberately NOT on price, because two identical lines can carry different
+  // amounts (one comped, one not) and keying on price would split them back
+  // apart. Quantities AND prices are added, which keeps the merged list summing
+  // to the same check total as the unmerged one.
+  const merged: any[] = [];
+  const seen: Record<string, any> = {};
+  for (const it of items) {
+    const k = it.name + "|" + (it.mods ? it.mods.join(",") : "") + "|" + (it.note || "");
+    if (seen[k]) { seen[k].qty += it.qty; seen[k].price += it.price; continue; }
+    seen[k] = it;
+    merged.push(it);
+  }
+  return { items: merged.length ? merged : null, open };
+}
+
+// Days added to (or subtracted from) a YYYY-MM-DD date, in UTC so a Dubai clock
+// never shifts the window by a day.
+function srShiftDate(day: string, days: number): string {
+  const t = Date.parse(day + "T00:00:00Z");
+  if (!isFinite(t)) return day;
+  return new Date(t + days * 86400000).toISOString().slice(0, 10);
+}
+
 async function guestVisits(
   token: string,
   venueGroupId: string | undefined,
   clientId: string,
   venueId: string | null,
   before: string | null,
+  // The guest's last known visit, off the client record the caller has already
+  // read. Used only to place the first window -- see below. Optional: without it
+  // the window is placed on the night being viewed, which is right for anyone
+  // who has been in recently and merely costs a second call for anyone who
+  // hasn't.
+  anchor: string | null = null,
 ) {
-  const url = new URL(`${SR_BASE}/reservations`);
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("from_date", SR_VISIT_FROM);
-  // Everything strictly BEFORE the night being viewed. Tonight is excluded at
-  // the source, because SevenRooms writes today into a guest's history the
-  // moment they are seated -- which is the whole reason this exists. Passing the
-  // VIEWED date rather than today also keeps it honest when a manager is looking
-  // back at an old book: they see what was true then, not what is true now.
-  url.searchParams.set("to_date", before || new Date().toISOString().slice(0, 10));
-  // 400 like the daysheet. The heaviest guest on the live book has 63 visits, so
-  // one page holds a whole history and no cursor walk is needed.
-  url.searchParams.set("limit", "400");
-  if (venueGroupId) url.searchParams.set("venue_group_id", venueGroupId);
-  const r = await fetch(url.toString(), {
-    method: "GET", headers: { "Authorization": token, "Accept": "application/json" },
-  });
-  if (!r.ok) throw new Error(`Visits fetch failed: ${r.status}`);
-  const b = await r.json();
-  const d = b?.data ?? b;
-  const rows: any[] = Array.isArray(d) ? d : (Array.isArray(d?.results) ? d.results : []);
-  return rows
-    // Scoped to the venue they are sitting in tonight, matching the stats block
-    // above it in the panel. A panel that counts 47 visits at this venue and
-    // then lists three from another one is a panel that gets argued with.
-    .filter((x) => !venueId || String(x.venue_id || "") === venueId)
-    .map(srVisitRow)
-    .filter((v) => v.date && (!before || v.date < before))
-    .sort((a, b2) => (a.date! < b2.date! ? 1 : a.date! > b2.date! ? -1 : 0))
-    .slice(0, 12);
-}
+  // TWO THINGS ABOUT THIS ENDPOINT, BOTH MEASURED, BOTH LOAD-BEARING.
+  //
+  // 1. IT RETURNS A CLIENT'S RESERVATIONS IN NO DATE ORDER WHATSOEVER. Measured
+  //    20 Aug 2026 with ?visitpage= on the Chairman's record (1,038 rows over 3
+  //    pages at limit=400): page 1 opened 2023-05-05, 2023-05-05, 2023-05-04,
+  //    2023-05-03, 2023-05-15 and closed on 2020, 2017, 2015. His three most
+  //    recent nights were on pages 2 and 3.
+  //
+  //    So reading page one and sorting it is not "the newest visits, roughly" --
+  //    it is an arbitrary 400 of 1,038, sorted. His panel showed 11 May 2026,
+  //    9 May 2026 and then fell off a cliff to 15 May 2023, while the stats
+  //    block two lines above it correctly read "Last visit 23 June". Two
+  //    contradicting answers on one card. It stayed invisible for so long
+  //    because a guest with fewer than 400 lifetime bookings fits in one page,
+  //    so for almost everyone the old code was accidentally right.
+  //
+  //    (An earlier note here guessed a hard 30-row page. That was wrong: 30 is
+  //    only the DEFAULT when no limit is sent. `limit` is honoured.)
+  //
+  // 2. READING THE WHOLE HISTORY TO FIX IT COSTS TEN SECONDS. 1,038 rows carry
+  //    their pos_tickets with them; three sequential pages measured 9.9-10.8s.
+  //    That is a manager standing at a table waiting for a panel.
+  //
+  // THE WINDOW IS THE ANSWER. This list is never more than 12 nights, so it does
+  // not need eleven years of history -- it needs the most recent twelve months,
+  // which for the same guest is 45 rows in ONE page in 1.6s. The window is
+  // placed on his LAST KNOWN VISIT rather than on tonight, so a heavy guest who
+  // has been away for six months is still answered in one call. Only if twelve
+  // months genuinely does not hold twelve visits do we fall back to the full
+  // history -- which is cheap precisely because that guest has little of it.
+  const to = before || new Date().toISOString().slice(0, 10);
+  const WANT = 12;
 
+  const readWindow = async (from: string) => {
+    const rows: any[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const url = new URL(`${SR_BASE}/reservations`);
+      url.searchParams.set("client_id", clientId);
+      url.searchParams.set("from_date", from);
+      // Everything strictly BEFORE the night being viewed. Tonight is excluded at
+      // the source, because SevenRooms writes today into a guest's history the
+      // moment they are seated -- which is the whole reason this exists. Passing
+      // the VIEWED date rather than today also keeps it honest when a manager is
+      // looking back at an old book: they see what was true then, not what is
+      // true now.
+      url.searchParams.set("to_date", to);
+      url.searchParams.set("limit", "400");
+      if (venueGroupId) url.searchParams.set("venue_group_id", venueGroupId);
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const r = await fetch(url.toString(), {
+        method: "GET", headers: { "Authorization": token, "Accept": "application/json" },
+      });
+      if (!r.ok) throw new Error(`Visits fetch failed: ${r.status}`);
+      const b = await r.json();
+      const d = b?.data ?? b;
+      const page: any[] = Array.isArray(d) ? d : (Array.isArray(d?.results) ? d.results : []);
+      rows.push(...page);
+      // The cursor still gets walked inside a window. A window is a speed
+      // measure, never a correctness one -- point 1 above means a truncated
+      // window would hand back an arbitrary slice all over again.
+      cursor = (d && typeof d === "object" ? d.cursor : null) ?? null;
+      pages++;
+    } while (cursor && pages < 6);
+    return rows
+      // Scoped to the venue they are sitting in tonight, matching the stats block
+      // above it in the panel. A panel that counts 47 visits at this venue and
+      // then lists three from another one is a panel that gets argued with.
+      .filter((x) => !venueId || String(x.venue_id || "") === venueId)
+      .map(srVisitRow)
+      .filter((v) => v.date && (!before || v.date < before))
+      .sort((a, b2) => (a.date! < b2.date! ? 1 : a.date! > b2.date! ? -1 : 0))
+      .slice(0, WANT);
+  };
+
+  const anchorDay = anchor ? String(anchor).slice(0, 10) : "";
+  const recentFrom = srShiftDate(/^\d{4}-\d{2}-\d{2}$/.test(anchorDay) && anchorDay < to ? anchorDay : to, -365);
+  if (recentFrom > SR_VISIT_FROM) {
+    const recent = await readWindow(recentFrom);
+    if (recent.length >= WANT) return recent;
+    // Short of twelve. Either they are an occasional guest, or they are a
+    // regular whose history starts inside the window -- and the full read that
+    // settles it is cheap in both cases.
+  }
+  return await readWindow(SR_VISIT_FROM);
+}
 async function guestProfile(
   token: string,
   venueGroupId: string | undefined,
@@ -278,19 +425,25 @@ async function guestProfile(
   // read from the client record and are still true if the visit list fails, so
   // a failure here degrades to "no list" instead of an error where a manager
   // wanted a guest.
+  // Read BEFORE the visit list, not after: guestVisits places its first window
+  // on the guest's last known visit, so a heavy guest who has been away a while
+  // is still answered in one call instead of an eleven-year read.
+  const vstats = (venueId && c.venue_stats && typeof c.venue_stats === "object")
+    ? (c.venue_stats as any)[venueId] : null;
+  const s: any = vstats || c;
+  const lastKnown: string | null =
+    (vstats && (vstats.last_visit_date as string)) || ((c as any).last_visit_date as string) || null;
+
   let visitList: any[] = [];
   let visitsOk = false;
   if (withVisits) {
     try {
-      visitList = await guestVisits(token, venueGroupId, id, venueId, before);
+      visitList = await guestVisits(token, venueGroupId, id, venueId, before, lastKnown);
       visitsOk = true;
     } catch (e) {
       console.warn("[sevenrooms-sync] visits failed", String(e).slice(0, 160));
     }
   }
-  const vstats = (venueId && c.venue_stats && typeof c.venue_stats === "object")
-    ? (c.venue_stats as any)[venueId] : null;
-  const s: any = vstats || c;
   return {
     id: c.id || id,
     // `scope` rides along so the app -- and anyone reading this later -- can
@@ -598,6 +751,9 @@ serve(async (req) => {
         // the night), so it is the right fallback when a booking carries payment
         // without an itemised ticket.
         const gross = posSubtotal || Number(r.total_payment) || Number(r.onsite_payment_total) || 0;
+        // The check itself, line by line -- see srCheckItems for the timing rule
+        // and why a missing list is null and never an empty array.
+        const check = srCheckItems(r);
         const phone = String(r.phone_number || "").replace(/\D/g, "");
         out.push({
           time: String(r.real_datetime_of_slot || "").slice(11, 16) || String(r.arrival_time || ""),
@@ -628,6 +784,14 @@ serve(async (req) => {
           minimum: Number(r.min_price) || null,
           spend: spend || null,
           gross: gross || null,
+          // What they ordered. Null until Simphony's check is linked, which is
+          // NOT the same as an empty order -- the app must never turn this into
+          // "they had nothing". Prices ride along and the app hides them from
+          // anyone without Revenue access, the same rule the spend column follows.
+          items: check.items,
+          // True while a ticket on this booking is still open in Simphony, so a
+          // manager reading it mid-service knows the list can still grow.
+          check_open: check.open || null,
           served_by: r.served_by || null,
           phone_last4: phone ? phone.slice(-4) : null,
           // The key the FOH name-tap uses to ask ?guest= for this guest's
@@ -786,6 +950,54 @@ serve(async (req) => {
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // ---- ?visitpage=<client id> -- HOW DOES THE VISIT LIST ACTUALLY PAGE? ---
+    // guestVisits asked for limit=400 and its comment assumed "one page holds a
+    // whole history". A guest with 1,002 venue visits came back with 30 rows and
+    // a panel that jumped from May 2026 straight to May 2023, so both the page
+    // size and the row ORDER have to be facts before the fix is written.
+    //
+    // Same discipline as the probes above: COUNTS, DATES and whether a cursor
+    // came back. Never a guest field.
+    const visitPage = reqUrl.searchParams.get("visitpage");
+    if (visitPage) {
+      const pages: any[] = [];
+      let cursor: string | null = null;
+      let n = 0;
+      do {
+        const url = new URL(`${SR_BASE}/reservations`);
+        url.searchParams.set("client_id", visitPage);
+        url.searchParams.set("from_date", reqUrl.searchParams.get("from") || SR_VISIT_FROM);
+        url.searchParams.set("to_date", reqUrl.searchParams.get("to") || new Date().toISOString().slice(0, 10));
+        url.searchParams.set("limit", reqUrl.searchParams.get("limit") || "400");
+        if (venueGroupId) url.searchParams.set("venue_group_id", venueGroupId);
+        if (cursor) url.searchParams.set("cursor", cursor);
+        const r = await fetch(url.toString(), {
+          method: "GET", headers: { "Authorization": token, "Accept": "application/json" },
+        });
+        if (!r.ok) { pages.push({ page: n, status: r.status }); break; }
+        const b = await r.json();
+        const rows: any[] = b?.data?.results ?? [];
+        const dates = rows.map((x) => srDateOf(x)).filter(Boolean) as string[];
+        const sorted = [...dates].sort();
+        pages.push({
+          page: n,
+          rows: rows.length,
+          cursor_returned: !!(b?.data?.cursor),
+          data_keys: Object.keys(b?.data ?? {}),
+          total_field: b?.data?.total ?? null,
+          raw_order_first5: dates.slice(0, 5),
+          raw_order_last5: dates.slice(-5),
+          oldest: sorted[0] ?? null,
+          newest: sorted[sorted.length - 1] ?? null,
+        });
+        cursor = b?.data?.cursor ?? null;
+        n++;
+      } while (cursor && n < 40);
+      return new Response(JSON.stringify({ ok: true, pages_read: n, exhausted: !cursor, pages }, null, 2), {
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
     const guest = reqUrl.searchParams.get("guest");
     if (guest) {
       const p = await guestProfile(token, venueGroupId, guest, reqUrl.searchParams.get("venue"), true,
@@ -896,6 +1108,191 @@ serve(async (req) => {
           implied_multiplier: sumPosSubtotal > 0 ? +(sumPosTotal / sumPosSubtotal).toFixed(5) : null,
         },
         rows: out,
+      }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
+    // ---- CLIENT CHECK (12 Aug 2026) --------------------------------------
+    // "Has this enquiry dined with us before?" â asked by the Events desk with
+    // nothing but what the guest put in their email: a number, an address, or a
+    // name. Answers with a VERDICT and the guest's history, never their contact
+    // details: no phone, no email, no address ever leaves this function, exactly
+    // as the daysheet mode has always worked.
+    //
+    // ?clientcheck=<value>[&kind=phone|email|name]
+    //
+    // TWO TRAPS THIS GUARDS, both proved against the live API on 12 Aug 2026:
+    //
+    //  1. `query=` / `search=` / `text=` are SILENTLY IGNORED by SevenRooms and
+    //     return the unfiltered first page â 50 rows for any input on earth.
+    //     They are not used here. Only phone / email / name genuinely filter
+    //     (real number -> 2 rows, fake -> 0; real surname -> 2, nonsense -> 0).
+    //
+    //  2. Passing the WRONG VALUE TYPE to a working filter falls back to that
+    //     same unfiltered 50 â an email sent to `phone=` returned all 50. So the
+    //     value is classified BEFORE it is sent, and a 50-row answer is treated
+    //     as "the filter did not apply" and reported as an ERROR, never as 50
+    //     matches and never as "new guest".
+    //
+    // "We could not check" and "they are new" are different sentences and only
+    // one of them should ever be shown to a guest-facing quote.
+    const clientCheck = reqUrl.searchParams.get("clientcheck");
+    if (clientCheck) {
+      const raw = String(clientCheck).trim();
+      const digits = raw.replace(/\D/g, "");
+      let kind = String(reqUrl.searchParams.get("kind") || "").toLowerCase();
+      if (kind !== "phone" && kind !== "email" && kind !== "name") {
+        if (raw.includes("@")) kind = "email";
+        else if (digits.length >= 7) kind = "phone";
+        else kind = "name";
+      }
+      // The value actually sent. A UAE mobile reaches us as 0564034998,
+      // 971564034998 or +971 56 403 4998 in the same week; the last 9 digits are
+      // the subscriber number and match all three without inventing a dial code.
+      const value = kind === "phone" ? digits.slice(-9)
+                  : kind === "email" ? raw.toLowerCase()
+                  : raw;
+
+      const tooShort = (kind === "name" && value.length < 3) ||
+                       (kind === "phone" && value.length < 7) ||
+                       (kind === "email" && !/.@./.test(value));
+      if (tooShort) {
+        return new Response(JSON.stringify({
+          ok: true, status: "error", matched: false, matched_on: kind,
+          reason: `Not enough to search on â "${kind}" needs a fuller value.`,
+        }), { headers: { ...cors, "Content-Type": "application/json" } });
+      }
+
+      const url = new URL(`${SR_BASE}/clients`);
+      url.searchParams.set(kind, value);
+      if (venueGroupId) url.searchParams.set("venue_group_id", venueGroupId);
+
+      const cr = await fetch(url.toString(), {
+        method: "GET", headers: { Authorization: token, Accept: "application/json" },
+      });
+      if (!cr.ok) {
+        return new Response(JSON.stringify({
+          ok: true, status: "error", matched: false, matched_on: kind,
+          reason: `SevenRooms answered ${cr.status}.`,
+        }), { headers: { ...cors, "Content-Type": "application/json" } });
+      }
+      const cb = await cr.json();
+      const cd = cb?.data ?? cb;
+      const list: any[] = Array.isArray(cd) ? cd : (Array.isArray(cd?.results) ? cd.results : []);
+
+      // The unfiltered-page guard. 50 is SevenRooms' default page size, and it is
+      // what comes back when a filter did not apply. A real venue can have 50
+      // people called Ahmed, so this refuses rather than guesses.
+      if (list.length >= 50) {
+        return new Response(JSON.stringify({
+          ok: true, status: "error", matched: false, matched_on: kind,
+          reason: "SevenRooms returned an unfiltered list, so this could not be checked reliably.",
+        }), { headers: { ...cors, "Content-Type": "application/json" } });
+      }
+
+      if (!list.length) {
+        return new Response(JSON.stringify({
+          ok: true, status: "new", matched: false, matched_on: kind, count: 0,
+        }), { headers: { ...cors, "Content-Type": "application/json" } });
+      }
+
+      // Up to 3 candidates get their history read, so she can tell two people of
+      // the same name apart by when they were last in. Three, not the five the
+      // search may return, because each one costs two SevenRooms calls and this
+      // runs while she is on the phone to the guest.
+      //
+      // Name and company ride along because she has to confirm it is the right
+      // person; the contact fields deliberately do not.
+      //
+      // venue is OPTIONAL and normally absent here: an enquiry has no table, so
+      // there is no venue to scope to. Without it the figures are GROUP-wide,
+      // which is the right question anyway ("have they been to us before"), and
+      // `scope` says which of the two is being shown. last_visit only exists on
+      // the venue block, so it falls back to the newest row of the visit list --
+      // the same date, read the other way round.
+      const venueParam = reqUrl.searchParams.get("venue");
+      const picked = list.slice(0, 3);
+      const matches: any[] = [];
+      for (const c of picked) {
+        const id = c?.id;
+        if (!id) continue;
+        let stats: any = null;
+        try {
+          stats = await guestProfile(token, venueGroupId, String(id), venueParam, true, null);
+        } catch (_) { /* history is a bonus; the match itself still stands */ }
+        const recent = stats && Array.isArray(stats.visits_recent) ? stats.visits_recent : [];
+        matches.push({
+          sr_client_id: String(id),
+          name: [c.first_name, c.last_name].filter(Boolean).join(" ") || null,
+          company: c.company || null,
+          scope: stats ? stats.scope : null,
+          visits: stats ? stats.visits : null,
+          covers: stats ? stats.covers : null,
+          spend: stats ? stats.spend : null,
+          last_visit: stats ? (stats.last_visit || (recent[0] && recent[0].date) || null) : null,
+          note: stats ? stats.note : null,
+          tags: stats ? stats.tags : [],
+          history_read: !!stats,
+        });
+      }
+      // Best = most visits, so the real regular leads when a name returns several.
+      matches.sort((a, b) => (b.visits || 0) - (a.visits || 0));
+      return new Response(JSON.stringify({
+        ok: true, status: "known", matched: true, matched_on: kind,
+        count: list.length, matches,
+      }), { headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
+    // ---- CLIENT SEARCH PROBE (12 Aug 2026) -------------------------------
+    // Does SevenRooms let us look a guest up by PHONE or EMAIL, rather than by
+    // the client id we already hold? The Events desk needs to answer "has this
+    // enquiry dined with us before?" from nothing but a number in an email.
+    // The API docs are account-gated and no public source documents a client
+    // search, so the only honest answer is to ask the API.
+    //
+    // Same discipline as ?visitprobe=: this reports PATHS, STATUS CODES, ROW
+    // COUNTS and FIELD NAMES only. It never returns a field VALUE, so running
+    // it can never leak a guest's number or address into a log or a browser.
+    const clientProbe = reqUrl.searchParams.get("clientprobe");
+    if (clientProbe) {
+      const vg = venueGroupId || "";
+      const v = encodeURIComponent(clientProbe);
+      const candidates = [
+        `/clients?phone=${v}`,
+        `/clients?phone_number=${v}`,
+        `/clients?email=${v}`,
+        `/clients?query=${v}`,
+        `/clients?search=${v}`,
+        `/clients?text=${v}`,
+        `/clients?name=${v}`,
+        `/clients/search?query=${v}`,
+        `/clients/search?phone=${v}`,
+        `/client_search?query=${v}`,
+      ];
+      const results: any[] = [];
+      for (const path of candidates) {
+        const url = new URL(SR_BASE + path);
+        if (vg && !url.searchParams.get("venue_group_id")) url.searchParams.set("venue_group_id", vg);
+        try {
+          const r = await fetch(url.toString(), {
+            method: "GET", headers: { Authorization: token, Accept: "application/json" },
+          });
+          let rows: any = null, sampleKeys: any = null;
+          if (r.ok) {
+            const b = await r.json();
+            const d = b?.data ?? b;
+            const arr = Array.isArray(d) ? d : (Array.isArray(d?.results) ? d.results : null);
+            rows = arr ? arr.length : null;
+            sampleKeys = arr && arr[0] && typeof arr[0] === "object" ? Object.keys(arr[0]).slice(0, 30) : null;
+          }
+          results.push({ path: path.replace(v, "<value>"), status: r.status, ok: r.ok, rows, sampleKeys });
+        } catch (e) {
+          results.push({ path: path.replace(v, "<value>"), status: "threw", error: String(e).slice(0, 120) });
+        }
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        answered: results.filter((x) => x.ok && x.rows).map((x) => x.path),
+        results,
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 

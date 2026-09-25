@@ -131,7 +131,7 @@ async function loadFmcPrices(){
   mlArtUnit = {};
   const rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_articles')
-      .select('code,price,price_per_base_unit,name,unit').eq('venue_id', ML_VENUE);
+      .select('code,price,price_per_base_unit,name,unit').eq('venue_id', ML_VENUE).order('code');   // stable order, or paging can skip/repeat rows
   });
   (rows||[]).forEach(r=>{
     const c = r.code != null ? String(r.code).trim() : '';
@@ -168,7 +168,7 @@ async function loadFmcQuotes(){
   const rows = await mlFetchAllPaged(function(){
     return sb.from('fmc_price_quotes')
       .select('code,supplier,unit,price_per_unit,price_per_base_unit,last_price_update')
-      .eq('venue_id', ML_VENUE);
+      .eq('venue_id', ML_VENUE).order('code').order('supplier').order('unit');   // = primary key order, so pages never overlap
   });
   if(rows && rows.length) mlQuotesLoaded = true;
   (rows||[]).forEach(function(r){
@@ -338,7 +338,7 @@ function mlReqsForDays(days){
 }
 async function loadMarketQuantities(){
   mlQty = {}; mlQtyMeta = {};
-  const data = await mlFetchAllPaged(function(){ return sb.from('order_quantities').select('*').eq('week_start', mlWeekStart); });
+  const data = await mlFetchAllPaged(function(){ return sb.from('order_quantities').select('*').eq('week_start', mlWeekStart).order('id'); });
   (data||[]).forEach(r=>{
     const k = r.item_id + '|' + r.weekday;
     mlQty[k] = r.qty;
@@ -534,7 +534,7 @@ function mlOffListFlag(code){
     why:'FMC has no article ' + code + '. The number itself looks wrong — point this line at the right article.' };
   var q = mlQuotesLoaded ? (mlQuotes[code] || [])[0] : null;
   if(!mlQuotesLoaded) return { kind:'dead', label:'not on our list',
-    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on it.' };
+    why:known + ' is in FMC as ' + code + ', but it is not on the FMC order assortment (vota-Antonio), so an order cannot carry it. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on it.' };
   // ⚠ THIS SAID "FMC holds it but has no supplier linked to it" for one morning
   // and that was a claim about FMC made from OUR records. It was inferred from
   // an empty `mlQuotes[code]`, and `fmc_price_quotes` is a separate export on
@@ -543,11 +543,11 @@ function mlOffListFlag(code){
   // while the market list had iGrade stored as its supplier the whole time.
   // What is actually known is what WE have on file, so that is what it says.
   if(!q) return { kind:'dead', label:'not on our list',
-    why:known + ' is in FMC as ' + code + ', but it is not on the Kitchen Market List assortment, so an order cannot carry it. We have no supplier price from FMC on file for it either. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on the list.' };
+    why:known + ' is in FMC as ' + code + ', but it is not on the FMC order assortment (vota-Antonio), so an order cannot carry it. We have no supplier price from FMC on file for it either. Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on the list.' };
   return { kind:'dead', label:'not on our list',
     why:'FMC sells this — ' + q.supplier +
         (q.price != null ? ', ' + q.price.toFixed(2) + (q.unit ? ' per ' + q.unit : '') : '') +
-        '. It is just not on the Kitchen Market List assortment, so an order cannot carry it. ' +
+        '. It is just not on the FMC order assortment (vota-Antonio), so an order cannot carry it. ' +
         'Add it to the assortment in FMC — search by its NAME, the code will not find it — or point this line at an article that is on it.' };
 }
 
@@ -3038,7 +3038,7 @@ function mlOrderHelper(){
       'left, and on the first line of every run. If the laptop says an older ' +
       'date, download it again before you order.</div>' +
     '<b>What to do</b><ol style="margin:6px 0 0 18px;padding:0">' +
-      '<li>Open Materials Control on the Kitchen Market List.</li>' +
+      '<li>Open Materials Control on the vota-Antonio assortment.</li>' +
       '<li>Open the helper, pick the day, read the plan.</li>' +
       '<li>Press <i>Type this order in</i> and leave the mouse alone while it works.</li>' +
       '<li>Check it, then save it yourself and press Request. The helper never does.</li>' +

@@ -164,6 +164,8 @@ async function calLoadFoh(){
   }catch(err){
     console.warn('[calendar] events desk unavailable', err);
     calFoh = [];
+    // Home says this out loud; the calendar used to just drop the layer, so private events looked absent.
+    if(!window.__calFohWarned && typeof kToast === 'function'){ window.__calFohWarned = true; kToast('Private events from the events desk could not be loaded — they are missing from this calendar.', true); }
   }
 }
 

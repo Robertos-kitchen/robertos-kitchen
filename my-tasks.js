@@ -46,8 +46,11 @@ async function mtLoad(){
     .eq('owner', MT_OWNER)
     .order('due_date', { ascending:true, nullsFirst:false })
     .order('due_time', { ascending:true, nullsFirst:true });
+  // A failed read must not look like an empty list: keep what is on screen and say so.
+  if(res.error){ mtToastErr('Could not load your tasks — check connection. Showing what was last loaded.'); return; }
   mtRows = res.data || [];
 }
+function mtToastErr(msg){ if(typeof kToast === 'function') kToast(msg, true); else console.warn(msg); }
 
 function mtSubscribe(){
   if(mtChannel) return;
@@ -65,10 +68,11 @@ async function mtToggleDone(id){
   const next = !row.done;
   row.done = next;                       // optimistic
   mtRender();
-  await sb.from('my_tasks').update({
+  const tr = await sb.from('my_tasks').update({
     done: next,
     done_at: next ? new Date().toISOString() : null
   }).eq('id', id);
+  if(tr.error) mtToastErr('Not saved — the tick did not reach the server.');
   await mtLoad(); mtRender();
 }
 
@@ -162,12 +166,15 @@ async function mtSaveSheet(){
     due_time: document.getElementById('mt-f-time').value || null,
     priority: Number(document.getElementById('mt-f-pri').value) || 3
   };
+  let wr;
   if(mtEditing){
-    await sb.from('my_tasks').update(payload).eq('id', mtEditing);
+    wr = await sb.from('my_tasks').update(payload).eq('id', mtEditing);
   } else {
     payload.owner = MT_OWNER; payload.done = false;
-    await sb.from('my_tasks').insert(payload);
+    wr = await sb.from('my_tasks').insert(payload);
   }
+  // Keep the sheet open on a failed save so what was typed is not lost.
+  if(wr.error){ mtToastErr('Not saved — ' + (wr.error.message || 'try again') + '. Your text is still here.'); return; }
   mtCloseSheet();
   await mtLoad(); mtRender();
 }
@@ -180,7 +187,8 @@ async function mtDelete(id){
     setTimeout(function(){ if(btn){ btn.dataset.armed = ''; btn.textContent = 'Delete'; } }, 4000);
     return;
   }
-  await sb.from('my_tasks').delete().eq('id', id);
+  const dr = await sb.from('my_tasks').delete().eq('id', id);
+  if(dr.error){ mtToastErr('Not deleted — try again.'); return; }
   mtCloseSheet();
   await mtLoad(); mtRender();
 }

@@ -516,7 +516,8 @@ function acRenderRows(){
       '<button class="ac-chip'+(acOnlyOrder?' on':'')+'" style="margin-left:10px" onclick="acToggleOrderable()">' +
         (acOnlyOrder?'&#10003; ':'') + 'Only the '+sellable+' FMC sells today</button>' +
       (unknown ? '<span class="ac-note">'+unknown+' counted here but not in the FMC list — status unknown</span>' : '') +
-      (acHasSupplier ? '' : '<span class="ac-note">supplier is not in the stock-take export yet</span>');
+      // The supplier also comes from FMC's own article record, so only say it is missing when no row has one.
+      ((acHasSupplier || acAll.some(function(r){ return r.supplier; })) ? '' : '<span class="ac-note">supplier is not in the stock-take export yet</span>');
   }
 
   var el = document.getElementById('ac-list'); if(!el) return;
@@ -583,9 +584,9 @@ function acOpen(i){
   acSel = i;
   var old = document.getElementById('ac-sheet'); if(old) old.remove();
 
-  var supplierLine = acHasSupplier
-    ? (r.supplier ? acEsc(r.supplier) : '<span class="ac-dash">not named on the sheet</span>')
-    : '<span class="ac-dash">not in the stock-take export yet</span>';
+  var supplierLine = r.supplier ? acEsc(r.supplier)   // FMC's article record or the stock sheet
+    : (acHasSupplier ? '<span class="ac-dash">not named on the sheet</span>'
+                     : '<span class="ac-dash">not in the stock-take export yet</span>');
 
   // Three states, worded as what to DO about it. The unknown one must not read
   // like a refusal: the article may be perfectly orderable and nobody has asked.
