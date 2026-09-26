@@ -948,6 +948,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .home-toggle:hover{box-shadow:0 4px 14px rgba(65,2,7,.08)}
 .home-toggle-label{font-family:var(--font-serif);font-size:19px;letter-spacing:2px;text-transform:uppercase;line-height:1;color:var(--vino)}
 .home-chips{display:flex;flex-wrap:wrap;gap:5px}
+.maint-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-left:6px;border-radius:99px;background:#8f1d12;color:#fff;font-size:11px;font-weight:700;letter-spacing:0;line-height:1.4;text-align:center;vertical-align:1px;font-family:var(--font-sans)}
+.maint-badge[hidden]{display:none}
+.maint-badge.corner{position:absolute;top:10px;right:10px;margin:0;font-size:12px;padding:2px 8px}
 .home-chip{font-family:var(--font-sans);font-size:9px;font-weight:500;letter-spacing:.8px;text-transform:uppercase;color:var(--vino-light);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:4px;padding:2px 7px;white-space:nowrap}
 .home-chev{position:absolute;top:14px;right:14px;font-size:11px;color:var(--accent);opacity:1;transition:transform .2s}
 .home-chev.open{transform:rotate(180deg)}
@@ -1394,7 +1397,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span></span>
+    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span><span class="home-chip">Maintenance<span class="maint-badge" hidden></span></span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
@@ -1407,6 +1410,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
     <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
     <button class="home-tile compact" type="button" onclick="openLearning()"><span class="home-code">LRN</span><span><span class="home-name">Learning</span><span class="home-meta">Read a short page, take a 5-question test &mdash; sign in with your employee ID</span></span></button>
+    <button class="home-tile compact" type="button" onclick="openMaintenance()"><span class="maint-badge corner" hidden></span><span class="home-code">MNT</span><span><span class="home-name">Maintenance</span><span class="home-meta" id="maint-meta">Report a problem &middot; job cards &middot; maintenance calendar</span></span></button>
   </div>
   </div>
   <div class="home-section mgmt" id="mgmt-section">
@@ -1503,6 +1507,8 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <div id="learning-view" class="ops-view" style="display:none"></div>
 <!-- Training sheets (23 Sep 2026): Chef Danilo's idea - a training sheet per trainee per section. -->
 <div id="training-view" class="ops-view" style="display:none"></div>
+<!-- Maintenance (25 Sep 2026): Chef Andrea - job cards for every fault + the recurring maintenance calendar. -->
+<div id="maintenance-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1581,7 +1587,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790348373"></script>
+<script src="app.js?v=1790396236"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1608,7 +1614,7 @@ window.FB_INBOX = {
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
       'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
-      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'learning-view':'Learning', 'training-view':'Training', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
+      'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'learning-view':'Learning', 'training-view':'Training', 'maintenance-view':'Maintenance', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
       'menuplan-view':'Menu development plan', 'calendar-view':'Calendar', 'team-view':'Team survey',
       'scheduling-view':'Schedule' };

@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Maintenance · Roberto's Kitchen</title>
+<script src="dev-guard.js?v=1789747927"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+:root{
+  --vino:#410207;--vino-mid:#5e0a10;--sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --oliva:#4b5128;--oro:#ba9b02;--ink:#2a1a10;--cream:#f5ede0;
+  --ground:#efe7db;--card:#fffaf2;--line:#dccdb9;--muted:#5f4c3d;
+  --ok:#2f5d1e;--ok-bg:#e3ecd6;--part:#6e5400;--part-bg:#f4ead0;--err:#8f1d12;--err-bg:#fbe9e6;
+  --info:#1f4a6e;--info-bg:#e2ecf4;--hold:#5a4a6e;--hold-bg:#ece6f2;
+  --serif:'Cormorant Garamond',Georgia,serif;--sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px}
+button,input,select,textarea{font-family:inherit;color:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--oro);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto;padding:0 0 48px}
+.bar{background:var(--vino);color:var(--cream);padding:14px 16px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.bar .bt{min-width:0}
+.bar .t{font-family:var(--serif);font-size:24px;font-weight:600;line-height:1.1}
+.bar .s{font-size:12.5px;opacity:.85;margin-top:3px}
+.bar .me{flex:none;font-size:12.5px;opacity:.9;text-align:right;order:2;line-height:1.35}
+.bar .me button{background:none;border:none;color:var(--cream);text-decoration:underline;cursor:pointer;font-size:12.5px;padding:8px 0 8px 10px;min-height:40px}
+.tabs{display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line);overflow-x:auto;background:var(--sabbia-light)}
+.tab{flex:none;padding:9px 14px;border-radius:999px;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;min-height:40px}
+.tab.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.tab b{display:inline-block;min-width:20px;padding:1px 6px;margin-left:5px;border-radius:99px;background:var(--err);color:#fff;font-size:11.5px;text-align:center}
+.body{padding:14px;display:flex;flex-direction:column;gap:10px}
+.btn{font-weight:600;font-size:14.5px;border-radius:12px;padding:12px 16px;border:1px solid var(--vino);background:var(--vino);color:var(--cream);cursor:pointer;min-height:48px}
+.btn.wide{width:100%}
+.btn.ghost{background:transparent;color:var(--vino);border-color:var(--sabbia-dark)}
+.btn.sm{padding:8px 12px;font-size:13px;min-height:40px;border-radius:10px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.link{background:none;border:none;color:var(--vino);text-decoration:underline;cursor:pointer;font-size:13.5px;padding:8px 2px;min-height:40px;text-align:left}
+.msg{font-size:14px;font-weight:500;line-height:1.5;padding:10px 12px;border-radius:10px}
+.msg.bad{color:var(--err);background:var(--err-bg)} .msg.ok{color:var(--ok);background:var(--ok-bg)}
+.hint{font-size:13px;color:var(--muted);line-height:1.5}
+.empty{background:var(--card);border:1px dashed var(--sabbia-dark);border-radius:12px;padding:16px;color:var(--muted);line-height:1.6}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:99px;border:1px solid var(--line);background:var(--card);cursor:pointer;min-height:36px}
+.chip.on{border-color:var(--vino);color:var(--vino);background:var(--cream)}
+.card{border:1px solid var(--line);border-radius:14px;padding:12px 13px;background:var(--card);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;text-align:left;width:100%;cursor:pointer;font-size:14px}
+.card:hover{border-color:var(--vino-mid)}
+.card .n{font-weight:700;font-size:15.5px;line-height:1.3}
+.card .l{color:var(--muted);font-size:13px}
+.card .m{grid-column:1/-1;color:var(--muted);font-size:12.5px;display:flex;gap:4px 10px;flex-wrap:wrap}
+.card.over{border-left:4px solid var(--err)}
+.card.test{border-style:dashed}
+.pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;align-self:start;white-space:nowrap}
+.p-new{background:var(--err-bg);color:var(--err)} .p-acknowledged{background:var(--info-bg);color:var(--info)} .p-in_progress{background:var(--part-bg);color:var(--part)}
+.p-on_hold{background:var(--hold-bg);color:var(--hold)} .p-completed{background:var(--ok-bg);color:var(--ok)} .p-tocheck{background:var(--part-bg);color:var(--part)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label,.k{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.in,textarea,select{border:1px solid var(--line);border-radius:10px;padding:10px;font-size:15px;background:#fff;width:100%;min-height:44px}
+textarea{min-height:66px;line-height:1.45;resize:vertical}
+.auto{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--sabbia-light);font-size:14px;display:flex;justify-content:space-between;gap:8px;align-items:center;min-height:44px}
+.auto i{font-style:normal;color:var(--muted);font-size:12px;white-space:nowrap}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.media{display:flex;gap:8px;flex-wrap:wrap}
+.th{width:72px;height:72px;border-radius:10px;background:#4a3c30;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600;position:relative;overflow:hidden;border:none;padding:0;cursor:pointer}
+.th img,.th video{width:100%;height:100%;object-fit:cover;display:block}
+.th .play{position:absolute;inset:0;display:grid;place-items:center;font-size:22px;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none}
+.th .x{position:absolute;top:2px;right:2px;width:24px;height:24px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:14px;line-height:1;cursor:pointer}
+.add{width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--sabbia-dark);display:grid;place-items:center;text-align:center;font-size:11.5px;color:var(--vino);font-weight:600;background:var(--card);line-height:1.2;cursor:pointer;padding:4px}
+.note{font-size:13px;background:var(--cream);border-radius:8px;padding:8px 10px;border-left:3px solid var(--oro);line-height:1.45}
+.warn{font-size:13px;background:var(--err-bg);color:var(--err);border-radius:8px;padding:8px 10px;line-height:1.45}
+.head{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--sabbia-light);display:grid;gap:8px}
+.steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.st{font-size:10.5px;text-align:center;font-weight:700;color:var(--muted);line-height:1.25}
+.st::before{content:"";display:block;height:6px;border-radius:99px;background:var(--sabbia-dark);margin-bottom:4px}
+.st.d::before{background:var(--oliva)} .st.d{color:var(--ok)}
+.st.c::before{background:var(--oro)} .st.c{color:var(--part)}
+@media (max-width:420px){.st{font-size:10px;hyphens:manual;overflow-wrap:normal}}
+.st em{display:block;font-style:normal;font-weight:500;font-variant-numeric:tabular-nums}
+.sec{margin:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
+.sec h3{margin:0;padding:9px 12px;font-size:14px;font-weight:700;background:var(--sabbia-light);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sec h3 small{font-weight:600;color:var(--muted);font-size:12px;text-align:right}
+.sec .in2{padding:10px 12px;display:grid;gap:8px}
+.kv{display:grid;grid-template-columns:118px minmax(0,1fr);gap:4px 10px;font-size:13.5px;margin:0}
+.kv dt{color:var(--muted);font-size:12px;font-weight:600;padding-top:1px}
+.kv dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.sign{border:1.5px dashed var(--sabbia-dark);border-radius:12px;padding:10px 12px;display:grid;gap:6px;background:var(--card);font-size:13.5px}
+.sign.done{border-style:solid;border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+.sign .code{display:flex;gap:8px}
+.sign .code .in{font-size:20px;letter-spacing:4px;flex:1;min-width:0}
+.acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.foot{padding:12px 14px;display:flex;gap:8px;flex-wrap:wrap}
+.foot .btn{flex:1}
+.signin{max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:12px;margin:16px}
+.signin input{font-size:22px;letter-spacing:4px}
+/* calendar */
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:0 2px}
+.mhead b{font-family:var(--serif);font-size:22px;color:var(--vino)}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:4px;vertical-align:-1px;background:var(--c)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.cal .dh{font-size:10.5px;font-weight:700;color:var(--muted);text-align:center;padding:3px 0}
+.cal .d{background:var(--card);border:1px solid var(--line);border-radius:7px;min-height:44px;padding:3px 4px;font-size:11px;font-variant-numeric:tabular-nums;text-align:left;cursor:pointer;display:block;width:100%;font-family:inherit;color:inherit}
+.cal .d.x{opacity:.35}
+.cal .d.today{border-color:var(--vino);border-width:2px}
+.cal .d.sel{background:var(--cream);border-color:var(--oro);border-width:2px}
+.cal .d i{display:block;height:5px;border-radius:99px;margin-top:3px}
+.k-grease{--c:var(--oliva);background:var(--oliva)} .k-hood{--c:var(--oro);background:var(--oro)} .k-service{--c:var(--info);background:var(--info)}
+.k-preventive{--c:var(--hold);background:var(--hold)} .k-other{--c:var(--muted);background:var(--muted)} .k-over{--c:var(--err);background:var(--err)}
+.legend .k-grease,.legend .k-hood,.legend .k-service,.legend .k-preventive,.legend .k-other,.legend .k-over{background:none}
+.panel{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card);display:grid;gap:10px}
+.every{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px}
+/* viewer */
+.viewer{position:fixed;inset:0;background:rgba(20,8,4,.92);z-index:50;display:flex;flex-direction:column}
+.viewer .vb{display:flex;justify-content:flex-end;padding:8px}
+.viewer .vb button{background:var(--cream);color:var(--vino);border:none;border-radius:10px;padding:10px 16px;font-weight:700;min-height:44px;cursor:pointer}
+.viewer .vm{flex:1;min-height:0;display:grid;place-items:center;padding:8px}
+.viewer img,.viewer video{max-width:100%;max-height:100%;object-fit:contain}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"><div class="body">Loading…</div></div>
+<input type="file" id="pick" accept="image/*,video/*" multiple hidden>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   MAINTENANCE — Chef Andrea through Tell us, 25 Sep 2026 (inbox fe2b2456): "Every fault, breakdown
+   or maintenance issue reported in the kitchen must generate a job card", plus a calendar of the
+   recurring jobs (grease trap, hood & extraction, servicing, preventive maintenance).
+   Built to the mock-up Francesco approved on 25 Sep 2026:
+   · Anyone signed in reports a problem: where, what, what is wrong, photos or video. Their name and
+     the time come from the sign-in. The card goes to the technician by email and shows on the
+     Home tile's badge.
+   · The technician (Andrea Falcone for now, a row in maint_people) opening a card is the moment it
+     was READ: New becomes Acknowledged with his name on it. He moves it In progress / On hold,
+     writes the assessment, and completes it by signing with his staff code.
+   · A completed card stays open until Chef Danilo or Chef Antonio checks the repair and signs with
+     their staff code (not the same person as the technician). They can send it back instead.
+   · The calendar holds the recurring jobs. Done rolls the next date on; a job past its date opens
+     a job card on its own (maint_roll, hourly).
+   Every signature is a staff code: the employee ID, typed again at the moment of signing.
+   Schema + rules: maintenance-schema.sql. Emails: supabase/functions/maint-notify.
+   ════════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var EMPLS = 'learnEmp', EMPFOR = 12*60*60*1000;   // the same sign-in as Learning and Training
+var MAX_FILE = 50*1024*1024, MAX_FILES = 8;
+var STATUS = { new:'New', acknowledged:'Acknowledged', in_progress:'In progress', on_hold:'On hold', completed:'Completed' };
+var FILTERS = [['open','Open'],['new','New'],['acknowledged','Acknowledged'],['in_progress','In progress'],['on_hold','On hold'],['completed','Completed']];
+var KINDS = { grease:'Grease trap', hood:'Hood & extraction', service:'Equipment service', preventive:'Preventive maintenance', other:'Other' };
+var UNITS = { day:['day','days'], week:['week','weeks'], month:['month','months'] };
+
+var qs = new URLSearchParams(location.search);
+var S = { emp:null, me:null, err:'', ok:'', view:'list', tab:'cards', filter:'open', list:null, card:null, cal:null,
+          month:null, day:null, places:null, rep:null, d:{}, hold:false, completing:false, sendBack:false,
+          task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null };
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function $(id){ return document.getElementById(id); }
+function api(path, opts){
+  opts = opts || {};
+  var h = { apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json' };
+  return fetch(SB_URL + '/rest/v1/' + path, { method:opts.method||'GET', headers:h,
+      body: opts.body ? JSON.stringify(opts.body) : undefined, cache:'no-store' })
+    .then(function(r){ return r.text().then(function(t){
+      var j = null; try { j = t ? JSON.parse(t) : null; } catch(e){}
+      if (!r.ok) { var e = new Error((j && (j.message || j.error)) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+      return j; }); });
+}
+/* Reads go as GET (so the DEV site still browses — dev-guard blocks every POST there); every write is a POST. */
+function get(fn, args){
+  var q = Object.keys(args).map(function(k){ return k + '=' + encodeURIComponent(args[k] == null ? '' : args[k]); }).join('&');
+  return api('rpc/' + fn + '?' + q);
+}
+function post(fn, args){ return api('rpc/' + fn, { method:'POST', body:args }); }
+function say(err){
+  var m = String(err && err.message || err);
+  if (/no_emp/.test(m)) return 'That employee ID is not in the kitchen staff list. Check it, or ask Chef Francesco to add it.';
+  if (/bad_code/.test(m)) return 'That staff code is not yours. Type your own employee ID to sign.';
+  if (/not_tech/.test(m)) return 'Only the maintenance technician can do this.';
+  if (/not_chef/.test(m)) return 'Only Chef Danilo or Chef Antonio can check a repair.';
+  if (/not_allowed/.test(m)) return 'Only the technician, Chef Danilo or Chef Antonio can change the calendar.';
+  if (/same_person/.test(m)) return 'The chef who checks the repair cannot be the technician who signed it.';
+  if (/closed/.test(m)) return 'This job card is closed, so it cannot change.';
+  if (/not_completed/.test(m)) return 'The technician has not completed this job yet.';
+  if (/completed/.test(m)) return 'This job is completed and waiting for the chef’s check, so it cannot change now.';
+  if (/no_location/.test(m)) return 'Say where exactly the problem is.';
+  if (/no_equipment/.test(m)) return 'Say which equipment or item is affected.';
+  if (/no_problem/.test(m)) return 'Say what is wrong.';
+  if (/no_work/.test(m)) return 'Write what work was done.';
+  if (/no_cost/.test(m)) return 'Type the final cost in dirhams (0 if there was none).';
+  if (/bad_amount/.test(m)) return 'Type the amount in dirhams with no commas, for example 1800 or 1800.50.';
+  if (/no_note/.test(m)) return 'Say what is still wrong, so the technician knows.';
+  if (/no_name/.test(m)) return 'Give the job a name.';
+  if (/bad_every/.test(m)) return 'Say how often, as a number (for example every 2 weeks).';
+  if (/no_date/.test(m)) return 'Choose when it is next due.';
+  if (/has_card/.test(m)) return 'This job already has a job card open. It is marked done when that card is checked.';
+  if (/bad_media/.test(m)) return 'A photo or video did not upload properly. Remove it and add it again.';
+  if (/no_card/.test(m)) return 'This job card is no longer there. Go back to the list.';
+  if (/read-only/i.test(m)) return 'This is the DEV site, which cannot save anything. Use the live Kitchen app.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
+  return 'Something went wrong: ' + m;
+}
+var TZ = { timeZone:'Asia/Dubai' };
+function when(t){ return t ? new Date(t).toLocaleString('en-GB', { timeZone:'Asia/Dubai', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false }).replace(',', '') : ''; }
+function dayOf(d){ return d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : ''; }
+function jc(n){ return 'JC-' + String(n).padStart(4, '0'); }
+// "Equipment: problem" — but a calendar card's problem already starts with the job's name
+function titleOf(c, max){
+  var p = String(c.problem || ''), t = p.toLowerCase().indexOf(String(c.equipment || '').toLowerCase()) === 0 ? p : c.equipment + ': ' + p;
+  return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
+function aed(v){ return v == null ? '' : 'AED ' + Number(v).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+function okAmount(v){ return /^\d{1,7}(\.\d{1,2})?$/.test(String(v).trim()); }
+function mediaUrl(p){ return SB_URL + '/storage/v1/object/public/maint-media/' + p.split('/').map(encodeURIComponent).join('/'); }
+function every(t){ var u = UNITS[t.every_unit] || ['', '']; return 'Every ' + (t.every_n === 1 ? u[0] : t.every_n + ' ' + u[1]); }
+function isoAdd(d, n, unit){
+  var x = new Date(d + 'T12:00:00Z');
+  if (unit === 'day') x.setUTCDate(x.getUTCDate() + n);
+  else if (unit === 'week') x.setUTCDate(x.getUTCDate() + 7*n);
+  else { var day = x.getUTCDate(); x.setUTCDate(1); x.setUTCMonth(x.getUTCMonth() + n); var last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth()+1, 0)).getUTCDate(); x.setUTCDate(Math.min(day, last)); }
+  return x.toISOString().slice(0,10);
+}
+function todayIso(){ return new Date().toLocaleDateString('en-CA', TZ); }
+
+/* ── signing in ── */
+function remembered(){
+  try { var v = JSON.parse(localStorage.getItem(EMPLS) || 'null');
+        if (v && v.emp && (Date.now() - v.at) < EMPFOR) return v.emp; } catch(e){}
+  return null;
+}
+function signIn(emp){
+  emp = String(emp || '').trim(); S.tryEmp = emp;
+  if (!emp) { S.err = 'Type your employee ID.'; return draw(); }
+  S.err = ''; S.busy = true; draw();
+  return get('maint_me', { p_emp:emp }).then(function(me){
+    S.emp = emp; S.me = me;
+    try { localStorage.setItem(EMPLS, JSON.stringify({ emp:emp, at:Date.now() })); } catch(e){}
+    S.busy = false;
+    if (S.wantCard) { var id = S.wantCard; S.wantCard = ''; return openCard(id); }
+    return (S.tab === 'cal' ? Promise.all([loadList(), loadCal()]) : loadList()).then(draw);
+  }).catch(function(e){ S.busy = false; S.err = say(e); S.me = null; draw(); });
+}
+function signOut(){
+  try { localStorage.removeItem(EMPLS); } catch(e){}
+  S.emp = null; S.me = null; S.list = null; S.card = null; S.cal = null; S.view = 'list'; S.tab = 'cards'; S.day = null; S.doneAsk = null; S.task = null; S.tryEmp = ''; S.err = ''; S.ok = ''; S.rep = null; S.d = {}; draw();
+}
+
+/* ── data ── */
+function loadList(){ return get('maint_list', { p_emp:S.emp }).then(function(r){ S.list = (r && r.cards) || []; }); }
+function loadCard(id){ return get('maint_get', { p_emp:S.emp, p_id:id }).then(function(r){ S.card = r; }); }
+function loadCal(){ return get('maint_tasks_list', { p_emp:S.emp }).then(function(r){ S.cal = r; if (!S.month) S.month = (r.today || todayIso()).slice(0,7); }); }
+function loadPlaces(){ return get('maint_places', { p_emp:S.emp }).then(function(r){ S.places = r; }); }
+
+/* ── drawing ── */
+function draw(){
+  var root = $('root');
+  var y = window.scrollY;
+  var ae = document.activeElement, keep = ae && ae.id && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && ae.type !== 'file' ? { id:ae.id, s:ae.selectionStart } : null;
+  root.innerHTML = !S.me ? drawSign() : S.view === 'report' ? drawReport() : S.view === 'card' ? drawCard() : S.view === 'task' ? drawTask() : S.tab === 'cal' ? drawCal() : drawList();
+  if (keep) { var el = $(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.s); } catch(e){} } }
+  window.scrollTo(0, y);
+  drawViewer();
+}
+function barHtml(title, sub){
+  var role = S.me ? (S.me.tech ? 'Technician' : S.me.chef ? 'Chef in charge' : '') : '';
+  return '<div class="bar">' + (S.me ? '<div class="me">' + esc(S.me.name) + (role ? '<br>' + role : '') + '<br><button id="out" type="button">Not you?</button></div>' : '') +
+    '<div class="bt"><div class="t">' + esc(title) + '</div><div class="s">' + esc(sub) + '</div></div></div>';
+}
+function msgs(){
+  return (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
+         (S.ok ? '<div class="msg ok" role="status">' + esc(S.ok) + '</div>' : '');
+}
+function drawSign(){
+  return barHtml('Maintenance', 'Job cards & planned maintenance') +
+    '<form class="signin" id="fsign"><label class="k" for="emp">Your employee ID</label>' +
+    '<input id="emp" class="in" inputmode="numeric" autocomplete="off" enterkeyhint="go" value="' + esc(S.tryEmp) + '">' +
+    '<button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Open maintenance</button>' + msgs() +
+    '<div class="hint">The same ID you use for Learning and Training. It puts your name on what you report.</div></form>';
+}
+function openCount(){ return (S.list || []).filter(function(c){ return !c.checked_at; }).length; }
+function tabsHtml(){
+  var n = S.list ? openCount() : 0;
+  return '<div class="tabs" role="tablist"><button class="tab' + (S.tab === 'cards' ? ' on' : '') + '" type="button" data-tab="cards">Job cards' + (n ? '<b>' + n + '</b>' : '') + '</button>' +
+    '<button class="tab' + (S.tab === 'cal' ? ' on' : '') + '" type="button" data-tab="cal">Calendar</button></div>';
+}
+function pillOf(c){
+  if (c.checked_at) return '<span class="pill p-completed">Completed ✓</span>';
+  if (c.status === 'completed') return '<span class="pill p-tocheck">Completed · to check</span>';
+  return '<span class="pill p-' + c.status + '">' + STATUS[c.status] + '</span>';
+}
+function inFilter(c, f){
+  if (f === 'open') return !c.checked_at;
+  if (f === 'completed') return c.status === 'completed';
+  return c.status === f && !c.checked_at;
+}
+function drawList(){
+  var L = S.list || [], f = S.filter;
+  var shown = L.filter(function(c){ return inFilter(c, f); });
+  var html = barHtml('Maintenance', 'Job cards & planned maintenance') + tabsHtml() + '<div class="body">' + msgs() +
+    '<button class="btn wide" type="button" id="newrep">+ Report a problem</button>' +
+    '<div class="chips">' + FILTERS.map(function(x){
+      var n = L.filter(function(c){ return inFilter(c, x[0]); }).length;
+      return '<button class="chip' + (f === x[0] ? ' on' : '') + '" type="button" data-f="' + x[0] + '" aria-pressed="' + (f === x[0]) + '">' + x[1] + (x[0] === 'open' || n ? ' (' + n + ')' : '') + '</button>'; }).join('') + '</div>';
+  if (!S.list) html += '<div class="hint">Reading the job cards…</div>';
+  else if (!shown.length) html += '<div class="empty">' + (f === 'open' ? 'No open job cards. Anything broken? Report it with the button above.' : 'No job cards here.') + '</div>';
+  else html += shown.map(function(c){
+      var over = c.source === 'calendar' && c.due && !c.checked_at;
+      var meta = ['<span>' + jc(c.card_no) + '</span>'];
+      if (c.source === 'calendar') meta.push('<span>From the calendar' + (c.due ? '' : '') + '</span>');
+      else meta.push('<span>Reported by ' + esc(c.reported_by) + ' · ' + esc(when(c.reported_at)) + '</span>');
+      if (c.photos || c.videos) meta.push('<span>' + [c.photos ? c.photos + (c.photos === 1 ? ' photo' : ' photos') : '', c.videos ? c.videos + (c.videos === 1 ? ' video' : ' videos') : ''].filter(Boolean).join(' · ') + '</span>');
+      if (c.tech_name && c.status !== 'new') meta.push('<span>' + esc(c.tech_name) + '</span>');
+      if (c.status === 'on_hold' && c.hold_reason) meta.push('<span>' + esc(c.hold_reason) + '</span>');
+      if (c.checked_at) meta.push('<span>Checked by ' + esc(c.checked_by) + ' · ' + esc(when(c.checked_at)) + '</span>');
+      if (c.is_test) meta.push('<span>TEST</span>');
+      return '<button class="card' + (over ? ' over' : '') + (c.is_test ? ' test' : '') + '" type="button" data-open="' + c.id + '">' +
+        '<div><div class="n">' + esc(titleOf(c, 90)) + '</div><div class="l">' + esc(c.location) + '</div></div>' + pillOf(c) +
+        '<div class="m">' + meta.join('') + '</div></button>';
+    }).join('');
+  return html + '</div>';
+}
+
+/* ── report a problem ── */
+function newReport(){
+  var fid = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, function(){ return (Math.random()*16|0).toString(16); }));
+  S.rep = { folder:fid, location:'', equipment:'', problem:'', files:[], at:new Date().toISOString() };
+  S.view = 'report'; S.err = ''; S.ok = ''; window.scrollTo(0,0); draw();
+  if (!S.places) loadPlaces().then(draw).catch(function(){});
+}
+function drawReport(){
+  var r = S.rep, P = S.places || { locations:[], equipment:[] };
+  return barHtml('Report a problem', 'Creates a job card') + '<form class="body" id="frep">' + msgs() +
+    '<div class="two"><div class="auto">' + esc(S.me.name) + '<i>Reported by</i></div><div class="auto">' + esc(when(r.at)) + '<i>Now</i></div></div>' +
+    '<div class="field"><label for="r-loc">Where exactly</label><input id="r-loc" class="in" list="dl-loc" autocomplete="off" placeholder="e.g. Hot kitchen: grill line" value="' + esc(r.location) + '" data-r="location"></div>' +
+    '<datalist id="dl-loc">' + P.locations.map(function(v){ return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
+    '<div class="field"><label for="r-eq">Equipment or item</label><input id="r-eq" class="in" list="dl-eq" autocomplete="off" placeholder="e.g. Combi oven 2" value="' + esc(r.equipment) + '" data-r="equipment"></div>' +
+    '<datalist id="dl-eq">' + P.equipment.map(function(v){ return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
+    '<div class="field"><label for="r-pr">What is wrong</label><textarea id="r-pr" data-r="problem" placeholder="What you see, since when, any error light or noise">' + esc(r.problem) + '</textarea></div>' +
+    '<div class="field"><label>Photos or video</label><div class="media">' + r.files.map(function(f, i){
+        return '<div class="th">' + (f.kind === 'video' ? '<video src="' + f.url + '" muted playsinline preload="metadata"></video><span class="play">▶</span>' : '<img src="' + f.url + '" alt="">') +
+          '<button class="x" type="button" data-rmfile="' + i + '" aria-label="Remove">×</button></div>'; }).join('') +
+      (r.files.length < MAX_FILES ? '<button class="add" type="button" id="addmedia">+ Add<br>photo / video</button>' : '') + '</div>' +
+      '<div class="hint">Up to ' + MAX_FILES + '. A video can be up to 50 MB (about 30 seconds on a phone).</div></div>' +
+    '<button class="btn wide" type="submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? esc(S.busy === true ? 'Sending…' : S.busy) : 'Send to maintenance') + '</button>' +
+    '<div class="note">' + esc(listNames(S.me.techs) || 'The technician') + ' gets an email and an in-app alert as soon as you send.</div>' +
+    '<button class="btn ghost" type="button" id="cancelrep">Cancel</button></form>';
+}
+function listNames(a){ a = a || []; return a.length > 1 ? a.slice(0,-1).join(', ') + ' or ' + a[a.length-1] : (a[0] || ''); }
+
+function shrink(file){
+  // A phone photo is 3-5 MB; 1600 px JPEG is ~300 KB and plenty to see a fault. If the browser
+  // cannot draw it (HEIC on a laptop), the original goes up as it is.
+  return new Promise(function(res){
+    if (!/^image\//.test(file.type) || /gif$/.test(file.type)) return res(file);
+    var img = new Image(), u = URL.createObjectURL(file);
+    img.onload = function(){
+      var k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      var cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth*k); cv.height = Math.round(img.naturalHeight*k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(u);
+      cv.toBlob(function(b){ res(b && b.size < file.size ? b : file); }, 'image/jpeg', 0.82);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(u); res(file); };
+    img.src = u;
+  });
+}
+function addFiles(list){
+  var r = S.rep; if (!r) return;
+  var files = [].slice.call(list || []), errs = [];
+  var jobs = files.map(function(f){
+    var kind = /^video\//.test(f.type) ? 'video' : /^image\//.test(f.type) ? 'photo' : null;
+    if (!kind) { errs.push(f.name + ' is not a photo or a video.'); return null; }
+    if (kind === 'video' && f.size > MAX_FILE) { errs.push('That video is ' + Math.round(f.size/1048576) + ' MB; the most is 50 MB. Record a shorter clip (about 30 seconds).'); return null; }
+    return (kind === 'photo' ? shrink(f) : Promise.resolve(f)).then(function(b){
+      if (b.size > MAX_FILE) { errs.push(f.name + ' is over 50 MB.'); return; }
+      if (r.files.length >= MAX_FILES) { errs.push('Up to ' + MAX_FILES + ' photos and videos on one card.'); return; }
+      var ext = kind === 'video' ? ((f.name.match(/\.([A-Za-z0-9]{2,5})$/) || [,'mp4'])[1]).toLowerCase() : (b.type === 'image/jpeg' ? 'jpg' : ((f.name.match(/\.([A-Za-z0-9]{2,5})$/) || [,'jpg'])[1]).toLowerCase());
+      r.files.push({ blob:b, kind:kind, ext:ext, type:b.type || f.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'), size:b.size, url:URL.createObjectURL(b) });
+    });
+  }).filter(Boolean);
+  return Promise.all(jobs).then(function(){ S.err = errs.join(' '); draw(); });
+}
+function upload(f, i){
+  var name = 'c/' + S.rep.folder + '/' + (i+1) + '-' + Math.random().toString(36).slice(2,8) + '.' + f.ext;
+  return fetch(SB_URL + '/storage/v1/object/maint-media/' + name, { method:'POST',
+      headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY, 'Content-Type':f.type, 'x-upsert':'false', 'cache-control':'31536000' }, body:f.blob })
+    .then(function(r){ if (!r.ok) return r.text().then(function(t){ throw new Error('upload: ' + (t || r.status)); });
+      return { path:name, kind:f.kind, size:f.size }; });
+}
+function sendReport(){
+  var r = S.rep;
+  r.location = $('r-loc').value; r.equipment = $('r-eq').value; r.problem = $('r-pr').value;
+  if (r.location.trim().length < 2) { S.err = say('no_location'); return draw(); }
+  if (r.equipment.trim().length < 2) { S.err = say('no_equipment'); return draw(); }
+  if (r.problem.trim().length < 3) { S.err = say('no_problem'); return draw(); }
+  // The DEV guard blocks the card but NOT a file upload, so nothing uploads there: a stray file
+  // with no card is the one thing worse than no photo.
+  if (window.DEV_READ_ONLY) { S.err = say('read-only'); return draw(); }
+  S.err = ''; S.busy = true; draw();
+  var done = [], i = 0;
+  function next(){
+    if (i >= r.files.length) return Promise.resolve();
+    S.busy = 'Uploading ' + (i+1) + ' of ' + r.files.length + '…'; draw();
+    return upload(r.files[i], i).then(function(m){ done.push(m); i++; return next(); });
+  }
+  return next().then(function(){
+    S.busy = 'Sending…'; draw();
+    return post('maint_report', { p_emp:S.emp, p_location:r.location, p_equipment:r.equipment, p_problem:r.problem, p_media:done });
+  }).then(function(res){
+    r.files.forEach(function(f){ URL.revokeObjectURL(f.url); });
+    S.rep = null; S.busy = false; S.view = 'list'; S.tab = 'cards'; S.filter = 'open';
+    S.ok = jc(res.card_no) + ' sent to maintenance. ' + (listNames(S.me.techs) || 'The technician') + ' has been told.';
+    return loadList().then(draw);
+  }).catch(function(e){ S.busy = false; S.err = say(e) + (done.length < r.files.length && /upload/.test(String(e.message)) ? ' Nothing was sent.' : ''); draw(); });
+}
+
+/* ── a job card ── */
+function openCard(id){
+  S.err = ''; S.ok = ''; S.hold = false; S.completing = false; S.sendBack = false; S.d = {};
+  return loadCard(id).then(function(){
+    S.view = 'card'; window.scrollTo(0,0); draw();
+    var c = S.card.card;
+    if (S.me.tech && !c.read_at && !window.DEV_READ_ONLY)
+      return post('maint_read', { p_emp:S.emp, p_id:id }).then(function(row){ if (row) { S.card.card = row; draw(); } }).catch(function(){});
+  }).catch(fail);
+}
+function dv(key, fallback){ return key in S.d ? S.d[key] : (fallback == null ? '' : fallback); }
+function stepsHtml(c){
+  var s = [
+    ['New', c.reported_at, true],
+    ['Acknow' + String.fromCharCode(173) + 'ledged', c.read_at, !!c.read_at],
+    ['In progress', c.started_at, !!c.started_at],
+    ['On hold', c.hold_at, !!c.hold_at],
+    ['Completed', c.completed_at, !!c.completed_at]
+  ];
+  var cur = { new:0, acknowledged:1, in_progress:2, on_hold:3, completed:4 }[c.status];
+  return '<div class="steps">' + s.map(function(x, i){
+    var cls = i === cur ? (i === 4 && c.checked_at ? 'd' : 'c') : (x[2] ? 'd' : '');
+    return '<div class="st ' + cls + '">' + x[0] + '<em>' + (x[2] ? esc(when(x[1])) : '') + '</em></div>'; }).join('') + '</div>';
+}
+function mediaHtml(list){
+  if (!list || !list.length) return '';
+  return '<div class="media">' + list.map(function(m, i){
+    var u = mediaUrl(m.path);
+    return '<button class="th" type="button" data-view="' + i + '" aria-label="Open ' + m.kind + '">' +
+      (m.kind === 'video' ? '<video src="' + u + '#t=0.5" muted playsinline preload="metadata"></video><span class="play">▶</span>' : '<img src="' + u + '" alt="" loading="lazy">') + '</button>'; }).join('') + '</div>';
+}
+function drawCard(){
+  var d = S.card, c = d.card, me = d.me, tech = me.tech, chef = me.chef;
+  var done = c.status === 'completed', closed = !!c.checked_at;
+  var html = barHtml(jc(c.card_no), titleOf(c, 70)) +
+    '<div class="head">' + stepsHtml(c) + '</div>' +
+    '<div class="body" style="padding:10px 0">' + (S.err || S.ok ? '<div style="margin:0 10px">' + msgs() + '</div>' : '') +
+    (c.is_test ? '<div style="margin:0 10px" class="note">TEST card: its emails go to Chef Francesco only.</div>' : '');
+  // 1 · report
+  html += '<div class="sec"><h3>Report <small>' + esc(c.reported_by) + ' · ' + esc(when(c.reported_at)) + '</small></h3><div class="in2">' +
+    '<dl class="kv"><dt>Location</dt><dd>' + esc(c.location) + '</dd><dt>Equipment</dt><dd>' + esc(c.equipment) + '</dd><dt>Problem</dt><dd>' + esc(c.problem) + '</dd></dl>' +
+    mediaHtml(c.media) + '</div></div>';
+  // 2 · status
+  html += '<div class="sec"><h3>Status <small>' + (c.read_at ? 'read ' + esc(when(c.read_at)) : 'not read yet') + '</small></h3><div class="in2">' +
+    '<dl class="kv"><dt>Technician</dt><dd>' + esc(c.tech_name || listNames(S.me.techs) || '—') + (c.tech_name ? '' : ' <span class="hint">(not yet opened)</span>') + '</dd>' +
+    (c.status === 'on_hold' ? '<dt>On hold</dt><dd>' + esc(c.hold_reason || 'no reason given') + '</dd>' : '') + '</dl>' +
+    (c.sent_back_at && !done ? '<div class="warn"><b>Sent back by ' + esc(c.sent_back_by) + '</b> · ' + esc(when(c.sent_back_at)) + '<br>' + esc(c.sent_back_note) + '</div>' : '');
+  if (tech && !done && !closed) {
+    if (S.hold) html += '<div class="field"><label for="hold-r">Why is it on hold?</label><input id="hold-r" class="in" placeholder="e.g. waiting for the part, waiting for the contractor" value="' + esc(dv('hold','')) + '" data-dk="hold"></div>' +
+        '<div class="acts"><button class="btn sm" type="button" id="holdyes">Put on hold</button><button class="btn sm ghost" type="button" id="holdno">Cancel</button></div>';
+    else html += '<div class="acts">' +
+        (c.status === 'new' || c.status === 'acknowledged' ? '<button class="btn sm" type="button" data-step="start">Start work</button>' : '') +
+        (c.status === 'on_hold' ? '<button class="btn sm" type="button" data-step="resume">Resume work</button>' : '') +
+        (c.status !== 'on_hold' ? '<button class="btn sm ghost" type="button" id="hold">On hold</button>' : '') +
+        (!S.completing ? '<button class="btn sm" type="button" id="complete">Mark completed →</button>' : '') + '</div>';
+  }
+  html += '</div></div>';
+  // 3 · assessment
+  var edit = tech && !done && !closed;
+  html += '<div class="sec"><h3>Technician assessment <small>' + (c.assessed_by ? esc(c.assessed_by) + ' · ' + esc(when(c.assessed_at)) : '') + '</small></h3><div class="in2">';
+  if (edit) {
+    html += '<div class="field"><label for="a-diag">Diagnosis</label><textarea id="a-diag" data-dk="diagnosis">' + esc(dv('diagnosis', c.diagnosis)) + '</textarea></div>' +
+      '<div class="field"><label for="a-cause">Possible cause</label><input id="a-cause" class="in" data-dk="cause" value="' + esc(dv('cause', c.cause)) + '"></div>' +
+      '<div class="field"><label for="a-sol">Recommended solution</label><input id="a-sol" class="in" data-dk="solution" value="' + esc(dv('solution', c.solution)) + '"></div>' +
+      '<div class="two"><div class="field"><label for="a-cost">Estimated cost (AED)</label><input id="a-cost" class="in" inputmode="decimal" data-dk="est_cost" placeholder="e.g. 450" value="' + esc(dv('est_cost', c.est_cost)) + '"></div>' +
+      '<div class="field"><label for="a-time">Expected time</label><input id="a-time" class="in" data-dk="est_time" placeholder="e.g. 2 hours" value="' + esc(dv('est_time', c.est_time)) + '"></div></div>' +
+      '<div class="field"><label for="a-parts">Parts / contractors</label><input id="a-parts" class="in" data-dk="parts" value="' + esc(dv('parts', c.parts)) + '"></div>' +
+      '<div class="field"><label for="a-notes">Notes / recommendations</label><input id="a-notes" class="in" data-dk="notes" value="' + esc(dv('notes', c.notes)) + '"></div>' +
+      '<div class="acts"><button class="btn sm" type="button" id="assess">Save assessment</button>' + (dirtyAssess() ? '<span class="hint">Not saved yet</span>' : '') + '</div>';
+  } else if (c.assessed_at) {
+    html += '<dl class="kv">' + [['Diagnosis', c.diagnosis], ['Possible cause', c.cause], ['Solution', c.solution], ['Estimated cost', aed(c.est_cost)],
+      ['Expected time', c.est_time], ['Parts / contractors', c.parts], ['Notes', c.notes]].filter(function(x){ return x[1]; })
+      .map(function(x){ return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('') + '</dl>';
+  } else html += '<div class="hint">Not assessed yet.</div>';
+  html += '</div></div>';
+  // 4 · completion
+  html += '<div class="sec"><h3>Completion <small>' + (done ? esc(when(c.completed_at)) : S.completing ? 'sign when the work is done' : 'opens at Mark completed') + '</small></h3><div class="in2">';
+  if (done) {
+    html += '<dl class="kv"><dt>Work completed</dt><dd>' + esc(c.work_done) + '</dd><dt>Final cost</dt><dd>' + esc(aed(c.final_cost)) + '</dd><dt>Completed at</dt><dd>' + esc(when(c.completed_at)) + '</dd></dl>' +
+      '<div class="sign done"><b>Technician sign-off</b>Signed ' + esc(c.tech_signed_by) + ' · ' + esc(when(c.completed_at)) + '</div>';
+    if (closed) html += '<div class="sign done"><b>Chef in charge: repair checked</b>Signed ' + esc(c.checked_by) + ' · ' + esc(when(c.checked_at)) + '</div>';
+    else {
+      html += '<div class="sign"><b>Chef in charge: repair checked</b><span class="hint">' + esc(listNames(S.me.chefs) || 'Chef Danilo or Chef Antonio') + ' only. The card stays open until one of them signs.</span>';
+      if (chef && !me.signed_as_tech) {
+        if (S.sendBack) html += '<div class="field"><label for="sb-n">What is still wrong?</label><input id="sb-n" class="in" data-dk="sendback" value="' + esc(dv('sendback','')) + '"></div>' +
+          '<div class="acts"><button class="btn sm" type="button" id="sbyes">Send back to the technician</button><button class="btn sm ghost" type="button" id="sbno">Cancel</button></div>';
+        else html += '<div class="code"><input id="chk-code" class="in" inputmode="numeric" autocomplete="off" placeholder="Staff code" aria-label="Your staff code"><button class="btn sm" type="button" id="check">Sign</button></div>' +
+          '<button class="link" type="button" id="sendback">Not fixed? Send it back</button>';
+      } else if (chef) html += '<span class="hint">You signed this as the technician, so the other chef checks it.</span>';
+      html += '</div>';
+    }
+  } else if (S.completing && tech) {
+    html += '<div class="field"><label for="c-work">Work completed</label><textarea id="c-work" data-dk="work_done">' + esc(dv('work_done','')) + '</textarea></div>' +
+      '<div class="two"><div class="field"><label for="c-cost">Final cost (AED)</label><input id="c-cost" class="in" inputmode="decimal" data-dk="final_cost" placeholder="0 if none" value="' + esc(dv('final_cost', c.est_cost)) + '"></div>' +
+      '<div class="auto">stamped when you sign<i>Completed at</i></div></div>' +
+      '<div class="sign"><b>Technician sign-off</b><div class="code"><input id="t-code" class="in" inputmode="numeric" autocomplete="off" placeholder="Staff code" aria-label="Your staff code"><button class="btn sm" type="button" id="techsign">Sign</button></div>' +
+      '<button class="link" type="button" id="uncomplete">Not finished yet</button></div>' +
+      '<div class="sign"><b>Chef in charge: repair checked</b><span class="hint">' + esc(listNames(S.me.chefs) || 'Chef Danilo or Chef Antonio') + ' only, after you sign. They get an email.</span></div>';
+  } else html += '<div class="hint">' + (tech ? 'Tap Mark completed when the work is done.' : 'The technician completes and signs this when the work is done. Then ' + esc(listNames(S.me.chefs) || 'the chef') + ' checks it.') + '</div>';
+  html += '</div></div></div>' +
+    '<div class="foot"><button class="btn ghost" type="button" id="back">‹ All job cards</button></div>';
+  return html;
+}
+function dirtyAssess(){ return ['diagnosis','cause','solution','est_cost','est_time','parts','notes'].some(function(k){ return k in S.d; }); }
+function step(op, args, okMsg){
+  S.err = ''; S.ok = ''; S.busy = true;
+  return post('maint_step', { p_emp:S.emp, p_id:S.card.card.id, p_op:op, p_args:args || {} }).then(function(row){
+    S.card.card = row; S.busy = false; if (okMsg) S.ok = okMsg; draw();
+  }).catch(function(e){ S.busy = false; fail(e); });
+}
+
+/* ── calendar ── */
+function occurrences(t, from, to){
+  // every due date of a job between two dates: the next one, and every one after it
+  var out = [], d = t.next_due, guard = 0;
+  while (d <= to && guard++ < 400) { if (d >= from) out.push(d); d = isoAdd(d, t.every_n, t.every_unit); }
+  return out;
+}
+function drawCal(){
+  var C = S.cal;
+  var html = barHtml('Maintenance', 'Job cards & planned maintenance') + tabsHtml() + '<div class="body">' + msgs();
+  if (!C) return html + '<div class="hint">Reading the calendar…</div></div>';
+  var today = C.today, ym = S.month, y = +ym.slice(0,4), mo = +ym.slice(5,7);
+  var first = new Date(Date.UTC(y, mo-1, 1)), days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  var lead = (first.getUTCDay() + 6) % 7, from = ym + '-01', to = ym + '-' + String(days).padStart(2,'0');
+  var byDay = {};
+  (C.tasks || []).forEach(function(t){
+    var over = t.next_due < today;
+    if (over) (byDay[t.next_due] = byDay[t.next_due] || []).push({ t:t, over:true });
+    occurrences(t, from, to).forEach(function(d){ if (!(over && d === t.next_due)) (byDay[d] = byDay[d] || []).push({ t:t }); });
+    (t.log || []).forEach(function(l){ if (l.on >= from && l.on <= to) (byDay[l.on] = byDay[l.on] || []).push({ t:t, done:true }); });
+  });
+  var label = first.toLocaleDateString('en-GB', { month:'long', year:'numeric', timeZone:'UTC' });
+  html += '<div class="mhead"><button class="btn sm ghost" type="button" data-mon="-1" aria-label="Previous month">‹</button><b>' + label + '</b><button class="btn sm ghost" type="button" data-mon="1" aria-label="Next month">›</button></div>' +
+    '<div class="legend">' + Object.keys(KINDS).map(function(k){ return '<span class="k-' + k + '">' + KINDS[k] + '</span>'; }).join('') + '<span class="k-over">Overdue</span></div>' +
+    '<div class="cal" role="grid">' + ['M','T','W','T','F','S','S'].map(function(x){ return '<div class="dh">' + x + '</div>'; }).join('');
+  for (var i = 0; i < lead; i++) html += '<div class="d x" aria-hidden="true"></div>';
+  for (var dd = 1; dd <= days; dd++) {
+    var iso = ym + '-' + String(dd).padStart(2,'0'), items = byDay[iso] || [];
+    html += '<button type="button" class="d' + (iso === today ? ' today' : '') + (S.day === iso ? ' sel' : '') + '" data-day="' + iso + '" aria-label="' + dayOf(iso) + (items.length ? ', ' + items.length + (items.length === 1 ? ' job' : ' jobs') : '') + '">' + dd +
+      items.slice(0,3).map(function(x){ return '<i class="k-' + (x.over ? 'over' : x.t.kind) + '"' + (x.done ? ' style="opacity:.45"' : '') + '></i>'; }).join('') + '</button>';
+  }
+  html += '</div>';
+  var T = (C.tasks || []).slice();
+  if (S.day) {
+    var ids = {}; (byDay[S.day] || []).forEach(function(x){ ids[x.t.id] = 1; });
+    T = T.filter(function(t){ return ids[t.id]; });
+    html += '<div class="acts"><span class="hint">' + T.length + ' job' + (T.length === 1 ? '' : 's') + ' on ' + dayOf(S.day) + '</span><button class="link" type="button" id="allday">Show all jobs</button></div>';
+  }
+  var can = S.me.tech || S.me.chef;
+  if (!(C.tasks || []).length) html += '<div class="empty">No recurring jobs yet.' + (can ? ' Add the first one with the button below: grease trap, hood and extraction, equipment servicing, preventive maintenance.' : ' The technician or the chefs add them.') + '</div>';
+  html += T.map(function(t){
+    var over = t.next_due < today, k = t.card, ask = S.doneAsk === t.id;
+    var meta = [];
+    if (over) meta.push('<span style="color:var(--err);font-weight:600">Was due ' + dayOf(t.next_due) + '</span>');
+    else meta.push('<span>Next ' + dayOf(t.next_due) + '</span>');
+    if (k) meta.push('<span>→ ' + jc(k.card_no) + ' opened</span>');
+    if (t.last) meta.push('<span>Last ' + dayOf(t.last.on) + ' · ' + esc(t.last.by) + '</span>');
+    if (t.location || t.equipment) meta.push('<span>' + esc([t.location, t.equipment].filter(Boolean).join(' · ')) + '</span>');
+    var right = k ? '<button class="btn sm ghost" type="button" data-open="' + k.id + '">' + jc(k.card_no) + '</button>'
+      : over ? '<span class="pill p-new">Overdue</span>'
+      : can ? '<button class="btn sm' + (t.next_due <= isoAdd(today, 7, 'day') ? '' : ' ghost') + '" type="button" data-done="' + t.id + '">Done</button>' : '';
+    return '<div class="card' + (over ? ' over' : '') + '" style="cursor:default">' +
+      '<div>' + (can ? '<button class="link" style="padding:0;min-height:0;text-decoration:none;color:var(--ink)" type="button" data-task="' + t.id + '"><span class="n">' + esc(t.name) + '</span></button>' : '<div class="n">' + esc(t.name) + '</div>') +
+      '<div class="l">' + every(t) + (t.by_who ? ' · ' + esc(t.by_who) : '') + ' · ' + KINDS[t.kind] + '</div></div>' + right +
+      '<div class="m">' + meta.join('') + '</div>' +
+      (ask ? '<div style="grid-column:1/-1;display:grid;gap:6px;margin-top:6px"><input id="done-n" class="in" placeholder="Note (optional), e.g. contractor name, invoice no." data-dk="donenote" value="' + esc(dv('donenote','')) + '">' +
+        '<div class="acts"><button class="btn sm" type="button" data-doneyes="' + t.id + '">Mark done today · next ' + dayOf(isoAdd(today, t.every_n, t.every_unit)) + '</button><button class="btn sm ghost" type="button" id="doneno">Cancel</button></div></div>' : '') +
+      (t.notes ? '<div class="m">' + esc(t.notes) + '</div>' : '') + '</div>';
+  }).join('');
+  if (can) html += '<button class="btn ghost wide" type="button" id="newtask">+ Add a recurring job</button>';
+  return html + '</div>';
+}
+function drawTask(){
+  var t = S.task, today = (S.cal && S.cal.today) || todayIso();
+  var v = function(k, d){ return esc(dv('t_' + k, t[k] != null ? t[k] : d)); };
+  return barHtml(t.id ? 'Edit recurring job' : 'Add a recurring job', 'Maintenance calendar') + '<form class="body" id="ftask">' + msgs() +
+    '<div class="field"><label for="t-name">Job</label><input id="t-name" class="in" data-dk="t_name" placeholder="e.g. Grease trap cleaning" value="' + v('name','') + '"></div>' +
+    '<div class="field"><label for="t-kind">Type</label><select id="t-kind" data-dk="t_kind">' + Object.keys(KINDS).map(function(k){
+        return '<option value="' + k + '"' + (dv('t_kind', t.kind || 'other') === k ? ' selected' : '') + '>' + KINDS[k] + '</option>'; }).join('') + '</select></div>' +
+    '<div class="field"><label>How often</label><div class="every"><input id="t-n" class="in" inputmode="numeric" data-dk="t_every_n" value="' + v('every_n', 1) + '" aria-label="Every how many">' +
+      '<select id="t-u" data-dk="t_every_unit" aria-label="Days, weeks or months">' + Object.keys(UNITS).map(function(u){
+        return '<option value="' + u + '"' + (dv('t_every_unit', t.every_unit || 'week') === u ? ' selected' : '') + '>' + UNITS[u][1] + '</option>'; }).join('') + '</select></div></div>' +
+    '<div class="field"><label for="t-due">Next due</label><input id="t-due" class="in" type="date" data-dk="t_next_due" value="' + v('next_due', today) + '"></div>' +
+    '<div class="two"><div class="field"><label for="t-loc">Where</label><input id="t-loc" class="in" data-dk="t_location" value="' + v('location','') + '"></div>' +
+      '<div class="field"><label for="t-eq">Equipment</label><input id="t-eq" class="in" data-dk="t_equipment" value="' + v('equipment','') + '"></div></div>' +
+    '<div class="field"><label for="t-by">Done by</label><input id="t-by" class="in" data-dk="t_by_who" placeholder="In-house, or the contractor’s name" value="' + v('by_who','') + '"></div>' +
+    '<div class="field"><label for="t-notes">Notes</label><textarea id="t-notes" data-dk="t_notes">' + v('notes','') + '</textarea></div>' +
+    '<div class="hint">When the date passes and it is not done, the job opens a job card on its own and the technician gets an email.</div>' +
+    '<div class="acts"><button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Save</button><button class="btn ghost" type="button" id="canceltask">Cancel</button></div>' +
+    (t.id ? (S.doneAsk === 'rm' ? '<div class="acts"><span>Take this job off the calendar?</span><button class="btn sm" type="button" id="rmyes">Take it off</button><button class="btn sm ghost" type="button" id="rmno">Keep it</button></div>'
+                               : '<button class="link" type="button" id="rmtask">Take this job off the calendar</button>') : '') + '</form>';
+}
+
+/* ── media viewer ── */
+function drawViewer(){
+  var old = $('viewer'); if (old) old.remove();
+  if (S.viewer == null || !S.card) return;
+  var m = S.card.card.media[S.viewer]; if (!m) return;
+  var u = mediaUrl(m.path), v = document.createElement('div');
+  v.className = 'viewer'; v.id = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', m.kind);
+  v.innerHTML = '<div class="vb"><button type="button" id="vclose">Close</button></div><div class="vm">' +
+    (m.kind === 'video' ? '<video src="' + u + '" controls playsinline autoplay></video>' : '<img src="' + u + '" alt="">') + '</div>';
+  document.body.appendChild(v);
+}
+
+/* ── actions ── */
+function fail(e){ S.err = say(e); S.ok = ''; draw(); }
+function backToList(){
+  S.view = 'list'; S.card = null; S.err = ''; S.ok = ''; S.d = {}; S.viewer = null;
+  return (S.tab === 'cal' ? loadCal() : loadList()).then(draw).catch(fail);
+}
+document.addEventListener('submit', function(e){
+  e.preventDefault();
+  var f = e.target;
+  if (f.id === 'fsign') return signIn($('emp').value);
+  if (f.id === 'frep') return S.busy ? null : sendReport();
+  if (f.id === 'ftask') {
+    var t = S.task, a = { id:t.id || '', name:$('t-name').value, kind:$('t-kind').value, every_n:$('t-n').value.trim(), every_unit:$('t-u').value,
+      next_due:$('t-due').value, location:$('t-loc').value, equipment:$('t-eq').value, by_who:$('t-by').value, notes:$('t-notes').value };
+    if (a.name.trim().length < 2) { S.err = say('no_name'); return draw(); }
+    if (!/^\d{1,3}$/.test(a.every_n) || +a.every_n < 1) { S.err = say('bad_every'); return draw(); }
+    if (!a.next_due) { S.err = say('no_date'); return draw(); }
+    S.busy = true; S.err = ''; draw();
+    return post('maint_task_save', { p_emp:S.emp, p_args:a }).then(function(){
+      S.busy = false; S.view = 'list'; S.tab = 'cal'; S.task = null; S.d = {}; S.ok = '“' + a.name.trim() + '” saved.';
+      return Promise.all([loadCal(), loadList()]).then(draw);
+    }).catch(function(err){ S.busy = false; fail(err); });
+  }
+});
+document.addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b || b.disabled) return;
+  var ds = b.dataset;
+  if (b.id === 'out') return signOut();
+  if (b.id === 'vclose') { S.viewer = null; return drawViewer(); }
+  if (ds.tab) { S.tab = ds.tab; S.err = ''; S.ok = ''; S.day = null; S.doneAsk = null; draw(); return (ds.tab === 'cal' ? loadCal() : loadList()).then(draw).catch(fail); }
+  if (ds.f) { S.filter = ds.f; return draw(); }
+  if (b.id === 'newrep') return newReport();
+  if (b.id === 'cancelrep') { if (S.rep) S.rep.files.forEach(function(f){ URL.revokeObjectURL(f.url); }); S.rep = null; S.view = 'list'; S.err = ''; return draw(); }
+  if (b.id === 'addmedia') { S.rep.location = $('r-loc').value; S.rep.equipment = $('r-eq').value; S.rep.problem = $('r-pr').value; $('pick').value = ''; return $('pick').click(); }
+  if (ds.rmfile) { var f = S.rep.files.splice(+ds.rmfile, 1)[0]; if (f) URL.revokeObjectURL(f.url); return draw(); }
+  if (ds.open) return openCard(ds.open);
+  if (b.id === 'back') return backToList();
+  if (ds.view) { S.viewer = +ds.view; return drawViewer(); }
+  if (ds.step) return step(ds.step, {}, ds.step === 'start' ? 'Work started.' : 'Work resumed.');
+  if (b.id === 'hold') { S.hold = true; return draw(); }
+  if (b.id === 'holdno') { S.hold = false; delete S.d.hold; return draw(); }
+  if (b.id === 'holdyes') { var hr = $('hold-r').value; S.hold = false; delete S.d.hold; return step('hold', { reason:hr }, 'On hold.'); }
+  if (b.id === 'complete') { S.completing = true; draw(); var w = $('c-work'); if (w) w.scrollIntoView({ block:'center' }); return; }
+  if (b.id === 'uncomplete') { S.completing = false; return draw(); }
+  if (b.id === 'assess') {
+    var c = S.card.card, A = {};
+    [['diagnosis','a-diag'],['cause','a-cause'],['solution','a-sol'],['est_cost','a-cost'],['est_time','a-time'],['parts','a-parts'],['notes','a-notes']].forEach(function(x){ A[x[0]] = $(x[1]).value; });
+    if (A.est_cost.trim() && !okAmount(A.est_cost)) { S.err = say('bad_amount'); return draw(); }
+    return step('assess', A, 'Assessment saved.').then(function(){ if (!S.err) ['diagnosis','cause','solution','est_cost','est_time','parts','notes'].forEach(function(k){ delete S.d[k]; }); draw(); });
+  }
+  if (b.id === 'techsign') {
+    var wk = $('c-work').value, fc = $('c-cost').value, code = $('t-code').value;
+    if (wk.trim().length < 3) { S.err = say('no_work'); return draw(); }
+    if (!fc.trim()) { S.err = say('no_cost'); return draw(); }
+    if (!okAmount(fc)) { S.err = say('bad_amount'); return draw(); }
+    if (!code.trim()) { S.err = 'Type your staff code to sign.'; return draw(); }
+    return step('complete', { work_done:wk, final_cost:fc, code:code }, 'Completed and signed. ' + (listNames(S.me.chefs) || 'The chefs') + ' have been asked to check it.')
+      .then(function(){ if (!S.err) { S.completing = false; delete S.d.work_done; delete S.d.final_cost; draw(); } });
+  }
+  if (b.id === 'check') {
+    var cc = $('chk-code').value; if (!cc.trim()) { S.err = 'Type your staff code to sign.'; return draw(); }
+    return step('check', { code:cc }, 'Repair checked. The job card is closed.');
+  }
+  if (b.id === 'sendback') { S.sendBack = true; return draw(); }
+  if (b.id === 'sbno') { S.sendBack = false; return draw(); }
+  if (b.id === 'sbyes') { var n = $('sb-n').value; if (n.trim().length < 3) { S.err = say('no_note'); return draw(); }
+    return step('send_back', { note:n }, 'Sent back to the technician.').then(function(){ if (!S.err) { S.sendBack = false; delete S.d.sendback; draw(); } }); }
+  // calendar
+  if (ds.mon) { var y = +S.month.slice(0,4), m = +S.month.slice(5,7) - 1 + (+ds.mon); var dt = new Date(Date.UTC(y, m, 1)); S.month = dt.toISOString().slice(0,7); S.day = null; return draw(); }
+  if (ds.day) { S.day = S.day === ds.day ? null : ds.day; return draw(); }
+  if (b.id === 'allday') { S.day = null; return draw(); }
+  if (ds.done) { S.doneAsk = ds.done; return draw(); }
+  if (b.id === 'doneno') { S.doneAsk = null; delete S.d.donenote; return draw(); }
+  if (ds.doneyes) { var note = $('done-n').value;
+    return post('maint_task_done', { p_emp:S.emp, p_id:ds.doneyes, p_note:note }).then(function(r){
+      S.doneAsk = null; delete S.d.donenote; S.ok = 'Marked done. Next due ' + dayOf(r.next_due) + '.'; return loadCal().then(draw); }).catch(fail); }
+  if (b.id === 'newtask') { S.task = { kind:'other', every_n:1, every_unit:'week' }; S.d = {}; S.view = 'task'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
+  if (ds.task) { S.task = (S.cal.tasks || []).filter(function(t){ return t.id === ds.task; })[0]; S.d = {}; S.view = 'task'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
+  if (b.id === 'canceltask') { S.view = 'list'; S.tab = 'cal'; S.task = null; S.d = {}; S.err = ''; return draw(); }
+  if (b.id === 'rmtask') { S.doneAsk = 'rm'; return draw(); }
+  if (b.id === 'rmno') { S.doneAsk = null; return draw(); }
+  if (b.id === 'rmyes') return post('maint_task_remove', { p_emp:S.emp, p_id:S.task.id }).then(function(){
+      S.view = 'list'; S.tab = 'cal'; S.ok = '“' + S.task.name + '” taken off the calendar.'; S.task = null; S.doneAsk = null; return loadCal().then(draw); }).catch(fail);
+});
+// Anything typed is kept in S.d, so the 30-second refresh and every redraw put it back.
+document.addEventListener('input', function(e){
+  var el = e.target;
+  if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
+  if (el.dataset.r && S.rep) S.rep[el.dataset.r] = el.value;
+});
+document.addEventListener('change', function(e){
+  if (e.target.id === 'pick') return addFiles(e.target.files);
+  var el = e.target; if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
+});
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && S.viewer != null) { S.viewer = null; drawViewer(); } });
+
+/* ── keep phones in step: the cook reports on one phone, the technician works on another ── */
+function typing(){
+  var a = document.activeElement;
+  return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT');
+}
+function freshen(){
+  if (!S.me || document.hidden || S.busy || typing() || S.viewer != null) return;
+  if (S.view === 'card' && S.card && !S.hold && !S.completing && !S.sendBack && !Object.keys(S.d).length) loadCard(S.card.card.id).then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'cards') loadList().then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'cal' && !S.doneAsk) loadCal().then(draw).catch(function(){});
+}
+setInterval(freshen, 30000);
+document.addEventListener('visibilitychange', freshen);
+// The Home tile opens a card from an email link: the parent calls this.
+window.__maintOpen = function(id){ if (!id) return; if (S.me) openCard(id); else S.wantCard = id; };
+
+/* ── start ── */
+(function(){
+  var emp = remembered();
+  if (emp) return signIn(emp);
+  draw();
+})();
+</script>
+</body>
+</html>

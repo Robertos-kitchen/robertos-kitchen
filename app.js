@@ -114,6 +114,7 @@ async function init() {
   if (!DEV_READ_ONLY) subscribeRealtime();
   populateSelects();
   openHome();
+  maintDeepLink();
   document.getElementById('loading').classList.add('hidden');
   const legacyReportDate=document.getElementById('report-date');
   if(legacyReportDate)legacyReportDate.value = TODAY;
@@ -1901,7 +1902,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -1927,6 +1928,7 @@ function openHome(){
   document.getElementById('foot-label').textContent='Kitchen App';
   kRoom(true);
   loadKitchenEvents();
+  maintBadge();
 }
 // ══ KITCHEN EVENTS STRIP ══════════════════════════════════════════════
 // Every FOH event whose team brief has been sent, from today to 14 days out,
@@ -2994,13 +2996,64 @@ function openTraining(stKey){
   document.getElementById('foot-label').textContent='Training'+(st?' \u00b7 '+st.label:'');
   fitRecipeScreen();
 }
+// Maintenance (25 Sep 2026) - Chef Andrea through Tell us (fe2b2456): every fault becomes a job
+// card, the technician works it, the chef checks the repair; plus the recurring maintenance
+// calendar. Its own page in a frame, like Learning (maintenance.html + maintenance-schema.sql).
+// An email's "Open the job card" link lands here as ?maint=<card id>.
+function openMaintenance(cardId){
+  hideAllPages();
+  var v=document.getElementById('maintenance-view');
+  if(!v) return;
+  v.style.cssText='padding:0;display:flex;flex-direction:column';
+  var f=v.querySelector('iframe');
+  if(!f){
+    var bar=document.createElement('div');
+    bar.className='rcp-bar';
+    bar.innerHTML='<button class="home-btn" onclick="openHome()">&lsaquo; Home</button>'+
+      '<span class="rcp-bar-name">Maintenance</span>';
+    f=document.createElement('iframe');
+    f.src=rcpPage('maintenance.html?embed=1'+(cardId?'&card='+encodeURIComponent(cardId):'')); f.title='Maintenance'; f.loading='eager';
+    f.style.cssText='display:block;width:100%;flex:1 1 auto;min-height:0;border:none;background:var(--sabbia)';
+    v.appendChild(bar); v.appendChild(f);
+  } else if(cardId){
+    try{ f.contentWindow.__maintOpen(cardId); }catch(e){}
+  }
+  v.style.display='flex';
+  document.querySelector('.footer-bar').style.display='flex';
+  document.getElementById('foot-label').textContent='Maintenance';
+  fitRecipeScreen();
+}
+function maintDeepLink(){
+  var id=new URLSearchParams(location.search).get('maint');
+  if(!id||!/^[0-9a-f-]{36}$/i.test(id)) return;
+  try{ history.replaceState(null,'',location.pathname); }catch(e){}
+  openMaintenance(id);
+}
+// The in-app alert: open job cards as a red badge on the Home tile and on the Daily Operations
+// chip (seen with the panel shut). Counts only - no sign-in needed to read them.
+var maintBadgeAt=0;
+function maintBadge(){
+  if(Date.now()-maintBadgeAt<20000) return;
+  maintBadgeAt=Date.now();
+  fetch(SUPABASE_URL+'/rest/v1/rpc/maint_summary',{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY},cache:'no-store'})
+    .then(function(r){ return r.ok?r.json():null; }).then(function(s){
+      if(!s) return;
+      var n=s.open||0;
+      document.querySelectorAll('.maint-badge').forEach(function(b){ b.textContent=n; b.hidden=!n; });
+      var m=document.getElementById('maint-meta');
+      if(m) m.textContent=(n||s.overdue)
+        ? [n?n+' open':'', s.to_check?s.to_check+' to check':'', s.overdue?s.overdue+' overdue service'+(s.overdue>1?'s':''):''].filter(Boolean).join(' · ')
+        : 'Report a problem · job cards · maintenance calendar';
+    }).catch(function(){});
+}
+setInterval(function(){ var h=document.getElementById('home-view'); if(h&&h.style.display==='block'&&!document.hidden) maintBadge(); },60000);
 // The header wraps on a phone and the footer is a different height on a tablet, so a
 // fixed "100vh minus 116px" is wrong on most devices — it either leaves a dead strip
 // or pushes the last line under the footer bar. Measure where the open view actually
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -3022,7 +3075,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
