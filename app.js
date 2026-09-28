@@ -2373,14 +2373,13 @@ function kevCostEngine(){
         (mains||[]).forEach(function(r){ w.MAINS[r.id] = { name:r.name, makesQty:r.makes_qty, makesUnit:'portion', archived:false, lines:by[r.id] || [] }; });
         var list = (mains||[]).map(function(r){
           var c = w.batchCost(r.id);
-          // Same rule as the Micros request: a dish still missing its method is started,
-          // not written, and its cost is not sent.
-          var unfinished = !w.hasMethod(w.normMethod(r.method)) && !w.waivedAt(r.id, 'method');
+          // Same rule as the Micros request (Francesco, 28 Sep 2026): Aung needs the cost,
+          // and it goes whether or not the method is written yet.
           // Rounded to the fils HERE, once: every line and the total are then built
           // from the same figure the chef and Aung read, so they always add up.
           return { id:r.id, name:r.name, section:r.section || '',
-                   cost: (c.problem || unfinished || !(c.per > 0)) ? null : Math.round(c.per*100)/100,
-                   why: unfinished ? 'recipe not finished' : (c.problem || (!(c.per > 0) ? 'it costs nothing yet' : null)) };
+                   cost: (c.problem || !(c.per > 0)) ? null : Math.round(c.per*100)/100,
+                   why: c.problem || (!(c.per > 0) ? 'it costs nothing yet' : null) };
         }).sort(function(a,b){ return a.name.localeCompare(b.name); });
         var byId = {}; list.forEach(function(x){ byId[x.id] = x; });
         clearTimeout(timer); resolve({ list:list, byId:byId });
