@@ -3069,7 +3069,12 @@ function mlEmailPrompt(){
         })
       });
       const data = await r.json().catch(()=>({}));
-      if(r.ok){ status.textContent = '✓ Emailed to Danilo & Antonio'; status.classList.add('ok'); }
+      // Recipients are the Kitchen market order list in FOH Admin → Emails; the
+      // function returns who it actually reached.
+      if(r.ok){ var n = Array.isArray(data.recipients) ? data.recipients.length : 0;
+        status.textContent = '✓ Emailed' + (n ? ' to ' + n + (n===1?' person':' people') : '')
+          + (data.usedFallback ? ' (built-in list — Admin list unreadable)' : '');
+        status.classList.add('ok'); }
       else { status.textContent = '✕ Send failed: ' + (data.error||r.status); status.classList.add('err'); }
     } catch(e){
       status.textContent = '✕ Send failed: ' + e.message; status.classList.add('err');

@@ -2,7 +2,7 @@
 // CLOSING REPORT MODULE
 // Daily kitchen closing report — structured, tap-first.
 // Saves to Supabase (closing_reports + closing_report_entries)
-// and emails Francesco on submit via edge function.
+// and emails the team on submit via edge function (who = FOH Admin → Emails → Kitchen closing report).
 // ══════════════════════════════════════════════════════
 
 const CLOSING_KEY = 'closing_report';
@@ -249,7 +249,7 @@ function crRender() {
   html += crTab === 'tonight' ? crRenderTonight() : '<div id="cr-history">Loading…</div>';
   html += '</div>';
   if (crTab === 'tonight') {
-    html += '<div class="cr-submit"><div class="cr-submit-inner"><button class="cr-submit-btn" id="cr-submit-btn" onclick="crSubmit()">' + (crReportId ? 'Update report' : 'Submit closing report') + ' → Francesco</button></div></div>';
+    html += '<div class="cr-submit"><div class="cr-submit-inner"><button class="cr-submit-btn" id="cr-submit-btn" onclick="crSubmit()">' + (crReportId ? 'Update report' : 'Submit closing report') + ' → email</button></div></div>';
   }
   el.innerHTML = html;
   if (crTab === 'history') crLoadHistory();
@@ -466,17 +466,17 @@ async function crSubmit() {
     (crChecks && crChecks.done > 0);
   if (!crHasContent) {
     btn.disabled = false;
-    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → Francesco';
-    alert('This closing report is empty.\n\nAdd at least the service rating, revenue, or run the checklist before sending it to Francesco.');
+    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → email';
+    alert('This closing report is empty.\n\nAdd at least the service rating, revenue, or run the checklist before sending it.');
     return;
   }
   // Traceable send: require a validated Employee ID, and stamp that name as the
   // report's "Report by" so every email carries who sent it (reuses the same
   // staff-validated gate as the reset-all actions; resetIdentity lives in app.js).
-  var crWho = (typeof resetIdentity === 'function') ? await resetIdentity('send the closing report to Francesco') : { emp_id:'', name:(crDraft.submitted_by||'') };
+  var crWho = (typeof resetIdentity === 'function') ? await resetIdentity('send the closing report') : { emp_id:'', name:(crDraft.submitted_by||'') };
   if (!crWho) {
     btn.disabled = false;
-    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → Francesco';
+    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → email';
     return;
   }
   crDraft.submitted_by = crWho.name;
@@ -565,9 +565,14 @@ async function crSubmit() {
       try { await sb.from('closing_reports').update({ emailed_at: stampedAt }).eq('service_date', sd); }
       catch(e){ console.warn('[closing] emailed_at stamp skipped', e); }
       crEmailedAt = stampedAt;
-      btn.textContent = '✓ Saved & emailed to Francesco';
-      btn.style.background = 'var(--oliva)';
-      setTimeout(function(){ crRender(); }, 2500);
+      // Who it reached comes back from the function, which reads the list in
+      // FOH Admin → Emails. usedFallback means that list could not be read and
+      // the built-in list was used — say so rather than showing a plain green tick.
+      var crTo = (ed && Array.isArray(ed.recipients)) ? ed.recipients.length : 0;
+      btn.textContent = '✓ Saved & emailed' + (crTo ? ' to ' + crTo + (crTo === 1 ? ' person' : ' people') : '')
+        + (ed && ed.usedFallback ? ' (built-in list — Admin list unreadable)' : '');
+      btn.style.background = (ed && ed.usedFallback) ? 'var(--ambra, #C88A00)' : 'var(--oliva)';
+      setTimeout(function(){ crRender(); }, (ed && ed.usedFallback) ? 12000 : 2500);
     } else {
       // Report IS saved; the email is not. Keep a loud, persistent, re-tappable state.
       btn.textContent = '⚠ Saved — EMAIL FAILED, tap to resend';
@@ -578,7 +583,7 @@ async function crSubmit() {
   } catch (err) {
     console.error('[closing] submit error', err);
     alert('Could not save: ' + (err.message || err));
-    btn.disabled = false; btn.textContent = crReportId ? 'Update report → Francesco' : 'Submit closing report → Francesco';
+    btn.disabled = false; btn.textContent = crReportId ? 'Update report → email' : 'Submit closing report → email';
   }
 }
 

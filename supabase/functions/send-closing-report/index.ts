@@ -1,22 +1,34 @@
-// supabase/functions/send-market-order/index.ts  (KITCHEN project)
-// Emails the Market List order to the chefs.
+// supabase/functions/send-closing-report/index.ts  (KITCHEN project)
+// Emails the Kitchen closing report.
 //
 // 28 Sep 2026 — recipients moved out of code into FOH Admin → Emails, key
-// `market_order_kitchen` (asked with Tell us 21887994: every Kitchen email
-// managed from Admin). Same model as send-roster: reads the FOH project's
-// app_users with the FOH_SERVICE_KEY secret, so a tick takes effect on the next
-// send with no deploy. The old written-in list (Danilo + Antonio Stellacci) is
-// the fallback — an unreadable or empty Admin list must never mean "emailed nobody".
+// `closing_report_kitchen` (Tell us 21887994: "include sajad into the mail of the
+// closing report"). Same model as send-roster: this function reads the FOH
+// project's app_users over PostgREST with the FOH_SERVICE_KEY secret, so a tick
+// takes effect on the next send with no deploy.
 //
-// {check:true} returns who a real send would reach and sends NOTHING.
+// Before this, the list was written here: To Francesco, Cc Andrea Falcone,
+// Danilo, Antonio Stellacci. That list is kept as the fallback — an unreadable
+// or empty Admin list must never mean "emailed nobody".
+//
+// Also removes the Resend key that used to sit inline in this file; it now reads
+// the RESEND_API_KEY secret like every other sender on this project.
+//
+// {check:true} returns who a real send would reach and sends NOTHING — it is
+// what Admin → Emails → "Check who really gets it" calls.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const FOH_URL = "https://paoaivwtkzujmrgrfjuq.supabase.co";
-const NOTIFY_KEY = "market_order_kitchen";
+const NOTIFY_KEY = "closing_report_kitchen";
 const RESEND_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 
-const FALLBACK_TO = ["dvalla@robertos.ae", "astellacci@robertos.ae"];
+const FALLBACK_TO = [
+  "fguarracino@robertos.ae",
+  "afalcone@robertos.ae",
+  "dvalla@robertos.ae",
+  "astellacci@robertos.ae",
+];
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -74,9 +86,9 @@ serve(async (req) => {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Roberto's Kitchen <orders@kitchenteam.robertos.ae>",
+        from: "Roberto's Kitchen <roster@kitchenteam.robertos.ae>",
         to,
-        subject: body.subject || "Market Order",
+        subject: body.subject || "Closing Report",
         html: body.html || "",
       }),
     });

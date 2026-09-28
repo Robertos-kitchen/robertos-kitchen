@@ -1541,7 +1541,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1790323868"></script>
+<script src="market-list.js?v=1790581211"></script>
 <script src="fish-display.js?v=1790323868"></script>
 <script src="my-tasks.js?v=1790323868"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
@@ -1559,7 +1559,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   };
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1789747927').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1790581211').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
   function openTeam(){ lazyLoad('team.js?v=1789747927').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
   function openStockTake(){ lazyLoad('stock-take.js?v=1790323868').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   function openCrockeryCount(){ lazyLoad('crockery-count.js?v=1790323868').then(function(){ openCrockeryCount(); }).catch(function(){ alert('Could not load the Crockery Count. Check the connection and try again.'); }); }
@@ -1587,7 +1587,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790396236"></script>
+<script src="app.js?v=1790581211"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
