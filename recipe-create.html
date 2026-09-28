@@ -1237,6 +1237,19 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .kidnew{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 18px}
 .kidnew label{flex:1 0 100%;font-family:var(--sans);font-size:13px;font-weight:700;color:var(--vino)}
 .kidnew input{flex:1 1 180px;min-width:0}
+.setpr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px;background:#fff;
+  border:1px solid rgba(64,2,7,.14);border-radius:3px;padding:10px 12px}
+.setpr label{font-family:var(--serif);font-size:17px;color:var(--vino);margin-right:4px}
+.setpr input{width:110px;border:1px solid var(--sabbia-dark);border-radius:4px;padding:10px;
+  font-family:var(--sans);font-size:15px;background:#fff;outline:none;text-align:right}
+.setpr input:focus{border-color:var(--vino)}
+.setpr .setu,.setpr .setn{font-family:var(--sans);font-size:12px;opacity:.7}
+.setpr .okb{margin:0;min-height:40px}
+.setpr .err{flex:1 0 100%;font-family:var(--sans);font-size:12.5px;color:#8d1f1f}
+.setpr .err:empty{display:none}
+.micset{font-family:var(--sans);font-size:14px;line-height:1.55;background:#fff;border:1px solid rgba(64,2,7,.14);
+  border-left:4px solid var(--vino);border-radius:3px;padding:10px 14px;margin:0 0 14px}
+.micset b{color:var(--vino)}
 /* on a line of its own: beside the box it squeezed the box shut the moment it spoke */
 .kidnew .err{flex:1 0 100%}
 .kidnew .err:empty{display:none}
@@ -3632,7 +3645,7 @@ function loadSaved(){
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
        ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
-    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,running,position,parent_id,fold_order&order=archived,position,name')
+    sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,running,position,parent_id,fold_order,set_price&order=archived,position,name')
       .catch(function(){ return null; }),
     /* what is wrong with each one, counted here so the list can say it without him
        opening twenty recipes to find the three that need him */
@@ -5069,6 +5082,71 @@ function micPastInner(){
 var MIC_NET_DIV = 1.155;
 function micNet(price){ return price / MIC_NET_DIV; }
 
+/* ── the set price ──
+   28 Sep 2026, Francesco: the Business lunch is sold per SET, not per dish — one suggested
+   selling price for the set, whatever the guest picks, typed once on the MONTH in the
+   recipe book (menus.set_price) and carried on every Micros request for that month.
+   Aung needs the cost; the set price is the one selling price that goes with it. */
+function readSetPrice(text){
+  var t = String(text == null ? '' : text).trim();
+  if (!t) return { v:null };
+  /* strict on purpose: "1,800" or "1.800" read by parseFloat is 1.8 — refuse, never guess */
+  if (!/^\d{1,5}(\.\d{1,2})?$/.test(t)) return { err:'Type it as a plain figure, like 125 or 125.50 — no commas, no AED.' };
+  var n = +t;
+  return n > 0 ? { v:n } : { err:'A set price has to be more than 0. Leave the box empty to take it off.' };
+}
+function micSetPrice(){
+  var m = MENUS.filter(function(x){ return x.id === MICREQ.menuId; })[0];
+  return m && m.set_price != null ? Number(m.set_price) : null;
+}
+/* One set = one dish from each section on the menu (Antipasti + Secondi): the cheapest and
+   the dearest way a guest can build it. Each dish is rounded to the fils first — the same
+   figure the form prints — so the set adds up to what Aung reads. A section with no dish
+   costed yet means the set cannot be costed, and it says so rather than guess. */
+function micSetCost(rows){
+  var by = {}, order = [], left = 0;
+  (rows||[]).forEach(function(r){
+    if (!by[r.section]){ by[r.section] = []; order.push(r.section); }
+    if (r.cost == null) left++; else by[r.section].push(Math.round(r.cost*100)/100);
+  });
+  if (!order.length) return null;
+  var lo = 0, hi = 0;
+  for (var i = 0; i < order.length; i++){
+    var c = by[order[i]];
+    if (!c.length) return { none:order[i], secs:order, left:left };
+    lo += Math.min.apply(null, c); hi += Math.max.apply(null, c);
+  }
+  return { lo:Math.round(lo*100)/100, hi:Math.round(hi*100)/100, secs:order, left:left };
+}
+function micSetHTML(menu){
+  var sp = micSetPrice(), isMonth = menu && isMonthKid(menu);
+  if (sp == null)
+    return isMonth ? '<div class="tip" style="margin:0 0 12px">No set price on <b>' + esc(menu.name) + '</b> yet. ' +
+      'Sold as a set? Type it once on the month in the recipe book, under <b>Set price</b>.</div>' : '';
+  var net = micNet(sp), sc = micSetCost(MICREQ.rows);
+  return '<div class="micset"><b>Set price ' + fmt(sp) + ' AED</b> · net ' + fmt(net) +
+    (sc && sc.none == null
+      ? '<br>One set — one dish from each of ' + esc(sc.secs.join(', ')) + ' — costs <b>' + fmt(sc.lo) + '</b> to <b>' +
+        fmt(sc.hi) + '</b>, food cost ' + fmt(sc.lo/net*100,1) + '% to ' + fmt(sc.hi/net*100,1) + '%.' +
+        (sc.left ? ' ' + sc.left + ' dish' + (sc.left===1?' has':'es have') + ' no cost yet and ' + (sc.left===1?'is':'are') + ' left out.' : '')
+      : sc && sc.none != null ? '<br>The set cannot be costed yet: nothing in ' + esc(sc.none) + ' has a cost.' : '') +
+    '</div>';
+}
+/* the box on the month, in the recipe book */
+function setPriceBox(m){
+  var a = S.setPr && S.setPr.id === m.id ? S.setPr : null;
+  var v = a && a.v != null ? a.v : (m.set_price != null ? Number(m.set_price).toFixed(2) : '');
+  var sp = m.set_price != null ? Number(m.set_price) : null;
+  return '<div class="setpr"><label for="setpr">Set price</label>' +
+    '<input id="setpr" inputmode="decimal" autocomplete="off" placeholder="—" value="' + esc(v) + '">' +
+    '<span class="setu">AED for the set</span>' +
+    '<button class="okb" data-setprsave="' + esc(m.id) + '"' + (a && a.busy ? ' disabled' : '') + '>' +
+      (a && a.busy ? 'Saving…' : 'Save') + '</button>' +
+    '<span class="setn">' + (sp != null ? 'net ' + fmt(micNet(sp)) + ' · goes on the Micros request'
+                                       : 'one price for the set, whatever the guest picks') + '</span>' +
+    '<span class="err">' + esc(a && a.err || '') + '</span></div>';
+}
+
 /* his own shorthand, as far as a machine can take it: drop the joining words, keep the
    words that mean something, then shorten the longest one until it fits */
 var MICSTOP = { di:1, de:1, del:1, della:1, al:1, alla:1, allo:1, ai:1, con:1, e:1, la:1,
@@ -5754,6 +5832,26 @@ function micWorkbook(ExcelJS, menuName){
     R++;
   });
 
+  /* the set line — one price for the whole set; its cost is the DEAREST way to build
+     it (one dish from each section), so the cost % is the worst case, never flattering */
+  var setP = micSetPrice(), setC = setP != null ? micSetCost(MICREQ.rows) : null;
+  if (setP != null){
+    R++;
+    stripe(R, 2, 21, { fill:B.sabbia, font:FAMF, border:ROWB });
+    ws.getRow(R).height = 19;
+    put('C'+R, 'Set price'); put('D'+R, 'Set menu');
+    R++;
+    stripe(R, 2, 21, { fill:'FFFFFFFF', font:{ name:'Calibri', size:11, bold:true, color:{argb:B.ink} }, border:ROWB });
+    put('C'+R, 'One set: one dish from each section', { align:{ wrapText:true, vertical:'middle' } });
+    ws.getRow(R).height = 30;
+    if (setC && setC.none == null) put('I'+R, setC.hi, { z:'0.00', align:money });
+    put('J'+R, null, { f:'IF(OR(NOT(ISNUMBER(M'+R+')),M'+R+'=0,NOT(ISNUMBER(I'+R+'))),"",I'+R+'/M'+R+')', z:'0.00%', align:money });
+    put('L'+R, setP, { z:'0.00', align:money });
+    put('M'+R, null, { f:'IF(ISNUMBER(L'+R+'),L'+R+'/1.155,"")', z:'0.00', align:money });
+    put('N'+R, setC && setC.none == null ? 'cost: dearest set ' + fmt(setC.hi) + ', cheapest ' + fmt(setC.lo)
+                                          : 'set cost not complete', { align:{ wrapText:true, vertical:'middle' } });
+    R++;
+  }
   /* the foot — says where it came from, and that the empty column is deliberate */
   var F = R + 1;
   ws.mergeCells('B'+F+':N'+F);
@@ -5845,6 +5943,14 @@ function micPrintHtml(){
       '<td class="n">' + (net==null ? '—' : fmt(net)) + '</td>' +
       '<td class="n">' + (pct==null ? '—' : pct.toFixed(1)+'%') + '</td></tr>';
   });
+  var setP = micSetPrice();
+  if (setP != null){
+    var setC = micSetCost(MICREQ.rows), setN = micNet(setP), ok = setC && setC.none == null;
+    body += '<tr class="fam"><td colspan="7">Set price</td></tr><tr><td class="code"></td>' +
+      '<td><b>One set</b> — one dish from each section' + (ok ? '<br><small>cost is the dearest set; cheapest ' + fmt(setC.lo) + '</small>' : '') + '</td><td></td>' +
+      '<td class="n">' + (ok ? fmt(setC.hi) : '—') + '</td><td class="n"><b>' + fmt(setP) + '</b></td>' +
+      '<td class="n">' + fmt(setN) + '</td><td class="n">' + (ok ? (setC.hi/setN*100).toFixed(1)+'%' : '—') + '</td></tr>';
+  }
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<title>Micros request — ' + esc(micMenuName()) + '</title><style>' +
     '@page{size:A4 landscape;margin:12mm}' +
@@ -5983,6 +6089,9 @@ function micSend(btn){
       '<p style="font-size:14px;line-height:1.6">Attached is the Micros POS addition form for <b>' +
         esc(menu) + '</b> — <b>' + take.length + ' dish' + (take.length===1?'':'es') + '</b>, with the ' +
         'menu name, the till name, the cost and the sales price on each line.</p>' +
+      (micSetPrice() != null ? '<p style="font-size:14px;line-height:1.6">This menu is sold as a <b>set</b>: ' +
+        'suggested selling price <b>' + fmt(micSetPrice()) + ' AED</b> for the set (net ' + fmt(micNet(micSetPrice())) +
+        '). It is the <b>Set price</b> line at the foot of the form; the dishes carry their cost only.</p>' : '') +
       '<p style="font-size:14px;line-height:1.6">The <b>Micros item codes are left blank</b> for you to ' +
         'assign. Cost %, the 16-character check and the net price are formulas in the sheet, so it ' +
         'still recalculates if you correct a figure.</p>' +
@@ -7704,6 +7813,7 @@ function render(){
                    '<button class="newr" data-kidren="' + esc(here.id) + '">Rename this ' + kw + '</button>' +
                    '<button class="newr" data-kidrm="' + esc(here.id) + '">' +
                      (kw === 'section' ? 'Remove this section' : 'Put this month away') + '</button></div>';
+        if (kw === 'month' && !here.archived) acts += setPriceBox(here);
         body = '<button class="newr" data-fold="' + esc(here.parent_id) + '" style="margin:0 0 12px">‹ ' +
                  esc(up ? up.name : 'The menu') + ' — every ' + kw + '</button>' + acts + body;
       }
@@ -7807,6 +7917,15 @@ function render(){
       kr.addEventListener('input', function(){ if (S.kidAct) S.kidAct.v = kr.value; });
       kr.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault();
         var ks = w.querySelector('[data-kidrensave]'); if (ks) ks.click(); } });
+    }
+    var spi = $('setpr');
+    if (spi){
+      spi.addEventListener('input', function(){
+        var id = (w.querySelector('[data-setprsave]')||{}).getAttribute && w.querySelector('[data-setprsave]').getAttribute('data-setprsave');
+        S.setPr = { id:id, v:spi.value, err:(S.setPr && S.setPr.id === id ? S.setPr.err : null) };
+      });
+      spi.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault();
+        var sps = w.querySelector('[data-setprsave]'); if (sps) sps.click(); } });
     }
     /* the caret stays where it was: render() rebuilds this pane on every keystroke */
     var sq = $('sq');
@@ -8198,6 +8317,7 @@ function render(){
         'before. The form goes out with the family code empty for ' +
         (noFam.length===1?'it':'them')+' — open the recipe and pick a section from the list.</div>' : '') +
 
+      micSetHTML(menu) +
       '<div class="shd">On '+esc(menu ? menu.name : 'this menu')+'</div>' +
 
       /* ── what is ticked, and finding one dish in sixty ──
@@ -12966,6 +13086,33 @@ document.addEventListener('click', function(e){
   var krm = e.target.closest('[data-kidrm]');
   if (krm){ S.kidAct = { id:krm.dataset.kidrm, mode:'remove', err:null, busy:false }; render(); return; }
   if (e.target.closest('[data-kidactcx]')){ S.kidAct = null; render(); return; }
+  var sps = e.target.closest('[data-setprsave]');
+  if (sps && !(S.setPr && S.setPr.busy)){
+    var sid = sps.getAttribute('data-setprsave');
+    var srow = SAVEDMENUS.filter(function(m){ return m.id === sid; })[0];
+    var sin = $('setpr'), raw = sin ? sin.value : '';
+    if (!srow) return;
+    var got = readSetPrice(raw);
+    if (got.err){ S.setPr = { id:sid, v:raw, err:got.err }; render(); return; }
+    var had = srow.set_price != null ? Number(srow.set_price) : null;
+    if (got.v === had){ S.setPr = null; render(); return; }
+    S.setPr = { id:sid, v:raw, busy:true }; render();
+    patchMenu(sid, { set_price:got.v })
+      .then(function(){ return Promise.all([loadSaved(), loadMenus()]); })
+      .then(function(){
+        var back = SAVEDMENUS.filter(function(m){ return m.id === sid; })[0];
+        var now = back && back.set_price != null ? Number(back.set_price) : null;
+        if (now !== got.v) throw new Error('the price did not change');
+        S.setPr = null; render();
+        flash(got.v == null ? 'Set price taken off ' + srow.name + '.'
+                            : 'Set price for ' + srow.name + ' is ' + fmt(got.v) + ' AED — it goes on the Micros request.');
+      })
+      .catch(function(ex){
+        S.setPr = { id:sid, v:raw, err:'Not saved — ' + menuPlain(ex.message) };
+        render();
+      });
+    return;
+  }
   var krs = e.target.closest('[data-kidrensave]');
   if (krs && S.kidAct && !S.kidAct.busy){
     var rrow = SAVEDMENUS.filter(function(m){ return m.id === krs.dataset.kidrensave; })[0];
