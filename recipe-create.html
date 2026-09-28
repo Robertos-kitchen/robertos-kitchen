@@ -821,6 +821,12 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .micnum{font-family:var(--serif);font-size:16px;text-align:right;min-width:74px;flex:0 0 auto;
   display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
 .micnum .none{font-family:var(--sans);font-size:11px;font-style:normal;color:var(--attn)}
+/* what is missing on a dish is also the way to it: "no menu price" opens the recipe with the
+   caret in the Menu price box. A mark that only states the gap left Chef Andrea asking what
+   was missing (Tell us 8ceeae56, 28 Sep 2026). */
+.micgo{font-family:var(--sans);font-size:11px;color:var(--attn);background:none;border:none;
+  border-bottom:1px dotted currentColor;padding:4px 0 2px;margin:0;cursor:pointer;text-align:right;line-height:1.2;min-height:32px}
+.micgo:hover,.micgo:focus{border-bottom-style:solid;outline:none}
 .miclbl{font-family:var(--sans);font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;
   opacity:.5;margin-top:1px}
 /* the menus screen */
@@ -863,7 +869,7 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .micdone{background:rgba(75,81,40,.1);border:1px solid rgba(75,81,40,.35);border-radius:4px;
   padding:14px 16px;font-family:var(--sans);font-size:12.5px;line-height:1.6}
 .micdone b{font-size:13.5px;color:var(--oliva)}
-@media (max-width:640px){ .micnum{min-width:0;text-align:left;align-items:flex-start} .micin{width:150px} }
+@media (max-width:640px){ .micnum{min-width:0;text-align:left;align-items:flex-start} .micin{width:150px} .micgo{text-align:left} }
 /* ── the requests themselves ──
    The door now opens on what has been sent, not on a form. One card per request,
    and the card says the four things anybody actually asks: which menu, how many
@@ -3934,7 +3940,7 @@ var JUMPAT = { lines:'.sheetwrap', method:'#mth', floor:'#fohbox', makes:'#foot'
      picks out which of the three was actually missing */
   plating:'#pssbox', crockery:'#pssbox', pass:'#pssbox', allerg:'#alg' };
 /* which box the caret belongs in once it has landed */
-var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn',
+var JUMPBOX = { price:'#pr', makes:'#mk', section:'#bsc', menu:'#bmn', method:'#m-method',
   plating:'#m-plating', crockery:'#m-crockery', pass:'#m-pass' };
 function jumpTo(sec){
   if ((sec === 'makes' || sec === 'price') && S.footShut){
@@ -8187,13 +8193,13 @@ function render(){
         esc(noPrice.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
         (noPrice.length>4 ? ' and '+(noPrice.length-4)+' more' : '') +
         ' — the form goes out with the price column empty for '+(noPrice.length===1?'it':'them')+
-        ', which is what Aung will price against. Put the price on the recipe first, or untick '+
-        (noPrice.length===1?'it':'them')+'.</div>' : '') +
+        ', which is what Aung will price against. Press “no menu price” on the dish to open it at the ' +
+        'Menu price box, or untick '+(noPrice.length===1?'it':'them')+'.</div>' : '') +
       (noCost.length ? '<div class="todo"><b>'+noCost.length+' with no cost yet.</b> ' +
         esc(noCost.slice(0,4).map(function(r){ return r.name; }).join(', ')) +
         (noCost.length>4 ? ' and '+(noCost.length-4)+' more' : '') +
         (noCost.every(function(r){ return r.why === 'recipe not finished'; })
-          ? ' — the recipe is only started (no method yet), so its cost is not a cost. The form says “recipe not finished” instead; finish the recipe, or untick ' + (noCost.length===1?'it':'them') + '.</div>'
+          ? ' — the ingredients are costed, but the Method box on the recipe is empty, so the cost is held back and the form says “recipe not finished”. Press “method not written” on the dish to open it at the Method box, or untick ' + (noCost.length===1?'it':'them') + '.</div>'
           : ' — usually a batch inside them that is not finished, or a recipe only started. The cost column says why rather than guess.</div>') : '') +
       (over.length ? '<div class="todo"><b>'+over.length+' till name'+(over.length===1?' is':'s are')+' over 16 characters.</b> ' +
         'Micros cuts them off. Shorten '+(over.length===1?'it':'them')+' below.</div>' : '') +
@@ -8252,9 +8258,15 @@ function render(){
                  : gone ? ' · already sent '+esc(micWhen(gone.sent_at, true)) : '')+'</span></span>' +
             '<span class="micfld"><input class="micin'+(len>16?' bad':'')+'" data-micname="'+x.i+'" value="'+esc(r.micros||'')+'" maxlength="16">' +
               '<span class="miclen'+(len>16?' bad':'')+'">'+len+'/16</span></span>' +
-            '<span class="micnum">'+(r.cost==null?'<i class="none">'+(r.why === 'recipe not finished' ? 'recipe not finished' : 'no cost')+'</i>':fmt(r.cost))+
+            /* "recipe not finished" stays the word on Aung's form; on this screen it names the
+               one box that decides it — Method — and opens the recipe there */
+            '<span class="micnum">'+(r.cost==null?(r.why === 'recipe not finished'
+                ? '<button class="micgo" type="button" data-micopen="'+r.id+'" data-sec="method" ' +
+                    'title="Open '+esc(r.name)+' at the Method box">method not written</button>'
+                : '<i class="none">no cost</i>'):fmt(r.cost))+
               '<span class="miclbl">cost</span></span>' +
-            '<span class="micnum">'+(r.price==null?'<i class="none">no price</i>':fmt(r.price))+
+            '<span class="micnum">'+(r.price==null?'<button class="micgo" type="button" data-micopen="'+r.id+'" ' +
+                'data-sec="price" title="Open '+esc(r.name)+' at the Menu price box">no menu price</button>':fmt(r.price))+
               '<span class="miclbl">price</span></span>' +
             /* the same figure the form's own formula gives — the menu price with service and
                VAT taken back out (÷ 1.155). It is what the cost % is worked against, so it is
@@ -13544,13 +13556,15 @@ document.addEventListener('click', function(e){
      he was halfway through is nowhere. */
   var mop2 = e.target.closest('[data-micopen]');
   if (mop2){
-    var mrid = mop2.getAttribute('data-micopen'), from = S.step;
+    var mrid = mop2.getAttribute('data-micopen'), from = S.step,
+        msec = mop2.getAttribute('data-sec');   /* a "missing" mark lands on its box */
     guard(function(){
       var wait = flash('Opening the recipe…');
       openRecipe(mrid).then(function(){
         wait.remove(); markClean();
         S.micReturn = from; S.step = 'sheet';
         render(); rows(); foot(); window.scrollTo(0,0);
+        if (msec) setTimeout(function(){ fitBar(); jumpTo(msec); }, 60);
       }).catch(function(ex){
         wait.remove();
         flash('That recipe could not be opened — ' + plain(ex.message), true);
