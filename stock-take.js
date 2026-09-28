@@ -31,7 +31,30 @@ var STOCK_EMAIL_CC = STOCK_EMAIL_CC_FALLBACK.slice();
 var stRecipients = null;        // [{email,name,role}] once loaded from the table
 var stRecipientsSource = 'built-in list';
 
+// 28 Sep 2026 — the list moved to FOH Admin → Emails → "Kitchen stock take"
+// (app_users key stocktake_kitchen), next to every other Kitchen email. The send
+// names the list and the FUNCTION reads it, so this only asks the same function
+// who it would reach (check mode, sends nothing) to show the names before sending.
+// kitchen_email_recipients is no longer read; the constants above stay the
+// fallback the function itself uses.
+var STOCK_ADMIN_LIST = 'stocktake_kitchen';
+var stRecipientsFallback = false;
 async function stLoadRecipients(){
+  try{
+    var r = await fetch(SUPABASE_URL+'/functions/v1/send-stock-take', { method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY},
+      body:JSON.stringify({ check:true, list:STOCK_ADMIN_LIST }) });
+    var d = await r.json().catch(function(){ return {}; });
+    if(!r.ok || !Array.isArray(d.recipients) || !d.recipients.length) return;
+    stRecipients = d.recipients.map(function(e, i){
+      var n = (d.names && d.names[i]) || '';
+      return { email:e, name:(n ? n.split(' ')[0] : e.split('@')[0]), role:'to' };
+    });
+    stRecipientsFallback = !!d.usedFallback;
+    stRecipientsSource = 'FOH Admin → Emails';
+  }catch(e){ /* keep the fallback names */ }
+}
+async function stLoadRecipientsOld(){
   try{
     var res = await sb.from('kitchen_email_recipients').select('*')
       .eq('list_key', STOCK_EMAIL_LIST).eq('active', true).order('sort_order');
@@ -52,7 +75,7 @@ async function stLoadRecipients(){
 // (Valentina rule: a send names what is going and who it is going to.)
 function stRecipientNames(role){
   if(!stRecipients){
-    return role === 'to' ? 'Aung' : 'Danilo, Antonio, Asarudeen &amp; you';
+    return role === 'to' ? 'Aung, Danilo, Antonio, Asarudeen &amp; Francesco' : '';
   }
   var names = stRecipients.filter(function(r){ return r.role === role; })
                           .map(function(r){ return stEsc(r.name); });
@@ -985,12 +1008,12 @@ function stReviewSend(){
   box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999';
   box.innerHTML='<div style="background:#fff;border-radius:12px;padding:18px;width:90%;max-width:360px" onclick="event.stopPropagation()">'+
     '<div style="font-weight:700;color:#410207;margin-bottom:4px">Send stock take to '+stRecipientNames('to')+'</div>'+
-    '<div style="font-size:12px;color:#8a7a55;margin-bottom:14px">cc '+stRecipientNames('cc')+'. Choose a format:</div>'+
-    '<button class="report-btn" style="width:100%;margin-bottom:10px;text-align:left" onclick="stSendEmail(\'excel\')"><b>Excel file</b><br><span style="font-size:11px;color:#8a7a55">attached spreadsheet — for '+stRecipientNames('to')+'\'s system</span></button>'+
+    '<div style="font-size:12px;color:#8a7a55;margin-bottom:14px">'+(stRecipientsFallback?'<b style="color:#7a1218">Admin list could not be read — this is the built-in list.</b> ':'')+'Who gets it is set in FOH Admin → Emails → Kitchen stock take. Choose a format:</div>'+
+    '<button class="report-btn" style="width:100%;margin-bottom:10px;text-align:left" onclick="stSendEmail(\'excel\')"><b>Excel file</b><br><span style="font-size:11px;color:#8a7a55">attached spreadsheet — for the cost controller\'s system</span></button>'+
     '<button class="report-btn" style="width:100%;margin-bottom:14px;text-align:left" onclick="stSendEmail(\'digital\')"><b>Digital format</b><br><span style="font-size:11px;color:#8a7a55">the in-app layout, inside the email</span></button>'+
     '<div id="st-send-status" style="font-size:12px;min-height:16px;color:#7a1218;margin-bottom:8px"></div>'+
     '<div style="display:flex;justify-content:space-between;align-items:center">'+
-      (stIsSuper() ? '<button class="report-btn" style="font-size:12px" onclick="stManageRecipients()">Manage recipients</button>' : '<span></span>')+
+      '<span></span>'+
       '<button class="report-btn" onclick="document.getElementById(\'st-send-modal\').remove()">Cancel</button>'+
     '</div></div>';
   box.addEventListener('click', function(){ box.remove(); });
@@ -999,7 +1022,7 @@ function stReviewSend(){
 async function stSendEmail(mode){
   var statusEl=document.getElementById('st-send-status');
   var monLabel = stPeriodLabel(stMonth);
-  var body={ to:STOCK_EMAIL_TO, cc:STOCK_EMAIL_CC, subject:'Kitchen Stock Take — '+monLabel };
+  var body={ list:STOCK_ADMIN_LIST, subject:'Kitchen Stock Take — '+monLabel };
   try{
     if(statusEl){ statusEl.style.color='#8a7a55'; statusEl.textContent='Sending…'; }
     if(mode==='excel'){
@@ -1011,7 +1034,10 @@ async function stSendEmail(mode){
     }
     var r=await fetch(SUPABASE_URL+'/functions/v1/send-stock-take', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY}, body:JSON.stringify(body) });
     var d=await r.json().catch(function(){return{};});
-    if(r.ok){ var m=document.getElementById('st-send-modal'); if(m) m.remove(); if(typeof kToast==='function') kToast('✓ Sent to '+stRecipientNames('to').replace(/&amp;/g,'&')+' ('+(mode==='excel'?'Excel':'digital')+').'); else alert('Sent.'); }
+    if(r.ok){ var m=document.getElementById('st-send-modal'); if(m) m.remove();
+      var nTo=Array.isArray(d.recipients)?d.recipients.length:0;
+      var msg='✓ Sent to '+(nTo?nTo+(nTo===1?' person':' people'):'the list')+' ('+(mode==='excel'?'Excel':'digital')+')'+(d.usedFallback?' — built-in list, Admin list unreadable':'')+'.';
+      if(typeof kToast==='function') kToast(msg, !!d.usedFallback); else alert(msg); }
     else if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+(d.error||r.status); }
   }catch(e){ if(statusEl){ statusEl.style.color='#7a1218'; statusEl.textContent='Send failed: '+e.message; } }
 }
