@@ -365,7 +365,7 @@ function drawChef(){
   if (!S.cq) {
     return '<button class="back" id="home">‹ Learning</button><h2>Chef’s corner</h2>' +
       '<form class="card sign" id="fchef"><label for="cemp">Your employee ID</label><input id="cemp" inputmode="numeric" value="' + esc(S.tryCemp != null ? S.tryCemp : (S.emp || '')) + '">' +
-      '<label for="ccode">Or Chef Francesco’s code</label><input id="ccode" type="password" inputmode="numeric" autocomplete="off">' +
+      '<label for="ccode">Or Chef Francesco’s code</label><input id="ccode" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off">' +
       '<button class="btn" data-busy id="csign" type="submit">Open</button>' +
       (S.cmsg ? '<div class="msg bad" role="alert">' + esc(S.cmsg) + '</div>' : '') +
       '<details><summary>Who can do what</summary><p>Chef Danilo, Chef Antonio and Chef Andrea check every page and question first. ' +

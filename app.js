@@ -2516,7 +2516,7 @@ function kevCompBlock(e){
     '<label class="kev-comp-lbl">Note for Aung (optional)</label>'+
     '<input class="kev-comp-note" type="text" maxlength="300" value="'+kevEsc(st.note||'')+'" oninput="kevCompNote(\''+e.id+'\',this.value)">'+
     '<label class="kev-comp-lbl">Your employee code &mdash; Executive Chef or Sous Chef</label>'+
-    '<input class="kev-comp-code" id="kev-comp-code-'+e.id+'" type="password" inputmode="numeric" autocomplete="off">'+
+    '<input class="kev-comp-code" id="kev-comp-code-'+e.id+'" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off">'+
     (st.err ? '<div class="kev-comp-err">'+kevEsc(st.err)+'</div>' : '')+
     '<div class="kev-comp-btns">'+
       '<button class="kev-comp-cancel" onclick="kevCompClose(\''+e.id+'\')"'+(st.busy?' disabled':'')+'>Cancel</button>'+
@@ -3320,6 +3320,7 @@ function schedCancelPin() {
 function schedSubmitPin() {
   var v = document.getElementById('sch-pin-inp').value.trim();
   if (v === SCHED_PIN) {
+    document.getElementById('sch-pin-inp').value = '';
     schedUnlocked = true;
     schedTouchLock();
     schedUpdateLockBtn();

@@ -2981,7 +2981,7 @@ function ivsRender(fromPoll){
   if (!ivsCode){
     v.innerHTML = '<div class="ivwrap"><div class="ivgate"><b>Interview scoring</b>'+
       '<div style="font-size:13.5px;color:#6b5a48;margin-bottom:12px">Candidate names and scores are private. Enter the interviewers\' passcode.</div>'+
-      '<input id="ivs-code" type="password" inputmode="numeric" autocomplete="off" onkeydown="if(event.key===\'Enter\')ivsUnlock()">'+
+      '<input id="ivs-code" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" onkeydown="if(event.key===\'Enter\')ivsUnlock()">'+
       '<button class="ivb" onclick="ivsUnlock()">Open</button>'+
       (ivsErr ? '<div class="iverr">'+ivsEsc(ivsErr)+'</div>' : '')+
     '</div></div>';

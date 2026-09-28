@@ -961,8 +961,8 @@ function acOpenUpload(){
           '<span id="acu-s3" style="text-align:right">choose&hellip;' +
           '<input type="file" accept=".xls,.xlsx,.xlsm" id="acu-f3" style="display:none"></span></label>' +
         '<div class="ac-kv"><span>Your code</span>' +
-          '<span><input type="password" id="acu-pin" inputmode="numeric" placeholder="&bull;&bull;&bull;&bull;" ' +
-          'style="width:90px;text-align:center;letter-spacing:3px;padding:7px" oninput="acuReady()"></span></div>' +
+          '<span><input type="text" autocomplete="off" id="acu-pin" inputmode="numeric" placeholder="&bull;&bull;&bull;&bull;" ' +
+          'style="-webkit-text-security:disc;width:90px;text-align:center;letter-spacing:3px;padding:7px" oninput="acuReady()"></span></div>' +
         '<div id="acu-why" class="ac-dash" style="margin-top:8px;font-size:12.5px"></div>' +
         '<div id="acu-out"></div>' +
       '</div>' +

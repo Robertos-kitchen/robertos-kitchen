@@ -295,7 +295,7 @@ function mtRenderLock(msg){
     '<div class="mt-lock-box">' +
       '<div class="mt-lock-t">My Tasks</div>' +
       '<div class="mt-lock-s">Private view</div>' +
-      '<input class="mt-in mt-lock-in" id="mt-pin" type="password" inputmode="numeric" ' +
+      '<input class="mt-in mt-lock-in" id="mt-pin" type="text" style="-webkit-text-security:disc" inputmode="numeric" ' +
         'autocomplete="off" placeholder="Passcode" onkeydown="if(event.key===\'Enter\')mtTryUnlock()">' +
       (msg ? '<div class="mt-lock-err">' + msg + '</div>' : '') +
       '<button class="mt-btn mt-lock-btn" onclick="mtTryUnlock()">Enter</button>' +

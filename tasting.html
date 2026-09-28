@@ -360,7 +360,7 @@ function decideHtml(){
   if (last && last.decision === 'approved' && !onUp) {
     return '<div class="done"><div><b>' + esc((D.names[rid] || {}).name || 'This dish') + '</b> is on <b>' + esc(menuName(last.menu_id)) + '</b>, approved by ' + esc(last.decided_by) + ' on ' + esc(when(last.created_at)) +
       (last.score_avg != null ? ' at ' + f1(Number(last.score_avg)) + ' / 10 from ' + last.scorers + (last.scorers === 1 ? ' person' : ' people') : '') + '. The Recipe book shows it there.</div>' +
-      '<div class="line"><input class="codein" id="code" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
+      '<div class="line"><input class="codein" id="code" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
       '<button class="btn ghost" id="undo" data-dec="' + last.id + '">Undo: take it off and put it back on ' + esc(D.upName) + '</button></div>' + dmsgHtml() + '</div>';
   }
   if (!onUp) return '<div class="empty">This dish is not on ' + esc(D.upName) + ' any more, so there is nothing to approve here.</div>';
@@ -377,7 +377,7 @@ function decideHtml(){
       return '<label class="opt"><input type="radio" name="w" value="' + o.id + '"' + (o.id === S.where ? ' checked' : '') + '> ' + esc(o.label) + '</label>';
     }).join('') + '</div>' +
     '<div class="what" id="what"></div>' +
-    '<div class="line"><input class="codein" id="code" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
+    '<div class="line"><input class="codein" id="code" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">' +
       '<button class="btn go" id="approve">Approve and put it on the menu</button>' +
       '<button class="btn ghost" id="notyet">Not this time</button></div>' +
     dmsgHtml() +

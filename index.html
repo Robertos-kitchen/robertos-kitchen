@@ -1543,7 +1543,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 
 <script src="market-list.js?v=1790581211"></script>
 <script src="fish-display.js?v=1790323868"></script>
-<script src="my-tasks.js?v=1790323868"></script>
+<script src="my-tasks.js?v=1790596648"></script>
 <!-- closing-report.js / team.js are large and open rarely; load them on demand to
      keep cold-boot light on the always-on screens. -->
 <script>
@@ -1563,8 +1563,8 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   function openTeam(){ lazyLoad('team.js?v=1789747927').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
   function openStockTake(){ lazyLoad('stock-take.js?v=1790582205').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   function openCrockeryCount(){ lazyLoad('crockery-count.js?v=1790323868').then(function(){ openCrockeryCount(); }).catch(function(){ alert('Could not load the Crockery Count. Check the connection and try again.'); }); }
-  function openInterviews(){ lazyLoad('interview-scoring.js?v=1790263162').then(function(){ openInterviews(); }).catch(function(){ alert('Could not load Interviews. Check the connection and try again.'); }); }
-  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1790323868').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
+  function openInterviews(){ lazyLoad('interview-scoring.js?v=1790596648').then(function(){ openInterviews(); }).catch(function(){ alert('Could not load Interviews. Check the connection and try again.'); }); }
+  function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1790596648').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
   function openFmcMatch(){ lazyLoad('fmc-match.js?v=1790323868').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
   function openCalendar(){ lazyLoad('calendar.js?v=1790323868').then(function(){ openCalendar(); }).catch(function(){ alert('Could not load the Calendar. Check the connection and try again.'); }); }
   // Menu Development Plan is PARKED, 15 Aug 2026 — the team never adopted it and Danilo
@@ -1587,7 +1587,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 </script>
 <script src="common.js?v=1786343605"></script>
 <script src="floorplan.js?v=1786343605"></script>
-<script src="app.js?v=1790589606"></script>
+<script src="app.js?v=1790596648"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
@@ -1715,7 +1715,7 @@ window.FB_INBOX = {
 <div id="sch-pin-modal" class="sch-modal-overlay" style="display:none" onclick="schedClosePin(event)">
   <div class="sch-modal-box" style="max-width:300px">
     <div class="sch-modal-title">&#128274; Enter passcode to edit</div>
-    <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="sch-pin-inp" class="sch-pin-input" autocomplete="off" onkeydown="if(event.key==='Enter')schedSubmitPin();if(event.key==='Escape')schedCancelPin()" />
+    <input type="text" style="-webkit-text-security:disc" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="sch-pin-inp" class="sch-pin-input" autocomplete="off" onkeydown="if(event.key==='Enter')schedSubmitPin();if(event.key==='Escape')schedCancelPin()" />
     <div id="sch-pin-err" style="display:none;color:#991b1b;font-size:12px;margin-top:8px;font-family:var(--font-sans)">Incorrect passcode &#8212; try again</div>
     <div class="sch-modal-actions">
       <button class="sch-modal-cancel" onclick="schedCancelPin()">Cancel</button>
