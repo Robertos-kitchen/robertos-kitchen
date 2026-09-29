@@ -87,6 +87,7 @@ details p{line-height:1.6;max-width:65ch}
 .tab{border:1px solid var(--sabbia-dark);background:#fff;border-radius:18px;padding:9px 14px;cursor:pointer;font-size:13.5px;min-height:40px}
 .tab.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bulk{margin:10px 0}
 select,.in,textarea{border:1px solid var(--sabbia-dark);border-radius:6px;padding:10px;font-size:14.5px;background:#fff}
 textarea{width:100%;min-height:80px;line-height:1.5}
 .in{width:100%}
@@ -404,6 +405,7 @@ function drawQueue(){
     S.cq.topics.map(function(t){ return '<option value="' + esc(t.id) + '"' + (S.ctopic === t.id ? ' selected' : '') + '>' + esc(t.title) + '</option>'; }).join('') +
     '</select><span class="me">' + items.length + ' here</span></div>';
   if (!items.length) return head + '<div class="empty">' + esc(nothingHere(want)) + '</div>';
+  if (S.ctab === 'approve' && role() === 'francesco') head += drawBulk(items);
   return head + items.slice(0, S.cshow).map(drawItem).join('') +
     (items.length > S.cshow ? '<button class="btn ghost" id="more">Show more (' + (items.length - S.cshow) + ' left)</button>' : '');
 }
@@ -426,6 +428,44 @@ function nothingHere(want){
   }
   if (want === 'rejected') return 'Nothing has been thrown out.';
   return 'Nothing here.';
+}
+/* Approve all (Chef Francesco, 29 Sep 2026): 273 checked items one tap at a time was the
+   only way. One tap asks, the second approves exactly the list he was looking at (the topic
+   picked, or all topics). Same learn_step call as the single button, so the database still
+   checks his code and only moves items that are 'checked'. Stops at the first error and
+   says how many went through. */
+function drawBulk(items){
+  var where = S.ctopic ? ' in ' + topicName(S.ctopic) : '';
+  if (S.bulk && S.bulk.run) return '<div class="card bulk"><div class="msg" role="status">Approving\u2026 ' +
+    S.bulk.done + ' of ' + S.bulk.ids.length + '. Keep this screen open.</div></div>';
+  if (S.bulk) return '<div class="card bulk"><div class="msg">Approve all ' + S.bulk.ids.length + where +
+    '? They go to the whole kitchen team straight away, approved by you.</div><div class="acts">' +
+    '<button class="btn go sm" data-busy id="bulkgo">Yes, approve all ' + S.bulk.ids.length + '</button>' +
+    '<button class="btn ghost sm" id="bulkno">Cancel</button></div></div>';
+  return '<div class="acts bulk"><button class="btn go sm" data-busy id="bulkask">Approve all ' + items.length + where + '</button></div>';
+}
+function bulkItems(){
+  return S.cq.pages.map(function(p){ return { k:'p', id:p.id, x:p }; }).concat(S.cq.questions.map(function(q){ return { k:'q', id:q.id, x:q }; }))
+    .filter(function(it){ return it.x.status === 'checked' && (!S.ctopic || it.x.topic_id === S.ctopic); })
+    .map(function(it){ return { k:it.k, id:it.id }; });
+}
+function bulkApprove(){
+  var B = S.bulk, list = B.ids, i = 0, fail = null;
+  B.run = true; B.done = 0; S.cmsg = ''; setBusy(true); draw();
+  function one(){
+    if (fail || i >= list.length) return Promise.resolve();
+    var it = list[i++];
+    return post('learn_step', { p_emp:S.chef.emp, p_code:S.chef.code, p_kind:it.k, p_id:it.id, p_action:'approve', p_fields:{}, p_note:null })
+      .then(function(){ B.done++; if (B.done % 5 === 0) draw(); return one(); },
+            function(e){ fail = fail || e; });
+  }
+  var lanes = []; for (var n = 0; n < 4; n++) lanes.push(one());
+  return Promise.all(lanes).then(function(){
+    var done = B.done, all = list.length;
+    S.cmsg = fail ? 'Approved ' + done + ' of ' + all + '. Stopped: ' + say(fail)
+                  : '\u2713 Approved all ' + all + ' \u2014 the team can see them now.';
+    S.bulk = null; return reloadQueue();
+  }).catch(function(e){ S.cmsg = say(e); S.bulk = null; }).then(function(){ setBusy(false); draw(); window.scrollTo(0,0); });
 }
 function drawItem(it){
   var x = it.x, r = role(), id = x.id, editing = S.edit === id, isPlate = it.k === 'q' && /^plate:/.test(x.gen_key || '');
@@ -608,11 +648,14 @@ document.addEventListener('click', function(ev){
   if (id === 'finish') return finish();
   if (id === 'chef') { S.view = 'chef'; S.cmsg = ''; draw(); return; }
   /* A shared kitchen screen: the next chef must not inherit the last one's corner. */
-  if (id === 'cout') { S.cq = null; S.chef = null; S.code = ''; S.tryCemp = null; S.cmsg = ''; S.edit = null; draw(); return; }
+  if (id === 'cout') { S.bulk = null; S.cq = null; S.chef = null; S.code = ''; S.tryCemp = null; S.cmsg = ''; S.edit = null; draw(); return; }
   if (id === 'myscores') { S.view = 'scores'; S.cmsg = ''; S.chef = { emp:S.emp, code:null }; S.cq = null; draw(); loadScores(); return; }
-  if (b.dataset.ctab) { S.ctab = b.dataset.ctab; S.cmsg = ''; S.cshow = 30; draw();
+  if (b.dataset.ctab) { S.ctab = b.dataset.ctab; S.cmsg = ''; if (S.bulk && !S.bulk.run) S.bulk = null; S.cshow = 30; draw();
     if (S.ctab === 'recipes') loadGaps(); if (S.ctab === 'scores') loadScores(); return; }
   if (id === 'more') { S.cshow += 30; draw(); return; }
+  if (id === 'bulkask') { S.bulk = { ids:bulkItems() }; S.cmsg = ''; draw(); return; }
+  if (id === 'bulkno') { S.bulk = null; draw(); return; }
+  if (id === 'bulkgo') { if (S.bulk && !S.bulk.run) bulkApprove(); return; }
   if (id === 'wsave') return saveWrite();
   if (id === 'mkrec') return makeRecipeQs();
   if (b.dataset.viewer) {
@@ -639,7 +682,7 @@ document.addEventListener('click', function(ev){
   }
 });
 document.addEventListener('change', function(ev){
-  if (ev.target.id === 'ctopic') { S.ctopic = ev.target.value; S.cshow = 30; draw(); }
+  if (ev.target.id === 'ctopic') { S.ctopic = ev.target.value; S.cshow = 30; if (S.bulk && !S.bulk.run) S.bulk = null; draw(); }
   if (ev.target.id === 'wk') { $('wq').hidden = ev.target.value !== 'q'; $('wp').hidden = ev.target.value !== 'p'; }
 });
 /* Real forms, so Enter on a keyboard and Go on a phone keypad both submit. */
