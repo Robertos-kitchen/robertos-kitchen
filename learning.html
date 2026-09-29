@@ -61,6 +61,7 @@ h3{font-family:var(--display);font-weight:400;color:var(--vino);font-size:22px;m
 .body{white-space:pre-wrap;line-height:1.65;font-size:15.5px;max-width:68ch}
 .pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .dots{font-size:13px;color:var(--muted)}
+.clock{float:right;font-weight:600} .clock.low{color:var(--err)}
 .qcard{background:#fff;border:1px solid rgba(66,1,7,.13);border-radius:10px;padding:18px;display:grid;gap:12px}
 .qtext{font-size:19px;line-height:1.4;font-weight:500}
 .choice{display:block;width:100%;text-align:left;padding:14px;border:1px solid var(--sabbia-dark);border-radius:8px;background:var(--paper);cursor:pointer;font-size:15.5px;line-height:1.4;min-height:52px}
@@ -258,7 +259,7 @@ function openTopic(id){
 function drawTopic(){
   var t = S.topic, p = S.pages[S.pi], last = S.pi >= S.pages.length - 1;
   var testLine = t.questions >= 5
-    ? '<button class="btn go" data-busy id="start">Take the test — 5 questions</button>'
+    ? '<button class="btn go" data-busy id="start">Take the test — 5 questions, timed</button>'
     : '<div class="empty">The test opens once 5 questions are checked and approved' +
       (t.questions ? ' — ' + t.questions + ' so far.' : '.') + '</div>';
   return '<button class="back" id="home">‹ Topics</button><h2>' + esc(t.title) + '</h2>' +
@@ -274,14 +275,14 @@ function drawTopic(){
 function startTest(){
   setBusy(true); S.err = '';
   post('learn_start', { p_emp:S.emp, p_topic:S.topic.id }).then(function(r){
-    S.test = r; S.qi = 0; S.picks = []; S.view = 'test';
+    S.test = r; S.qi = 0; S.picks = []; S.view = 'test'; startClock();
   }).catch(function(e){ S.err = say(e); }).then(function(){ setBusy(false); draw(); window.scrollTo(0,0); });
 }
 function drawTest(){
   var qs = S.test.questions, q = qs[S.qi], n = qs.length, pick = S.picks[S.qi];
   return '<h2>' + esc(S.test.title) + '</h2>' +
     '<div class="bar" aria-hidden="true"><i style="width:' + Math.round(100 * S.qi / n) + '%"></i></div>' +
-    '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + '</div>' +
+    '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + clockHtml() + '</div>' +
     '<div class="qtext">' + esc(q.q) + '</div>' +
     q.choices.map(function(c, i){
       var sh = q.shots && q.shots[c];
@@ -295,7 +296,32 @@ function drawTest(){
       : '<button class="btn go" data-busy id="finish"' + (pick == null ? ' disabled' : '') + '>Hand it in</button>') +
     '</div></div>';
 }
+/* The clock (Chef Francesco, 29 Sep 2026: "they could cheat by using ai"). The database
+   gives each question time by its length (learn_q_secs) and adds them up into one clock for
+   the whole test, so a hard question can borrow from an easy one. At 0 the test hands itself
+   in; unanswered questions count as wrong. The database keeps its own clock (30 s of grace)
+   and a test handed in after that cannot pass, whatever the phone says. */
+function clockLeft(){ return Math.max(0, Math.ceil((S.test.until - Date.now()) / 1000)); }
+function clockText(t){ return Math.floor(t / 60) + ':' + ('0' + (t % 60)).slice(-2) + ' left'; }
+function clockHtml(){
+  if (!S.test || !S.test.limit) return '';
+  var t = clockLeft();
+  return '<span class="clock' + (t <= 20 ? ' low' : '') + '" id="clock" role="timer">' + clockText(t) + '</span>';
+}
+function startClock(){
+  clearInterval(S.tick);
+  if (!S.test || !S.test.limit) return;
+  S.test.until = Date.now() + S.test.limit * 1000;
+  var att = S.test.attempt;
+  S.tick = setInterval(function(){
+    if (S.view !== 'test' || !S.test || S.test.attempt !== att) { clearInterval(S.tick); return; }
+    var t = clockLeft(), el = $('clock');
+    if (el) { el.textContent = clockText(t); el.classList.toggle('low', t <= 20); }
+    if (t <= 0) { clearInterval(S.tick); S.test.timeUp = true; if (!S.busy) finish(); }
+  }, 1000);
+}
 function finish(){
+  clearInterval(S.tick);
   setBusy(true); S.err = '';
   post('learn_finish', { p_emp:S.emp, p_attempt:S.test.attempt, p_answers:S.picks }).then(function(r){
     S.result = r; S.view = 'result'; return loadHome();
@@ -305,7 +331,10 @@ function drawResult(){
   var r = S.result, wrong = r.results.filter(function(x){ return !x.right; }), right = r.results.filter(function(x){ return x.right; });
   return '<h2>' + esc(S.test.title) + '</h2>' +
     '<div class="card"><div class="score">' + r.score + ' / ' + r.total + '</div>' +
-    '<div class="msg ' + (r.passed ? 'ok' : 'bad') + '">' + (r.passed ? 'Passed.' : 'Not passed this time — 4 right answers are needed. You can take it again: the questions change.') + '</div></div>' +
+    '<div class="msg ' + (r.passed ? 'ok' : 'bad') + '">' +
+      (r.late ? 'Time ran out before this was handed in, so it does not count. You can take it again: the questions change.'
+        : (S.test.timeUp ? 'Time was up, so it was handed in for you. Questions not answered count as wrong. ' : '') +
+          (r.passed ? 'Passed.' : 'Not passed this time — 4 right answers are needed. You can take it again: the questions change.')) + '</div></div>' +
     (wrong.length ? '<h3>What to learn from this</h3>' + wrong.map(function(x){
       return '<div class="res"><div class="q">' + esc(x.q) + '</div>' +
         '<div class="you pline">' + shotsHtml(x.pshot) + '<span>You answered: ' + esc(x.picked || '—') + '</span></div>' +
