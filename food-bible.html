@@ -70,20 +70,14 @@ img{display:block;max-width:100%}
   box-shadow:0 18px 40px -22px rgba(20,4,4,.8)}
 .fbctl{display:flex;flex-direction:column;gap:12px}
 .stale{color:var(--vino);font-weight:700}
-/* the menus, above everything - for the floor this is the first choice, not a filter */
-.mbar{display:flex;flex-wrap:wrap;gap:8px}
-.mtab{display:inline-flex;align-items:center;gap:7px;font-family:var(--sans);font-size:13px;
-  background:#fff;border:1px solid var(--sabbia-dark);border-radius:5px;color:var(--vino);
-  padding:11px 15px;min-height:44px;cursor:pointer}
-.mtab:hover{border-color:var(--vino)}
-.mtab.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:700}
-.mtab .mrun{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;background:var(--oro);
-  color:#2a1a10;border-radius:2px;padding:2px 5px}
+/* the menu is ONE dropdown, first in the row (Francesco, 29 Sep 2026): seventeen menu
+   buttons in four rows was the busiest thing on a page the floor opens for one dish.
+   It opens on the running menu - the a la carte - and the rest are one tap away. */
+.pickwrap select#mpick{font-weight:700}
 .mnote{font-family:var(--sans);font-size:13px;color:var(--vino-light);line-height:1.5}
 .mnote b{color:var(--vino)}
 /* one row: find the dish on the left, walk and print on the right */
-.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:14px;
-  border-top:1px solid var(--sabbia-dark)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pickwrap{display:flex;align-items:center;gap:8px;flex:1 1 440px;min-width:0;flex-wrap:wrap}
 .pickwrap select,.pickwrap input{flex:1 1 190px;min-width:0;height:44px;border:1px solid var(--sabbia-dark);
   border-radius:6px;background:#fff;color:var(--vino);font-family:var(--sans);font-size:14px;padding:0 12px}
@@ -1351,17 +1345,9 @@ function render(){
   root.innerHTML = frame(
     '<div class="onpaper">' +
       '<div class="fbctl noprint">' +
-      (MENUS.length
-        ? '<div class="mbar">' +
-            MENUS.map(function(m){
-              return '<button class="mtab'+(menuPick===m.id?' on':'')+'" data-mtab="'+m.id+'">'+esc(m.name)+
-                (m.running?'<span class="mrun">now</span>':'')+'</button>'; }).join('') +
-            '<button class="mtab'+(menuPick===''?' on':'')+'" data-mtab="">Everything</button>' +
-          '</div>'
-        : '') +
       (MENUS.length && menuPick && !pool.length
         ? '<div class="mnote"><b>Nothing is on this menu yet.</b> The chef puts a dish on it ' +
-          'from the create screen, and it appears here. Tap <b>Everything</b> to see the whole book.</div>'
+          'from the create screen, and it appears here. Pick <b>Everything</b> in the menu list to see the whole book.</div>'
         : '') +
       /* "nothing matches" while the dish is sitting on the next menu along is a
          half-truth, and it sends a waiter looking for a page he was told is not
@@ -1373,6 +1359,14 @@ function render(){
            on a phone is a scroll wheel a mile long, so you type first and the list
            narrows to what you typed — Enter opens the top one. */
         '<span class="pickwrap">' +
+          (MENUS.length
+            ? '<select id="mpick" aria-label="Which menu">' +
+                MENUS.map(function(m){
+                  return '<option value="'+esc(m.id)+'"'+(menuPick===m.id?' selected':'')+'>'+esc(m.name)+
+                    (m.running?' \u2014 now':'')+'</option>'; }).join('') +
+                '<option value=""'+(menuPick===''?' selected':'')+'>Everything \u2014 the whole book</option>' +
+              '</select>'
+            : '') +
           '<input id="bq" value="'+esc(bq)+'" aria-label="Search dishes" ' +
             'placeholder="type a dish — burrata, branzino…">' +
           '<select id="pick" aria-label="Which dish"'+(hits.length?'':' disabled')+'>' +
@@ -1449,6 +1443,9 @@ function checkOneSheet(){
 }
 
 document.addEventListener('change', function(e){
+  if (e.target && e.target.id === 'mpick'){
+    menuPick = e.target.value; bq=''; changed=null; render(); window.scrollTo(0,0); return;
+  }
   if (e.target && e.target.id === 'pick'){
     idx = +e.target.value; changed = null; render(); window.scrollTo(0,0);
   }
@@ -1603,7 +1600,6 @@ document.addEventListener('click', function(e){
     commitRemove(); return;
   }
   if (b.id==='bclr'){ bq=''; render(); var c=document.getElementById('bq'); if (c) c.focus(); return; }
-  if (b.dataset.mtab !== undefined){ menuPick = b.dataset.mtab; bq=''; changed=null; render(); window.scrollTo(0,0); return; }
   if (b.id==='reload'){
     var keep = DISHES[idx] && DISHES[idx].id;
     changed = null; busy = true; render();
