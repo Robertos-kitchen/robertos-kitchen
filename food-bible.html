@@ -236,6 +236,20 @@ img{display:block;max-width:100%}
    absolutely positioned — so none of them adds a millimetre to the sheet. That is what
    keeps the one-dish-one-A4 promise safe while the page grew a way to write. */
 .shot.can{cursor:pointer}
+/* tapping the photograph opens it big (Francesco, 29 Sep 2026) - the frame used to
+   mean "change it", which put a chef-code box in front of a waiter who only wanted
+   to see the plate. Changing it is the Change button now. */
+.shot img{cursor:zoom-in}
+.fbzoom{position:fixed;inset:0;z-index:100030;background:rgba(20,3,5,.97);display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;
+  box-sizing:border-box;cursor:zoom-out}
+.fbzoom img{max-width:100%;max-height:calc(100vh - 110px);object-fit:contain;border-radius:4px;
+  background:#fff}
+.fbzoom .zn{font-family:var(--serif);font-size:22px;color:#fbf3e9;text-align:center}
+.fbzoom .zx{position:absolute;top:12px;right:12px;width:48px;height:48px;border-radius:24px;
+  border:1px solid rgba(245,237,224,.5);background:rgba(43,1,4,.7);color:#fbf3e9;font-size:22px;
+  line-height:1;cursor:pointer}
+@media print{.fbzoom{display:none!important}}
 .phl{position:absolute;left:0;right:0;bottom:0;z-index:4;display:flex;flex-wrap:wrap;
   align-items:center;justify-content:center;gap:2mm;padding:2.5mm 3mm;
   font-family:var(--sans);font-size:8pt;line-height:1.4;text-align:center}
@@ -1570,6 +1584,22 @@ document.addEventListener('click', function(e){
   /* the frame itself, not only the button on it — the picture is the obvious thing to
      tap, and on a phone it is a far bigger target than any button drawn over it */
   var frame = e.target.closest ? e.target.closest('.shot.can') : null;
+  var zoom = e.target.closest ? e.target.closest('.fbzoom') : null;
+  if (zoom){ zoom.remove(); return; }
+  var shotEl = e.target.closest ? e.target.closest('.shot') : null;
+  var pic = shotEl && shotEl.querySelector('img');
+  /* the question and progress panels cover the whole frame - a tap on them is not a
+     tap on the picture */
+  if (pic && !b && !e.target.closest('.phl:not(.tap)')){
+    var z = document.createElement('div');
+    z.className = 'fbzoom noprint';
+    z.setAttribute('role', 'dialog'); z.setAttribute('aria-label', pic.alt || 'Photograph');
+    z.innerHTML = '<button class="zx" aria-label="Close">\u2715</button>' +
+      '<img src="' + esc(pic.getAttribute('src')) + '" alt="' + esc(pic.alt) + '">' +
+      '<div class="zn">' + esc(pic.alt) + '</div>';
+    document.body.appendChild(z);
+    return;
+  }
   if (frame && (!b || b.dataset.shot !== undefined)){
     var fid = frame.dataset.shot;
     /* mid-question or mid-save, the frame is not a way to start another one */
@@ -1616,6 +1646,9 @@ document.addEventListener('click', function(e){
   if (b.id==='prev'){ step(-1); changed = null; render(); window.scrollTo(0,0); return; }
 });
 window.addEventListener('resize', function(){ if (!busy) checkOneSheet(); });
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){ var z = document.querySelector('.fbzoom'); if (z) z.remove(); }
+});
 
 /* ── opened from the Recipes module ──
    `?id=` opens that dish's page. `&embed=1` only tightens the padding now: the walk
