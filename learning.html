@@ -219,7 +219,7 @@ function passState(t){
     }
     return { cls:'p-ok', txt:'Passed · best ' + t.best + '/5' };
   }
-  if (t.tries) return { cls:'p-below', txt:'Best ' + t.best + '/5 · not passed yet' };
+  if (t.tries) return { cls:'p-below', txt:t.best == null ? 'Not passed yet · time ran out' : 'Best ' + t.best + '/5 · not passed yet' };
   if (!t.pages && t.questions < 5) return { cls:'p-none', txt:'Coming soon' };
   return { cls:'p-none', txt:'Not taken' };
 }
@@ -625,6 +625,7 @@ function makeRecipeQs(){
     return reloadQueue();
   }).catch(function(e){ S.cmsg = say(e); }).then(function(){ setBusy(false); draw(); });
 }
+function dur(n){ return n < 60 ? n + 's' : Math.floor(n / 60) + 'm ' + ('0' + (n % 60)).slice(-2) + 's'; }
 function drawScores(){
   var d = S.scores;
   if (!d) return '<div class="me">Loading…</div>';
@@ -637,9 +638,13 @@ function drawScores(){
           if (!s) return '<td>—</td>';
           var exp = '';
           if (s.passed_at && t.expires_months) { var u = new Date(s.passed_at); u.setMonth(u.getMonth() + t.expires_months); if (u < new Date()) exp = ' <small style="color:var(--err)">expired</small>'; }
-          return '<td>' + s.best + '/5' + (s.passed_at ? ' ✓' : '') + exp + '<br><small>' + s.tries + ' tr' + (s.tries === 1 ? 'y' : 'ies') + '</small></td>'; }).join('') +
+          return '<td>' + (s.best == null ? '—' : s.best + '/5') + (s.passed_at ? ' ✓' : '') + exp +
+            (s.secs != null ? '<br><small>' + dur(s.secs) + (s.lim ? ' of ' + dur(s.lim) : '') + '</small>' : '') +
+            '<br><small>' + s.tries + ' tr' + (s.tries === 1 ? 'y' : 'ies') +
+            (s.late ? ' · <span style="color:var(--err)">' + s.late + ' out of time</span>' : '') + '</small></td>'; }).join('') +
         (isF ? '<td><input type="checkbox" data-viewer="' + p.id + '"' + (d.viewers.indexOf(p.id) > -1 ? ' checked' : '') + ' aria-label="' + esc(p.name) + ' sees scores"></td>' : '') + '</tr>';
     }).join('') + '</tbody></table></div>' +
+    '<div class="me">Under each score: how long the best test took, out of the time it was given. A perfect score in very little time is worth a look.</div>' +
     (isF ? '<div class="me">Tick the people who may see these scores. Nobody else can.</div>' : '');
 }
 function loadScores(){
