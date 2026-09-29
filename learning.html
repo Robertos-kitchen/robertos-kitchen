@@ -173,6 +173,7 @@ function say(err){
   if (/no_emp/.test(m)) return 'That employee ID is not in the kitchen staff list. Check it, or ask Chef Francesco to add it.';
   if (/not_ready/.test(m)) return 'This test is not open yet: it needs at least 5 checked and approved questions.';
   if (/wrong_code/.test(m)) return 'That code is not right.';
+  if (/not_learning/.test(m)) return 'Learning is for the kitchen brigade. Stewarding is not part of it.';
   if (/not_allowed/.test(m)) return 'Your employee ID cannot do this here.';
   if (/not_draft/.test(m)) return 'Someone has already checked this one. Reload to see it.';
   if (/not_checked/.test(m)) return 'This one has not been checked by Chef Danilo, Chef Antonio or Chef Andrea yet.';
