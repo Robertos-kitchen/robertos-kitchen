@@ -108,6 +108,23 @@ textarea{width:100%;min-height:80px;line-height:1.5}
 .tbl th,.tbl td{border-bottom:1px solid var(--sabbia-light);padding:8px 6px;text-align:left;vertical-align:top}
 .tbl th{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--vino)}
 .scroll{overflow-x:auto}
+.sc-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sc-p{border-bottom:1px solid var(--sabbia-light)}
+.sc-p:last-child{border-bottom:none}
+.sc-h{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:12px 0;min-height:56px;font:inherit;color:var(--ink)}
+.sc-h b{font-size:16px}
+.sc-h small{color:var(--muted);font-size:13px}
+.sc-n{font-size:15px;font-weight:700;white-space:nowrap;text-align:right}
+.sc-meter{grid-column:1/-1;height:6px;border-radius:3px;background:var(--sabbia-light);overflow:hidden}
+.sc-meter i{display:block;height:100%;background:var(--ok)}
+.sc-tags{display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1}
+.sc-tag{font-size:12px;font-weight:700;border-radius:10px;padding:2px 9px;background:var(--below-bg);color:var(--below)}
+.sc-tag.bad{background:var(--err-bg);color:var(--err)}
+.sc-b{padding:0 0 12px;display:grid;gap:6px}
+.sc-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;font-size:14px;padding:6px 0;border-top:1px solid var(--sabbia-light)}
+.sc-r small{color:var(--muted);font-size:13px}
+.sc-r .sc-s{text-align:right;font-weight:700;white-space:nowrap}
+.sc-none{font-size:13.5px;color:var(--muted)}
 .empty{background:#fff;border:1px dashed var(--sabbia-dark);border-radius:8px;padding:16px;color:var(--muted);line-height:1.6}
 [hidden]{display:none!important}
 @media (max-width:520px){.topic{grid-template-columns:minmax(0,1fr)}.num{display:none}.tname,.tsum{grid-column:1}.pill{grid-column:1;grid-row:auto;justify-self:start}}
@@ -139,7 +156,7 @@ var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 
 var EMPLS = 'learnEmp', EMPFOR = 12*60*60*1000;
 var S = { view:'home', emp:null, me:null, topics:null, topic:null, pages:[], pi:0, test:null, qi:0, picks:[], result:null,
-          err:'', busy:false, chef:null, code:'', ctab:'check', ctopic:'', cshow:30, cq:null, gaps:null, scores:null, cmsg:'', edit:null };
+          err:'', busy:false, chef:null, code:'', ctab:'check', ctopic:'', cshow:30, cq:null, gaps:null, scores:null, sopen:{}, sfilter:'all', sview:'people', cmsg:'', edit:null };
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function $(id){ return document.getElementById(id); }
@@ -627,26 +644,83 @@ function makeRecipeQs(){
   }).catch(function(e){ S.cmsg = say(e); }).then(function(){ setBusy(false); draw(); });
 }
 function dur(n){ return n < 60 ? n + 's' : Math.floor(n / 60) + 'm ' + ('0' + (n % 60)).slice(-2) + 's'; }
+function scStat(p, d){
+  var out = { total:d.topics.length, passed:0, tried:0, tags:[], rows:[], notStarted:[] };
+  d.topics.forEach(function(t){
+    var s = p.topics && p.topics[t.id];
+    if (!s) { out.notStarted.push(t); return; }
+    out.tried++;
+    var exp = false;
+    if (s.passed_at && t.expires_months) { var u = new Date(s.passed_at); u.setMonth(u.getMonth() + t.expires_months); exp = u < new Date(); }
+    var ok = !!s.passed_at && !exp;
+    if (ok) out.passed++;
+    var fast = s.best === 5 && s.lim && s.secs != null && s.secs < s.lim * 0.4;
+    out.rows.push({ t:t, s:s, ok:ok, exp:exp, fast:fast });
+    if (exp && out.tags.indexOf('expired') < 0) out.tags.push('expired');
+    if (fast && out.tags.indexOf('fast') < 0) out.tags.push('fast');
+    if (s.late && out.tags.indexOf('late') < 0) out.tags.push('late');
+  });
+  return out;
+}
+var SC_TAG = { expired:['bad','A pass has expired'], fast:['','Perfect score, very fast'], late:['bad','Out of time'] };
+function scPerson(p, d, isF, st, open){
+  var pct = st.total ? Math.round(100 * st.passed / st.total) : 0;
+  var h = '<div class="sc-p"><button class="sc-h" data-sopen="' + p.id + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+    '<span><b>' + esc(p.name) + '</b><br><small>' + esc(p.designation || '') + '</small></span>' +
+    '<span class="sc-n">' + (st.tried ? st.passed + ' of ' + st.total + ' passed' : 'Not started') + ' ' + (open ? '▴' : '▾') + '</span>' +
+    '<span class="sc-meter" aria-hidden="true"><i style="width:' + pct + '%"></i></span>' +
+    (st.tags.length ? '<span class="sc-tags">' + st.tags.map(function(k){ return '<span class="sc-tag ' + SC_TAG[k][0] + '">' + SC_TAG[k][1] + '</span>'; }).join('') + '</span>' : '') +
+    '</button>';
+  if (open) {
+    h += '<div class="sc-b">';
+    if (!st.rows.length) h += '<div class="sc-none">Has not taken any test yet.</div>';
+    st.rows.forEach(function(r){
+      var s = r.s;
+      h += '<div class="sc-r"><span>' + esc(r.t.title) + '<br><small>' +
+        (s.secs != null ? dur(s.secs) + (s.lim ? ' of ' + dur(s.lim) : '') + ' · ' : '') + s.tries + ' tr' + (s.tries === 1 ? 'y' : 'ies') +
+        (s.late ? ' · <span style="color:var(--err)">' + s.late + ' out of time</span>' : '') + '</small></span>' +
+        '<span class="sc-s">' + (s.best == null ? '—' : s.best + '/5') + (r.ok ? ' ✓' : '') +
+        (r.exp ? ' <span class="sc-tag bad">expired</span>' : '') + (r.fast ? ' <span class="sc-tag">very fast</span>' : '') + '</span></div>';
+    });
+    if (st.notStarted.length) h += '<div class="sc-none">Not started: ' + st.notStarted.map(function(t){ return esc(t.title); }).join(', ') + '.</div>';
+    if (isF) h += '<label class="sc-none"><input type="checkbox" data-viewer="' + p.id + '"' + (d.viewers.indexOf(p.id) > -1 ? ' checked' : '') + ' aria-label="' + esc(p.name) + ' sees scores"> Sees these scores</label>';
+    h += '</div>';
+  }
+  return h + '</div>';
+}
 function drawScores(){
   var d = S.scores;
   if (!d) return '<div class="me">Loading…</div>';
   var isF = role() === 'francesco';
-  return '<div class="card scroll"><table class="tbl"><thead><tr><th>Name</th>' +
-    d.topics.map(function(t){ return '<th>' + esc(t.title) + '</th>'; }).join('') + (isF ? '<th>Sees scores</th>' : '') + '</tr></thead><tbody>' +
-    d.people.map(function(p){
-      return '<tr><td><b>' + esc(p.name) + '</b><br><small>' + esc(p.designation || '') + '</small></td>' +
-        d.topics.map(function(t){ var s = p.topics && p.topics[t.id];
-          if (!s) return '<td>—</td>';
-          var exp = '';
-          if (s.passed_at && t.expires_months) { var u = new Date(s.passed_at); u.setMonth(u.getMonth() + t.expires_months); if (u < new Date()) exp = ' <small style="color:var(--err)">expired</small>'; }
-          return '<td>' + (s.best == null ? '—' : s.best + '/5') + (s.passed_at ? ' ✓' : '') + exp +
-            (s.secs != null ? '<br><small>' + dur(s.secs) + (s.lim ? ' of ' + dur(s.lim) : '') + '</small>' : '') +
-            '<br><small>' + s.tries + ' tr' + (s.tries === 1 ? 'y' : 'ies') +
-            (s.late ? ' · <span style="color:var(--err)">' + s.late + ' out of time</span>' : '') + '</small></td>'; }).join('') +
-        (isF ? '<td><input type="checkbox" data-viewer="' + p.id + '"' + (d.viewers.indexOf(p.id) > -1 ? ' checked' : '') + ' aria-label="' + esc(p.name) + ' sees scores"></td>' : '') + '</tr>';
-    }).join('') + '</tbody></table></div>' +
-    '<div class="me">Under each score: how long the best test took, out of the time it was given. A perfect score in very little time is worth a look.</div>' +
-    (isF ? '<div class="me">Tick the people who may see these scores. Nobody else can.</div>' : '');
+  var f = S.sfilter, v = S.sview;
+  var rows = d.people.map(function(p){ return { p:p, st:scStat(p, d) }; });
+  var cnt = { all:rows.length, none:0, look:0 };
+  rows.forEach(function(r){ if (!r.st.tried) cnt.none++; if (r.st.tags.length) cnt.look++; });
+  var bar = '<div class="sc-bar">' + [['all','Everyone'],['none','Not started'],['look','Needs a look']].map(function(x){
+      return '<button class="tab' + (v === 'people' && f === x[0] ? ' on' : '') + '" data-sf="' + x[0] + '">' + x[1] + ' (' + cnt[x[0]] + ')</button>'; }).join('') +
+    '<button class="tab' + (v === 'topics' ? ' on' : '') + '" data-sv="' + (v === 'topics' ? 'people' : 'topics') + '">' + (v === 'topics' ? 'By person' : 'By topic') + '</button></div>';
+  var body;
+  if (v === 'topics') {
+    body = d.topics.map(function(t){
+      var done = [], todo = [];
+      rows.forEach(function(r){
+        var s = r.p.topics && r.p.topics[t.id], ok = false;
+        if (s && s.passed_at) { ok = true; if (t.expires_months) { var u = new Date(s.passed_at); u.setMonth(u.getMonth() + t.expires_months); if (u < new Date()) ok = false; } }
+        (ok ? done : todo).push(r.p.name);
+      });
+      return '<div class="sc-p"><div class="sc-h" style="cursor:default"><span><b>' + esc(t.title) + '</b></span>' +
+        '<span class="sc-n">' + done.length + ' of ' + rows.length + ' passed</span>' +
+        '<span class="sc-meter" aria-hidden="true"><i style="width:' + (rows.length ? Math.round(100 * done.length / rows.length) : 0) + '%"></i></span></div>' +
+        (todo.length ? '<div class="sc-b"><div class="sc-none">Still to pass: ' + todo.map(esc).join(', ') + '.</div></div>' : '') + '</div>';
+    }).join('');
+  } else {
+    rows = rows.filter(function(r){ return f === 'none' ? !r.st.tried : f === 'look' ? r.st.tags.length : true; });
+    rows.sort(function(a, b){ return (a.st.tried ? 1 : 0) - (b.st.tried ? 1 : 0) || a.st.passed - b.st.passed || a.p.name.localeCompare(b.p.name); });
+    body = rows.length ? rows.map(function(r){ return scPerson(r.p, d, isF, r.st, !!S.sopen[r.p.id]); }).join('') : '<div class="sc-none">Nobody here.</div>';
+  }
+  return bar + '<div class="card">' + body + '</div>' +
+    '<div class="me">Tap a name to see each topic: the best score, how long that test took out of the time it was given, and the tries. A perfect score in under 40% of the time given is worth a look.</div>' +
+    (isF ? '<div class="me">Open a name to tick whether they may see these scores. Nobody else can.</div>' : '');
 }
 function loadScores(){
   S.scores = null;
@@ -693,6 +767,9 @@ document.addEventListener('click', function(ev){
   if (id === 'bulkgo') { if (S.bulk && !S.bulk.run) bulkApprove(); return; }
   if (id === 'wsave') return saveWrite();
   if (id === 'mkrec') return makeRecipeQs();
+  if (b.dataset.sopen) { S.sopen[b.dataset.sopen] = !S.sopen[b.dataset.sopen]; draw(); return; }
+  if (b.dataset.sf) { S.sfilter = b.dataset.sf; S.sview = 'people'; draw(); return; }
+  if (b.dataset.sv) { S.sview = b.dataset.sv; draw(); return; }
   if (b.dataset.viewer) {
     var on = b.checked;
     post('learn_set_viewer', { p_code:S.chef.code, p_staff:b.dataset.viewer, p_on:on })
