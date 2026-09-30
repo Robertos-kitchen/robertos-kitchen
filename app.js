@@ -749,6 +749,17 @@ async function removeChefCheck(id){
 // resetIdentity() returned, so logging / accountability is unchanged.
 //   opts: { superMap, superOnly, codeOnly, title }
 const RESET_SUPER = { '1212': 'Admin' };
+// MASTER CODE — a personal code that opens everything. It is checked by the database
+// (kitchen_master_check) and is not stored in any file. kMasterInject adds a verified master
+// code to one of the lookup maps below so the existing checks accept it for that session.
+async function kMasterName(code){
+  code = String(code==null?'':code).trim(); if(!code) return '';
+  try{ var r = await sb.rpc('kitchen_master_check', { p_code: code }); return (r && r.data) || ''; }catch(e){ return ''; }
+}
+async function kMasterInject(map, code){
+  code = String(code==null?'':code).trim(); if(!code || map[code]) return;
+  var n = await kMasterName(code); if(n) map[code] = n;
+}
 function kPickPerson(actionLabel, opts){
   opts = opts || {};
   var superMap = opts.superMap || RESET_SUPER;
@@ -811,8 +822,9 @@ function kPickPerson(actionLabel, opts){
       var bk2=document.getElementById('kpk-back'); if(bk2) bk2.onclick=function(){ showNames(''); };
       document.getElementById('kpk-cancel2').onclick=function(){ finish(null); };
     }
-    function submitCode(){
+    async function submitCode(){
       var id=(code||'').trim(); if(!id) return;
+      await kMasterInject(superMap, id);
       if(superMap[id]){ finish({emp_id:id,name:superMap[id]}); return; }
       if(opts.superOnly){ alert('That isn’t a manager / super-user code.'); code=''; showKeypad(); return; }
       sb.from('staff').select('name,emp_id').eq('emp_id',id).eq('active',true).limit(1).then(function(r){
@@ -832,6 +844,7 @@ async function resetIdentity(actionLabel, opts){
   // Fallback: typed Employee ID (kept in case app.js's picker fails to load).
   var id = ((await kAskText({ title:'Your Employee ID', body:'To '+actionLabel+'. This is recorded.', numeric:true, ok:'Continue' }))||'').trim();
   if(!id) return null;
+  await kMasterInject(RESET_SUPER, id);
   if(RESET_SUPER[id]) return { emp_id:id, name:RESET_SUPER[id] };
   var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
   var s = res.data && res.data[0];
@@ -2018,7 +2031,7 @@ async function loadKevOverrides(ids){
 async function kevUnlockEdit(){
   if(KEV_CAN_EDIT) return true;
   var p = await kAskText({ title:'Kitchen prep code', body:'Enter the code to change portions.', secret:true, ok:'Unlock',
-    check:function(v){ return String(v).trim() === KEV_EDIT_CODE ? '' : 'Wrong code — try again.'; } });
+    check:async function(v){ v = String(v).trim(); return (v === KEV_EDIT_CODE || await kMasterName(v)) ? '' : 'Wrong code — try again.'; } });
   if(p===null) return false;
   KEV_CAN_EDIT = true; return true;
 }
@@ -2630,6 +2643,7 @@ async function kevCompSend(eid){
   st.busy = true; st.err = null; kevCompRender(eid);
   // 1 — who is sending
   var who = null;
+  await kMasterInject(KEV_COMP_SUPER, code);
   if(KEV_COMP_SUPER[code]) who = { name:KEV_COMP_SUPER[code], role:'Admin' };
   else {
     try{
@@ -3317,8 +3331,9 @@ function schedCancelPin() {
   document.getElementById('sch-pin-modal').style.display = 'none';
   schedPendingAction = null;
 }
-function schedSubmitPin() {
+async function schedSubmitPin() {
   var v = document.getElementById('sch-pin-inp').value.trim();
+  if (v !== SCHED_PIN && v && await kMasterName(v)) v = SCHED_PIN;   // master code unlocks the schedule too
   if (v === SCHED_PIN) {
     document.getElementById('sch-pin-inp').value = '';
     schedUnlocked = true;

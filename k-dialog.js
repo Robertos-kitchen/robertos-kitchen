@@ -88,6 +88,12 @@
           if (kind === 'ask') return close(true);
           var v = inp.value;
           var msg = typeof o.check === 'function' ? o.check(v) : '';
+          if (msg && typeof msg.then === 'function') {          // async check (e.g. asks the database)
+            if (inp.disabled) return; inp.disabled = true;
+            msg.then(function (m) { inp.disabled = false; if (m) { err.textContent = m; inp.select(); inp.focus(); } else close(v); },
+                     function () { inp.disabled = false; err.textContent = 'Could not check the code. Try again.'; inp.focus(); });
+            return;
+          }
           if (msg) { err.textContent = msg; inp.select(); inp.focus(); return; }
           close(v);
         };

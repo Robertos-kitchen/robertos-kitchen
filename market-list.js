@@ -2044,6 +2044,7 @@ async function mlIdentify(){
   if(id === null) return null;         // Cancel
   id = String(id).trim();
   if(!id) return null;
+  await kMasterInject(ML_ADMIN, id);
   if(ML_ADMIN[id]){ mlWho = { emp_id:id, name:ML_ADMIN[id] }; return mlWho; }
   var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
   var staff = res.data && res.data[0];
@@ -2181,7 +2182,7 @@ async function mlQuickEditToggle(){
     body:'Unlocking lets you change the list itself — add an item, take one off, change who it is '
       + 'ordered from, move it to a different place.\n\nOrdering is never locked: anybody can type quantities.',
     placeholder:'Admin code', secret:true, ok:'Unlock',
-    check:function(v){ v = String(v).trim(); return ML_ADMIN[v] ? '' : (v ? 'That is not an admin code.' : 'Enter the admin code.'); } });
+    check:async function(v){ v = String(v).trim(); if(v) await kMasterInject(ML_ADMIN, v); return ML_ADMIN[v] ? '' : (v ? 'That is not an admin code.' : 'Enter the admin code.'); } });
   if(code === null) return;                       // Cancel
   code = String(code).trim();
   mlEditUnlocked = true;

@@ -380,6 +380,7 @@ async function stSignIn(){
   var id = inp ? (inp.value||'').trim() : '';
   if(!id){ if(inp) inp.focus(); return; }
   // super-user passcode (e.g. 1212) — access without any staff/roster record
+  await kMasterInject(STOCK_SUPER, id);
   if(STOCK_SUPER[id]){
     stUser = { emp_id:id, name:STOCK_SUPER[id] };
     // Aung's compare panel needs last month's sheet, which wasn't loaded before

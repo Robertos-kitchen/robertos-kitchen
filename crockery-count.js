@@ -212,6 +212,7 @@ async function crkcSignIn(){
   var inp = document.getElementById('crkc-empid');
   var id = inp ? (inp.value||'').trim() : '';
   if (!id){ if (inp) inp.focus(); return; }
+  await kMasterInject(CRKC_SUPER, id);
   if (CRKC_SUPER[id]){ crkcUser = { emp_id:id, name:CRKC_SUPER[id] }; crkcRender(); return; }
   var r = await sb.from('staff').select('id,name,emp_id')
     .eq('emp_id', id).eq('active', true).limit(1);

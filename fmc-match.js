@@ -424,6 +424,7 @@ async function fmSignIn(){
   var inp = document.getElementById('fm-empid');
   var id = inp ? (inp.value||'').trim() : '';
   if(!id){ if(inp) inp.focus(); return; }
+  await kMasterInject(FM_SUPER, id);
   if(FM_SUPER[id]){ fmUser = { emp_id:id, name:FM_SUPER[id] }; fmRender(); return; }
   var res = await sb.from('staff').select('name,emp_id').eq('emp_id', id).eq('active', true).limit(1);
   var staff = res.data && res.data[0];
