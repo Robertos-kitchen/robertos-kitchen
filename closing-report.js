@@ -25,6 +25,8 @@ let crRemovedIds = [];     // db ids the user explicitly removed (deleted on sub
 let crReportId = null;     // existing report id for today (if already submitted)
 let crChefsOn = [];        // selected names
 let crChefsOff = [];
+// Test staff rows (named "ZZ …") are for trying the app out; they must never be listed on a real report or email.
+function crNoTest(a){ return (a || []).filter(function(n){ return !/^zz\b/i.test(String(n || '').trim()); }); }
 let crSeniorPool = [];     // [{name, designation, scheduledWorking:bool}]
 let crRating = 0;
 let crTab = 'tonight';
@@ -138,7 +140,7 @@ async function crLoadToday() {
       sb.from('closing_reports').select('*').eq('service_date', sd),
       sb.from('closing_report_entries').select('*').eq('service_date', sd).order('created_at')
     ]);
-    var staff = res[0].data || [];
+    var staff = (res[0].data || []).filter(function(s){ return crNoTest([s.name]).length; });
     var roster = {};
     (res[1].data || []).forEach(function(r){ roster[r.staff_id] = r; });
 
@@ -159,8 +161,8 @@ async function crLoadToday() {
       // Existing report: load it for editing
       crReportId = report.id;
       crEmailedAt = report.emailed_at || null;
-      crChefsOn = report.chefs_on_duty || [];
-      crChefsOff = report.chefs_off_duty || [];
+      crChefsOn = crNoTest(report.chefs_on_duty);
+      crChefsOff = crNoTest(report.chefs_off_duty);
       crRating = report.day_rating || 0;
       crEntries = entries.map(function(e){ return { id: e.id, entry_type: e.entry_type, category: e.category, item_name: e.item_name, detail: e.detail, action_taken: e.action_taken }; });
       crDraft = {
@@ -184,8 +186,8 @@ async function crLoadToday() {
       if (draft) {
         crDraft = draft.fields || crEmptyDraft();
         crEntries = draft.entries || [];
-        if (draft.chefsOn) crChefsOn = draft.chefsOn;
-        if (draft.chefsOff) crChefsOff = draft.chefsOff;
+        if (draft.chefsOn) crChefsOn = crNoTest(draft.chefsOn);
+        if (draft.chefsOff) crChefsOff = crNoTest(draft.chefsOff);
         if (draft.rating) crRating = draft.rating;
       } else {
         crDraft = crEmptyDraft();
@@ -615,8 +617,8 @@ function crBuildEmailHtml(sd, checks) {
     + '<tr><td style="padding:3px 0;width:170px;color:#7a1218"><strong>Service rating</strong></td><td>' + (crRating ? faces[crRating-1] + ' (' + crRating + '/5)' : '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Revenue</strong></td><td>' + (crDraft.revenue ? 'AED ' + Number(crDraft.revenue).toLocaleString() : '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Covers served</strong></td><td>' + (crCovers != null ? crCovers + ' <span style="color:#4b5128;font-size:12px">(SevenRooms)</span>' : '—') + '</td></tr>'
-    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Chefs on duty</strong></td><td>' + (crChefsOn.join(', ') || '—') + '</td></tr>'
-    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Not on duty</strong></td><td>' + (crChefsOff.join(', ') || '—') + '</td></tr>'
+    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Chefs on duty</strong></td><td>' + (crNoTest(crChefsOn).join(', ') || '—') + '</td></tr>'
+    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Not on duty</strong></td><td>' + (crNoTest(crChefsOff).join(', ') || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Report by</strong></td><td>' + (crDraft.submitted_by || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Checklist</strong></td><td' + (chkBelow ? ' style="color:#b00"' : '') + '>' + chkLine + '</td></tr>'
     + '</table>'
