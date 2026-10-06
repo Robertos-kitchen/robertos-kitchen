@@ -3371,8 +3371,10 @@ async function loadSchedData() {
   var res = await Promise.all([
     sb.from('staff').select('*').eq('active', true).order('sort_order'),
     sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd).limit(3000),
-    sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000)
+    sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000),
+    sb.from('staff_section_history').select('staff_id,station_key,from_date').order('from_date').limit(5000)
   ]);
+  schedSecHistFromRows(res[3]);   // where each person sat in earlier weeks (Tell us 899d2737)
   // A failed read would otherwise draw an empty week that reads as "nobody rostered".
   if (res[0].error || res[1].error) kToast('Schedule did not load fully — ' + (res[0].error ? 'staff' : 'shifts') + ' could not be read. Reopen before changing anything.', true);
   schedStaff = (res[0].data || []).filter(function(s){ return s.in_schedule!==false; });   // FOH Admin "show in schedule" toggle (staff.in_schedule); null/absent = shown
@@ -4303,7 +4305,7 @@ function krtCoverage(){
       var kitchenOpen=schedStaff.some(function(s){ return isWorking(s.id, ds); });
       if(!kitchenOpen) continue;
       STATIONS_SCH.forEach(function(st){
-        var people=schedStaff.filter(function(s){ return s.station_key===st.key; });
+        var people=schedStaff.filter(function(s){ return schedSecAt(s, ds)===st.key; });
         var working=people.filter(function(s){ return isWorking(s.id, ds); });
         if(people.length && working.length===0) holes.push({sec:st.label, day:day});
       });
@@ -5751,7 +5753,10 @@ async function kplDoPublish(){
     // 4) persist the undo snapshot
     localStorage.setItem(KPL_SNAP_LS, JSON.stringify({ label:lbl, minD:minD, maxD:maxD, staffIds:existingIds, rows:snapRows, priorSections:priorSections, priorOrders:priorOrders, insertedIds:insertedIds, secRows:secSnapRows, insertedSecKeys:insertedSecKeys, at:new Date().toISOString() }));
     // 5) apply section moves + reorders (team-list change)
-    for(var m=0;m<moves.length;m++){ var mid=moves[m]; var mr=await sb.from('staff').update({ station_key:kplDraftSec[mid] }).eq('id',mid); if(mr.error) throw mr.error; }
+    var movesFrom = formatDate(getMonday(minD ? new Date(minD+'T12:00:00') : schedWeekStart));
+    var movesLater = {};   // a move dated before someone's next recorded move leaves their current section alone
+    for(var mh=0;mh<moves.length;mh++){ try{ var mrec = await schedRecordSectionMove(moves[mh], priorSections[moves[mh]], kplDraftSec[moves[mh]], movesFrom); if(!mrec.latest) movesLater[moves[mh]] = 1; }catch(he){ console.error('Section history', he); kToast('Moved — but the earlier weeks could not be kept in their old section. Tell Francesco.', true); } }
+    for(var m=0;m<moves.length;m++){ var mid=moves[m]; if(movesLater[mid]) continue; var mr=await sb.from('staff').update({ station_key:kplDraftSec[mid] }).eq('id',mid); if(mr.error) throw mr.error; }
     for(var q=0;q<reorders.length;q++){ var rid=reorders[q]; var rr=await sb.from('staff').update({ sort_order:kplDraftOrd[rid] }).eq('id',rid); if(rr.error) throw rr.error; }
     // 6) replace the roster rows in range, then insert the plan
     if(dates.length){
@@ -5922,7 +5927,7 @@ function schedDayCellHtml(staff, sid, ds2, today) {
     inner = '<div class="sch-shift ' + meta.bg + '">' + meta.label + '</div>';
   }
   var coverKey = rrow && rrow.station_override;
-  var homeKey = staff ? staff.station_key : '';
+  var homeKey = staff ? schedSecAt(staff, ds2) : '';
   if (coverKey && coverKey !== homeKey) {
     inner += '<div class="sch-cover-tag">&rarr; ' + schedSecLabel(coverKey) + '</div>';
   }
@@ -5967,7 +5972,7 @@ function schedWeekTableHtml(weekStart, opts) {
 
   for (var si = 0; si < STATIONS_SCH.length; si++) {
     var st = STATIONS_SCH[si];
-    var allStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    var allStaff = schedStaff.filter(function(s){ return schedSecAt(s, formatDate(weekStart)) === st.key; });
     if (!allStaff.length) {
       // Still show add button even if no staff
       html += '<tr class="sch-station-hdr"><td colspan="11">' + st.label + '</td></tr>';
@@ -6003,7 +6008,7 @@ function schedWeekTableHtml(weekStart, opts) {
           var stOpts = '';
           for (var oi = 0; oi < STATIONS_SCH.length; oi++) {
             stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' +
-              (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' +
+              (STATIONS_SCH[oi].key === schedSecAt(staff, formatDate(weekStart)) ? ' selected' : '') + '>' +
               STATIONS_SCH[oi].label + '</option>';
           }
           html += '<td class="sch-td-move">' +
@@ -6732,21 +6737,90 @@ function schedHideMove(mpid) {
   var el = document.getElementById(mpid);
   if (el) el.classList.remove('show');
 }
+// Where someone sat in earlier weeks (Tell us 899d2737, Antonio 6 Oct 2026): moving a person
+// used to rewrite every past week too, because the grid grouped people by their CURRENT section.
+// staff_section_history records the week each move starts; a week before it keeps the old section.
+// No history = their current section. The latest period always reads staff.station_key, so a move
+// planned in the Roster tool still shows there before it goes live.
+var SCHED_SEC_BASE = '2000-01-03';   // the "always" row written before someone's first recorded move
+var schedSecHist = {};               // staffId -> [{station_key, from_date}] oldest first
+function schedSecHistFromRows(r) {
+  if (!r || r.error) { if (r && r.error) console.warn('section history not loaded', r.error); return; }   // keep what we had
+  var h = {};
+  (r.data || []).forEach(function(x){ (h[x.staff_id] = h[x.staff_id] || []).push({ station_key: x.station_key, from_date: String(x.from_date).substring(0,10) }); });
+  schedSecHist = h;
+}
+function schedSecAt(s, ds) {
+  if (!s) return '';
+  var h = schedSecHist[s.id];
+  if (!h || !h.length) return s.station_key;
+  var hit = 0;
+  for (var i = 0; i < h.length; i++) { if (h[i].from_date <= ds) hit = i; }
+  return hit === h.length - 1 ? s.station_key : h[hit].station_key;
+}
+function schedSecThisWeek(s) { return schedSecAt(s, formatDate(schedWeekStart)); }
+// A move at week fromDs runs until that person's next recorded move, or for good if there is none.
+// Returns the new list, and whether this move is the latest (only then does staff.station_key change).
+function schedSecHistApply(rows, oldKey, newKey, fromDs) {
+  rows = (rows || []).filter(function(x){ return x.from_date !== fromDs; });
+  if (!rows.length && oldKey) rows.push({ station_key: oldKey, from_date: SCHED_SEC_BASE });
+  var before = null, after = null;
+  rows.forEach(function(x){ if (x.from_date < fromDs) before = x; else if (!after) after = x; });
+  var out = rows.filter(function(x){ return x.from_date < fromDs; });
+  if (!before || before.station_key !== newKey) out.push({ station_key: newKey, from_date: fromDs });
+  rows.forEach(function(x){ if (x.from_date > fromDs && !(x === after && x.station_key === newKey)) out.push(x); });
+  return { list: out, latest: !after };
+}
+async function schedRecordSectionMove(staffId, oldKey, newKey, fromDs) {
+  // read this person's history fresh — another device may have moved them since this page loaded
+  var cur = await sb.from('staff_section_history').select('station_key,from_date').eq('staff_id', staffId).order('from_date');
+  if (cur.error) throw cur.error;
+  var rows = (cur.data || []).map(function(x){ return { station_key: x.station_key, from_date: String(x.from_date).substring(0,10) }; });
+  var r = schedSecHistApply(rows, oldKey, newKey, fromDs);
+  var had = {}; rows.forEach(function(x){ had[x.from_date] = x.station_key; });
+  var want = {}; r.list.forEach(function(x){ want[x.from_date] = x.station_key; });
+  var drop = Object.keys(had).filter(function(k){ return want[k] !== had[k]; });
+  var add = r.list.filter(function(x){ return had[x.from_date] !== x.station_key; });
+  if (drop.length) { var del = await sb.from('staff_section_history').delete().eq('staff_id', staffId).in('from_date', drop); if (del.error) throw del.error; }
+  if (add.length) {
+    var ins = await sb.from('staff_section_history').insert(add.map(function(x){ return { staff_id: staffId, station_key: x.station_key, from_date: x.from_date }; }));
+    if (ins.error) throw ins.error;
+  }
+  schedSecHist[staffId] = r.list;
+  return r;
+}
 async function schedMoveStation(staffId, mpid) {
   var sel = document.getElementById(mpid + 'sel');
   if (!sel) return;
   var targetStation = sel.value;
   schedHideMove(mpid);
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
-  if (!staff || targetStation === staff.station_key) return;
-  // Permanent move — update staff.station_key in Supabase
-  staff.station_key = targetStation; // optimistic local update
+  if (!staff) return;
+  if (schedPlanMode) {
+    // Roster tool: a draft move — Bring live records the week it starts
+    if (targetStation === staff.station_key) return;
+    staff.station_key = targetStation;
+    renderSchedWeek();
+    return;
+  }
+  // The move starts the week on screen; the weeks before it keep the section they were rostered in.
+  var fromDs = formatDate(schedWeekStart);
+  var oldKey = staff.station_key;
+  if (targetStation === schedSecAt(staff, fromDs)) return;
+  var local = schedSecHistApply(schedSecHist[staffId], oldKey, targetStation, fromDs);
+  schedSecHist[staffId] = local.list;                       // optimistic local update
+  if (local.latest) staff.station_key = targetStation;      // a move before a later one leaves "now" alone
   renderSchedWeek();
-  if (!DEV_READ_ONLY && !schedPlanMode) {
-    var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
-    if (res.error) {
-      console.error('Move error:', res.error);
-      // revert on error
+  if (!DEV_READ_ONLY) {
+    try {
+      var rec = await schedRecordSectionMove(staffId, oldKey, targetStation, fromDs);
+      if (rec.latest) {
+        var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
+        if (res.error) throw res.error;
+      }
+    } catch (err) {
+      console.error('Move error:', err);
+      kToast('The move did not save — nothing changed. Try again.', true);
       loadSchedData().then(renderSchedWeek);
     }
   }
@@ -6769,14 +6843,14 @@ function schedMoveStaff(event, staffId, dir) {
   if (!schedGuard(function(){ schedMoveStaff(event, staffId, dir); })) return;
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff) return;
-  var mates = schedStaff.filter(function(s){ return s.station_key === staff.station_key; });
+  var mates = schedStaff.filter(function(s){ return schedSecThisWeek(s) === schedSecThisWeek(staff); });
   var idx = mates.indexOf(staff), swapIdx = idx + dir;
   if (swapIdx < 0 || swapIdx >= mates.length) return;   // already at the top/bottom
   var other = mates[swapIdx];
   var gi = schedStaff.indexOf(staff), gj = schedStaff.indexOf(other);
   schedStaff[gi] = other; schedStaff[gj] = staff;        // swap so the render reflects it
   renderSchedWeek();
-  schedPersistSectionOrder(schedStaff.filter(function(s){ return s.station_key === staff.station_key; }));
+  schedPersistSectionOrder(schedStaff.filter(function(s){ return schedSecThisWeek(s) === schedSecThisWeek(staff); }));
 }
 
 // ── Edit role inline ──
@@ -7024,7 +7098,7 @@ function schedPrint() {
   }
   html += '<td colspan="2" class="pt-events-cell"></td></tr>';
   STATIONS_SCH.forEach(function(st) {
-    var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    var stStaff = schedStaff.filter(function(s){ return schedSecThisWeek(s) === st.key; });
     if (!stStaff.length) return;
     html += '<tr class="pt-station"><td colspan="11">' + st.label.toUpperCase() + '</td></tr>';
     stStaff.forEach(function(staff) {
@@ -7276,7 +7350,7 @@ async function schedSendToHR(_downloadOnly) {
 
     // Data rows
     STATIONS_SCH.forEach(function(st) {
-      var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+      var stStaff = schedStaff.filter(function(s){ return schedSecThisWeek(s) === st.key; });
       if (!stStaff.length) return;
 
       // Station header
