@@ -923,7 +923,14 @@ async function renderDashboard(){
 
   // Tonight's covers
   const tonight = dashCovers[TODAY];
-  const nightCovers = tonight ? tonight.night_covers : null;
+  // The sync now splits SevenRooms' DAY (lunch) and dinner shifts (6 Oct 2026); before
+  // that night_covers held the whole day and day_covers was always 0. Today's stored
+  // figure is therefore lunch + dinner, and it is labelled "today", never "tonight".
+  const nightCovers = tonight ? (Number(tonight.night_covers)||0) + (Number(tonight.day_covers)||0) : null;
+  const coversSplit = function(day, night){
+    if (day == null || night == null) return '';
+    return day + ' lunch · ' + night + ' dinner';
+  };
   // A sync stamp that carries its DAY, not just a time of day. "updated 23:26" read as
   // "a few minutes ago" at 10am on 20 Aug when it was in fact last night's sync.
   const coversUpdated = tonight ? (function(){
@@ -992,8 +999,8 @@ async function renderDashboard(){
     }
     return '<div class="dash-cover-day' + sel + '"' + open + '>' +
       '<div class="dash-cover-label">' + d.label + '</div>' +
-      '<div class="dash-cover-num">' + d.night + '</div>' +
-      '<div class="dash-cover-sub">night</div>' +
+      '<div class="dash-cover-num">' + ((Number(d.day)||0) + (Number(d.night)||0)) + '</div>' +
+      '<div class="dash-cover-sub">' + coversSplit(Number(d.day)||0, Number(d.night)||0) + '</div>' +
     '</div>';
   }).join('');
 
@@ -1011,18 +1018,20 @@ async function renderDashboard(){
   const coversCard = liveBooked !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${liveBooked}</div>
-        <div class="ops-label">Tonight's covers booked</div>
+        <div class="ops-label">Covers booked today</div>
+        ${liveTonight.booked_day != null ? `<div class="dash-covers-sync">${coversSplit(liveTonight.booked_day, liveTonight.booked_night)}</div>` : ''}
         <div class="dash-covers-sync">Live from SevenRooms</div>
        </div>`
     : nightCovers !== null
     ? `<div class="ops-card dark dash-covers-card">
         <div class="ops-num">${nightCovers}</div>
-        <div class="ops-label">Tonight's covers booked</div>
+        <div class="ops-label">Covers booked today</div>
+        <div class="dash-covers-sync">${coversSplit(Number(tonight.day_covers)||0, Number(tonight.night_covers)||0)}</div>
         <div class="dash-covers-sync">${coversUpdated ? 'Last synced ' + coversUpdated + ' — not live' : 'Stored figure — not live'}</div>
        </div>`
     : `<div class="ops-card dash-covers-card dash-no-covers">
         <div class="ops-num">—</div>
-        <div class="ops-label">Tonight's covers booked</div>
+        <div class="ops-label">Covers booked today</div>
         <div class="dash-covers-sync">${window.__dashCoversErr ? 'Could not load covers — check connection' : 'Not synced — use laptop to sync'}</div>
        </div>`;
 
@@ -1080,7 +1089,8 @@ async function fetchUpcomingTonight() {
     });
     var data = await res.json();
     if (!res.ok || !data.ok) return null;
-    return { booked: data.booked, here: data.here, upcoming: data.upcoming };
+    return { booked: data.booked, here: data.here, upcoming: data.upcoming,
+             booked_day: data.booked_day, booked_night: data.booked_night };
   } catch (err) {
     console.error('Upcoming fetch error:', err);
     return null;

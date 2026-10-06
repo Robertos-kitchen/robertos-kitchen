@@ -33,6 +33,17 @@ async function getToken(): Promise<string> {
 // cancellations and no-shows are dropped. This applies to the dashboard/normal mode ONLY;
 // the covers_actual (Closing Report) mode below is separate and uses COMPLETE-only.
 const EXCLUDE = new Set(["CANCELED", "CANCELLED", "NO_SHOW"]);
+// Lunch or dinner? SevenRooms says it itself: shift_category is "DAY" for the
+// lunch shift and "LEGACY" for dinner (read off the daysheet, 6 Oct 2026: DAY ran
+// 12:00-15:00, LEGACY from 16:00). Until then every cover was written as a NIGHT
+// cover and day_covers was a hard 0, so "Tonight 56" on both apps counted 25
+// lunch guests. Only when the shift is missing does the slot time decide.
+function isDayCover(r: any): boolean {
+  const sc = String(r.shift_category || "").toUpperCase();
+  if (sc) return sc === "DAY" || sc === "LUNCH" || sc === "BRUNCH" || sc === "BREAKFAST";
+  const hh = parseInt(String(r.real_datetime_of_slot || "").slice(11, 13), 10);
+  return !isNaN(hh) && hh < 16;
+}
 
 async function fetchReservations(token: string, venueGroupId: string | undefined, from: string, to: string) {
   const all: any[] = [];
@@ -538,12 +549,13 @@ serve(async (req) => {
       const HERE = new Set(["ARRIVED", "SEATED", "COMPLETE", "PAID"]);
       const PRESENT = new Set(["ARRIVED", "SEATED"]);
       const nowMs = Date.now();
-      let booked = 0, here = 0, stillUpcoming = 0, seated = 0;
+      let booked = 0, here = 0, stillUpcoming = 0, seated = 0, bookedDay = 0, bookedNight = 0;
       for (const r of rows) {
         const st = String(r.status || "").toUpperCase();
         if (EXCLUDE.has(st)) continue;            // drop cancel / no-show
         const pax = Number(r.max_guests) || 0;
         booked += pax;
+        if (isDayCover(r)) bookedDay += pax; else bookedNight += pax;
         if (PRESENT.has(st)) seated += pax;       // in the room right now
         if (HERE.has(st)) { here += pax; continue; }
         // not yet arrived -- count as upcoming only if the slot time is still ahead
@@ -554,6 +566,8 @@ serve(async (req) => {
       }
       return new Response(JSON.stringify({
         ok: true, date: upcoming, booked, here, upcoming: stillUpcoming, seated,
+        // booked split by shift; booked_day + booked_night === booked always.
+        booked_day: bookedDay, booked_night: bookedNight,
       }, null, 2), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
@@ -1350,16 +1364,20 @@ serve(async (req) => {
     const rows = await fetchReservations(token, venueGroupId, from, to);
 
     const covers: Record<string, number> = {};
+    const dayCovers: Record<string, number> = {};
     for (const resv of rows) {
       if (EXCLUDE.has(String(resv.status || "").toUpperCase())) continue;
       const date = resv.date;
       if (!date) continue;
-      covers[date] = (covers[date] || 0) + (Number(resv.max_guests) || 0);
+      const pax = Number(resv.max_guests) || 0;
+      if (isDayCover(resv)) dayCovers[date] = (dayCovers[date] || 0) + pax;
+      else covers[date] = (covers[date] || 0) + pax;
     }
+    for (const d of Object.keys(dayCovers)) if (!(d in covers)) covers[d] = 0;
 
     const now = new Date().toISOString();
     const outRows = Object.keys(covers).map((d) => ({
-      service_date: d, night_covers: covers[d], day_covers: 0, updated_at: now,
+      service_date: d, night_covers: covers[d], day_covers: dayCovers[d] || 0, updated_at: now,
     }));
 
     const sb = createClient(
