@@ -34,6 +34,15 @@ let crLoaded = false;
 let crAddOpenType = null;
 let crServiceDate = null;   // the night this report is FOR. Default = getServiceDate(); a late sender can pick a past night.
 let crEmailedAt = null;     // when the loaded night was last emailed — used to stop silent duplicate team emails.
+let crSavedAt = null;       // when the loaded night was last saved to the database (closing_reports.updated_at).
+let crSaveNote = null;      // {ok, text} — the result of the last "Save — send later", shown above the form.
+
+// "Save — send later" (Antonio, 6 Oct 2026): notes written during the day are
+// SAVED to the database without emailing anyone, so whoever closes tonight — on
+// any device — opens them, adds the last bits and sends once. A saved row with
+// emailed_at still empty is exactly "saved, not sent yet". emailed_at only exists
+// from 18 Jul 2026, so rows older than that are never called unsent.
+const CR_EMAIL_STAMP_SINCE = '2026-07-19';
 
 // The single night this report belongs to. Load, draft-key, save and email all
 // key off this. So a report opened the morning after (past 06:00, when
@@ -82,6 +91,14 @@ const CR_DRAFT_KEY = 'robertos-closing-draft-';
   + '.cr-submit-inner{max-width:760px;margin:0 auto}'
   + '.cr-submit-btn{width:100%;padding:15px;background:var(--vino);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;font-family:var(--font-sans);cursor:pointer;box-shadow:0 4px 14px rgba(65,2,7,.35)}'
   + '.cr-submit-btn:disabled{opacity:.6}'
+  + '.cr-submit-row{display:flex;gap:10px}'
+  + '.cr-submit-row .cr-submit-btn{flex:1 1 60%}'
+  + '.cr-save-btn{flex:1 1 40%;padding:15px 10px;background:#fff;color:var(--vino);border:2px solid var(--vino);border-radius:12px;font-size:15px;font-weight:700;font-family:var(--font-sans);cursor:pointer;box-shadow:0 4px 14px rgba(65,2,7,.18)}'
+  + '.cr-save-btn:disabled{opacity:.6}'
+  + '.cr-unsent-banner{background:#fff;border:2px solid var(--vino);color:var(--vino);border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:14px}'
+  + '.cr-save-note{border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:14px;background:var(--oliva);color:#fff}'
+  + '.cr-save-note.bad{background:var(--campari, #BA0000)}'
+  + '.cr-hist-unsent{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:var(--vino);border:1px solid var(--vino);border-radius:10px;padding:1px 8px;vertical-align:middle}'
   + '.cr-saved-banner{background:var(--oliva);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:14px}'
   + '.cr-hist-row{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer}'
   + '.cr-hist-date{font-weight:700;color:var(--vino);font-size:14px}'
@@ -91,7 +108,7 @@ const CR_DRAFT_KEY = 'robertos-closing-draft-';
   + '.cr-agg-fill{height:14px;background:var(--vino-light);border-radius:7px;min-width:6px}'
   + '.cr-agg-n{font-weight:700;color:var(--vino)}'
   + '.cr-two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
-  + '@media(max-width:520px){.cr-two-col{grid-template-columns:1fr}}';
+  + '@media(max-width:520px){.cr-two-col{grid-template-columns:1fr}.cr-submit-row{gap:8px}.cr-submit-row .cr-submit-btn,.cr-save-btn{font-size:14px;padding:13px 8px}}';
   var s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
 })();
 
@@ -156,6 +173,8 @@ async function crLoadToday() {
 
     var report = (res[2].data || [])[0] || null;
     var entries = res[3].data || [];
+    crRemovedIds = [];
+    crSaveNote = null;
 
     if (report) {
       // Existing report: load it for editing
@@ -172,9 +191,26 @@ async function crLoadToday() {
         feedback: report.general_feedback || '',
         submitted_by: report.submitted_by || ''
       };
+      crSavedAt = report.updated_at || null;
+      // Saved but not sent yet: this device may hold newer typing than the last
+      // save (it keeps a local copy as you type). Use it only if it is NEWER than
+      // the saved row — a later save from another device always wins.
+      if (!crEmailedAt) {
+        var dr = null;
+        try { dr = JSON.parse(localStorage.getItem(CR_DRAFT_KEY + sd) || 'null'); } catch(e){}
+        if (dr && dr.savedAt && (!crSavedAt || dr.savedAt > Date.parse(crSavedAt))) {
+          crDraft = dr.fields || crDraft;
+          crEntries = dr.entries || crEntries;
+          if (dr.chefsOn) crChefsOn = crNoTest(dr.chefsOn);
+          if (dr.chefsOff) crChefsOff = crNoTest(dr.chefsOff);
+          if (dr.rating) crRating = dr.rating;
+          crRemovedIds = dr.removedIds || [];
+        }
+      }
     } else {
       crReportId = null;
       crEmailedAt = null;
+      crSavedAt = null;
       crEntries = [];
       // Pre-fill chefs from schedule
       crChefsOn = crSeniorPool.filter(function(s){ return s.scheduledWorking; }).map(function(s){ return s.name; });
@@ -193,7 +229,6 @@ async function crLoadToday() {
         crDraft = crEmptyDraft();
       }
     }
-    crRemovedIds = [];
     crLoaded = true;
   } catch (err) {
     console.error('[closing] load error', err);
@@ -205,10 +240,12 @@ let crDraft = null;
 function crEmptyDraft(){ return { revenue:'', briefing_foh:'', briefing_boh:'', feedback:'', submitted_by:'' }; }
 
 function crSaveDraftLocal(){
-  if (crReportId) return; // once submitted, Supabase is the source of truth
+  if (crReportId && crEmailedAt) return; // once SENT, Supabase is the source of truth
+  // Saved-not-sent still keeps a local copy as you type, so nothing typed between
+  // two saves is lost if the page is closed; savedAt lets the load pick the newer.
   var sd = crSD();
   crCollectFields();
-  try { localStorage.setItem(CR_DRAFT_KEY + sd, JSON.stringify({ fields: crDraft, entries: crEntries, chefsOn: crChefsOn, chefsOff: crChefsOff, rating: crRating })); } catch(e){}
+  try { localStorage.setItem(CR_DRAFT_KEY + sd, JSON.stringify({ fields: crDraft, entries: crEntries, chefsOn: crChefsOn, chefsOff: crChefsOff, rating: crRating, removedIds: crRemovedIds, savedAt: Date.now() })); } catch(e){}
 }
 function crCollectFields(){
   ['revenue','briefing_foh','briefing_boh','feedback','submitted_by'].forEach(function(f){
@@ -251,11 +288,17 @@ function crRender() {
   html += crTab === 'tonight' ? crRenderTonight() : '<div id="cr-history">Loading…</div>';
   html += '</div>';
   if (crTab === 'tonight') {
-    html += '<div class="cr-submit"><div class="cr-submit-inner"><button class="cr-submit-btn" id="cr-submit-btn" onclick="crSubmit()">' + (crReportId ? 'Update report' : 'Submit closing report') + ' → email</button></div></div>';
+    // Two doors: SAVE keeps it for later and emails nobody; SEND emails the chefs.
+    html += '<div class="cr-submit"><div class="cr-submit-inner cr-submit-row">'
+      + '<button class="cr-save-btn" id="cr-save-btn" onclick="crSaveForLater()">Save — send later</button>'
+      + '<button class="cr-submit-btn" id="cr-submit-btn" onclick="crSubmit()">' + crSendLabel() + '</button>'
+      + '</div></div>';
   }
   el.innerHTML = html;
   if (crTab === 'history') crLoadHistory();
 }
+
+function crSendLabel(){ return (crReportId && crEmailedAt) ? 'Update report → email' : 'Send to the chefs → email'; }
 
 function crSetTab(t){ crCollectIfTonight(); crTab = t; crRender(); }
 function crCollectIfTonight(){ if (crTab === 'tonight') { crCollectFields(); crSaveDraftLocal(); } }
@@ -266,7 +309,9 @@ function crRenderTonight() {
   var dLabel = new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   var html = '';
 
-  if (crReportId) html += '<div class="cr-saved-banner">✓ Report for this night already submitted — you are editing it.' + (crEmailedAt ? ' Emailed to the team ' + crFmtWhen(crEmailedAt) + '.' : '') + '</div>';
+  if (crSaveNote) html += '<div class="cr-save-note' + (crSaveNote.ok ? '' : ' bad') + '">' + crEsc(crSaveNote.text) + '</div>';
+  if (crReportId && crEmailedAt) html += '<div class="cr-saved-banner">✓ Report for this night already submitted — you are editing it. Emailed to the team ' + crFmtWhen(crEmailedAt) + '.</div>';
+  else if (crReportId && !crSaveNote) html += '<div class="cr-unsent-banner">Saved' + (crSavedAt ? ' ' + crFmtWhen(crSavedAt) : '') + ' — not sent to the chefs yet. Add anything new, then tap “Send to the chefs” at the end of the night.</div>';
 
   // Date header + night selector. Defaults to tonight's service date, but a late
   // sender filing last night the next morning can pick the correct night instead
@@ -426,7 +471,7 @@ async function crRemoveEntry(idx) {
   var e = crEntries[idx];
   if (!e) return;
   var what = e.item_name || e.category || 'this entry';
-  if (!(await kAsk('Remove "' + what + '"? It will be deleted when you submit.', { ok:'Remove', danger:true }))) return;
+  if (!(await kAsk('Remove "' + what + '"? It will be deleted when you save or send.', { ok:'Remove', danger:true }))) return;
   if (e.id) crRemovedIds.push(e.id);
   crEntries.splice(idx, 1);
   crSaveDraftLocal();
@@ -448,7 +493,98 @@ async function crFetchChecklistCounts(sd) {
   }
 }
 
+// Writes this night's report and its entries to the database. Emails NOBODY —
+// sending is crSubmit's job alone, after this has succeeded. Shared by
+// "Save — send later" and the send button, so both save exactly the same row.
+async function crPersist(sd, crChecks) {
+  var row = {
+    service_date: sd,
+    chefs_on_duty: crChefsOn,
+    chefs_off_duty: crChefsOff,
+    day_rating: crRating || null,
+    revenue_aed: crDraft.revenue !== '' ? parseFloat(crDraft.revenue) : null,
+    covers_actual: (crCovers != null) ? crCovers : null,
+    briefing_foh: crDraft.briefing_foh || null,
+    briefing_boh: crDraft.briefing_boh || null,
+    general_feedback: crDraft.feedback || null,
+    submitted_by: crDraft.submitted_by || null,
+    checks_done: crChecks.done,
+    checks_attention: crChecks.attention,
+    updated_at: new Date().toISOString()
+  };
+  var res = await sb.from('closing_reports').upsert(row, { onConflict: 'service_date' }).select().single();
+  if (res.error) throw res.error;
+  crReportId = res.data.id;
+  crSavedAt = res.data.updated_at || row.updated_at;
+  // Re-check the CURRENT emailed state at submit time, straight from the saved
+  // row — NOT the value from when this page was opened. Two people can have the
+  // same night open at once (exactly the Antonio+Danilo case); whoever opened
+  // first would never see the other's send unless we read it live here.
+  if (res.data && res.data.emailed_at) crEmailedAt = res.data.emailed_at;
+
+  // Insert new entries one-by-one so each returned id maps back to the exact
+  // entry it belongs to. A bulk insert's returned rows are NOT guaranteed to
+  // come back in input order, which previously attached ids to the wrong line
+  // item (so a later edit/delete could hit a different dish).
+  var newOnes = crEntries.filter(function(e){ return !e.id; });
+  for (var i = 0; i < newOnes.length; i++) {
+    var ne = newOnes[i];
+    var insRow = { service_date: sd, entry_type: ne.entry_type, category: ne.category, item_name: ne.item_name, detail: ne.detail, action_taken: ne.action_taken };
+    var ins = await sb.from('closing_report_entries').insert(insRow).select().single();
+    if (ins.error) throw ins.error;
+    ne.id = ins.data.id;   // same object reference as in crEntries → updates it in place
+  }
+  if (crRemovedIds.length) {
+    var del = await sb.from('closing_report_entries').delete().in('id', crRemovedIds);
+    if (del.error) throw del.error;   // surface a blocked delete instead of silently keeping removed entries
+    crRemovedIds = [];
+  }
+
+  try { localStorage.removeItem(CR_DRAFT_KEY + sd); } catch(e){}
+}
+
+// "Save — send later": the same save as the send button, minus the email and
+// minus the Employee-ID gate (that gate is there to sign a SEND). The report
+// stays editable by anyone on any device until someone presses send.
+async function crSaveForLater() {
+  crCollectFields();
+  var btn = document.getElementById('cr-save-btn');
+  var sendBtn = document.getElementById('cr-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (sendBtn) sendBtn.disabled = true;
+  var sd = crSD();
+  try {
+    var crChecks = await crFetchChecklistCounts(sd);
+    if (!crHasAnything(crChecks)) {
+      crSaveNote = { ok: false, text: 'Nothing to save yet — add a note, an entry, the rating or the revenue first.' };
+      crRender(); return;
+    }
+    await crPersist(sd, crChecks);
+    crSaveNote = { ok: true, text: crEmailedAt
+      ? '✓ Saved. This night was already emailed ' + crFmtWhen(crEmailedAt) + ' — nobody was emailed again.'
+      : '✓ Saved ' + crFmtWhen(crSavedAt) + ' — NOT sent. Come back any time to add more, then tap “Send to the chefs”.' };
+  } catch (err) {
+    console.error('[closing] save-for-later error', err);
+    crSaveNote = { ok: false, text: 'Not saved — ' + (err.message || err) + '. What you typed is still on this screen; try Save again.' };
+  }
+  crRender();
+}
+
+function crHasAnything(crChecks) {
+  return (
+    crRating ||
+    (crDraft.revenue !== '' && crDraft.revenue != null) ||
+    (crDraft.submitted_by && crDraft.submitted_by.trim()) ||
+    (crDraft.briefing_foh && crDraft.briefing_foh.trim()) ||
+    (crDraft.briefing_boh && crDraft.briefing_boh.trim()) ||
+    (crDraft.feedback && crDraft.feedback.trim()) ||
+    (crEntries && crEntries.length > 0) ||
+    (crChecks && crChecks.done > 0)
+  );
+}
+
 async function crSubmit() {
+  crSaveNote = null;
   crCollectFields();
   var btn = document.getElementById('cr-submit-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -457,18 +593,10 @@ async function crSubmit() {
   // Block blank submits: chefs-on-duty and covers are auto-filled, so a report
   // with no human input would still send a near-empty email to Francesco/HR
   // (the 25 Jun blank double-send). Require at least one real field before sending.
-  var crHasContent =
-    crRating ||
-    (crDraft.revenue !== '' && crDraft.revenue != null) ||
-    (crDraft.submitted_by && crDraft.submitted_by.trim()) ||
-    (crDraft.briefing_foh && crDraft.briefing_foh.trim()) ||
-    (crDraft.briefing_boh && crDraft.briefing_boh.trim()) ||
-    (crDraft.feedback && crDraft.feedback.trim()) ||
-    (crEntries && crEntries.length > 0) ||
-    (crChecks && crChecks.done > 0);
+  var crHasContent = crHasAnything(crChecks);
   if (!crHasContent) {
     btn.disabled = false;
-    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → email';
+    btn.textContent = crSendLabel();
     alert('This closing report is empty.\n\nAdd at least the service rating, revenue, or run the checklist before sending it.');
     return;
   }
@@ -478,54 +606,12 @@ async function crSubmit() {
   var crWho = (typeof resetIdentity === 'function') ? await resetIdentity('send the closing report') : { emp_id:'', name:(crDraft.submitted_by||'') };
   if (!crWho) {
     btn.disabled = false;
-    btn.textContent = (crReportId ? 'Update report' : 'Submit closing report') + ' → email';
+    btn.textContent = crSendLabel();
     return;
   }
   crDraft.submitted_by = crWho.name;
   try {
-    var row = {
-      service_date: sd,
-      chefs_on_duty: crChefsOn,
-      chefs_off_duty: crChefsOff,
-      day_rating: crRating || null,
-      revenue_aed: crDraft.revenue !== '' ? parseFloat(crDraft.revenue) : null,
-      covers_actual: (crCovers != null) ? crCovers : null,
-      briefing_foh: crDraft.briefing_foh || null,
-      briefing_boh: crDraft.briefing_boh || null,
-      general_feedback: crDraft.feedback || null,
-      submitted_by: crDraft.submitted_by || null,
-      checks_done: crChecks.done,
-      checks_attention: crChecks.attention,
-      updated_at: new Date().toISOString()
-    };
-    var res = await sb.from('closing_reports').upsert(row, { onConflict: 'service_date' }).select().single();
-    if (res.error) throw res.error;
-    crReportId = res.data.id;
-    // Re-check the CURRENT emailed state at submit time, straight from the saved
-    // row — NOT the value from when this page was opened. Two people can have the
-    // same night open at once (exactly the Antonio+Danilo case); whoever opened
-    // first would never see the other's send unless we read it live here.
-    if (res.data && res.data.emailed_at) crEmailedAt = res.data.emailed_at;
-
-    // Insert new entries one-by-one so each returned id maps back to the exact
-    // entry it belongs to. A bulk insert's returned rows are NOT guaranteed to
-    // come back in input order, which previously attached ids to the wrong line
-    // item (so a later edit/delete could hit a different dish).
-    var newOnes = crEntries.filter(function(e){ return !e.id; });
-    for (var i = 0; i < newOnes.length; i++) {
-      var ne = newOnes[i];
-      var insRow = { service_date: sd, entry_type: ne.entry_type, category: ne.category, item_name: ne.item_name, detail: ne.detail, action_taken: ne.action_taken };
-      var ins = await sb.from('closing_report_entries').insert(insRow).select().single();
-      if (ins.error) throw ins.error;
-      ne.id = ins.data.id;   // same object reference as in crEntries → updates it in place
-    }
-    if (crRemovedIds.length) {
-      var del = await sb.from('closing_report_entries').delete().in('id', crRemovedIds);
-      if (del.error) throw del.error;   // surface a blocked delete instead of silently keeping removed entries
-      crRemovedIds = [];
-    }
-
-    try { localStorage.removeItem(CR_DRAFT_KEY + sd); } catch(e){}
+    await crPersist(sd, crChecks);
 
     // Stop silent duplicate team emails. If this night was already emailed, a
     // second copy must be an explicit human choice — not the accident of two
@@ -585,7 +671,7 @@ async function crSubmit() {
   } catch (err) {
     console.error('[closing] submit error', err);
     alert('Could not save: ' + (err.message || err));
-    btn.disabled = false; btn.textContent = crReportId ? 'Update report → email' : 'Submit closing report → email';
+    btn.disabled = false; btn.textContent = crSendLabel();
   }
 }
 
@@ -668,7 +754,8 @@ async function crLoadHistory() {
       var n86 = rEntries.filter(function(e){return e.entry_type==='unavailable';}).length;
       html += '<div class="cr-hist-row">'
         + '<div class="cr-hist-date">' + new Date(r.service_date + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})
-        + (r.day_rating ? ' · ' + faces[r.day_rating-1] : '') + '</div>'
+        + (r.day_rating ? ' · ' + faces[r.day_rating-1] : '')
+        + (!r.emailed_at && r.updated_at && r.updated_at.slice(0,10) >= CR_EMAIL_STAMP_SINCE ? '<span class="cr-hist-unsent">Saved — not sent yet</span>' : '') + '</div>'
         + '<div class="cr-hist-meta">'
         + (r.revenue_aed ? 'AED ' + Number(r.revenue_aed).toLocaleString() + ' · ' : '')
         + (r.covers_actual != null ? r.covers_actual + ' covers · ' : '')
