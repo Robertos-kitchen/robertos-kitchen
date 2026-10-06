@@ -131,6 +131,50 @@
   var learned = { fix: {}, house: {} };   // term(lower) -> replacement | true
   var tableLive = false;
 
+  /* ── only a SPELLING is true everywhere ──
+     6 Oct 2026, Chef Andrea: "Please stop suggesting this, if we want to use
+     sunflower we will write sunflower." On 3 Sep somebody said yes to the
+     question "the olive oil → the sunflower oil" on ONE recipe, where it may
+     well have been right. It went into the table, and from then on every
+     method box on every recipe offered to swap his olive oil for sunflower.
+     The table held two more of the same kind: mandarins → clementines and
+     the 2 emulsions → the 3 emulsions.
+
+     "papin bag" is wrong in every recipe in the book. Which oil, which fruit,
+     how many emulsions — that was an answer about one dish. So only a fix
+     that is a spelling (the letters nearly the same, no number changed) is
+     kept for everybody. Anything else is still put into the recipe he said
+     yes on — that happens on the sheet before this is called — it is just
+     never raised anywhere else. The same test runs on what is already
+     stored, so the three old rows stop firing on every device without
+     anything being deleted. */
+  function letters(s) { return String(s || '').toLowerCase().replace(/[^\p{L}]+/gu, ''); }
+  function numbers(s) { return (String(s || '').match(/\d+/g) || []).join(' '); }
+  function editDistance(a, b) {
+    var prev = [], cur, i, j;
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      cur = [i];
+      for (j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+  function isSpelling(wrong, right) {
+    if (numbers(wrong) !== numbers(right)) return false;
+    var a = letters(wrong), b = letters(right);
+    if (!a || !b) return false;
+    return editDistance(a, b) <= Math.max(1, Math.floor(a.length / 3));
+  }
+  WH.isSpelling = isSpelling;
+  function dropNonSpelling() {
+    Object.keys(learned.fix).forEach(function (w) {
+      if (!isSpelling(w, learned.fix[w])) delete learned.fix[w];
+    });
+  }
+
   function loadLocal() {
     try {
       var raw = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
@@ -138,6 +182,7 @@
       learned.house = raw.house || {};
     } catch (e) { /* corrupt or blocked storage is not a reason to fail */ }
     HOUSE_SEED.forEach(function (w) { if (!(w in learned.house)) learned.house[w] = true; });
+    dropNonSpelling();
   }
   function saveLocal() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(learned)); } catch (e) {}
@@ -154,6 +199,7 @@
         if (r.verdict === 'house') learned.house[t] = true;
         else if (r.verdict === 'fix' && r.meant) learned.fix[t] = r.meant;
       });
+      dropNonSpelling();
       saveLocal();
     }).catch(function () { tableLive = false; });   /* table absent — carry on */
   };
@@ -164,6 +210,8 @@
   WH.remember = function (term, verdict, meant) {
     var t = String(term || '').trim().toLowerCase();
     if (!t) return Promise.resolve();
+    /* a choice about one dish stays in that dish — see isSpelling() */
+    if (verdict === 'fix' && !isSpelling(t, meant)) return Promise.resolve();
     if (verdict === 'house') { learned.house[t] = true; delete learned.fix[t]; }
     else if (verdict === 'fix' && meant) { learned.fix[t] = meant; delete learned.house[t]; }
     saveLocal();
