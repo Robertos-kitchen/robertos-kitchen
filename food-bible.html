@@ -843,7 +843,7 @@ var DISHES = [], loadErr = null, busy = true;
 
 function load(){
   return Promise.all([
-    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,method,allergens,photos,updated_at&order=section,name'),
+    sb('recipes?kind=eq.main&archived=is.false&show_team=is.true&select=id,name,section,method,allergens,photos,updated_at&order=section,name'),
     sb('recipes?select=id,allergens'),
     sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. This is the whole point for the floor: a waiter
@@ -1180,7 +1180,7 @@ function stampOf(rows, id){
 function freshen(){
   if (busy || freshening || document.hidden || PH_STATE) return;
   freshening = true;
-  sb('recipes?kind=eq.main&archived=is.false&select=id,updated_at')
+  sb('recipes?kind=eq.main&archived=is.false&show_team=is.true&select=id,updated_at')
     .then(function(rows){
       if (listSig(rows) === dishSig) return;
       var el = document.activeElement;

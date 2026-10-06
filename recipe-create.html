@@ -972,6 +972,9 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 /* Copy sits after the three marks, in the same pill, at full colour — it is not a mark,
    it is the thing they do every week: start a dish from one that already exists. */
 .mk.cp{opacity:1;color:var(--vino);border-color:rgba(64,2,7,.4);background:#fff}
+/* Team / Mare: who sees the card. Off = faded and struck through, on = olive. */
+.mk.sh{opacity:.75;text-decoration:line-through}
+.mk.sh.on{text-decoration:none}
 .mk.cp:hover,.mk.cp:focus{background:rgba(64,2,7,.08);border-color:var(--vino)}
 /* where he landed, said out loud for a moment — a page that only moves leaves him
    hunting for what changed */
@@ -3643,7 +3646,7 @@ function loadSaved(){
     /* `method` comes back with the list so Needs finishing can say when a dish has no
        method written and when the floor's half is empty — both invisible from outside */
     sb('recipes?select=id,kind,name,section,makes_qty,makes_unit,menu_price,updated_at,archived,method' +
-       ',created_by_name,allergens,pos_key,pos_name&order=updated_at.desc&limit=2000'),
+       ',created_by_name,allergens,pos_key,pos_name,show_team,show_mare&order=updated_at.desc&limit=2000'),
     sb('recipe_menus?select=recipe_id,menu_id').catch(function(){ return null; }),
     sb('menus?venue_id=eq.robertos-difc&select=id,name,archived,running,position,parent_id,fold_order,set_price&order=archived,position,name')
       .catch(function(){ return null; }),
@@ -7470,6 +7473,15 @@ function render(){
         /* Antonio, 3 Sep: "add next to ingredients a copy one that will duplicate the
            recipe". A removed one is put back first — a copy of it would be a way of
            having it without saying so. */
+        /* Who sees this card (6 Oct 2026, Francesco): the Dubai team screens, and Roberto's
+           Mare in Montenegro. Team is on unless he switches an unfinished dish off; Mare is
+           off until he ticks it — nothing half-written reaches another country. */
+        (!r.archived && r.kind === 'main'
+          ? '<span class="mks shw"><button class="mk sh'+(r.show_team!==false?' on':'')+'" data-show="show_team" data-sid="'+r.id+'" ' +
+              'title="'+(r.show_team!==false?'The Dubai team sees this card. Tap to hide it while it is not finished.':'Hidden from the Dubai team. Tap to show it.')+'">Dubai team</button>' +
+            '<button class="mk sh'+(r.show_mare?' on':'')+'" data-show="show_mare" data-sid="'+r.id+'" ' +
+              'title="'+(r.show_mare?'Roberto’s Mare sees this card. Tap to hide it.':'Not shown to Roberto’s Mare. Tap when it is finished.')+'">Mare</button></span>'
+          : '') +
         (r.archived ? '' : '<span class="mks cpw"><button class="mk cp" data-copy="'+r.id+'" ' +
            'aria-label="Copy ‘'+esc(r.name)+'’ as a new recipe" ' +
            'title="Start a new recipe from ‘'+esc(r.name)+'’ — it is not changed">Copy</button></span>') +
@@ -12865,6 +12877,23 @@ document.addEventListener('click', function(e){
   if (e.target.id === 'rcopy'){ copyHere(); return; }
   var cpb = e.target.closest('[data-copy]');
   if (cpb){ copyFromBook(cpb); return; }
+  /* ── who sees this card: the Dubai team / Roberto's Mare ── */
+  var shb = e.target.closest('[data-show]');
+  if (shb){
+    var shId = shb.dataset.sid, shF = shb.dataset.show;
+    var shR = (S.saved || []).filter(function(x){ return x.id === shId; })[0];
+    if (!shR || shb.disabled) return;
+    var shNow = shF === 'show_team' ? shR.show_team === false : !shR.show_mare, shBody = {};
+    shBody[shF] = shNow; shb.disabled = true;
+    sb('recipes?id=eq.' + encodeURIComponent(shId), { method:'PATCH', body: shBody, prefer:'return=minimal' })
+      .then(function(){
+        shR[shF] = shNow; shb.classList.toggle('on', shNow); shb.disabled = false;
+        flash('‘' + shR.name + '’ ' + (shF === 'show_team'
+          ? (shNow ? 'is back on the Dubai team screens.' : 'is hidden from the Dubai team until you switch it on.')
+          : (shNow ? 'now shows at Roberto’s Mare.' : 'no longer shows at Roberto’s Mare.')));
+      }, function(err){ shb.disabled = false; flash('Not changed — ' + err.message, true); });
+    return;
+  }
   var wp = e.target.closest('[data-who]');
   if (wp){ whoPicked(STAFF && STAFF[+wp.dataset.who]); return; }
   if (e.target.id === 'whotypeok'){

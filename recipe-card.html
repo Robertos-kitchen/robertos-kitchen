@@ -770,7 +770,7 @@ function listSig(rows){
 function freshen(){
   if (view !== 'home' || busy || freshening || document.hidden) return;
   freshening = true;
-  sb('recipes?kind=eq.main&archived=is.false&select=id,updated_at')
+  sb('recipes?kind=eq.main&archived=is.false&show_team=is.true&select=id,updated_at')
     .then(function(rows){
       if (listSig(rows) === menuSig) return;
       return loadMenu().then(function(){
@@ -829,7 +829,7 @@ function gather(ids, acc){
    here, once, off two extra reads. */
 function loadMenu(){
   return Promise.all([
-    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,menu_price,method,allergens,photos,updated_at&order=section,name'),
+    sb('recipes?kind=eq.main&archived=is.false&show_team=is.true&select=id,name,section,menu_price,method,allergens,photos,updated_at&order=section,name'),
     sb('recipes?select=id,allergens'),
     sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
     /* the menus, and what is on them. A dish carries its menus so the front page can
