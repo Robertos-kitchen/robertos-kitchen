@@ -1127,6 +1127,8 @@ const CAL_STYLE = `<style id="cal-style">
 .cal-cell.drop{outline:2px solid var(--vino);outline-offset:-1px}
 .cal-cell.willmove,.cal-cell.kincell{background:#f0e2df}
 .cal-dnum{font-size:11px;color:var(--vino-light);padding:1px 3px 3px;display:flex;justify-content:space-between;align-items:center}
+/* phone: "today" was squeezed beside the date and ran past the square; it takes its own line */
+@media (max-width:520px){.cal-dnum{flex-wrap:wrap}.cal-tod{flex-basis:100%;font-size:8px;letter-spacing:.4px;margin-top:1px}}
 .cal-dnum b{font-weight:700;color:var(--vino);font-size:12px}
 .cal-tod{font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--vino)}
 
