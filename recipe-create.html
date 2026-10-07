@@ -3011,7 +3011,9 @@ function saveBarInner(){
 /* the database speaks database. Say it in kitchen words. */
 function plain(msg){
   if (/recipes_name_unique|duplicate key/i.test(msg))
-    return 'There is already a recipe called "'+S.name.trim()+'". Give this one a different name, or open that one and change it.';
+    return 'There is already a recipe called "'+S.name.trim()+'". If it is the same dish, you do not need a second one — ' +
+           'open that one and tick this menu too: one recipe can be on as many menus and sections as you like. ' +
+           'If it is a different dish, give this one a different name.';
   if (/Failed to fetch|NetworkError|network/i.test(msg))
     return 'No connection to the Kitchen database. Your sheet is safe here — try Save again in a moment.';
   return msg;
@@ -4162,8 +4164,14 @@ function sectionKids(parentId){
    secondi di pesce which is been recognized as a menu instead of a sections inside a menu".
    The book knew what they were; the sheet's picker and its chips still listed every child as
    one more menu to tick, peers of A la carte 2026. So on the sheet a section is drawn INSIDE
-   its menu and ticked by the book's rules: in a section means on its menu too, in one section
-   of a menu at a time, and off the menu means out of its sections. */
+   its menu and ticked by the book's rules: in a section means on its menu too, and off the
+   menu means out of its sections.
+   Chef Andrea, 7 Oct 2026 (Tell us 546bbe08): "the same recipe ... in 2 different menu because
+   some proposal will have the same selection" — Short ribs in Canape Cortile AND canapes
+   Salotto, two price proposals inside one "canape" menu. The old rule kept a dish in ONE
+   section of a menu at a time, so ticking the second proposal silently took it out of the
+   first. A section can be an alternative, not only a heading, so a dish may sit in as many
+   sections as he ticks; it is still one recipe and still on the menu once. */
 function isSectionKid(m){ return !!m && !!m.parent_id && monthIndex(m.name) < 0; }
 function menuById(id){ return MENUS.filter(function(x){ return x.id === id; })[0]; }
 /* tick or untick one entry on the sheet; says whether it is now on */
@@ -4177,10 +4185,7 @@ function toggleSheetMenu(id){
     return false;
   }
   on.push(id);
-  if (isSectionKid(m)){
-    if (on.indexOf(m.parent_id) < 0) on.push(m.parent_id);
-    S.menus = on.filter(sib(m.parent_id, id));
-  }
+  if (isSectionKid(m) && on.indexOf(m.parent_id) < 0) on.push(m.parent_id);
   return true;
 }
 /* what the bar says after a tick — a section is never "On Secondi di carne" as if it were a menu */
@@ -4198,18 +4203,15 @@ function rmDel(recipeId, menuId){
   return sb('recipe_menus?recipe_id=eq.' + recipeId + '&menu_id=eq.' + menuId,
             { method:'DELETE', prefer:'return=minimal' });
 }
-/* File a dish in a section. It goes on the section, stays on (or is put on) the menu the
-   section is inside, and comes out of any OTHER section of that menu — a dish printed
-   under two headings of one menu is a mistake nobody means. Adds before it removes, so a
-   write that dies half way leaves the dish in two places, never in none. */
+/* File a dish in a section. It goes on the section and stays on (or is put on) the menu the
+   section is inside. It is NOT taken out of the menu's other sections any more: Chef Andrea,
+   7 Oct 2026 — the canape proposals (Portici, Cortile, Salotto) are sections of one menu and
+   share dishes. Taking it out of one section is still its own button (secUnfile). */
 function secFile(recipeId, sec){
   var on = (S.rmenus || {})[recipeId] || [], adds = [];
   if (on.indexOf(sec.id) < 0) adds.push(rmAdd(recipeId, sec.id));
   if (on.indexOf(sec.parent_id) < 0) adds.push(rmAdd(recipeId, sec.parent_id));
-  return Promise.all(adds).then(function(){
-    return Promise.all(sectionKids(sec.parent_id).filter(function(k){
-      return k.id !== sec.id && on.indexOf(k.id) >= 0; }).map(function(k){ return rmDel(recipeId, k.id); }));
-  });
+  return Promise.all(adds);
 }
 /* Out of the section and back onto the menu itself. The menu row is made sure of FIRST:
    a dish somebody ticked onto the section alone would otherwise land on no menu at all,
@@ -7778,17 +7780,19 @@ function render(){
                  '<button class="okb" data-kidpick="" style="margin:0 0 14px">Done — show the section</button>' +
                  (pool.length ? pool.map(function(r){
                     var on = menusOf(r), inIt = on.indexOf(here.id) >= 0;
-                    var from = Object.keys(sibs).filter(function(id){ return on.indexOf(id) >= 0; })[0];
+                    var also = Object.keys(sibs).filter(function(id){ return on.indexOf(id) >= 0; })
+                                 .map(function(id){ return sibs[id]; });
                     var hd = (r.section || '') !== lastFam
                       ? (lastFam = r.section || '', '<div class="shd">' + esc(r.section || 'No section on the recipe') + '</div>') : '';
                     var busy = S.kidBusy === r.id;
                     return hd + '<div class="marow">' +
-                      '<span class="manm" style="cursor:default;text-decoration:none">' + (inIt ? '✓ ' : '') + esc(r.name) + '</span>' +
+                      '<span class="manm" style="cursor:default;text-decoration:none">' + (inIt ? '✓ ' : '') + esc(r.name) +
+                        (also.length ? ' <span class="sm">· also in ' + esc(also.join(', ')) + '</span>' : '') + '</span>' +
                       (inIt
                         ? '<button class="maoff" data-kidout="' + r.id + '"' + (S.kidBusy ? ' disabled' : '') + '>' +
                             (busy ? 'Taking it out…' : 'Take it out') + '</button>'
                         : '<button class="maoff" data-kidin="' + r.id + '"' + (S.kidBusy ? ' disabled' : '') + '>' +
-                            (busy ? 'Filing it…' : from ? 'Move it here from ' + esc(sibs[from]) : 'Put it in this section') + '</button>') +
+                            (busy ? 'Filing it…' : also.length ? 'Put it in this section too' : 'Put it in this section') + '</button>') +
                       '</div>';
                   }).join('')
                   : '<div class="tip">Nothing is on ' + esc(upName) + ' yet, so there is nothing to file. ' +
@@ -13097,10 +13101,14 @@ document.addEventListener('click', function(e){
       .then(function(){
         S.kidBusy = null; render();
         /* said from what the database now holds, not from what was pressed */
-        var nowIn = ((S.rmenus || {})[krid] || []).indexOf(ksec.id) >= 0;
+        var nowOn = (S.rmenus || {})[krid] || [], nowIn = nowOn.indexOf(ksec.id) >= 0;
         if (nowIn !== !!kin) throw new Error('it was sent but the list did not change');
+        var still = sectionKids(ksec.parent_id).filter(function(k){
+          return k.id !== ksec.id && nowOn.indexOf(k.id) >= 0; }).map(function(k){ return k.name; });
         flash('‘' + (krec ? krec.name : 'That dish') + '’ is ' +
-              (kin ? 'in ' + ksec.name + ' now.' : 'out of ' + ksec.name + ' — still on ' + menuNameOf(ksec.parent_id) + '.'));
+              (kin ? 'in ' + ksec.name + ' now' + (still.length ? ' — and still in ' + still.join(', ') : '') + '.'
+                   : 'out of ' + ksec.name + ' — still on ' + menuNameOf(ksec.parent_id) +
+                     (still.length ? ' and in ' + still.join(', ') : '') + '.'));
       })
       .catch(function(ex){
         S.kidBusy = null;
