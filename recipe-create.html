@@ -14471,6 +14471,54 @@ window.__rcpDirty = function(){
 var Q = new URLSearchParams(location.search);
 if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
 
+/* ── cost bridge for the FOH app (7 Oct 2026) ─────────────────────────────────
+   The FOH Business Lunch screen shows a daily food cost, and the cost has to be THIS
+   page's cost — batchCost(), basePrice(), the FMC article reader — never a second copy
+   that drifts from the figure the chefs and Aung see. The FOH app lives on another
+   site, so it cannot call in here the way the Kitchen app's comp tasting does
+   (kevCostEngine in app.js, same site). Instead it loads this page hidden with
+   ?costbridge=1&origin=<its site>, and the page posts the costed dishes back.
+   Same steps as kevCostEngine: read everything first, then ONE synchronous walk, so
+   none of this page's own boot loads can land half way through (the 28 Aug "no longer
+   in the catalogue" race). Read-only: nothing is written anywhere. Only the FOH sites
+   below get an answer. */
+if (Q.get('costbridge') === '1' && window.parent !== window){
+  (function(){
+    var OK = ['https://robertos-leadership.github.io', 'https://robertos-foh-dev.pages.dev',
+              'http://localhost:8987', 'http://localhost:8988', 'http://127.0.0.1:8987', 'http://127.0.0.1:8988'];
+    var to = Q.get('origin');
+    if (OK.indexOf(to) < 0) return;
+    async function costAll(){
+      await loadArticles();
+      var mine = await sb('ingredients?venue_id=eq.robertos-difc&archived=is.false&select=*&order=created_at');
+      await loadBatches();
+      await loadWaivers();
+      var mains = await sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty');
+      var lines = await sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+        'trim_on,yield_pct,waste_pct,position&order=position,id');
+      /* ── one synchronous block from here ── */
+      if (!ING.length) throw new Error('the article list came back empty');
+      var have = {};
+      ING.forEach(function(i){ have[String(i.code).toLowerCase()] = 1; });
+      (mine||[]).forEach(function(r){ if (!have[String(r.code).toLowerCase()]) ING.push(fromMineRow(r)); });
+      var by = {};
+      (lines||[]).forEach(function(l){ (by[l.recipe_id] = by[l.recipe_id] || []).push(l); });
+      MAINS = {};
+      (mains||[]).forEach(function(r){ MAINS[r.id] = { name:r.name, makesQty:r.makes_qty, makesUnit:'portion', archived:false, lines:by[r.id] || [] }; });
+      return (mains||[]).map(function(r){
+        var c = batchCost(r.id);
+        return { id:r.id, name:r.name, section:r.section || '',
+                 cost: (c.problem || !(c.per > 0)) ? null : Math.round(c.per*100)/100,
+                 why: c.problem || (!(c.per > 0) ? 'it costs nothing yet' : null) };
+      });
+    }
+    window.addEventListener('load', function(){
+      costAll().then(function(list){ parent.postMessage({ type:'rk-costs', ok:true, list:list, at:new Date().toISOString() }, to); },
+                     function(e){ parent.postMessage({ type:'rk-costs', ok:false, error:String(e && e.message || e) }, to); });
+    });
+  })();
+}
+
 render();
 fitBar();
 /* Your own ingredients come in before anything is drawn from the sheet, so a recipe
