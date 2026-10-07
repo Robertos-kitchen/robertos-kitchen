@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Business lunch — Roberto's Kitchen</title>
+<!-- Before any code below can call fetch(): on the DEV host this blocks every write. -->
+<script src="dev-guard.js?v=1789747927"></script>
+<!-- no recipe-lock.js on this host yet: editing is open here -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=DM+Sans:wght@400;500;700&display=swap');
+/* The Kitchen app's own tokens (index.html :root) and the Recipes paper, as tasting.html. */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--terra:#c0481f;--oliva:#4b5128;
+  --ink:#2a1a10;--cream:#f5ede0;--paper:#fbf7f1;--door:#f4ede2;--muted:#6b5b50;
+  --ok:#2f5d1e;--ok-bg:#e4ecd9;--below:#7a4200;--below-bg:#f6e6cc;--err:#8f1d12;
+  --display:'Bodoni Moda',Didot,'Times New Roman',serif;
+  --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px}
+body{background:linear-gradient(90deg,rgba(196,168,133,.28) 1px,transparent 1px) 0 0/80px 100%,
+  radial-gradient(circle at 86% 0,rgba(217,118,63,.12),transparent 520px),var(--paper);min-height:100vh}
+button,select{font-family:inherit;color:inherit}
+button:focus-visible,select:focus-visible{outline:3px solid var(--terra);outline-offset:2px}
+.wrap{max-width:1000px;margin:0 auto;padding:16px 16px 40px;display:grid;gap:18px}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.top h2{font-family:var(--display);font-weight:400;color:var(--vino);font-size:28px;margin:0;line-height:1.1}
+.top .k{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--terra);font-weight:700;margin-bottom:4px}
+.step{display:flex;align-items:center;gap:6px}
+.btn{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);
+  border:1px solid var(--sabbia-dark);border-radius:3px;padding:8px 12px;cursor:pointer;min-height:36px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.go{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.wk{font-size:13px;color:var(--muted);min-width:118px;text-align:center;font-variant-numeric:tabular-nums}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{background:var(--door);border:1px solid rgba(66,1,7,.13);border-radius:8px;padding:12px 14px}
+.tile .l{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
+.tile .v{font-family:var(--display);font-size:30px;color:var(--vino);line-height:1.15;margin-top:4px}
+.tile .s{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:#fff;border:1px solid rgba(66,1,7,.13);border-radius:8px;overflow:hidden}
+.card h3{font-family:var(--display);font-weight:400;color:var(--vino);font-size:20px;margin:0;padding:14px 16px 10px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);font-weight:700;text-align:left;padding:9px 12px;border-top:1px solid var(--sabbia-light);border-bottom:1px solid var(--sabbia-light)}
+td{padding:10px 12px;border-bottom:1px solid var(--sabbia-light);font-variant-numeric:tabular-nums;vertical-align:top}
+.r{text-align:right}
+tr.tot td{background:var(--door);font-weight:700;color:var(--vino)}
+.miss{color:var(--err);font-weight:700}
+tr.missrow td{background:#fbf1ee}
+.why{font-size:11.5px;color:var(--err);margin-top:3px}
+.sofar{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--terra);font-weight:700;margin-left:4px}
+.link{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.link select{font-size:13px;padding:6px 8px;border:1px solid var(--sabbia-dark);border-radius:6px;background:#fff;max-width:280px}
+.dish{display:grid;grid-template-columns:minmax(0,11em) 1fr 2.6em;gap:10px;align-items:center;padding:6px 16px}
+.dish .b{height:8px;background:var(--sabbia-light)}
+.dish .b i{display:block;height:100%;background:var(--terra)}
+.dish .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dish .c{text-align:right;font-weight:700;color:var(--vino)}
+.note{font-size:12.5px;color:var(--muted);padding:10px 16px}
+.bad{background:#fbe9e5;color:var(--err);border-radius:8px;padding:11px 13px;font-size:13px}
+.how summary{cursor:pointer;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--terra);font-weight:700;padding:6px 0}
+.how p{font-size:13px;color:var(--muted);line-height:1.55;margin:6px 0;max-width:760px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:760px){.cols{grid-template-columns:1fr}.hide-s{display:none}th,td{padding:9px 8px}.top h2{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="note">Loading&hellip;</div></div>
+<script>
+/* ── BUSINESS LUNCH · the kitchen's page (7 Oct 2026) ─────────────────────────────
+   Francesco, 7 Oct 2026: the food cost belongs in the Kitchen app, not FOH, and only a
+   chef changes it. So this is the chefs' page: menus sold each day, what guests chose,
+   and the food cost of it, worked out by the recipe book itself.
+
+   SALES: the Simphony check SevenRooms attaches to each booking, read night by night
+   through sevenrooms-sync ?daysheet= (the same call FOH uses). A "BusinessLunch@135"
+   line is one menu; every "BL …" line is a course. Nothing is typed, nothing stored.
+   A check rung with no booking is not in it (FOH shows Simphony's own lunch count
+   beside it).
+   COST: recipe-create.html?costbridge=1 — the recipe book's own batchCost on today's
+   FMC prices (the same walk as kevCostEngine). Never a copy of the costing here.
+   LINKS: a till name ("BL Ricciola") is tied to its recipe once, in
+   kitchen_event_overrides under the reserved event '__bl_till_link__' (FOH wrote the
+   first eight). A till name spelt exactly like a recipe needs no link. Changing a
+   link asks for the chef code (recipe-lock.js) where the lock exists.
+   NET: a menu price carries 10% service + 5% VAT; since 16 Sep 2026 the 7% DIFC fee is
+   on top of the bill, so net = price ÷ 1.155 (÷ 1.225 before). FOH's
+   fohSubtotalToNetDiv holds the same rule. */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var PROXY = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
+var LINK_EVENT = '__bl_till_link__';
+var NOT_A_CHOICE = ['bl focaccia'];       // served to every guest: a cost, never a choice
+var S = { week:0, nights:{}, loading:{}, failed:{}, cost:{ state:'idle' }, links:null, pick:{}, saving:{}, err:null, tills:[] };
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function today(){ var d = new Date(Date.now() + 4*3600000 - 6*3600000); return d.toISOString().slice(0,10); }   // Dubai, business day rolls at 6 AM
+function addD(iso, n){ var d = new Date(iso+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function dow(iso){ return (new Date(iso+'T12:00:00Z').getUTCDay()+6)%7; }
+function weekDates(off){ var m = addD(addD(today(), -dow(today())), 7*off), a = []; for(var i=0;i<7;i++) a.push(addD(m,i)); return a; }
+function dayName(iso, long){ return new Date(iso+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:long?'long':'short',timeZone:'UTC'}); }
+function dLabel(iso){ return new Date(iso+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'}); }
+function n0(v){ return Number(v||0).toLocaleString('en-US',{maximumFractionDigits:0}); }
+function n2(v){ return Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function netDiv(iso){ return iso >= '2026-09-16' ? 1.155 : 1.225; }
+function till(n){ return String(n||'').replace(/\s+/g,' ').trim(); }
+function norm(n){ return till(n).toLowerCase(); }
+function isMenu(n){ return /^business\s*lunch/i.test(String(n||'')); }
+function isCourse(n){ return /^BL\s/.test(String(n||'')); }
+function niceCourse(n){ var s = till(n).replace(/^BL\s+/,''); return s.charAt(0).toUpperCase()+s.slice(1).toLowerCase(); }
+
+function digest(iso, j){
+  var out = { date:iso, menus:0, menuGross:0, courses:{}, price:null };
+  (j.reservations||[]).forEach(function(r){
+    if(r.state === 'cancelled' || r.state === 'noshow') return;
+    var m = 0, mg = 0, c = {};
+    (r.items||[]).forEach(function(it){
+      var q = Number(it.qty)||0, p = Number(it.price)||0;
+      if(isMenu(it.name)){ m += q; mg += p; var x = String(it.name).match(/@\s*(\d+(?:\.\d+)?)/); if(x) out.price = Number(x[1]); }
+      else if(isCourse(it.name)){ var t = till(it.name); c[t] = (c[t]||0) + q; }
+    });
+    if(!m) return;
+    out.menus += m; out.menuGross += mg;
+    Object.keys(c).forEach(function(k){ out.courses[k] = (out.courses[k]||0) + c[k]; });
+  });
+  return out;
+}
+async function fetchNight(iso){
+  var r = await fetch(SB_URL + '/functions/v1/sevenrooms-sync?daysheet=' + iso + '&include=all', {
+    method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+SB_KEY, 'x-proxy-secret':PROXY } });
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var j = await r.json();
+  if(!j || !j.ok || !Array.isArray(j.reservations)) throw new Error((j && j.error) || 'no data');
+  return digest(iso, j);
+}
+async function loadWeek(force){
+  var t = today(), want = weekDates(S.week).filter(function(d){ return d <= t && !S.loading[d] && (force || !S.nights[d] || d === t); });
+  if(!want.length) return;
+  want.forEach(function(d){ S.loading[d] = true; }); paint();
+  var q = want.slice();
+  async function worker(){ while(q.length){ var d = q.shift();
+    try { S.nights[d] = await fetchNight(d); delete S.failed[d]; } catch(e){ S.failed[d] = String(e && e.message || e); }
+    delete S.loading[d]; paint(); } }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
+/* the recipe book's own cost, through its bridge (same site, so this page's origin is allowed) */
+function costEngine(){
+  if(S.cost.p) return S.cost.p;
+  S.cost = { state:'loading' };
+  S.cost.p = new Promise(function(resolve, reject){
+    var f = document.createElement('iframe'), done = false;
+    f.src = 'recipe-create.html?costbridge=1&origin=' + encodeURIComponent(location.origin);
+    f.setAttribute('aria-hidden','true'); f.tabIndex = -1; f.setAttribute('inert','');
+    f.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:0;border:0;visibility:hidden';
+    function finish(err, list){ if(done) return; done = true; clearTimeout(t); window.removeEventListener('message', on);
+      setTimeout(function(){ if(f.parentNode) f.parentNode.removeChild(f); }, 0); if(err) reject(err); else resolve(list); }
+    function on(e){ if(e.origin !== location.origin || !e.data || e.data.type !== 'rk-costs') return;
+      if(e.data.ok) finish(null, e.data.list || []); else finish(new Error(e.data.error || 'the recipe book could not cost the dishes')); }
+    window.addEventListener('message', on);
+    var t = setTimeout(function(){ finish(new Error('the recipe book did not answer in 60 seconds')); }, 60000);
+    document.body.appendChild(f);
+  });
+  S.cost.p.then(function(list){
+    var by = {}, bn = {}; list.forEach(function(x){ by[x.id] = x; bn[norm(x.name)] = x; });
+    S.cost = { state:'ready', list:list, byId:by, byName:bn, at:new Date(), p:S.cost.p }; paint();
+  }, function(e){ S.cost = { state:'error', err:String(e && e.message || e) }; paint(); });
+  return S.cost.p;
+}
+async function sbGet(path){
+  var r = await fetch(SB_URL + '/rest/v1/' + path, { headers:{ apikey:SB_KEY, Authorization:'Bearer '+SB_KEY } });
+  if(!r.ok) throw new Error('HTTP '+r.status); return r.json();
+}
+async function loadLinks(){
+  try {
+    var rows = await sbGet('kitchen_event_overrides?select=dish_name,label,set_by,updated_at&event_id=eq.' + encodeURIComponent(LINK_EVENT));
+    var m = {}; (rows||[]).forEach(function(x){ if(x.label) m[x.dish_name] = { recipe_id:x.label, by:x.set_by, at:x.updated_at }; });
+    S.links = m;
+  } catch(e){ S.links = S.links || {}; S.err = 'The till-name links could not be read: ' + (e && e.message || e); }
+  paint();
+}
+function resolve(t){
+  var c = S.cost, l = S.links && S.links[t];
+  if(l && c.byId && c.byId[l.recipe_id]) return c.byId[l.recipe_id];
+  return (c.byName && c.byName[norm(t)]) || null;
+}
+function suggest(t){
+  var words = norm(t).replace(/^bl\s+/,'').split(/\s+/).filter(function(w){ return w.length > 2; });
+  var bl = (S.cost.list||[]).filter(function(x){ return /^bl\s/i.test(till(x.name)); });
+  return bl.map(function(x){ var n = norm(x.name); return { x:x, s:words.filter(function(w){ return n.indexOf(w.slice(0,5)) > -1; }).length }; })
+    .sort(function(a,b){ return b.s - a.s || a.x.name.localeCompare(b.x.name); }).map(function(o){ return o.x; });
+}
+function locked(){ return typeof RecipeLock !== 'undefined' && !RecipeLock.isOpen(); }
+function pick(i, v){ S.pick[i] = v; }
+async function change(i){ S.pick[i] = S.pick[i] || ''; S.edit = S.edit || {}; S.edit[i] = true; paint(); }
+async function save(i){
+  var t = S.tills[i], rid = S.pick[i];
+  if(!t || !rid) return;
+  if(locked()){
+    var ok = await RecipeLock.ask('Tying a till name to its recipe?');
+    if(!ok) return;
+  }
+  S.saving[i] = true; paint();
+  try {
+    var who = 'kitchen'; try { who = sessionStorage.getItem('kitchen-recipe-edit-who') || 'kitchen'; } catch(e){}   // the name recipe-lock.js remembers
+    var r = await fetch(SB_URL + '/rest/v1/kitchen_event_overrides?on_conflict=event_id,dish_name', { method:'POST',
+      headers:{ apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json', Prefer:'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ event_id:LINK_EVENT, dish_name:t, label:rid, set_by:who, updated_at:new Date().toISOString() }]) });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    S.links[t] = { recipe_id:rid, by:who }; delete S.pick[i]; if(S.edit) delete S.edit[i];
+  } catch(e){ S.err = 'Could not save the link for ' + t + ': ' + (e && e.message || e); }
+  delete S.saving[i]; paint();
+}
+function step(n){ S.week = n === 0 ? 0 : Math.min(0, S.week + n); paint(); loadWeek(); }
+function recost(){ S.cost = { state:'idle' }; costEngine(); }
+
+function paint(){
+  var dates = weekDates(S.week), t = today();
+  var shown = dates.filter(function(d, i){ return i < 5 || (S.nights[d] && S.nights[d].menus); });
+  var busy = dates.some(function(d){ return S.loading[d]; });
+  var price = 135; dates.forEach(function(d){ if(S.nights[d] && S.nights[d].price) price = S.nights[d].price; });
+  var c = S.cost, ready = c.state === 'ready' && S.links;
+  var h = [];
+  h.push('<div class="top"><div><div class="k">Lunch &middot; set menu &middot; AED '+n0(price)+'</div><h2>Business lunch</h2></div>'
+    + '<div class="step"><button class="btn" onclick="step(-1)" aria-label="Previous week">&lsaquo;</button>'
+    + '<span class="wk">'+dLabel(dates[0])+' &ndash; '+dLabel(dates[6])+'</span>'
+    + '<button class="btn" onclick="step(1)" aria-label="Next week"'+(S.week>=0?' disabled':'')+'>&rsaquo;</button>'
+    + (S.week ? '<button class="btn" onclick="step(0)">This week</button>' : '') + '</div></div>');
+
+  // per day: menus, food cost, % — the whole page in one table
+  var days = shown.filter(function(d){ return d <= t; }), T = { m:0, fc:0, net:0, miss:0 }, wk = {}, rows = [];
+  days.forEach(function(d){
+    var n = S.nights[d];
+    if(!n){ rows.push('<tr><td>'+esc(dayName(d))+' '+esc(dLabel(d))+'</td><td class="r" colspan="5">'+(S.failed[d] ? '<span class="miss">could not be read</span>' : '&hellip;')+'</td></tr>'); return; }
+    var fc = 0, miss = 0;
+    Object.keys(n.courses).forEach(function(k){
+      wk[k] = (wk[k]||0) + n.courses[k];
+      var r = ready ? resolve(k) : null;
+      if(r && r.cost != null) fc += r.cost * n.courses[k]; else miss += n.courses[k];
+    });
+    var net = n.menuGross / netDiv(d);
+    T.m += n.menus; T.fc += fc; T.net += net; T.miss += miss;
+    rows.push('<tr><td>'+esc(dayName(d))+' '+esc(dLabel(d))+(d===t?'<span class="sofar">so far</span>':'')+'</td><td class="r"><b>'+n0(n.menus)+'</b></td>'
+      + (ready ? '<td class="r">'+(miss?'&ge; ':'')+n2(fc)+'</td><td class="r">'+(n.menus && !miss ? n2(fc/n.menus) : '&ndash;')+'</td>'
+               + '<td class="r"><b>'+(miss ? '<span class="miss">incomplete</span>' : (net ? (fc/net*100).toFixed(1)+'%' : '&ndash;'))+'</b></td>'
+               + '<td class="r hide-s">'+(miss ? '<span class="miss">'+n0(miss)+'</span>' : '&ndash;')+'</td>'
+             : '<td class="r" colspan="4">'+(c.state === 'error' ? '<span class="miss">no cost</span>' : 'costing&hellip;')+'</td>')+'</tr>');
+  });
+
+  h.push('<div class="tiles">'
+    + '<div class="tile"><div class="l">Menus this week</div><div class="v">'+n0(T.m)+'</div><div class="s">'+days.map(function(d){ var n=S.nights[d]; return esc(dayName(d))+' '+(n?n0(n.menus):'&hellip;'); }).join(' &middot; ')+'</div></div>'
+    + '<div class="tile"><div class="l">Food cost per menu</div><div class="v">'+(ready && T.m ? (T.miss ? '&ge; '+n2(T.fc/T.m) : n2(T.fc/T.m)) : '&ndash;')+'</div><div class="s">'+(ready ? (T.miss ? 'incomplete &mdash; '+n0(T.miss)+' courses with no cost' : 'every course costed') : 'costing&hellip;')+'</div></div>'
+    + '<div class="tile"><div class="l">Food cost %</div><div class="v">'+(ready && T.net && !T.miss ? (T.fc/T.net*100).toFixed(1)+'%' : '&ndash;')+'</div><div class="s">of the menu net (AED '+n0(price)+' &divide; '+netDiv(dates[0])+' = '+n2(price/netDiv(dates[0]))+')</div></div>'
+    + '</div>');
+  if(c.state === 'error') h.push('<div class="bad">The recipe book could not cost the dishes: '+esc(c.err)+'. <button class="btn" onclick="recost()">Try again</button></div>');
+  if(S.err) h.push('<div class="bad">'+esc(S.err)+'</div>');
+
+  h.push('<div class="card"><h3>By day</h3><table><thead><tr><th>Day</th><th class="r">Menus</th><th class="r">Food cost</th><th class="r">Per menu</th><th class="r">% of net</th><th class="r hide-s">Not costed</th></tr></thead><tbody>'
+    + rows.join('') + (days.length ? '<tr class="tot"><td>Week</td><td class="r">'+n0(T.m)+'</td>'
+    + (ready ? '<td class="r">'+(T.miss?'&ge; ':'')+n2(T.fc)+'</td><td class="r">'+(T.m && !T.miss ? n2(T.fc/T.m) : '&ndash;')+'</td><td class="r">'+(T.miss ? 'incomplete' : (T.net ? (T.fc/T.net*100).toFixed(1)+'%' : '&ndash;'))+'</td><td class="r hide-s">'+(T.miss ? n0(T.miss) : '&ndash;')+'</td>' : '<td colspan="4"></td>')
+    + '</tr>' : '') + '</tbody></table></div>');
+
+  // chosen + cost per course, side by side
+  var chosen = Object.keys(wk).filter(function(k){ return NOT_A_CHOICE.indexOf(norm(k)) < 0; }).sort(function(a,b){ return wk[b]-wk[a]; });
+  var mx = chosen.length ? wk[chosen[0]] : 1;
+  var left = '<div class="card"><h3>What guests chose</h3>' + (chosen.length ? chosen.map(function(k){
+      return '<div class="dish"><span class="n">'+esc(niceCourse(k))+'</span><span class="b"><i style="width:'+Math.round(wk[k]/mx*100)+'%"></i></span><span class="c">'+n0(wk[k])+'</span></div>'; }).join('')
+    : '<div class="note">No business lunch on the checks yet.</div>') + '<div class="note">Focaccia goes to every guest, so it is a cost below but not a choice here.</div></div>';
+
+  var right = '<div class="card"><h3>Cost per course</h3>';
+  if(!ready) right += '<div class="note">'+(c.state === 'error' ? 'No cost: the recipe book could not be read.' : 'Costing the dishes in the recipe book&hellip; about ten seconds.')+'</div>';
+  else {
+    var tills = Object.keys(wk).sort(function(a,b){
+      var ra = resolve(a), rb = resolve(b), ma = !(ra && ra.cost != null), mb = !(rb && rb.cost != null);
+      if(ma !== mb) return ma ? -1 : 1; return ((rb&&rb.cost||0)*wk[b]) - ((ra&&ra.cost||0)*wk[a]); });
+    S.tills = tills;
+    right += '<table><thead><tr><th>On the till</th><th>Recipe</th><th class="r">Each</th><th class="r">Sold</th></tr></thead><tbody>';
+    tills.forEach(function(k, i){
+      var r = resolve(k), cost = r && r.cost != null ? r.cost : null, cell;
+      var editing = !r || (S.edit && S.edit[i]);
+      if(editing){
+        var opts = suggest(k).map(function(x){ return '<option value="'+esc(x.id)+'"'+(S.pick[i]===x.id?' selected':'')+'>'+esc(x.name)+(x.cost!=null?' &middot; '+n2(x.cost):'')+'</option>'; }).join('');
+        cell = '<div class="link"><select onchange="pick('+i+', this.value)"><option value="">Pick its recipe&hellip;</option>'+opts+'</select>'
+          + '<button class="btn go" onclick="save('+i+')"'+(S.saving[i]?' disabled':'')+'>'+(S.saving[i]?'Saving&hellip;':(locked()?'Save &middot; chef code':'Save'))+'</button></div>'
+          + (r ? '' : '<div class="why">No recipe tied to this till name yet</div>');
+      } else {
+        cell = esc(r.name) + ' <button class="btn" style="min-height:26px;padding:3px 8px;font-size:9.5px;margin-left:4px" onclick="change('+i+')">Change</button>'
+          + (cost == null ? '<div class="why">Not costed: '+esc(r.why || 'no cost')+'</div>' : '');
+      }
+      right += '<tr'+(cost == null ? ' class="missrow"' : '')+'><td>'+esc(k)+'</td><td>'+cell+'</td><td class="r">'+(cost==null?'&ndash;':n2(cost))+'</td><td class="r">'+n0(wk[k])+'</td></tr>';
+    });
+    right += '</tbody></table><div class="note">Today&rsquo;s FMC prices, costed '+c.at.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' &middot; <a href="#" onclick="recost();return false">re-cost</a></div>';
+  }
+  right += '</div>';
+  h.push('<div class="cols">'+left+right+'</div>');
+
+  h.push('<details class="how"><summary>How this is counted</summary>'
+    + '<p>Menus and courses come from the Simphony check that SevenRooms attaches to each booking: every BusinessLunch@'+n0(price)+' line is one menu, every BL line is a course. A check rung with no booking is not here.</p>'
+    + '<p>Food cost is every course rung (Focaccia and the included coffee too) &times; its cost in the recipe book, worked out by the recipe book itself on today&rsquo;s FMC prices. A course with no recipe, or a recipe the book cannot cost, is left out and the day says <b>incomplete</b> with a floor (&ge;) instead of a % that would be too low.</p>'
+    + '<p>Food cost % is against the menu net: AED '+n0(price)+' &divide; '+netDiv(dates[0])+' (10% service and 5% VAT are inside the price; the 7% DIFC fee is added to the bill).</p></details>');
+  document.getElementById('app').innerHTML = h.join('');
+}
+
+paint(); loadWeek(); costEngine(); loadLinks();
+window.__rcpFreshen = function(){ loadWeek(true); loadLinks(); };
+</script>
+</body>
+</html>

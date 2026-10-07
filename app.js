@@ -1925,7 +1925,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2870,7 +2870,12 @@ var RECIPE_SCREENS=[
   // went through. Micros is now a button on the cards inside it.
   {code:'BOOK', view:'recipebook-view', page:'recipe-create.html?embed=1&saved=1',
    name:'Recipe book',
-   meta:'Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'}
+   meta:'Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'},
+  // 7 Oct 2026, Francesco: the business-lunch food cost lives here, not in FOH, and only a
+  // chef changes it (a till name tied to its recipe asks for the chef code).
+  {code:'LUNCH', view:'bizlunch-view', page:'business-lunch.html?embed=1',
+   name:'Business lunch',
+   meta:'Menus sold each day, what guests chose and the food cost, from the checks and the recipe book. Chef code to tie a till name to its recipe.'}
 ];
 function openRecipes(){
   activeStation=RECIPES_KEY;
@@ -3076,7 +3081,7 @@ setInterval(function(){ var h=document.getElementById('home-view'); if(h&&h.styl
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -3098,7 +3103,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
