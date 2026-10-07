@@ -177,6 +177,7 @@ begin
         'sent_back_at', c.sent_back_at, 'media', jsonb_array_length(c.media), 'is_test', c.is_test,
         'photos', (select count(*) from jsonb_array_elements(c.media) m where m->>'kind' = 'photo'),
         'videos', (select count(*) from jsonb_array_elements(c.media) m where m->>'kind' = 'video'),
+        'thumb', (select m->>'path' from jsonb_array_elements(c.media) m where m->>'kind' = 'photo' limit 1),
         'due', (select t.next_due from maint_tasks t where t.id = c.task_id))
       order by c.reported_at desc) from maint_cards c
       where c.checked_at is null or c.checked_at > now() - interval '120 days'), '[]'::jsonb));

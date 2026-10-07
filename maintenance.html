@@ -118,6 +118,73 @@ textarea{min-height:66px;line-height:1.45;resize:vertical}
 .viewer .vb button{background:var(--cream);color:var(--vino);border:none;border-radius:10px;padding:10px 16px;font-weight:700;min-height:44px;cursor:pointer}
 .viewer .vm{flex:1;min-height:0;display:grid;place-items:center;padding:8px}
 .viewer img,.viewer video{max-width:100%;max-height:100%;object-fit:contain}
+:root{--gold:#ba9b02;--gold-ink:#2a1a10;--kick:#e9d58a}
+/* ── house look, 7 Oct 2026 — the same on FOH and Kitchen Maintenance (only fonts and colours differ) ── */
+html,body{background:var(--ground)}
+.wrap{max-width:none;padding:0 0 56px}
+#root>*:not(.topbar){width:min(972px,calc(100% - 32px));margin-left:auto;margin-right:auto}
+.topbar{background:var(--vino);height:52px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(44,24,16,.15);position:sticky;top:0;z-index:20}
+.topbar .tl{display:flex;align-items:center;gap:18px;min-width:0}
+.topbar .logo{font-family:var(--serif);color:#fff;font-size:15px;text-decoration:none}
+.topbar .sep{color:rgba(255,255,255,.35)}
+.topbar .tsec{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+.topbar .tb{border:1px solid rgba(255,255,255,.4);color:#fff;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;text-decoration:none;white-space:nowrap}
+.hero{background:var(--vino);color:#fff;border-radius:8px;padding:28px 24px 24px;margin-top:28px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-70px;top:-70px;width:260px;height:260px;border-radius:50%;border:1px solid rgba(201,168,76,.2);pointer-events:none}
+.hero .kick{font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--kick);font-weight:700;padding-right:150px}
+.hero .ht{font-family:var(--serif);font-size:30px;line-height:1.15;margin-top:8px;font-weight:500}
+.hero .hs{font-size:13.5px;color:rgba(255,255,255,.88);margin-top:8px;max-width:600px;line-height:1.5}
+.hme{position:absolute;right:20px;top:16px;font-size:12px;color:rgba(255,255,255,.88);text-align:right;line-height:1.4;z-index:1}
+.hme button{display:block;margin-left:auto;background:none;border:0;color:#fff;text-decoration:underline;font-size:12px;cursor:pointer;padding:6px 0;min-height:32px}
+.hrow{display:flex;align-items:center;gap:14px;margin-top:22px;flex-wrap:wrap;position:relative;z-index:1}
+.gold{background:var(--gold);color:var(--gold-ink);border:0;border-radius:6px;padding:13px 22px;font:700 14.5px var(--sans);cursor:pointer;min-height:48px}
+.hstats{display:flex;margin-left:auto;border:1px solid rgba(255,255,255,.22);border-radius:6px}
+.hstat{padding:8px 18px;border-left:1px solid rgba(255,255,255,.22)}.hstat:first-child{border-left:0}
+.hstat b{display:block;font-family:var(--serif);font-size:23px;font-weight:500;color:#fff;line-height:1.2}
+.hstat i{font-style:normal;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.82)}
+.hstat.hot b{color:var(--kick)}
+.body{padding:16px 0 0}
+.head{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.sec{margin:0;border-radius:8px}
+.signin{margin:16px 0;border-radius:8px}
+.btn{border-radius:6px}
+.btn.sm{border-radius:6px}
+.tabs{background:none;border:0;padding:16px 0 0;gap:8px}
+.tab{border-radius:6px;background:var(--card)}
+.fbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chips{gap:8px}
+.chip{border:1px solid var(--vino);color:var(--vino);background:transparent;font-size:13px;font-weight:600;padding:7px 15px;min-height:40px}
+.chip small{opacity:.75;margin-left:4px;font-weight:500}
+.chip.on{background:var(--vino);color:#fff;border-color:var(--vino)}
+.q{margin-left:auto;width:250px;border:1px solid var(--sabbia-dark);background:#fff;border-radius:6px;padding:10px 12px;font-size:14px;min-height:42px}
+.h2{font-family:var(--serif);font-size:18px;margin:8px 0 0;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.h2 span{font:12px var(--sans);color:var(--muted)}
+.jc{background:#fff;border:1px solid var(--line);border-left:3px solid var(--vino);border-radius:6px;padding:14px 16px;display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;align-items:center;width:100%;text-align:left;cursor:pointer;box-shadow:0 2px 12px rgba(44,24,16,.05);font:inherit;color:inherit}
+.jc:hover{border-color:var(--sabbia-dark)}
+.jc.s-new{border-left-color:#b3261e}.jc.s-acknowledged{border-left-color:var(--vino)}.jc.s-in_progress{border-left-color:#315F7C}
+.jc.s-on_hold{border-left-color:#7A6248}.jc.s-tocheck{border-left-color:var(--gold)}.jc.s-closed{border-left-color:#2f5d1e}
+.jc.over{box-shadow:inset 0 0 0 2px #b3261e}.jc.test{border-style:dashed}
+.jt{width:64px;height:64px;border-radius:5px;overflow:hidden;position:relative;background:var(--sabbia-light);border:1px dashed var(--sabbia-dark);display:grid;place-items:center;font-size:11px;color:var(--muted);text-align:center;line-height:1.2}
+.jt.img{border:0}
+.jt img{width:100%;height:100%;object-fit:cover;display:block}
+.jt i{position:absolute;right:3px;bottom:3px;background:rgba(0,0,0,.6);color:#fff;font-style:normal;font-size:10.5px;font-weight:700;border-radius:4px;padding:1px 5px}
+.ct{font-family:var(--serif);font-size:17px;line-height:1.3;color:var(--ink)}
+.cm{font-size:13px;color:var(--ink);margin-top:3px}
+.cx{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.45}
+.pill{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:5px 10px;align-self:center}
+.p-closed{background:#e3ecd6;color:#2f5d1e}
+.p-in_progress{background:#e2ecf4;color:#1f4a6e}.p-tocheck{background:#f4ead0;color:#6e5400}
+.foot{padding:16px 0}
+@media (max-width:700px){
+  .topbar{padding:0 14px}.topbar .tsec,.topbar .sep{display:none}
+  .hero{padding:22px 18px 18px;margin-top:16px}.hero .ht{font-size:26px}.hero .kick{padding-right:110px}
+  .hme{position:static;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;margin:-8px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.18)}
+  .hme button{margin:0;flex:none}.hero .kick{padding-right:0}
+  .gold{width:100%}.hstats{margin-left:0;width:100%}.hstat{flex:1;padding:8px 10px}.hstat i{font-size:9.5px;letter-spacing:.1em}
+  .fbar{flex-direction:column;align-items:stretch}.q{width:100%;margin-left:0;order:-1}
+  .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}.chip{flex:none}
+  .jc{grid-template-columns:52px minmax(0,1fr);gap:12px;padding:12px 14px}.jt{width:52px;height:52px}.jc .pill{grid-column:2;justify-self:start}
+}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -149,12 +216,12 @@ var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 var EMPLS = 'learnEmp', EMPFOR = 12*60*60*1000;   // the same sign-in as Learning and Training
 var MAX_FILE = 50*1024*1024, MAX_FILES = 8;
 var STATUS = { new:'New', acknowledged:'Acknowledged', in_progress:'In progress', on_hold:'On hold', completed:'Completed' };
-var FILTERS = [['open','Open'],['new','New'],['acknowledged','Acknowledged'],['in_progress','In progress'],['on_hold','On hold'],['completed','Completed']];
+var FILTERS = [['open','Open'],['new','New'],['in_progress','In progress'],['on_hold','On hold'],['tocheck','To check'],['closed','Closed']];
 var KINDS = { grease:'Grease trap', hood:'Hood & extraction', service:'Equipment service', preventive:'Preventive maintenance', other:'Other' };
 var UNITS = { day:['day','days'], week:['week','weeks'], month:['month','months'] };
 
 var qs = new URLSearchParams(location.search);
-var S = { emp:null, me:null, err:'', ok:'', view:'list', tab:'cards', filter:'open', list:null, card:null, cal:null,
+var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:'cards', filter:'open', list:null, card:null, cal:null,
           month:null, day:null, places:null, rep:null, d:{}, hold:false, completing:false, sendBack:false,
           task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null };
 
@@ -265,17 +332,19 @@ function draw(){
   window.scrollTo(0, y);
   drawViewer();
 }
-function barHtml(title, sub){
+function barHtml(title, sub, extra){
   var role = S.me ? (S.me.tech ? 'Technician' : S.me.chef ? 'Chef in charge' : '') : '';
-  return '<div class="bar">' + (S.me ? '<div class="me">' + esc(S.me.name) + (role ? '<br>' + role : '') + '<br><button id="out" type="button">Not you?</button></div>' : '') +
-    '<div class="bt"><div class="t">' + esc(title) + '</div><div class="s">' + esc(sub) + '</div></div></div>';
+  var me = S.me ? '<div class="hme">' + esc(S.me.name) + (role ? ' · ' + role : '') + '<button id="out" type="button">Not you?</button></div>' : '';
+  return '' +
+    '<div class="hero">' + me + '<div class="kick">Kitchen · Maintenance</div><div class="ht">' + esc(title) + '</div>' +
+    (sub ? '<div class="hs">' + esc(sub) + '</div>' : '') + (extra || '') + '</div>';
 }
 function msgs(){
   return (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
          (S.ok ? '<div class="msg ok" role="status">' + esc(S.ok) + '</div>' : '');
 }
 function drawSign(){
-  return barHtml('Maintenance', 'Job cards & planned maintenance') +
+  return barHtml('Maintenance', 'Report anything broken in the kitchen, and see everything already reported — who has it, and where it stands.') +
     '<form class="signin" id="fsign"><label class="k" for="emp">Your employee ID</label>' +
     '<input id="emp" class="in" inputmode="numeric" autocomplete="off" enterkeyhint="go" value="' + esc(S.tryEmp) + '">' +
     '<button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Open maintenance</button>' + msgs() +
@@ -287,43 +356,60 @@ function tabsHtml(){
   return '<div class="tabs" role="tablist"><button class="tab' + (S.tab === 'cards' ? ' on' : '') + '" type="button" data-tab="cards">Job cards' + (n ? '<b>' + n + '</b>' : '') + '</button>' +
     '<button class="tab' + (S.tab === 'cal' ? ' on' : '') + '" type="button" data-tab="cal">Calendar</button></div>';
 }
+function stKey(c){ return c.checked_at ? 'closed' : c.status === 'completed' ? 'tocheck' : c.status; }
 function pillOf(c){
-  if (c.checked_at) return '<span class="pill p-completed">Completed ✓</span>';
-  if (c.status === 'completed') return '<span class="pill p-tocheck">Completed · to check</span>';
+  var k = stKey(c);
+  if (k === 'closed') return '<span class="pill p-closed">Closed ✓</span>';
+  if (k === 'tocheck') return '<span class="pill p-tocheck">To check</span>';
   return '<span class="pill p-' + c.status + '">' + STATUS[c.status] + '</span>';
 }
 function inFilter(c, f){
   if (f === 'open') return !c.checked_at;
-  if (f === 'completed') return c.status === 'completed';
+  if (f === 'tocheck') return c.status === 'completed' && !c.checked_at;
+  if (f === 'closed') return !!c.checked_at;
   return c.status === f && !c.checked_at;
 }
+// The header card carries the main action and the counts; the list below filters and searches.
+function heroActions(){
+  var L = S.list || [], n = function(f){ return L.filter(function(c){ return inFilter(c, f); }).length; };
+  var st = [['open','Open'],['new','New'],['in_progress','In progress'],['tocheck','To check']];
+  return '<div class="hrow"><button class="gold" type="button" id="newrep">+ Report a problem</button>' +
+    (S.list ? '<div class="hstats">' + st.map(function(x){ var v = n(x[0]);
+      return '<div class="hstat' + (x[0] === 'new' && v ? ' hot' : '') + '"><b>' + v + '</b><i>' + x[1] + '</i></div>'; }).join('') + '</div>' : '') + '</div>';
+}
+function thumbHtml(c){
+  if (c.thumb) return '<span class="jt img"><img src="' + mediaUrl(c.thumb) + '" alt="" loading="lazy">' + (c.media > 1 ? '<i>' + c.media + '</i>' : '') + '</span>';
+  if (c.videos) return '<span class="jt">' + c.videos + (c.videos === 1 ? ' video' : ' videos') + '</span>';
+  return '<span class="jt">no photo</span>';
+}
 function drawList(){
-  var L = S.list || [], f = S.filter;
-  var shown = L.filter(function(c){ return inFilter(c, f); });
-  var html = barHtml('Maintenance', 'Job cards & planned maintenance') + tabsHtml() + '<div class="body">' + msgs() +
-    '<button class="btn wide" type="button" id="newrep">+ Report a problem</button>' +
-    '<div class="chips">' + FILTERS.map(function(x){
+  var L = S.list || [], f = S.filter, q = String(S.q || '').trim().toLowerCase();
+  var shown = L.filter(function(c){
+    return inFilter(c, f) && (!q || [jc(c.card_no), c.equipment, c.problem, c.location, c.reported_by, c.tech_name].join(' ').toLowerCase().indexOf(q) >= 0);
+  });
+  var lab = (FILTERS.filter(function(x){ return x[0] === f; })[0] || ['', ''])[1];
+  var html = barHtml('Maintenance', 'Report anything broken in the kitchen, and see everything already reported — who has it, and where it stands.', heroActions()) + tabsHtml() + '<div class="body">' + msgs() +
+    '<div class="fbar"><div class="chips">' + FILTERS.map(function(x){
       var n = L.filter(function(c){ return inFilter(c, x[0]); }).length;
-      return '<button class="chip' + (f === x[0] ? ' on' : '') + '" type="button" data-f="' + x[0] + '" aria-pressed="' + (f === x[0]) + '">' + x[1] + (x[0] === 'open' || n ? ' (' + n + ')' : '') + '</button>'; }).join('') + '</div>';
+      return '<button class="chip' + (f === x[0] ? ' on' : '') + '" type="button" data-f="' + x[0] + '" aria-pressed="' + (f === x[0]) + '">' + x[1] + (n ? '<small>' + n + '</small>' : '') + '</button>'; }).join('') + '</div>' +
+    '<input id="q" class="q" type="search" autocomplete="off" placeholder="Search: oven, cold room, hood…" aria-label="Search the job cards" value="' + esc(S.q || '') + '"></div>' +
+    '<div class="h2">' + (f === 'open' ? 'Open job cards' : lab) + '<span>newest first</span></div>';
   if (!S.list) html += '<div class="hint">Reading the job cards…</div>';
-  else if (!shown.length) html += '<div class="empty">' + (f === 'open' ? 'No open job cards. Anything broken? Report it with the button above.' : 'No job cards here.') + '</div>';
+  else if (!shown.length) html += '<div class="empty">' + (q ? 'No job card matches “' + esc(S.q.trim()) + '”.' : f === 'open' ? 'No open job cards. Anything broken? Report it with the button above.' : 'No job cards here.') + '</div>';
   else html += shown.map(function(c){
-      var over = c.source === 'calendar' && c.due && !c.checked_at;
-      var meta = ['<span>' + jc(c.card_no) + '</span>'];
-      if (c.source === 'calendar') meta.push('<span>From the calendar' + (c.due ? '' : '') + '</span>');
-      else meta.push('<span>Reported by ' + esc(c.reported_by) + ' · ' + esc(when(c.reported_at)) + '</span>');
-      if (c.photos || c.videos) meta.push('<span>' + [c.photos ? c.photos + (c.photos === 1 ? ' photo' : ' photos') : '', c.videos ? c.videos + (c.videos === 1 ? ' video' : ' videos') : ''].filter(Boolean).join(' · ') + '</span>');
-      if (c.tech_name && c.status !== 'new') meta.push('<span>' + esc(c.tech_name) + '</span>');
-      if (c.status === 'on_hold' && c.hold_reason) meta.push('<span>' + esc(c.hold_reason) + '</span>');
-      if (c.checked_at) meta.push('<span>Checked by ' + esc(c.checked_by) + ' · ' + esc(when(c.checked_at)) + '</span>');
-      if (c.is_test) meta.push('<span>TEST</span>');
-      return '<button class="card' + (over ? ' over' : '') + (c.is_test ? ' test' : '') + '" type="button" data-open="' + c.id + '">' +
-        '<div><div class="n">' + esc(titleOf(c, 90)) + '</div><div class="l">' + esc(c.location) + '</div></div>' + pillOf(c) +
-        '<div class="m">' + meta.join('') + '</div></button>';
+      var cal = c.source === 'calendar', over = cal && c.due && !c.checked_at;
+      var meta = [jc(c.card_no)];
+      meta.push(cal ? 'From the calendar' : 'Reported by ' + esc(c.reported_by) + ' · ' + esc(when(c.reported_at)));
+      if (c.tech_name && c.status !== 'new' && !c.checked_at) meta.push(esc(c.tech_name));
+      if (c.status === 'on_hold' && c.hold_reason && !c.checked_at) meta.push('On hold: ' + esc(c.hold_reason));
+      if (c.checked_at) meta.push('Checked by ' + esc(c.checked_by) + ' · ' + esc(when(c.checked_at)));
+      if (c.is_test) meta.push('TEST');
+      return '<button class="jc s-' + stKey(c) + (over ? ' over' : '') + (c.is_test ? ' test' : '') + '" type="button" data-open="' + c.id + '">' + thumbHtml(c) +
+        '<span><span class="ct">' + esc(titleOf(c, 90)) + '</span><span class="cm" style="display:block"><b>' + esc(c.location) + '</b></span>' +
+        '<span class="cx" style="display:block">' + meta.join(' · ') + '</span></span>' + pillOf(c) + '</button>';
     }).join('');
   return html + '</div>';
 }
-
 /* ── report a problem ── */
 function newReport(){
   var fid = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, function(){ return (Math.random()*16|0).toString(16); }));
@@ -538,7 +624,7 @@ function occurrences(t, from, to){
 }
 function drawCal(){
   var C = S.cal;
-  var html = barHtml('Maintenance', 'Job cards & planned maintenance') + tabsHtml() + '<div class="body">' + msgs();
+  var html = barHtml('Maintenance', 'Report anything broken in the kitchen, and see everything already reported — who has it, and where it stands.', heroActions()) + tabsHtml() + '<div class="body">' + msgs();
   if (!C) return html + '<div class="hint">Reading the calendar…</div></div>';
   var today = C.today, ym = S.month, y = +ym.slice(0,4), mo = +ym.slice(5,7);
   var first = new Date(Date.UTC(y, mo-1, 1)), days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
@@ -711,6 +797,7 @@ document.addEventListener('click', function(e){
 // Anything typed is kept in S.d, so the 30-second refresh and every redraw put it back.
 document.addEventListener('input', function(e){
   var el = e.target;
+  if (el.id === 'q') { S.q = el.value; return draw(); }
   if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
   if (el.dataset.r && S.rep) S.rep[el.dataset.r] = el.value;
 });
