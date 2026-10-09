@@ -995,6 +995,18 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   border-radius:3px;padding:2px 7px;flex:0 0 auto;white-space:nowrap}
 .srow .swk.soft{background:rgba(207,192,173,.5);opacity:.85}
 .newr.wrn{border-color:var(--vino);color:var(--vino);font-weight:600}
+/* all batches for FMC — the section picker. Own class: .chip means three different things in this file */
+.bxp{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:7px;padding:13px 15px;
+  margin:0 0 16px;color:var(--vino);font-family:var(--sans);font-size:14px;line-height:1.45}
+.bxs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}
+.bxc{font:inherit;font-size:13.5px;background:#fff;border:1px solid var(--sabbia-dark);border-radius:99px;
+  padding:9px 15px;color:var(--vino);cursor:pointer;min-height:40px}
+.bxc.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:600}
+.bxp #bxgo{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:4px;
+  padding:11px 22px;font-size:14px;font-weight:600;min-height:44px}
+.bxp #bxgo:disabled{opacity:.6}
+.bxn{margin-top:10px;font-size:13px;color:var(--vino)}
+.bxn.bad{color:#9b1c1c;font-weight:600}
 /* the dish he already has open, offered before the two doors that take it off the screen */
 .holdon{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
   border-radius:0 7px 7px 0;padding:13px 15px;margin:0 0 16px}
@@ -5925,6 +5937,275 @@ function micDownload(btn){
   }).then(function(){ btn.disabled = false; btn.textContent = was; });
 }
 
+/* ── every batch, for Aung to load into FMC — 9 Oct 2026 ─────────────────────────
+   Aung is putting all our ingredients and batch recipes into Materials Control and
+   needs them out in ONE file he can filter. The Micros request already writes a
+   Batches sheet, but only for the dishes on that one request; this is the same sheet
+   for the whole book, or for the sections he picks.
+
+   A batch has no section of its own — the dishes that use it do. So "Pasta" means
+   every batch a pasta dish reaches, a batch inside a batch included, and a sauce used
+   by a starter and a main comes out under both. A batch no dish uses comes out only
+   under All, and its row says so.
+
+   Ready and not ready are separate sheets. Not ready is exactly what batchCost()
+   refuses to cost — no yield, a line with nothing picked or no quantity — with the
+   reason on the row, so he never loads a batch a chef is still writing.
+
+   The RS- prefix is Francesco's (9 Oct): it goes on the name in THIS FILE only. The
+   recipe keeps its kitchen name, because the FMC price comparison matches on the
+   exact name and the chefs' screens show plain names on purpose. */
+var BXPREFIX = 'RS- ';
+var BX = { open:false, picks:{}, busy:false, msg:'', bad:false };
+
+function bxSections(){
+  var seen = {}, out = [];
+  (S.saved || []).forEach(function(r){
+    if (r.archived || r.kind !== 'main' || !r.section || seen[r.section]) return;
+    seen[r.section] = 1; out.push(r.section);
+  });
+  return out.sort();
+}
+function bxPanel(){
+  var any = Object.keys(BX.picks).length;
+  return '<div class="bxp"><b>All batches for FMC</b> — one Excel file, one row per ingredient, ' +
+      'ready to filter. Pick one or more sections, or All.' +
+    '<div class="bxs"><button class="bxc' + (any ? '' : ' on') + '" data-bxsec="">All</button>' +
+      bxSections().map(function(s){
+        return '<button class="bxc' + (BX.picks[s] ? ' on' : '') + '" data-bxsec="' + esc(s) + '">' +
+               esc(s) + '</button>';
+      }).join('') + '</div>' +
+    '<button class="newr" id="bxgo"' + (BX.busy ? ' disabled' : '') + '>' +
+      (BX.busy ? 'Making it…' : 'Download') + '</button>' +
+    (BX.msg ? '<div class="bxn' + (BX.bad ? ' bad' : '') + '">' + esc(BX.msg) + '</div>' : '') +
+  '</div>';
+}
+
+/* Everything read fresh, the way the Micros request does — and the catalogue waited
+   for, or every batch with a chef's own ingredient in it reads as uncostable (the
+   28 Aug boot race, see rebuildMYB). loadBatches() swallows its own failure and leaves
+   BATCH empty, so an empty BATCH is an error here, never an empty file. */
+function bxLoad(){
+  return Promise.all([
+    sb('recipes?kind=eq.main&archived=is.false&select=id,name,section,makes_qty'),
+    sbAll('recipe_lines?select=recipe_id,stock_code,stock_name,typed_text,child_recipe_id,qty,unit,' +
+       'trim_on,yield_pct,waste_pct,position&order=position,id'),
+    loadBatches(),
+    ING_READY
+  ]).then(function(res){
+    if (!Object.keys(BATCH).length) throw new Error('the batches could not be read');
+    var by = {};
+    (res[1]||[]).forEach(function(l){ (by[l.recipe_id] = by[l.recipe_id] || []).push(l); });
+    MAINS = {};
+    return (res[0]||[]).map(function(r){
+      MAINS[r.id] = { name:r.name, makesQty:r.makes_qty, makesUnit:'portion',
+                      archived:false, lines: by[r.id] || [] };
+      return { id:r.id, name:r.name, section:r.section || '' };
+    });
+  });
+}
+
+function bxWorkbook(ExcelJS, dishes){
+  var B = MICBRAND, picks = Object.keys(BX.picks).sort();
+  /* which dishes, and which sections, each batch ends up inside — across the WHOLE
+     book, so a batch taken out for Pasta still says it is in a main as well */
+  var inDish = {}, inSec = {};
+  dishes.forEach(function(d){
+    micBatchesUsed([d.id]).forEach(function(id){
+      (inDish[id] = inDish[id] || []).push(d.name);
+      if (d.section) (inSec[id] = inSec[id] || {})[d.section] = 1;
+    });
+  });
+  var ids = picks.length
+    ? micBatchesUsed(dishes.filter(function(d){ return BX.picks[d.section]; })
+                           .map(function(d){ return d.id; }))
+    : Object.keys(BATCH).filter(function(id){ return !BATCH[id].archived; });
+  ids = ids.filter(function(id){ return BATCH[id]; }).sort(function(a, b){
+    return String(BATCH[a].name).localeCompare(String(BATCH[b].name)); });
+  function used(id){ return (inDish[id] || []).sort().join(', ') || 'not used in any dish yet'; }
+  function secs(id){ return Object.keys(inSec[id] || {}).sort().join(', '); }
+  function fmcName(id){ return BXPREFIX + BATCH[id].name; }
+
+  var ready = [], notReady = [];
+  ids.forEach(function(id){
+    var c = batchCost(id);
+    /* a removed batch still inside a live dish is reached by the walk — it is not
+       something to load, whatever it costs */
+    if (BATCH[id].archived) c = { problem:'it was removed from the recipe book' };
+    (c.problem ? notReady : ready).push({ id:id, c:c });
+  });
+
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "Roberto's DIFC — Kitchen App";
+  var scope = picks.length ? picks.join(', ') : 'all sections';
+
+  /* ── sheet 1: the ready ones, laid out like the Micros request's Batches sheet ── */
+  var cols = [
+    { t:'Batch (FMC name)', w:32 }, { t:'Section', w:16 }, { t:'Used in these dishes', w:38 },
+    { t:'Makes', w:9, n:true }, { t:'Unit', w:8 }, { t:'Cost per unit', w:11, n:true },
+    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:36 }, { t:'Type', w:12 },
+    { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:44 }
+  ];
+  var ws = micFlatSheet(wb, 'Batches', 'Batches ready for FMC — ' + scope,
+    ready.length + ' batches, each one once. The total is the first row of each batch and the rows ' +
+    'under it are what is in it. Batch name, section and dishes are on every row, so any line ' +
+    'filtered or copied on its own still says whose it is. Not finished ones are on "Not ready".',
+    cols, B);
+  var R = 5;
+  ready.forEach(function(x){
+    var id = x.id, b = BATCH[id], lines = b.lines || [];
+    var u = used(id), s = secs(id), headRow = R; R++;
+    var first = R;
+    lines.forEach(function(l, i){
+      var f = micLineFacts(l), row = ws.getRow(R);
+      row.getCell(1).value  = fmcName(id);
+      row.getCell(2).value  = s;
+      row.getCell(3).value  = u;
+      row.getCell(4).value  = b.makesQty;
+      row.getCell(5).value  = b.makesUnit || '';
+      row.getCell(7).value  = i + 1;
+      row.getCell(8).value  = l.child_recipe_id && BATCH[l.child_recipe_id]
+                              ? BXPREFIX + f.name : f.name;
+      row.getCell(9).value  = l.child_recipe_id ? 'BATCH' : 'ingredient';
+      row.getCell(10).value = f.code || '';
+      row.getCell(11).value = f.qty;
+      row.getCell(12).value = f.unit || '';
+      row.getCell(13).value = f.unitPrice;
+      row.getCell(14).value = f.base || '';
+      row.getCell(15).value = f.cost;
+      row.getCell(16).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(17).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(18).value = f.note || (l.child_recipe_id
+        ? 'a batch inside this one — it has its own block on this sheet' : '');
+      [13, 15].forEach(function(cc){ row.getCell(cc).numFmt = MICMONEY; });
+      for (var k = 1; k <= cols.length; k++)
+        row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+      if (row.getCell(18).value) row.getCell(18).font =
+        { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      if (l.child_recipe_id)
+        micLinkCell(row.getCell(8), row.getCell(8).value, l.child_recipe_id,
+                    { name:'Calibri', size:11, color:{argb:B.ink} });
+      R++;
+    });
+    var h = ws.getRow(headRow);
+    h.getCell(1).value = fmcName(id);
+    h.getCell(2).value = s;
+    h.getCell(3).value = u;
+    h.getCell(4).value = b.makesQty;
+    h.getCell(5).value = b.makesUnit || '';
+    h.getCell(6).value = x.c.per;
+    h.getCell(6).numFmt = MICMONEY;
+    h.getCell(8).value = fmcName(id).toUpperCase();
+    h.getCell(9).value = 'BATCH TOTAL';
+    h.getCell(15).value = { formula:'SUM(O' + first + ':O' + (R - 1) + ')' };
+    h.getCell(15).numFmt = MICMONEY;
+    h.getCell(18).value = 'What it costs to make ' + b.makesQty + ' ' + (b.makesUnit || '') +
+      ' of it · ' + fmt(x.c.per) + ' per ' + (b.makesUnit || 'unit') +
+      ' · the ' + lines.length + ' row' + (lines.length === 1 ? '' : 's') + ' below are what is in it';
+    for (var k2 = 1; k2 <= cols.length; k2++){
+      h.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      h.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 8 || k2 === 9 || k2 === 15,
+                             color:{argb:B.vino} };
+    }
+    h.getCell(18).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
+    micLinkCell(h.getCell(1), fmcName(id), id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    R += 1;
+  });
+  if (!ready.length){
+    ws.getCell('A5').value = 'No batch in ' + scope + ' is ready yet — see "Not ready".';
+    ws.getCell('A5').font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+  }
+
+  /* ── sheet 2: not ready, and why — the chef's to finish, not Aung's to load ── */
+  var ncols = [
+    { t:'Batch (FMC name)', w:32 }, { t:'Section', w:16 }, { t:'Used in these dishes', w:38 },
+    { t:'Makes', w:9, n:true }, { t:'Unit', w:8 }, { t:'Lines written', w:9, n:true },
+    { t:'Why it is not ready', w:60 }
+  ];
+  var wn = micFlatSheet(wb, 'Not ready', 'Not ready yet — ' + scope,
+    notReady.length + ' batches a chef has not finished. Do not load these into FMC yet: each one ' +
+    'says what is missing. They move to "Batches" by themselves once the chef finishes them.',
+    ncols, B);
+  notReady.forEach(function(x, i){
+    var b = BATCH[x.id], row = wn.getRow(5 + i);
+    micLinkCell(row.getCell(1), fmcName(x.id), x.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    row.getCell(2).value = secs(x.id);
+    row.getCell(3).value = used(x.id);
+    row.getCell(4).value = b.makesQty == null ? null : b.makesQty;
+    row.getCell(5).value = b.makesUnit || '';
+    row.getCell(6).value = (b.lines || []).length;
+    row.getCell(7).value = x.c.problem;
+    for (var k = 2; k <= ncols.length; k++)
+      row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+  });
+  if (!notReady.length){
+    wn.getCell('A5').value = 'Every batch in ' + scope + ' is ready.';
+    wn.getCell('A5').font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+  }
+
+  /* ── sheet 3: every ingredient those batches use, once — what FMC must hold first ── */
+  var ing = {}, order = [];
+  ids.forEach(function(id){
+    (BATCH[id].lines || []).forEach(function(l){
+      if (!l.stock_code) return;
+      if (!ing[l.stock_code]){ ing[l.stock_code] = { l:l, in:{} }; order.push(l.stock_code); }
+      ing[l.stock_code].in[fmcName(id)] = 1;
+    });
+  });
+  var icols = [
+    { t:'Stock code', w:12 }, { t:'Ingredient', w:40 }, { t:'Unit price', w:11, n:true },
+    { t:'per', w:6 }, { t:'In how many batches', w:10, n:true }, { t:'Batches', w:60 },
+    { t:'Note', w:44 }
+  ];
+  var wi = micFlatSheet(wb, 'Ingredients', 'Ingredients in these batches — ' + scope,
+    order.length + ' ingredients, each one once. A note means it needs looking at before the ' +
+    'batches using it can go into FMC.', icols, B);
+  order.map(function(code){ return { code:code, f:micLineFacts(ing[code].l), x:ing[code] }; })
+    .sort(function(a, b){ return String(a.f.name).localeCompare(String(b.f.name)); })
+    .forEach(function(o, i){
+      var it = ING.filter(function(z){ return z.code === o.code; })[0];
+      var row = wi.getRow(5 + i), names = Object.keys(o.x.in).sort();
+      row.getCell(1).value = o.code;
+      row.getCell(2).value = o.f.name;
+      row.getCell(3).value = o.f.unitPrice;
+      row.getCell(3).numFmt = MICMONEY;
+      row.getCell(4).value = o.f.base || '';
+      row.getCell(5).value = names.length;
+      row.getCell(6).value = names.join(', ');
+      row.getCell(7).value = o.f.note ||
+        (it && it.mine ? 'added in the app by a chef — not an FMC article' + (it.price === 0 ? ', no price' : '')
+         : it && it.price === 0 ? 'no price in the FMC catalogue' : '');
+      for (var k = 1; k <= icols.length; k++)
+        row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+    });
+  return { wb:wb, ready:ready.length, notReady:notReady.length, ing:order.length, scope:scope };
+}
+
+function bxDownload(){
+  if (BX.busy) return;
+  BX.busy = true; BX.msg = ''; BX.bad = false; render();
+  var out;
+  Promise.all([lazy('lib/exceljs.min.js', 'ExcelJS'), bxLoad()]).then(function(r){
+    out = bxWorkbook(r[0], r[1]);
+    return out.wb.xlsx.writeBuffer();
+  }).then(function(buf){
+    var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
+      ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
+    var blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = stamp + '-Batches for FMC - ' + (out.scope === 'all sections' ? 'All' : out.scope) + '.xlsx';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    BX.msg = 'Made ✓ — ' + out.ready + ' ready, ' + out.notReady + ' not ready, ' +
+             out.ing + ' ingredients. It is in your downloads.';
+  }).catch(function(e){
+    BX.bad = true; BX.msg = 'Could not make it — ' + plain(e.message);
+  }).then(function(){ BX.busy = false; if (S.step === 'saved') render(); });
+}
+
 /* ── print ──
    Not the spreadsheet: a page. The same form, in the same colours, on paper — for
    walking it into a meeting or signing it. Excel's own print of an 18-column sheet
@@ -7906,6 +8187,7 @@ function render(){
             '<button class="newr" id="newmenu">＋ New menu</button>' +
             '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros requests</button>' : '') +
+            '<button class="newr" id="tobx">All batches for FMC</button>' +
             /* the count is on the button, so he can see from here whether it is worth
                opening — a door labelled "Needs finishing" with nothing behind it is noise */
             (function(){
@@ -7918,6 +8200,7 @@ function render(){
               return n ? '<button class="newr wrn" id="totodo">Needs finishing · ' + n + '</button>'
                        : '<button class="newr" id="totodo">Nothing needs finishing ✓</button>';
             })() +
+            (BX.open ? bxPanel() : '') +
             body
       ) + '</div>';
     /* the month being named survives a redraw of the list behind it, and Enter makes it */
@@ -13360,6 +13643,15 @@ document.addEventListener('click', function(e){
     return;
   }
   if (e.target.id === 'tomenus'){ openMenus(); return; }
+  /* ── all batches for FMC (Aung) ── */
+  if (e.target.id === 'tobx'){ BX.open = !BX.open; BX.msg = ''; render(); return; }
+  var bxs = e.target.closest('[data-bxsec]');
+  if (bxs){
+    var bxk = bxs.getAttribute('data-bxsec');
+    if (!bxk) BX.picks = {}; else if (BX.picks[bxk]) delete BX.picks[bxk]; else BX.picks[bxk] = 1;
+    BX.msg = ''; render(); return;
+  }
+  if (e.target.id === 'bxgo'){ bxDownload(); return; }
   /* ── the printed menu ── */
   if (e.target.id === 'toprinted' || e.target.closest('[data-pmsecgo]')){
     var gsec = e.target.closest('[data-pmsecgo]');
@@ -14575,7 +14867,7 @@ loadMenus().then(function(){
      he is on, or a recipe started before the read finished never gets asked */
   drawBarMenu();
 });
-loadArticles().then(loadMine).then(function(){
+var ING_READY = loadArticles().then(loadMine).then(function(){
   /* the batches were very likely costed before this line existed -- see rebuildMYB().
      Walk them again now that the catalogue AND his own items are both in hand. */
   rebuildMYB();
