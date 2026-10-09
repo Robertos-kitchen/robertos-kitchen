@@ -283,7 +283,7 @@ function drawHome(){
       var reads = t.pages > 0;
       return '<button class="topic" data-topic="' + esc(t.id) + '"' + (reads ? '' : ' disabled') + '>' +
         '<span class="num">' + (i + 1) + '</span><span class="tname">' + esc(t.title) + '</span>' +
-        '<span class="pill ' + (reads ? 'p-none' : 'p-none') + '">' + (reads ? t.pages + (t.pages === 1 ? ' page' : ' pages') : 'Questions only') + '</span>' +
+        '<span class="pill ' + (reads ? 'p-none' : 'p-none') + '">' + (reads ? t.pages + (t.pages === 1 ? ' page' : ' pages') : t.questions_all ? 'Questions only' : 'Coming soon') + '</span>' +
         '<span class="tsum">' + esc(t.summary) + '</span></button>';
     }).join('') + '</div>' +
     (S.me.viewer ? '<button class="link" id="myscores">Team scores</button>' : '') +
