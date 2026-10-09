@@ -35,7 +35,12 @@ Deno.serve(async (req) => {
   );
   const op = String(b.op || "");
   const codes = (Deno.env.get("TEAM_RESULTS_CODES") || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const gated = codes.length > 0 && codes.includes(String(b.code || "").trim());
+  let gated = codes.length > 0 && codes.includes(String(b.code || "").trim());
+  // Master codes (1212 and Andrea Sacchi's) open everything (Francesco, 9 Oct 2026). Checked by the database.
+  if (!gated && String(b.code || "").trim()) {
+    const m = await supa.rpc("master_name", { p_code: String(b.code).trim() });
+    gated = !m.error && !!m.data;
+  }
 
   if (op === "survey_submit") {
     const r = b.row || {};

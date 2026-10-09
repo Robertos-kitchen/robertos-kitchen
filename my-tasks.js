@@ -307,7 +307,7 @@ function mtRenderLock(msg){
 async function mtTryUnlock(){
   const el = document.getElementById('mt-pin');
   if(!el) return;
-  if(el.value === MT_PIN){
+  if(el.value === MT_PIN || (el.value && await window.kitchenMasterName(el.value))){   // master codes open it too (9 Oct 2026)
     mtUnlocked = true;
     try{ localStorage.setItem('mt_unlock_until', String(Date.now() + MT_UNLOCK_MS)); }catch(e){}
     await mtBoot();

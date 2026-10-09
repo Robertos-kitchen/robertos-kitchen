@@ -441,8 +441,9 @@ WritingHelp.loadTerms();
     $('pinsc').classList.remove('on');
     $('run').style.display = '';
   }
-  function tryPin(){
-    if ($('pinv').value.trim() !== '2468'){
+  async function tryPin(){
+    var v = $('pinv').value.trim();
+    if (v !== '2468' && !(await window.kitchenMasterName(v))){   // master codes open it too (9 Oct 2026)
       $('pine').textContent = 'Not that one.';
       $('pinv').value = ''; state(); $('pinv').focus();
       return;

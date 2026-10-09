@@ -466,7 +466,7 @@ if (DEV_READ_ONLY){
   window.fetch = function(url, opts){
     var method = ((opts && opts.method) || 'GET').toUpperCase();
     var s = String(url);
-    if (method !== 'GET' && method !== 'HEAD' && s.indexOf('/rest/v1/') !== -1){
+    if (method !== 'GET' && method !== 'HEAD' && s.indexOf('/rest/v1/') !== -1 && s.indexOf('/rest/v1/rpc/kitchen_master_check') === -1){   // the master check is a read
       console.warn('[DEV read-only] blocked ' + method + ' ' + s);
       return Promise.resolve(new Response(
         JSON.stringify({ message:'The DEV site is read-only. Tap the DEV badge at the bottom left, ' +
@@ -488,8 +488,14 @@ if (IS_DEV_HOST){
     b.onclick = async function(){
       if (DEV_READ_ONLY){
         var p = await kAskText({ title:'The DEV site is read-only', body:'Enter the schedule PIN to put photos on the real recipes.',
-          secret:true, numeric:true, ok:'Enable writes', check:function(v){ return String(v).trim() === '2468' ? '' : 'Wrong PIN.'; } });
+          secret:true, numeric:true, ok:'Enable writes', check:function(v){ return String(v).trim() ? '' : 'Enter the PIN.'; } });
         if (p === null) return;
+        // the schedule PIN, or a master code (1212, Andrea Sacchi's) — Francesco, 9 Oct 2026
+        if (String(p).trim() !== '2468') {
+          var mn = await fetch(SB_URL + '/rest/v1/rpc/kitchen_master_check', { method:'POST', headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY, 'Content-Type':'application/json' }, body: JSON.stringify({ p_code:String(p).trim() }) })
+            .then(function(r){ return r.ok ? r.json() : ''; }, function(){ return ''; });
+          if (!mn) { b.textContent = 'Wrong PIN — tap to try again'; return; }
+        }
         localStorage.setItem('kitchen-dev-writes','1');
       } else {
         localStorage.removeItem('kitchen-dev-writes');

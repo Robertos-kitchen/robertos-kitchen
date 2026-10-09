@@ -64,12 +64,22 @@
   }
   window.isMutatingFunctionCall = isMutatingFunctionCall;
 
+  // Master codes (1212 and Andrea Sacchi's) open every screen (Francesco, 9 Oct 2026). The database checks
+  // them (kitchen_master_check, a read); nothing is stored here. Resolves to the holder's name or ''.
+  window.kitchenMasterName = function (code) {
+    code = String(code == null ? '' : code).trim(); if (!code) return Promise.resolve('');
+    var u = 'https://zrpglswalgjbtghudmhu.supabase.co', k = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';   // the public anon key
+    return fetch(u + '/rest/v1/rpc/kitchen_master_check', { method: 'POST', headers: { apikey: k, Authorization: 'Bearer ' + k, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_code: code }) })
+      .then(function (r) { return r.ok ? r.json() : ''; }).then(function (n) { return n || ''; }, function () { return ''; });
+  };
+
   if (window.DEV_READ_ONLY) {
     var _realFetch = window.fetch.bind(window);
     window.fetch = function (url, opts) {
       var method = ((opts && opts.method) || 'GET').toUpperCase();
       var urlStr = String(url);
-      var blocked = (method !== 'GET' && method !== 'HEAD' && urlStr.indexOf('/rest/v1/') !== -1) ||
+      var blocked = (method !== 'GET' && method !== 'HEAD' && urlStr.indexOf('/rest/v1/') !== -1 &&
+                     urlStr.indexOf('/rest/v1/rpc/kitchen_master_check') === -1) ||   // a read: master codes must work on DEV too
                     isMutatingFunctionCall(urlStr);
       if (blocked) {
         console.warn('[DEV read-only] blocked ' + method + ' ' + urlStr);
@@ -103,8 +113,10 @@
           var p = await window.kAskText({ title: 'DEV site is read-only',
             body: 'Enter the schedule PIN to enable TEST WRITES (and real emails) against the production database.',
             secret: true, numeric: true, ok: 'Enable writes',
-            check: function (v) { return String(v).trim() === DEV_UNLOCK_PIN ? '' : 'Wrong PIN.'; } });
+            check: function (v) { return String(v).trim() ? '' : 'Enter the PIN.'; } });
           if (p === null) return;
+          // the schedule PIN, or a master code (1212, Andrea Sacchi's) — Francesco, 9 Oct 2026
+          if (String(p).trim() !== DEV_UNLOCK_PIN && !(await window.kitchenMasterName(p))) { b.textContent = 'Wrong PIN — tap to try again'; return; }
           localStorage.setItem('kitchen-dev-writes', '1');
         } else {
           localStorage.removeItem('kitchen-dev-writes');
