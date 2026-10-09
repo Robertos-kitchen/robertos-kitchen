@@ -126,6 +126,16 @@ textarea{width:100%;min-height:80px;line-height:1.5}
 .sc-r .sc-s{text-align:right;font-weight:700;white-space:nowrap}
 .sc-none{font-size:13.5px;color:var(--muted)}
 .empty{background:#fff;border:1px dashed var(--sabbia-dark);border-radius:8px;padding:16px;color:var(--muted);line-height:1.6}
+.hint{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--terra)}
+.choice.multi{display:flex;align-items:center;gap:12px}
+.box{width:24px;height:24px;border-radius:5px;border:1.5px solid var(--sabbia-dark);display:grid;place-items:center;flex:none;font-weight:700;background:#fff;color:var(--vino)}
+.ord{display:grid;gap:8px;touch-action:none}
+.orow{display:flex;align-items:center;gap:12px;background:var(--paper);border:1px solid var(--sabbia-dark);border-radius:8px;padding:12px 14px;min-height:52px;font-size:15.5px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
+.orow.drag{background:#fff;border-color:var(--vino);box-shadow:0 10px 22px -8px rgba(66,1,7,.4);cursor:grabbing}
+.grip{color:var(--terra);font-size:20px}
+.opos{width:24px;height:24px;border-radius:50%;background:var(--sabbia-light);color:var(--vino);font-weight:700;font-size:13px;display:grid;place-items:center;flex:none}
+.pair{display:grid;gap:6px;font-weight:600}
+.pair select{font-weight:400;width:100%}
 [hidden]{display:none!important}
 @media (max-width:520px){.topic{grid-template-columns:minmax(0,1fr)}.num{display:none}.tname,.tsum{grid-column:1}.pill{grid-column:1;grid-row:auto;justify-self:start}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -150,6 +160,10 @@ textarea{width:100%;min-height:80px;line-height:1.5}
      Francesco has approved it (Chef's corner). Recipe questions come from what is actually
      written in the Recipe book; a recipe that changes sends its question back for checking.
    Schema: learning-schema.sql.
+   · 9 Oct 2026 (Chef Francesco): ONE test of 20 questions from 5 topics picked at random, mixed,
+     in four formats: pick one (plate photos), pick all that apply, put in order (drag), match the
+     pairs. 80% passes. Topics stay as pages to read. Server: learn_start_mix / learn_finish_mix
+     (learning-mixed.sql). The old per-topic test functions stay for the screen still on LIVE.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
@@ -188,7 +202,7 @@ function post(fn, args){ return api('rpc/' + fn, { method:'POST', body:args }); 
 function say(err){
   var m = String(err && err.message || err);
   if (/no_emp/.test(m)) return 'That employee ID is not in the kitchen staff list. Check it, or ask Chef Francesco to add it.';
-  if (/not_ready/.test(m)) return 'This test is not open yet: it needs at least 5 checked and approved questions.';
+  if (/not_ready/.test(m)) return 'The test is not open yet: the topics need checked and approved questions.';
   if (/wrong_code/.test(m)) return 'That code is not right.';
   if (/not_learning/.test(m)) return 'Learning is for the kitchen brigade. Stewarding is not part of it.';
   if (/not_allowed/.test(m)) return 'Your employee ID cannot do this here.';
@@ -222,7 +236,8 @@ function signOut(){
   S.emp = null; S.me = null; S.topics = null; S.view = 'home'; S.chef = null; S.code = ''; draw();
 }
 function loadHome(){
-  return get('learn_home', { p_emp:S.emp }).then(function(t){ S.topics = t || []; });
+  return Promise.all([get('learn_home', { p_emp:S.emp }), get('learn_mix_history', { p_emp:S.emp }).catch(function(){ return []; })])
+    .then(function(r){ S.topics = r[0] || []; S.mix = r[1] || []; });
 }
 
 /* ── the team's side ── */
@@ -248,20 +263,27 @@ function drawHome(){
       '<input id="emp" inputmode="numeric" autocomplete="off" enterkeyhint="go" value="' + esc(S.tryEmp || '') + '">' +
       '<button class="btn" data-busy id="go" type="submit">Start</button>' +
       (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
-      '<details><summary>What is this?</summary><p>Short pages to read and a 5-question test for each topic. ' +
+      '<details><summary>What is this?</summary><p>Short pages to read, then one test: 20 questions from 5 topics picked at random. ' +
       'Everything here has been checked by Chef Danilo, Chef Antonio or Chef Andrea and approved by Chef Francesco. ' +
       'Your employee ID is how the app knows your level and keeps your score.</p></details></form>' +
       '<button class="link" id="chef">Chef’s corner — check and approve questions</button>';
   }
-  var open = (S.topics || []);
+  var open = (S.topics || []), mix = S.mix || [], last = mix[0], best = mix.filter(function(a){ return a.passed; })[0];
+  var ready = open.filter(function(t){ return t.questions_all >= 4; }).length;
   return '<div class="top"><h2>Learning</h2><div class="me"><b>' + esc(S.me.name) + '</b> · ' + esc(LEVEL[S.me.level] || '') +
     ' <button class="link" id="out">Not you?</button></div></div>' +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
-    '<div class="topics">' + open.map(function(t, i){
-      var st = passState(t), ready = t.pages > 0 || t.questions >= 5;
-      return '<button class="topic" data-topic="' + esc(t.id) + '"' + (ready ? '' : ' disabled') + '>' +
+    '<div class="card"><h3>The test</h3><div class="me" style="font-size:14.5px">20 questions from 5 topics picked at random. Some have more than one right answer, ' +
+      'some ask you to put steps in order or to match pairs. Timed. 16 right answers pass.</div>' +
+      (best ? '<div class="msg ok">Passed on ' + new Date(best.at).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) + ' with ' + best.score + '/' + best.total + '.</div>'
+            : last ? '<div class="msg bad">Last try: ' + last.score + '/' + last.total + ', not passed yet.</div>' : '') +
+      (ready ? '<button class="btn go" data-busy id="start">' + (best ? 'Take another test' : 'Start the test') + '</button>'
+             : '<div class="empty">The test opens once the topics have checked and approved questions.</div>') + '</div>' +
+    '<h3>Read first</h3><div class="topics">' + open.map(function(t, i){
+      var reads = t.pages > 0;
+      return '<button class="topic" data-topic="' + esc(t.id) + '"' + (reads ? '' : ' disabled') + '>' +
         '<span class="num">' + (i + 1) + '</span><span class="tname">' + esc(t.title) + '</span>' +
-        '<span class="pill ' + st.cls + '">' + esc(st.txt) + '</span>' +
+        '<span class="pill ' + (reads ? 'p-none' : 'p-none') + '">' + (reads ? t.pages + (t.pages === 1 ? ' page' : ' pages') : 'Questions only') + '</span>' +
         '<span class="tsum">' + esc(t.summary) + '</span></button>';
     }).join('') + '</div>' +
     (S.me.viewer ? '<button class="link" id="myscores">Team scores</button>' : '') +
@@ -276,10 +298,7 @@ function openTopic(id){
 }
 function drawTopic(){
   var t = S.topic, p = S.pages[S.pi], last = S.pi >= S.pages.length - 1;
-  var testLine = t.questions >= 5
-    ? '<button class="btn go" data-busy id="start">Take the test — 5 questions, timed</button>'
-    : '<div class="empty">The test opens once 5 questions are checked and approved' +
-      (t.questions ? ' — ' + t.questions + ' so far.' : '.') + '</div>';
+  var testLine = '<div class="acts"><button class="btn ghost" id="home">‹ All topics</button><button class="btn go" data-busy id="start">Take the test</button></div>';
   return '<button class="back" id="home">‹ Topics</button><h2>' + esc(t.title) + '</h2>' +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
     (p ? '<div class="page">' + (p.photo ? '<img src="' + esc(p.photo) + '" alt="">' : '') +
@@ -292,33 +311,86 @@ function drawTopic(){
 }
 function startTest(){
   setBusy(true); S.err = '';
-  post('learn_start', { p_emp:S.emp, p_topic:S.topic.id }).then(function(r){
-    S.test = r; S.qi = 0; S.picks = []; S.view = 'test'; startClock();
+  post('learn_start_mix', { p_emp:S.emp }).then(function(r){
+    S.test = r; S.qi = 0; S.view = 'test';
+    S.picks = r.questions.map(function(q){
+      if (q.type === 'multi') return [];
+      if (q.type === 'order') return q.items.slice();
+      if (q.type === 'match') return q.lefts.map(function(){ return null; });
+      return null;
+    });
+    startClock();
   }).catch(function(e){ S.err = say(e); }).then(function(){ setBusy(false); draw(); window.scrollTo(0,0); });
 }
+function answered(q, p){
+  if (q.type === 'multi') return p.length > 0;
+  if (q.type === 'match') return p.every(function(x){ return x != null; });
+  if (q.type === 'order') return true;
+  return p != null;
+}
 function drawTest(){
-  var qs = S.test.questions, q = qs[S.qi], n = qs.length, pick = S.picks[S.qi];
-  return '<h2>' + esc(S.test.title) + '</h2>' +
-    '<div class="bar" aria-hidden="true"><i style="width:' + Math.round(100 * S.qi / n) + '%"></i></div>' +
-    '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + clockHtml() + '</div>' +
-    '<div class="qtext">' + esc(q.q) + '</div>' +
-    q.choices.map(function(c, i){
+  var qs = S.test.questions, q = qs[S.qi], n = qs.length, pick = S.picks[S.qi], body, hint = '';
+  if (q.type === 'multi') {
+    hint = 'Tick all that apply';
+    body = q.choices.map(function(c, i){ var on = pick.indexOf(c) >= 0;
+      return '<button class="choice multi' + (on ? ' on' : '') + '" data-multi="' + i + '" aria-pressed="' + on + '"><span class="box">' + (on ? '✓' : '') + '</span><span>' + esc(c) + '</span></button>'; }).join('');
+  } else if (q.type === 'order') {
+    hint = 'Drag the rows into the right order';
+    body = '<div class="ord" id="ord">' + pick.map(function(c, i){ return '<div class="orow" data-o="' + i + '"><span class="grip">≡</span><span class="opos">' + (i + 1) + '</span><span>' + esc(c) + '</span></div>'; }).join('') + '</div>';
+  } else if (q.type === 'match') {
+    hint = 'Pick the right match for each one';
+    body = q.lefts.map(function(l, i){
+      return '<label class="pair"><span>' + esc(l) + '</span><select data-pair="' + i + '"><option value="">Choose…</option>' +
+        q.rights.map(function(r, j){ return '<option value="' + j + '"' + (pick[i] === r ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select></label>'; }).join('');
+  } else {
+    body = q.choices.map(function(c, i){
       var sh = q.shots && q.shots[c];
       return '<button class="choice' + (sh ? ' pic' : '') + (pick === c ? ' on' : '') + '" data-pick="' + i + '" aria-pressed="' + (pick === c) + '">' +
         shotsHtml(sh) + '<span>' + esc(c) + '</span></button>';
-    }).join('') +
+    }).join('');
+  }
+  var can = answered(q, pick);
+  return '<h2>The test</h2>' +
+    '<div class="bar" aria-hidden="true"><i style="width:' + Math.round(100 * S.qi / n) + '%"></i></div>' +
+    '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + ' · ' + esc(q.topic) + clockHtml() + '</div>' +
+    '<div class="qtext">' + esc(q.q) + '</div>' + (hint ? '<div class="hint">' + hint + '</div>' : '') + body +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
     '<div class="pager"><span>' + (S.qi > 0 ? '<button class="btn ghost sm" id="qprev">‹ Back</button>' : '') + '</span>' +
     (S.qi < n - 1
-      ? '<button class="btn" id="qnext"' + (pick == null ? ' disabled' : '') + '>Next ›</button>'
-      : '<button class="btn go" data-busy id="finish"' + (pick == null ? ' disabled' : '') + '>Hand it in</button>') +
+      ? '<button class="btn" id="qnext"' + (can ? '' : ' disabled') + '>Next ›</button>'
+      : '<button class="btn go" data-busy id="finish"' + (can ? '' : ' disabled') + '>Hand it in</button>') +
     '</div></div>';
 }
+/* Reorder by dragging the whole row, touch and mouse; never arrows (Chef Francesco's rule). */
+function bindOrder(){
+  var list = $('ord'); if (!list) return;
+  var drag = null;
+  list.addEventListener('pointerdown', function(e){
+    var row = e.target.closest('.orow'); if (!row) return;
+    e.preventDefault(); drag = row; row.classList.add('drag'); row.setPointerCapture(e.pointerId);
+  });
+  list.addEventListener('pointermove', function(e){
+    if (!drag) return;
+    var over = null;
+    [].slice.call(list.children).forEach(function(r){ if (r === drag) return; var b = r.getBoundingClientRect(); if (e.clientY > b.top && e.clientY < b.bottom) over = r; });
+    if (!over) return;
+    var b = over.getBoundingClientRect();
+    if (e.clientY < b.top + b.height / 2) list.insertBefore(drag, over); else list.insertBefore(drag, over.nextSibling);
+  });
+  function drop(){
+    if (!drag) return;
+    drag.classList.remove('drag'); drag = null;
+    var cur = S.picks[S.qi].slice();
+    S.picks[S.qi] = [].slice.call(list.children).map(function(r){ return cur[+r.dataset.o]; });
+    [].slice.call(list.children).forEach(function(r, i){ r.dataset.o = i; r.querySelector('.opos').textContent = i + 1; });
+  }
+  list.addEventListener('pointerup', drop); list.addEventListener('pointercancel', drop);
+}
 /* The clock (Chef Francesco, 29 Sep 2026: "they could cheat by using ai"). The database
-   gives each question time by its length (learn_q_secs) and adds them up into one clock for
-   the whole test, so a hard question can borrow from an easy one. At 0 the test hands itself
-   in; unanswered questions count as wrong. The database keeps its own clock (30 s of grace)
-   and a test handed in after that cannot pass, whatever the phone says. */
+   gives each question time by its length and adds them up into one clock for the whole test,
+   so a hard question can borrow from an easy one. At 0 the test hands itself in; unanswered
+   questions count as wrong. The database keeps its own clock (30 s of grace) and a test
+   handed in after that cannot pass, whatever the phone says. */
 function clockLeft(){ return Math.max(0, Math.ceil((S.test.until - Date.now()) / 1000)); }
 function clockText(t){ return Math.floor(t / 60) + ':' + ('0' + (t % 60)).slice(-2) + ' left'; }
 function clockHtml(){
@@ -341,18 +413,20 @@ function startClock(){
 function finish(){
   clearInterval(S.tick);
   setBusy(true); S.err = '';
-  post('learn_finish', { p_emp:S.emp, p_attempt:S.test.attempt, p_answers:S.picks }).then(function(r){
+  post('learn_finish_mix', { p_emp:S.emp, p_attempt:S.test.attempt, p_answers:S.picks }).then(function(r){
     S.result = r; S.view = 'result'; return loadHome();
   }).catch(function(e){ S.err = say(e); }).then(function(){ setBusy(false); draw(); window.scrollTo(0,0); });
 }
 function drawResult(){
   var r = S.result, wrong = r.results.filter(function(x){ return !x.right; }), right = r.results.filter(function(x){ return x.right; });
-  return '<h2>' + esc(S.test.title) + '</h2>' +
+  return '<h2>The test</h2>' +
     '<div class="card"><div class="score">' + r.score + ' / ' + r.total + '</div>' +
     '<div class="msg ' + (r.passed ? 'ok' : 'bad') + '">' +
       (r.late ? 'Time ran out before this was handed in, so it does not count. You can take it again: the questions change.'
         : (S.test.timeUp ? 'Time was up, so it was handed in for you. Questions not answered count as wrong. ' : '') +
-          (r.passed ? 'Passed.' : 'Not passed this time — 4 right answers are needed. You can take it again: the questions change.')) + '</div></div>' +
+          (r.passed ? 'Passed.' : 'Not passed this time — ' + r.pass + ' right answers are needed. You can take it again: the questions change.')) + '</div></div>' +
+    '<div class="card"><h3>By topic</h3>' + Object.keys(r.per_topic || {}).map(function(k){ var x = r.per_topic[k];
+      return '<div class="gap"><span>' + esc(k) + '</span><b style="color:' + (x.right < x.of ? 'var(--err)' : 'var(--ok)') + '">' + x.right + '/' + x.of + '</b></div>'; }).join('') + '</div>' +
     (wrong.length ? '<h3>What to learn from this</h3>' + wrong.map(function(x){
       return '<div class="res"><div class="q">' + esc(x.q) + '</div>' +
         '<div class="you pline">' + shotsHtml(x.pshot) + '<span>You answered: ' + esc(x.picked || '—') + '</span></div>' +
@@ -362,7 +436,7 @@ function drawResult(){
     (right.length ? '<details><summary>' + right.length + ' you got right</summary>' + right.map(function(x){
       return '<div class="res right"><div class="q">' + esc(x.q) + '</div><div class="ans pline">' + shotsHtml(x.shot) + '<span>' + esc(x.answer) + '</span></div></div>';
     }).join('') + '</details>' : '') +
-    '<div class="acts"><button class="btn" data-busy id="again">Take it again</button><button class="btn ghost" id="home">Back to topics</button></div>';
+    '<div class="acts"><button class="btn" data-busy id="again">Take another test</button><button class="btn ghost" id="home">Back to Learning</button></div>';
 }
 
 /* ── Chef's corner: check (Danilo, Antonio, Andrea), approve (Francesco), write, recipes, scores ── */
@@ -371,7 +445,7 @@ function chefSignIn(){
   S.tryCemp = emp;
   if (!emp && !code) emp = S.emp || '';
   S.cmsg = ''; setBusy(true);
-  post('learn_queue', { p_emp:emp || null, p_code:code || null }).then(function(q){
+  post('learn_queue', { p_emp:emp || null, p_code:code || null, p_all:true }).then(function(q){
     S.chef = { emp:emp || null, code:code || null }; S.cq = q; S.code = code; loadCrockery();
     S.ctab = q.role.role === 'francesco' ? 'approve' : (q.role.role === 'checker' ? 'check' : 'write');
   }).catch(function(e){ S.cmsg = say(e); }).then(function(){ setBusy(false); draw(); });
@@ -403,12 +477,20 @@ function plateLine(cls, mark, t, isPlate){
     (isPlate && !sh && S.crock && Object.keys(S.crock).length ? '<span class="nopic">no photo: not a Crockery name</span>' : '') + '</div>';
 }
 function reloadQueue(){
-  return post('learn_queue', { p_emp:S.chef.emp, p_code:S.chef.code }).then(function(q){ S.cq = q; });
+  return post('learn_queue', { p_emp:S.chef.emp, p_code:S.chef.code, p_all:true }).then(function(q){ S.cq = q; });
 }
 function role(){ return S.cq ? S.cq.role.role : null; }
 function topicName(id){ var t = (S.cq.topics || []).filter(function(x){ return x.id === id; })[0]; return t ? t.title : id; }
 var SRC = { recipe:'Recipe book', general:'General knowledge', sop:'SOP', chef:'Written by a chef' };
 var LVL = { all:'Everyone', cdp:'CDP and above', senior:'Seniors only' };
+var QT = { one:'Pick one', multi:'Pick all that apply', order:'Put in order', match:'Match the pairs' };
+function qlines(x){
+  var t = x.qtype || 'one', d = x.data || {};
+  if (t === 'multi') return (d.answers || []).map(function(a){ return '<div class="ia">✓ ' + esc(a) + '</div>'; }).join('') + x.wrong.map(function(w){ return '<div class="iw">✗ ' + esc(w) + '</div>'; }).join('');
+  if (t === 'order') return (d.items || []).map(function(a, i){ return '<div class="ia">' + (i + 1) + '. ' + esc(a) + '</div>'; }).join('');
+  if (t === 'match') return (d.pairs || []).map(function(p){ return '<div class="ia">' + esc(p[0]) + ' → ' + esc(p[1]) + '</div>'; }).join('');
+  return null;
+}
 function drawChef(){
   if (!S.cq) {
     return '<button class="back" id="home">‹ Learning</button><h2>Chef’s corner</h2>' +
@@ -516,11 +598,19 @@ function bulkApprove(){
 }
 function drawItem(it){
   var x = it.x, r = role(), id = x.id, editing = S.edit === id, isPlate = it.k === 'q' && /^plate:/.test(x.gen_key || '');
-  var meta = '<div class="meta"><b>' + esc(topicName(x.topic_id)) + '</b> · ' + (it.k === 'p' ? 'Page' : 'Question · ' + esc(LVL[x.level] || x.level)) +
+  var qt = it.k === 'q' ? (x.qtype || 'one') : null;
+  var meta = '<div class="meta"><b>' + esc(topicName(x.topic_id)) + '</b> · ' + (it.k === 'p' ? 'Page' : 'Question · ' + esc(QT[qt]) + ' · ' + esc(LVL[x.level] || x.level)) +
     ' · ' + esc(SRC[x.source] || x.source) + ' · by ' + esc(x.written_by) +
     (x.checked_by ? ' · checked by ' + esc(x.checked_by) : '') + '</div>';
   var body;
-  if (editing) body = it.k === 'q'
+  if (editing && qt && qt !== 'one') body = '<div class="grid2"><span class="lbl">Question</span><textarea id="e-q">' + esc(x.q) + '</textarea>' +
+      (qt === 'multi' ? '<span class="lbl">Right answers, one per line</span><textarea id="e-lines">' + esc((x.data.answers || []).join('\n')) + '</textarea>' +
+                        '<span class="lbl">Wrong answers, one per line</span><textarea id="e-wrong">' + esc(x.wrong.join('\n')) + '</textarea>'
+       : qt === 'order' ? '<span class="lbl">The steps in the RIGHT order, one per line</span><textarea id="e-lines">' + esc((x.data.items || []).join('\n')) + '</textarea>'
+       : '<span class="lbl">The pairs, one per line: left = right</span><textarea id="e-lines">' + esc((x.data.pairs || []).map(function(p){ return p[0] + ' = ' + p[1]; }).join('\n')) + '</textarea>') +
+      '<span class="lbl">Why (one line, shown after the test)</span><input class="in" id="e-y" value="' + esc(x.why) + '">' +
+      '<span class="lbl">Who sees it</span><select id="e-l">' + Object.keys(LVL).map(function(k){ return '<option value="' + k + '"' + (x.level === k ? ' selected' : '') + '>' + LVL[k] + '</option>'; }).join('') + '</select></div>';
+  else if (editing) body = it.k === 'q'
     ? '<div class="grid2"><span class="lbl">Question</span><textarea id="e-q">' + esc(x.q) + '</textarea>' +
       '<span class="lbl">Right answer</span><input class="in" id="e-a" value="' + esc(x.answer) + '">' +
       '<span class="lbl">Three wrong answers</span>' + x.wrong.map(function(w, i){ return '<input class="in" id="e-w' + i + '" value="' + esc(w) + '">'; }).join('') +
@@ -530,7 +620,8 @@ function drawItem(it){
       '<span class="lbl">Page</span><textarea id="e-b" style="min-height:260px">' + esc(x.body) + '</textarea>' +
       '<span class="lbl">Photo</span>' + (x.photo ? '<img src="' + esc(x.photo) + '" alt="" style="max-width:220px;border-radius:6px">' : '') +
       '<input type="file" id="e-p" accept="image/*"></div>';
-  else body = it.k === 'q'
+  else body = it.k === 'q' && qt !== 'one' ? '<div class="iq">' + esc(x.q) + '</div>' + qlines(x) + (x.why ? '<div class="iw"><i>Why: ' + esc(x.why) + '</i></div>' : '')
+    : it.k === 'q'
     ? '<div class="iq">' + esc(x.q) + '</div>' + plateLine('ia', '✓', x.answer, isPlate) +
       x.wrong.map(function(w){ return plateLine('iw', '✗', w, isPlate); }).join('') +
       (x.why ? '<div class="iw"><i>Why: ' + esc(x.why) + '</i></div>' : '')
@@ -577,12 +668,26 @@ function readPhoto(file){
   });
 }
 function editFields(kind){
+  if (kind === 'q' && S.editType && S.editType !== 'one') {
+    var lines = $('e-lines').value.split('\n').map(function(l){ return l.trim(); }).filter(Boolean), f = { q:$('e-q').value.trim(), why:$('e-y').value.trim(), level:$('e-l').value, qtype:S.editType };
+    if (S.editType === 'multi') { f.data = { answers:lines }; f.wrong = $('e-wrong').value.split('\n').map(function(l){ return l.trim(); }).filter(Boolean); f.answer = lines.join(' · '); }
+    else if (S.editType === 'order') { f.data = { items:lines }; f.answer = lines.join(' → '); }
+    else { f.data = { pairs:lines.map(function(l){ var i = l.indexOf('='); return i < 0 ? [l, ''] : [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }) }; f.answer = f.data.pairs.map(function(p){ return p[0] + ' → ' + p[1]; }).join(' · '); }
+    return Promise.resolve(f);
+  }
   if (kind === 'q') return Promise.resolve({ q:$('e-q').value.trim(), answer:$('e-a').value.trim(),
     wrong:[0,1,2].map(function(i){ return $('e-w' + i).value.trim(); }), why:$('e-y').value.trim(), level:$('e-l').value });
   return readPhoto($('e-p').files[0]).then(function(ph){
     var f = { title:$('e-t').value.trim(), body:$('e-b').value.trim() }; if (ph) f.photo = ph; return f; });
 }
 function fieldsOk(kind, f){
+  if (kind === 'q' && f.qtype && f.qtype !== 'one') {
+    if (!f.q) return 'Write the question.';
+    if (f.qtype === 'multi' && (f.data.answers.length < 2 || !f.wrong.length)) return 'Write at least two right answers and one wrong answer.';
+    if (f.qtype === 'order' && f.data.items.length < 3) return 'Write at least three steps, in the right order.';
+    if (f.qtype === 'match' && (f.data.pairs.length < 3 || f.data.pairs.some(function(p){ return !p[0] || !p[1]; }))) return 'Write at least three pairs, each as: left = right.';
+    delete f.qtype; return '';
+  }
   if (kind === 'q') {
     if (!f.q || !f.answer || f.wrong.some(function(w){ return !w; })) return 'Fill in the question, the right answer and all three wrong answers.';
     var all = [f.answer].concat(f.wrong).map(function(s){ return s.toLowerCase(); });
@@ -738,6 +843,7 @@ function draw(){
   $('root').innerHTML = html;
   if (S.busy) document.querySelectorAll('button[data-busy]').forEach(function(x){ x.disabled = true; });
   if (S.view === 'home' && !S.me && $('emp')) $('emp').focus();
+  if (S.view === 'test') bindOrder();
 }
 document.addEventListener('click', function(ev){
   var b = ev.target.closest('button, input[type=checkbox]'); if (!b) return;
@@ -752,6 +858,7 @@ document.addEventListener('click', function(ev){
   if (id === 'prev') { S.pi--; draw(); window.scrollTo(0,0); return; }
   if (id === 'start' || id === 'again') return startTest();
   if (b.dataset.pick != null) { S.picks[S.qi] = S.test.questions[S.qi].choices[+b.dataset.pick]; draw(); return; }
+  if (b.dataset.multi != null) { var c = S.test.questions[S.qi].choices[+b.dataset.multi], pk = S.picks[S.qi], at = pk.indexOf(c); if (at >= 0) pk.splice(at, 1); else pk.push(c); draw(); return; }
   if (id === 'qnext') { S.qi++; draw(); window.scrollTo(0,0); return; }
   if (id === 'qprev') { S.qi--; draw(); return; }
   if (id === 'finish') return finish();
@@ -779,7 +886,7 @@ document.addEventListener('click', function(ev){
   }
   var act = b.dataset.act;
   if (act === 'ok' || act === 'approve') return step(b.dataset.k, b.dataset.id, act);
-  if (act === 'edit') { S.edit = b.dataset.id; S.rejecting = null; S.cmsg = ''; draw(); var el = $('it-' + b.dataset.id); if (el) el.scrollIntoView({ block:'start' }); return; }
+  if (act === 'edit') { S.edit = b.dataset.id; S.editType = ((S.cq.questions.filter(function(q){ return q.id === b.dataset.id; })[0] || {}).qtype) || 'one'; S.rejecting = null; S.cmsg = ''; draw(); var el = $('it-' + b.dataset.id); if (el) el.scrollIntoView({ block:'start' }); return; }
   if (act === 'cancel') { S.edit = null; S.rejecting = null; draw(); return; }
   if (act === 'rejask') { S.rejecting = b.dataset.id; S.edit = null; draw(); return; }
   if (act === 'reject') return step(b.dataset.k, b.dataset.id, 'reject', null, ($('rj-' + b.dataset.id) || {}).value);
@@ -794,6 +901,7 @@ document.addEventListener('click', function(ev){
   }
 });
 document.addEventListener('change', function(ev){
+  if (ev.target.dataset && ev.target.dataset.pair != null && S.view === 'test') { var qq = S.test.questions[S.qi]; S.picks[S.qi][+ev.target.dataset.pair] = ev.target.value === '' ? null : qq.rights[+ev.target.value]; draw(); return; }
   if (ev.target.id === 'ctopic') { S.ctopic = ev.target.value; S.cshow = 30; if (S.bulk && !S.bulk.run) S.bulk = null; draw(); }
   if (ev.target.id === 'wk') { $('wq').hidden = ev.target.value !== 'q'; $('wp').hidden = ev.target.value !== 'p'; }
 });
