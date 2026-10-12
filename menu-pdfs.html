@@ -116,6 +116,7 @@ input[type=file]{display:none}
 
 <div id="root"></div>
 
+<script src="recipe-lock.js?v=1790782200"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    CURRENT MENU — the PDFs the restaurant actually prints.
@@ -272,6 +273,10 @@ function load(){
    for when he needs to send it to the printer. */
 function upload(file){
   if (!file) return;
+  if (!RecipeLock.isOpen()){
+    err = 'Menus are locked, so nothing was uploaded. Tap Upload again and enter the chef code.';
+    render(); return;
+  }
   if (!/\.pdf$/i.test(file.name)){
     err = 'That is not a PDF. Menus are stored as PDFs so they print exactly as designed.';
     render(); return;
@@ -311,6 +316,11 @@ function upload(file){
 }
 
 function remove(name){
+  if (!RecipeLock.isOpen()){
+    asking = null;
+    err = 'Menus are locked, so nothing was deleted. Tap Delete again and enter the chef code.';
+    render(); return;
+  }
   if (DEV_READ_ONLY){
     asking = null;
     err = 'The DEV site is read-only, so nothing was deleted. Tap the DEV badge and enter the PIN.';
@@ -409,9 +419,24 @@ function render(){
 
 document.addEventListener('click', function(e){
   var t = e.target;
-  if (t.id === 'pick'){ document.getElementById('file').click(); return; }
+  /* Opening and printing a menu is for everyone; replacing or deleting one is chef
+     code only (Tell us 312145d3). Unlocked, it carries straight on. */
+  if (t.id === 'pick'){
+    if (!RecipeLock.isOpen()){
+      RecipeLock.ask('Uploading a menu?').then(function(ok){ if (ok) document.getElementById('file').click(); });
+      return;
+    }
+    document.getElementById('file').click(); return;
+  }
   var del = t.closest ? t.closest('[data-del]') : null;
-  if (del){ asking = del.dataset.del; render(); return; }
+  if (del){
+    var name = del.dataset.del;
+    if (!RecipeLock.isOpen()){
+      RecipeLock.ask('Deleting a menu?').then(function(ok){ if (ok){ asking = name; render(); } });
+      return;
+    }
+    asking = name; render(); return;
+  }
   if (t.dataset && t.dataset.no){ asking = null; render(); return; }
   var yes = t.closest ? t.closest('[data-yes]') : null;
   if (yes){ remove(yes.dataset.yes); return; }

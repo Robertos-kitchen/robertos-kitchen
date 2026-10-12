@@ -18,6 +18,7 @@
      The SNAPSHOT photos further down stay inline on purpose: they are the offline
      fallback, and a fallback that needs a second request is not a fallback. -->
 <script src="k-dialog.js?v=1790782200"></script>
+<script src="recipe-lock.js?v=1790782200"></script>
 <script>var PHOTOS={"terrace":"img/room-terrace.jpg","crudo":"img/room-crudo.jpg","scala":"img/room-scala.jpg"};</script>
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
@@ -674,6 +675,8 @@ function bibleWho(){
    somebody added thirty seconds ago. Read, add to what is actually there, write. */
 function savePhoto(dish, shot, mode){
   var who = bibleWho();
+  if (!RecipeLock.isOpen()) return Promise.reject(new Error(
+    'recipes are locked — the chef code was not entered'));
   if (frozen) return Promise.reject(new Error(
     'this page is reading its built-in copy, not the live database, so nothing can be saved from it'));
   /* A plain read, not sb(): sb() would answer out of the snapshot if the network refused,
@@ -727,6 +730,8 @@ function savePhoto(dish, shot, mode){
    rather than deleting whatever happens to be in slot one now. */
 function removePhoto(dish){
   var who = bibleWho();
+  if (!RecipeLock.isOpen()) return Promise.reject(new Error(
+    'recipes are locked — the chef code was not entered'));
   if (frozen) return Promise.reject(new Error(
     'this page is reading its built-in copy, not the live database, so nothing can be changed from it'));
   var going = dish.photo;
@@ -1616,6 +1621,17 @@ document.addEventListener('click', function(e){
     /* 'picking' is deliberately a state photoLayer does not draw: while the phone's own
        picker is over the page there is nothing to say, and saying "getting the photograph
        ready…" before a file exists is a lie the page would be left holding if he backs out. */
+    /* Reading the Bible is for everyone; changing a dish's photograph is chef code
+       only (Tell us 312145d3). Unlocked, it goes straight on to the picker. */
+    if (!RecipeLock.isOpen()){
+      RecipeLock.ask('Changing the photograph on a dish?').then(function(ok){
+        if (!ok) return;
+        PH_STATE = { id: fid, stage:'picking', shot:null, msg:'' };
+        render();
+        photoInput().click();
+      });
+      return;
+    }
     PH_STATE = { id: fid, stage:'picking', shot:null, msg:'' };
     render();
     photoInput().click();
@@ -1627,6 +1643,14 @@ document.addEventListener('click', function(e){
   if (b.dataset.phdel !== undefined){
     var dr = dishById(b.dataset.phdel);
     if (!dr || !dr.photo) return;                 /* nothing there: nothing to ask about */
+    if (!RecipeLock.isOpen()){
+      RecipeLock.ask('Taking the photograph off a dish?').then(function(ok){
+        if (!ok) return;
+        PH_STATE = { id: dr.id, stage:'removeask', shot:null, msg:'', was:'remove', noretry:false };
+        render();
+      });
+      return;
+    }
     PH_STATE = { id: dr.id, stage:'removeask', shot:null, msg:'', was:'remove', noretry:false };
     render(); return;
   }

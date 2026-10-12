@@ -2846,10 +2846,12 @@ function openOrderInventory(){ openMarketList(); }
 // giving it a door meant that asking for one dish to go to the till started by leaving
 // the dish. It is a button on the recipe's card in the book, and a button inside a menu.
 // Same screen, same code; only the way in is different.
+// 25 Sep 2026 (Tell us 312145d3): every screen that can change a recipe or a menu now
+// asks for the chef code — recipe-lock.js. Recipe card and Food Bible stay open to read.
 var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
    name:'Create new recipes',
-   meta:'Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
+   meta:'Chef code. Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
   {code:'TASTE', view:'tasting-view', page:'tasting.html?embed=1',
    name:'Tasting',
    meta:'Score the dishes waiting for the à la carte. Chef Francesco approves, and the dish moves onto the menu.'},
@@ -2864,13 +2866,13 @@ var RECIPE_SCREENS=[
    meta:'Every menu we print, kept ready for the printer — à la carte, wine, set menus.'},
   {code:'FIX', view:'todo-view', page:'recipe-create.html?embed=1&todo=1',
    name:'Needs finishing',
-   meta:'Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'},
+   meta:'Chef code. Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'},
   // Where the Micros request used to be. It is the saved recipes, filed by menu — the
   // screen they actually wanted quick access to, and the one every other way in already
   // went through. Micros is now a button on the cards inside it.
   {code:'BOOK', view:'recipebook-view', page:'recipe-create.html?embed=1&saved=1',
    name:'Recipe book',
-   meta:'Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'},
+   meta:'Chef code. Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'},
   // 7 Oct 2026, Francesco: the business-lunch food cost lives here, not in FOH, and only a
   // chef changes it (a till name tied to its recipe asks for the chef code).
   {code:'LUNCH', view:'bizlunch-view', page:'business-lunch.html?embed=1',

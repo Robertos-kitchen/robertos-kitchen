@@ -142,6 +142,8 @@ h1{font-family:var(--serif);font-size:29px;color:var(--vino);margin:0 0 6px;line
 
 <script src="dev-guard.js?v=1789747927"></script>
 <script src="k-dialog.js?v=1790782200"></script>
+<script src="recipe-lock.js?v=1790782200"></script>
+<script>RecipeLock.guardPage();   /* it rewrites recipe methods — chef code only (Tell us 312145d3) */</script>
 <script>
 /* Inside the Recipes module this page is an iframe, so its own "Kitchen" link
    would load the whole app INSIDE the frame — the shell nested in itself. The
@@ -463,7 +465,9 @@ WritingHelp.loadTerms();
     if (e.key === 'Escape' && $('pinsc').classList.contains('on')) shut();
   });
 
-  if (sessionStorage.getItem('kitchen-book-ok') === '1') return;
+  /* The chef code already opened this page (recipe-lock.js) — one code, not two. */
+  if (sessionStorage.getItem('kitchen-book-ok') === '1' || (window.RecipeLock && RecipeLock.isOpen())) return;
+  window.addEventListener('recipelock-open', function(){ if ($('pinsc').classList.contains('on')) pass(); });
   $('run').style.display = 'none';
   $('pinsc').classList.add('on');
   setTimeout(function(){ $('pinv').focus(); }, 40);
