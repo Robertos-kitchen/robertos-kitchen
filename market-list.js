@@ -3013,10 +3013,10 @@ function mlPrint(){
 //
 // The ?v= is not decoration either: without it the browser is entitled to hand
 // back the copy it downloaded in August and call that a fresh download.
-var ML_HELPER_BUILD = '2026-10-12d';
+var ML_HELPER_BUILD = '2026-10-12f';
 // The helper reads these two lines to update itself (fmc_helper/selfupdate.py):
 // it downloads the exe only when its SHA-256 matches. Change BOTH with every build.
-var ML_HELPER_SHA256 = '3dca150f59a56b4d6d981813e850c1601628509b4cf32e3398f739e688432ebc';
+var ML_HELPER_SHA256 = 'e2241956808902a224954823b19b9bd14e51fab8c1747733e45ae9402faf8904';
 var ML_HELPER_EXE = 'downloads/FMC-order-helper.exe?v=' + ML_HELPER_BUILD;
 
 function mlOrderHelper(){
