@@ -7,6 +7,8 @@
 //   kind 'ask'    -> Chef Francesco: a chef asks him to taste, with Accept / Pick another time
 //   kind 'invite' -> Chef Francesco: the confirmed time as a calendar invite (Outlook adds it)
 //   kind 'cancel' -> Chef Francesco: the calendar entry is taken off again
+//   kind 'answer' -> the chef who asked: Chef Francesco accepted the time, or moved it
+//   kind 'gone'   -> the chef who asked: someone else cancelled it
 // The invite's UID is the request id and SEQUENCE is tasting_requests.cal_seq, so a changed time
 // updates the same calendar entry instead of adding a second one.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -90,6 +92,21 @@ function build(kind: string, r: Req, dishes: string[]) {
     rows = [["When", when(r.confirmed_at)], ["Dishes", list], ["Asked by", r.asked_by]];
     if (r.note) rows.push(["Note", r.note]);
     buttons = [["Open the tasting", link(""), true]];
+  } else if (kind === "answer") {
+    // to the chef who asked: Chef Francesco accepted the time, or moved it
+    const moved = new Date(r.confirmed_at).getTime() !== new Date(r.proposed_at).getTime();
+    subject = moved ? `Chef Francesco moved your tasting to ${when(r.confirmed_at)}` : `Chef Francesco accepted your tasting: ${when(r.confirmed_at)}`;
+    band = moved ? "Tasting · the time has changed" : "Tasting · confirmed";
+    intro = moved ? `Chef Francesco will taste at a different time from the one you asked for (${when(r.proposed_at)}).` : "Chef Francesco accepted the time you asked for.";
+    rows = [["When", when(r.confirmed_at)], ["Dishes", list]];
+    buttons = [["Open the tasting", PAGE, true]];
+  } else if (kind === "gone") {
+    // to the chef who asked: someone else cancelled it
+    subject = `Your tasting was cancelled: ${when(r.confirmed_at || r.proposed_at)}`;
+    band = "Tasting · cancelled";
+    intro = `The tasting you asked for was cancelled${r.decided_by ? " by " + r.decided_by : ""}. Ask for another time from the Tasting screen.`;
+    rows = [["Was", when(r.confirmed_at || r.proposed_at)], ["Dishes", list]];
+    buttons = [["Open the tasting", PAGE, true]];
   } else {
     subject = `Tasting cancelled: ${when(r.confirmed_at || r.proposed_at)}`;
     band = "Tasting · cancelled";
@@ -147,7 +164,7 @@ Deno.serve(async (req) => {
   const mail = build(m.kind, r, dishes);
   if (m.is_test) mail.subject = "[TEST] " + mail.subject;
   const payload: Record<string, unknown> = { from: FROM, to: m.to_list, subject: mail.subject, text: mail.text, html: mail.html };
-  if (m.kind !== "ask") {
+  if (m.kind === "invite" || m.kind === "cancel") {
     const cancel = m.kind === "cancel";
     payload.attachments = [{
       filename: cancel ? "tasting-cancelled.ics" : "tasting.ics",

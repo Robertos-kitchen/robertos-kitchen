@@ -144,3 +144,77 @@ grant execute on function public.tasting_request_decide(text, uuid, timestamptz,
 grant execute on function public.tasting_request_cancel(text, uuid, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ── 12 Oct 2026, later the same day (Francesco): the chef who asked gets an email too ──
+-- when Chef Francesco accepts or moves the time ('answer'), and when someone other than the
+-- chef cancels it ('gone'). The chef's address is read live from maint_people (by staff name),
+-- then menu_plan_members; no address is copied here. A TEST request never mails a chef: its
+-- chef mail goes to tasting_secret.notify_email instead.
+alter table public.tasting_mail drop constraint if exists tasting_mail_kind_check;
+alter table public.tasting_mail add constraint tasting_mail_kind_check check (kind in ('ask','invite','cancel','answer','gone'));
+
+create or replace function public.tasting_asker_email(p_name text) returns text
+language sql security definer set search_path = public stable as $$
+  select e from (
+    select mp.email as e, 1 as o from maint_people mp join staff s on s.id = mp.staff_id
+     where mp.active and lower(trim(s.name)) = lower(trim(p_name)) and coalesce(mp.email, '') <> ''
+    union all
+    select m.email, 2 from menu_plan_members m
+     where m.active and lower(trim(m.name)) = lower(trim(p_name)) and coalesce(m.email, '') <> ''
+  ) x order by o limit 1;
+$$;
+revoke all on function public.tasting_asker_email(text) from public, anon, authenticated;
+
+create or replace function public.tasting_mail_chef(p_request uuid, p_kind text) returns void
+language plpgsql security definer set search_path = public as $$
+declare r tasting_requests; addr text; mid bigint;
+begin
+  select * into r from tasting_requests where id = p_request;
+  if r.id is null then return; end if;
+  if r.is_test then select notify_email into addr from tasting_secret where venue_id = 'robertos-difc';
+  else addr := tasting_asker_email(r.asked_by); end if;
+  if addr is null or addr = '' then return; end if;
+  insert into tasting_mail (request_id, kind, to_list, is_test) values (p_request, p_kind, array[addr], r.is_test)
+  returning id into mid;
+  perform tasting_mail_kick(mid);
+end $$;
+revoke all on function public.tasting_mail_chef(uuid, text) from public, anon, authenticated;
+
+create or replace function public.tasting_request_decide(p_code text, p_id uuid, p_at timestamptz, p_by text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare r tasting_requests; t timestamptz;
+begin
+  if not tasting_code_ok(p_code) then raise exception 'wrong_code' using errcode = 'P0001'; end if;
+  select * into r from tasting_requests where id = p_id for update;
+  if r.id is null then raise exception 'no_request' using errcode = 'P0001'; end if;
+  if r.status = 'cancelled' then raise exception 'cancelled' using errcode = 'P0001'; end if;
+  t := coalesce(p_at, r.proposed_at);
+  if t < now() or t > now() + interval '180 days' then raise exception 'bad_time' using errcode = 'P0001'; end if;
+  if r.status = 'confirmed' and r.confirmed_at = t then raise exception 'same_time' using errcode = 'P0001'; end if;
+  update tasting_requests set status = 'confirmed', confirmed_at = t, cal_seq = cal_seq + 1,
+         decided_by = coalesce(nullif(trim(p_by), ''), 'Francesco'), decided_at = now()
+   where id = p_id;
+  perform tasting_mail_queue(p_id, 'invite', r.is_test);
+  perform tasting_mail_chef(p_id, 'answer');
+  return jsonb_build_object('id', p_id, 'confirmed_at', t);
+end $$;
+
+create or replace function public.tasting_request_cancel(p_code text, p_id uuid, p_by text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare r tasting_requests; who text := trim(coalesce(p_by, '')); own boolean;
+begin
+  select * into r from tasting_requests where id = p_id for update;
+  if r.id is null then raise exception 'no_request' using errcode = 'P0001'; end if;
+  own := who <> '' and who = r.asked_by;
+  if not (tasting_code_ok(p_code) or own) then
+    raise exception 'wrong_code' using errcode = 'P0001'; end if;
+  if r.status = 'cancelled' then return jsonb_build_object('id', p_id); end if;
+  update tasting_requests set status = 'cancelled', cal_seq = cal_seq + 1,
+         decided_by = coalesce(nullif(who, ''), 'Francesco'), decided_at = now()
+   where id = p_id;
+  if r.status = 'confirmed' then perform tasting_mail_queue(p_id, 'cancel', r.is_test); end if;
+  if not own then perform tasting_mail_chef(p_id, 'gone'); end if;
+  return jsonb_build_object('id', p_id);
+end $$;
+
+notify pgrst, 'reload schema';
