@@ -144,6 +144,8 @@ body.roomstep .foot{margin-top:26px}
 /* What is still missing, said on the row — so nobody opens a card expecting a method
    that was never written, and so the gaps are visible without hunting. */
 .dish .dgap{font-size:11.5px;letter-spacing:.3px;color:#a3907a}
+/* why a dish answered a search its name does not explain - 7.6:1 on the row's paper */
+.dish .duse{font-size:12.5px;font-weight:600;color:#5a3a1e}
 .dish .dgap.ok{color:var(--oliva)}
 .dish .dgo{margin-left:auto;font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;
   font-weight:700;color:var(--vino);white-space:nowrap}
@@ -783,6 +785,8 @@ function freshen(){
     .then(function(){ freshening = false; });
 }
 window.__rcpFreshen = freshen;           /* the module pokes this when the screen is reopened */
+/* Find on the Kitchen home screen (find.js) opens one card straight from its answer. */
+window.__rcpOpen = function(id){ openDish(id); };
 /* Coming back to the card is the moment he is about to act on it. A phone locked in
    an apron pocket stops the timer, and waiting out another full interval after he
    looks again is the whole window in which he cooks the old one. */
@@ -830,8 +834,8 @@ function gather(ids, acc){
 function loadMenu(){
   return Promise.all([
     sb('recipes?kind=eq.main&archived=is.false&show_team=is.true&select=id,name,section,menu_price,method,allergens,photos,updated_at&order=section,name'),
-    sb('recipes?select=id,allergens'),
-    sbAll('recipe_lines?select=recipe_id,child_recipe_id&order=id'),
+    sb('recipes?select=id,name,allergens'),
+    sbAll('recipe_lines?select=recipe_id,child_recipe_id,stock_name,typed_text&order=id'),
     /* the menus, and what is on them. A dish carries its menus so the front page can
        be narrowed to one — a chef de partie on the Christmas section does not want
        three hundred à la carte dishes in the way. */
@@ -850,10 +854,13 @@ function loadMenu(){
       var run = MENUS.filter(function(m){ return m.running; })[0];
       menuPick = run ? run.id : '';
     }
-    var ALL = {}, LINKS = {};
-    (res[1]||[]).forEach(function(r){ ALL[r.id] = r.allergens || []; });
+    var ALL = {}, LINKS = {}, BNAME = {}, ING = {};
+    (res[1]||[]).forEach(function(r){ ALL[r.id] = r.allergens || []; BNAME[r.id] = r.name || ''; });
     (res[2]||[]).forEach(function(l){
       if (l.child_recipe_id) (LINKS[l.recipe_id] = LINKS[l.recipe_id] || []).push(l.child_recipe_id);
+      /* stock_name is the article the chef picked; typed_text is only what he typed to
+         find it ("lem"), so it is the fallback for a line with no article behind it */
+      else { var nm = l.stock_name || l.typed_text; if (nm) (ING[l.recipe_id] = ING[l.recipe_id] || []).push(nm); }
     });
     MENU = (res[0]||[]).map(function(d){
       var out = (d.allergens || []).slice(), seen = {};
@@ -863,6 +870,17 @@ function loadMenu(){
         (LINKS[id] || []).forEach(walk);
       })(d.id);
       d.allAllergens = out;
+      /* what is IN the dish, its batches included, so "lemon zest" finds the dishes that
+         use it. `via` is the batch the ingredient sits in - null when it is on the dish
+         itself - because "uses lemon zest" on a dish whose own lines do not show it
+         reads as a mistake. (12 Oct 2026, inbox 873e8292: "show me lemon zest recipe".) */
+      var ingr = [], seenI = {};
+      (function walkI(id, via){
+        if (!id || seenI[id]) return; seenI[id] = 1;
+        (ING[id] || []).forEach(function(t){ ingr.push({ t:t, via:via }); });
+        (LINKS[id] || []).forEach(function(c){ walkI(c, BNAME[c] || via); });
+      })(d.id, null);
+      d.ingr = ingr;
       d.menus = ON[d.id] || [];
       return d;
     });
@@ -946,9 +964,14 @@ function onPick(d){
   return (d.menus || []).some(function(id){ return id === menuPick || KIDOF[id] === menuPick; });
 }
 function elsewhereNote(q){
-  var qw = words(q); if (!qw.length) return '';
+  var qw = asked(q); if (!qw.length) return '';
   var found = MENU.filter(function(d){ return posIn(qw, d.name) != null; });
-  if (!found.length) return '';
+  if (!found.length){
+    /* not a name anywhere - but it may be an ingredient of dishes on another menu */
+    var n = findDishes(q, MENU).length;
+    return n ? '<div class="mnote noprint"><b>' + n + ' dish' + (n===1?'':'es') + '</b> on other menus match' +
+      ' &mdash; tap <b>Everything</b> to see ' + (n===1?'it':'them') + '.</div>' : '';
+  }
   return '<div class="mnote noprint">' + found.slice(0,4).map(function(d){
     var names = (d.menus||[]).map(function(id){
       var m = MENUS.filter(function(x){ return x.id===id; })[0]; return m ? m.name : null;
@@ -959,13 +982,35 @@ function elsewhereNote(q){
 }
 /* A name match always beats a section match, so searching "burrata" gives you the
    dish called Burrata before everything else in Antipasti. */
+/* People type the way they talk - "show me lemon zest recipe". Those words are in no
+   dish name, and every word typed has to match, so the sentence found nothing. They are
+   dropped from the question only, never from the names. */
+var FILLER = { show:1, me:1, recipe:1, recipes:1, find:1, give:1, please:1, want:1, need:1,
+  get:1, how:1, to:1, make:1, i:1, we:1, 'for':1, 'with':1, where:1, is:1, what:1, dish:1, dishes:1 };
+function asked(q){ return words(q).filter(function(w){ return !FILLER[w]; }); }
+/* why a dish is in the list when its name does not say so: { id: {t, via} } */
+var USES = {};
 function findDishes(qRaw, list){
-  var qw = words(qRaw); if (!qw.length) return list.slice();
+  var qw = asked(qRaw); USES = {};
+  if (!qw.length) return list.slice();
   var hits = [];
   list.forEach(function(x, ix){
     var f = posIn(qw, x.name), rank;
     if (f != null) rank = f;
-    else { var g = posIn(qw, x.section); if (g == null) return; rank = 1000 + g; }
+    else {
+      var g = posIn(qw, x.section);
+      if (g != null) rank = 1000 + g;
+      else {
+        /* an ingredient on the dish itself is said before the same one inside a batch */
+        var got = null;
+        (x.ingr || []).forEach(function(i){
+          if (posIn(qw, i.t) == null) return;
+          if (!got || (got.via && !i.via)) got = i;
+        });
+        if (!got) return;
+        USES[x.id] = got; rank = 2000 + (got.via ? 1 : 0);
+      }
+    }
     hits.push({ x:x, ix:ix, rank:rank });
   });
   hits.sort(function(a,b){ return (a.rank-b.rank) || (a.ix-b.ix); });
@@ -1758,7 +1803,7 @@ function viewHome(){
             : '')
         : '') +
       '<div class="dfind noprint"><input id="dq" value="'+esc(mq)+'" ' +
-        'placeholder="search '+pool.length+' dishes — burrata, vitello, pasta…">' +
+        'placeholder="search '+pool.length+' dishes — burrata, pasta, or an ingredient like lemon zest…">' +
         (mq ? '<button class="dclr" id="dclr">Clear</button>' : '') +
         '<span class="dcount">'+(mq ? shown.length+' of '+pool.length : pool.length+' dish'+(pool.length===1?'':'es'))+
           (menuPick ? ' on this menu' : (MENUS.length ? ' — every menu' : ''))+'</span></div>' +
@@ -1768,10 +1813,10 @@ function viewHome(){
         : '') +
       (mq && !shown.length && menuPick ? elsewhereNote(mq) : '') +
       (mq && !shown.length
-        ? '<div class="load"><b>No dish matches “'+esc(mq)+'” on this menu.</b><br>' +
-          'Every word you type has to be in the name or the section, so fewer words find ' +
-          'more — try just “vitello”. If it is not here at all, it has not been written ' +
-          'on the create screen yet.</div>'
+        ? '<div class="load"><b>No dish matches “'+esc(mq)+'”'+(menuPick?' on this menu':'')+'.</b><br>' +
+          'It looks in the name, the section and the ingredients, and every word you type ' +
+          'has to be there, so fewer words find more — try just “vitello”. If it is not ' +
+          'here at all, it has not been written on the create screen yet.</div>'
         : '') +
       '<div class="menu">' + shown.map(function(d){
       /* the section headings are the menu's own order. A search re-ranks the list by
@@ -1785,6 +1830,8 @@ function viewHome(){
       return head + '<button class="dish" data-open="' + d.id + '">' +
         '<span class="dn">' + esc(d.name) + '</span>' +
         (mq && d.section ? '<span class="dsec">' + esc(d.section) + '</span>' : '') +
+        (mq && USES[d.id] ? '<span class="duse">uses ' + esc(USES[d.id].t) +
+          (USES[d.id].via ? ' · in ' + esc(USES[d.id].via) : '') + '</span>' : '') +
         (gaps.length ? '<span class="dgap">' + esc(gaps.join(' · ')) + '</span>'
                      : '<span class="dgap ok">written</span>') +
         '<span class="dgo">Open &rarr;</span></button>';

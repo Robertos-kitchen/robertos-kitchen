@@ -1,5 +1,10 @@
 // ──────────────────────────────────────────────────────────────────────────
-// Roberto's — "Tell us" button.  ONE file used by BOTH apps (Kitchen + FOH).
+// Roberto's — "Send feedback" button.  ONE file used by BOTH apps (Kitchen + FOH).
+//
+// It was called "Tell us" until 12 Oct 2026. Somebody on the Recipe card typed "show me
+// lemon zest recipe" into it (inbox 873e8292): a floating pill with an empty box reads as
+// something that ANSWERS. So the name now says what it does, the sheet says a person
+// reads it later, and where the app has a Find box (window.KFIND, Kitchen) it points there.
 //
 // KEEP THIS FILE IDENTICAL IN BOTH REPOS, the same rule common.js carries.
 // It is the only place the button, the sheet and the send exist; two copies
@@ -221,8 +226,8 @@
     var b = document.createElement('button');
     b.id = 'fbi-btn';
     b.type = 'button';
-    b.setAttribute('aria-label', 'Tell us — send an idea or a problem');
-    b.innerHTML = '<span style="font-size:14px;line-height:1">&#9998;</span><span class="fbi-btn-word">Tell us</span>';
+    b.setAttribute('aria-label', 'Send feedback — an idea or a problem, read by Francesco');
+    b.innerHTML = '<span style="font-size:14px;line-height:1">&#9998;</span><span class="fbi-btn-word">Send feedback</span>';
     b.onclick = function () { openSheet(); };
     document.body.appendChild(b);
 
@@ -269,6 +274,8 @@
       'border-radius:9px;padding:11px 15px;font:600 13.5px/1 inherit;color:#8b7355;cursor:pointer}',
       '#fbi-card .fbi-photo:active{background:#f7f2e8}',
       '#fbi-card .fbi-more{font-size:12px;color:#8b7355;line-height:1.5;margin-top:10px}',
+      '#fbi-card .fbi-find{display:block;width:100%;margin-top:11px;text-align:left;background:#f3e9da;border:1px solid #e3d5c2;',
+      'border-radius:9px;padding:11px 12px;font:600 13.5px/1.35 inherit;color:#400207;cursor:pointer}',
       '#fbi-card summary{cursor:pointer;color:#9c8a72;font-size:12px;list-style:none}',
       '#fbi-card summary::-webkit-details-marker{display:none}'
     ].join('');
@@ -276,10 +283,11 @@
   }
 
   // ── The sheet ────────────────────────────────────────────────────────────
-  function openSheet() {
+  function openSheet(pre) {
     if (open) return;
     open = true; sending = false;
-    draft.body = '';
+    // Find's "ask for it" hands over what they were looking for, so they do not type it twice.
+    draft.body = (typeof pre === 'string') ? pre.slice(0, MAX) : '';
     // The photo clears with the words, not separately — a picture left over from
     // a sheet they abandoned would silently ride along on the next message.
     if (draft.shot && draft.shot.url) URL.revokeObjectURL(draft.shot.url);
@@ -293,6 +301,7 @@
     document.body.appendChild(w);
     document.addEventListener('keydown', onKey);
     var t = document.getElementById('fbi-body');
+    if (t && draft.body) t.value = draft.body;
     // Straight into the box on a laptop. NOT on a phone: focusing throws the
     // keyboard up over the sheet before they have read what it is asking.
     if (t && window.innerWidth >= 560) t.focus();
@@ -309,19 +318,24 @@
 
   function cardHTML() {
     var sc = screenName();
-    return '<div id="fbi-card" role="dialog" aria-modal="true" aria-label="Tell us">'
+    return '<div id="fbi-card" role="dialog" aria-modal="true" aria-label="Send feedback">'
       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
-      +   '<div><div style="font:600 17px/1.25 Georgia,serif;color:#400207">Tell us</div>'
-      +   '<div style="font-size:12.5px;color:#8b7355;margin-top:3px">Something in the way? An idea? Say it here &mdash; it goes straight to Francesco.</div></div>'
+      +   '<div><div style="font:600 17px/1.25 Georgia,serif;color:#400207">Send feedback</div>'
+      +   '<div style="font-size:13px;color:#5a4632;margin-top:3px;line-height:1.45">Something in the way? An idea? It goes to Francesco, who reads it later. '
+      +   '<b>This box does not answer and does not search the app.</b></div></div>'
       +   '<button class="fbi-x" type="button" onclick="window.FBI.close()" aria-label="Close">&#10005;</button>'
       + '</div>'
+      // Only where the app really has a Find box. A pointer to nothing is worse than none.
+      + ((window.KFIND && typeof window.KFIND.open === 'function')
+          ? '<button class="fbi-find" type="button" onclick="window.FBI.find()">Looking for a recipe, an ingredient or a screen? <u>Use Find</u> &rarr;</button>'
+          : '')
       + '<div class="fbi-lbl">Which is it</div>'
       + '<div class="fbi-seg">'
       +   '<button type="button" id="fbi-k-problem" onclick="window.FBI.kind(\'problem\')">Something&rsquo;s wrong</button>'
       +   '<button type="button" id="fbi-k-idea" onclick="window.FBI.kind(\'idea\')">An idea</button>'
       + '</div>'
       + '<div class="fbi-lbl">In your own words</div>'
-      + '<textarea id="fbi-body" rows="4" maxlength="' + MAX + '" placeholder="What happened, or what would help&hellip;" oninput="window.FBI.set(\'body\',this.value)"></textarea>'
+      + '<textarea id="fbi-body" rows="4" maxlength="' + MAX + '" placeholder="What went wrong, or what would make it better&hellip;" oninput="window.FBI.set(\'body\',this.value)"></textarea>'
       + '<div class="fbi-lbl">A photo <span style="text-transform:none;letter-spacing:0">&mdash; optional</span></div>'
       // accept="image/*" and no capture= : on a phone this offers the camera AND
       // the photo library, so they can shoot the screen in front of them or
@@ -500,7 +514,8 @@
     photo: pickPhoto,
     file: onFile,
     dropPhoto: dropPhoto,
-    again: function () { closeSheet(); openSheet(); }
+    again: function () { closeSheet(); openSheet(); },
+    find: function () { closeSheet(); try { window.KFIND.open(''); } catch (e) {} }
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
