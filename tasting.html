@@ -62,6 +62,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 .meter i.lo{background:#c28a3a}
 .meter b{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--vino)}
 .addrow{border:1px dashed var(--sabbia-dark);background:transparent;border-radius:8px;padding:13px;text-align:left;color:var(--vino);font-size:14px;cursor:pointer;min-height:48px}
+.back1{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:8px;padding:10px 12px;font-size:14px;line-height:1.5;color:var(--ink)}
+.takeoff{margin-top:12px}
 .empty{background:#fff;border:1px dashed var(--sabbia-dark);border-radius:8px;padding:16px;color:var(--muted);line-height:1.6}
 details{font-size:13px;color:var(--muted)}
 details summary{cursor:pointer;color:var(--vino);font-weight:500;min-height:32px}
@@ -151,7 +153,12 @@ function rememberWho(name){
   try { localStorage.setItem(WHOLS, JSON.stringify({ emp_id:WHO.emp_id, name:WHO.name, at:Date.now() })); } catch(e){}
 }
 
-var S = { screen:'list', rid:null, draft:{}, adding:false, q:'', otherOpen:false };
+var S = { screen:'list', rid:null, draft:{}, adding:false, taking:false, q:'', otherOpen:false, undo:[], umsg:null };
+/* Dishes taken off in this visit, newest first, so "Put it back" outlives any message.
+   Kept for the tab, so a reload does not lose the way back. */
+var UNDOKEY = 'tastingTakenOff';
+try { S.undo = JSON.parse(sessionStorage.getItem(UNDOKEY) || '[]') || []; } catch(e){ S.undo = []; }
+function keepUndo(){ try { sessionStorage.setItem(UNDOKEY, JSON.stringify(S.undo)); } catch(e){} }
 var D = { settings:null, up:[], scores:[], decisions:[], menus:[], names:{}, loaded:false, err:null };
 var STAFF = null, BOOK = null;
 var CODE = '';        /* the approver code, typed once — kept for this visit only */
@@ -298,6 +305,8 @@ function listHtml(){
     '<div class="sec-h"><h3>Waiting to be tasted</h3><span class="mark">Pass mark <b class="num">' + f1(mark()) + '</b> / 10</span></div>' +
     '<div class="list">' + (rows || '<div class="empty">Nothing is waiting. Put a dish on <b>' + esc(D.upName) + '</b> in the Recipe book, or add one below.</div>') + '</div>' +
     (S.adding ? pickHtml() : '<button class="addrow" data-add="1">+ Taste another dish from the recipe book</button>') +
+    (S.taking && D.up.length ? takeHtml() : (D.up.length ? '<button class="addrow" data-takeopen="1">&minus; Take a dish off the tasting</button>' : '')) +
+    backHtml() +
     (doneRows ? '<div class="sec-h"><h3>Approved</h3><small>kept here; nothing is deleted</small></div><div class="list">' + doneRows + '</div>' : '') +
     '<details><summary>How this works</summary>' +
       '<p>Every dish on the menu <b>' + esc(D.upName) + '</b> in the Recipe book shows up here. Everyone at the tasting taps their name and scores taste and look, each out of 10. You only ever change your own score. The dish’s score is the average across everyone who scored.</p>' +
@@ -314,6 +323,33 @@ function pickHtml(){
       (res.map(function(r){ return '<button data-put="' + r.id + '">' + esc(r.name) + '<small>' + esc(r.section || '') + '</small></button>'; }).join('') ||
        '<div class="hint">No dish matches. A dish that is not written yet goes in Create new recipes first.</div>')) + '</div>' +
     '<div class="line"><button class="btn ghost" data-addclose="1">Done</button><span class="msg" id="pickmsg"></span></div></div>';
+}
+
+/* Take a dish off the tasting (Chef Andrea, Tell us 2ae1323f, 12 Oct 2026): a dish
+   added by mistake had no way off this list. It only leaves the upcoming menu: the
+   recipe stays in the book and its scores stay in tasting_scores, so putting it back
+   brings them back. */
+function takeHtml(){
+  return '<div class="card pick"><h4>Take a dish off ' + esc(D.upName) + '</h4>' +
+    '<div class="hint">Tap the dish to take off. The recipe stays in the Recipe book.</div>' +
+    '<div class="res">' + D.up.map(function(x){
+      return '<button data-take="' + x.recipe_id + '">' + esc(x.recipes.name) + '<small>take off</small></button>'; }).join('') + '</div>' +
+    '<div class="line"><button class="btn ghost" data-takeclose="1">Done</button></div></div>';
+}
+function backHtml(){
+  var upIds = {}; D.up.forEach(function(x){ upIds[x.recipe_id] = 1; });
+  var U = D.settings && D.settings.upcoming_menu_id;
+  /* An offer only stands for the menu the dish came off, and only while it is still off. */
+  var live = S.undo.filter(function(u){ return u.menu === U && !upIds[u.rid]; });
+  if (live.length !== S.undo.length) { S.undo = live; keepUndo(); }
+  return live.map(function(u){
+      return '<div class="back1"><span><b>' + esc(u.name) + '</b> was taken off the tasting.' + (u.n ? ' Its scores are kept.' : '') + '</span>' +
+        '<button class="btn ghost" data-back="' + u.rid + '">Put it back</button></div>'; }).join('') +
+    (S.umsg ? '<div class="msg ' + (S.umsg.ok ? 'ok' : 'bad') + '" id="undomsg">' + S.umsg.text + '</div>' : '');
+}
+function takeoffHtml(){
+  return '<div class="line takeoff"><span class="hint">Added by mistake?</span>' +
+    '<button class="btn ghost" id="takeoff">Take it off the tasting</button></div>';
 }
 
 /* ── screen 2: one dish ── */
@@ -366,7 +402,7 @@ function decideHtml(){
   if (!onUp) return '<div class="empty">This dish is not on ' + esc(D.upName) + ' any more, so there is nothing to approve here.</div>';
   var kids = D.menus.filter(function(m){ return m.parent_id; });
   var top = D.menus.filter(function(m){ return !m.parent_id; })[0];
-  if (!top) return '<div class="fail">The à la carte menu this screen puts dishes on is not in the Recipe book any more. Nothing can be approved until it is set again.</div>';
+  if (!top) return '<div class="fail">The à la carte menu this screen puts dishes on is not in the Recipe book any more. Nothing can be approved until it is set again.</div>' + dmsgHtml() + takeoffHtml();
   var opts = kids.map(function(m){ return { id:m.id, label: top.name + ' · ' + m.name }; });
   opts.push({ id: top.id, label: top.name + ' · on the menu itself, no section' });
   if (!S.where || !opts.some(function(o){ return o.id === S.where; })) S.where = opts[opts.length - 1].id;
@@ -383,7 +419,7 @@ function decideHtml(){
     dmsgHtml() +
     '<div class="line setmark"><span>Pass mark</span><input id="markIn" type="number" min="1" max="10" step="0.5" value="' + f1(mark()) + '" aria-label="Pass mark out of 10">' +
       '<button class="btn ghost" id="setmark">Change</button><span class="hint">out of 10 · only Chef Francesco’s code changes it</span></div>' +
-  '</div>';
+  '</div>' + takeoffHtml();
 }
 function whatHtml(){
   var rid = S.rid, a = avgOf(rid), r = D.names[rid] || {};
@@ -445,6 +481,11 @@ document.addEventListener('click', function(e){
   if (t.dataset.add) { S.adding = true; S.q = ''; render(); loadBook(); return; }
   if (t.dataset.addclose) { S.adding = false; render(); return; }
   if (t.dataset.put) { putOnUpcoming(t.dataset.put, t); return; }
+  if (t.dataset.takeopen) { S.taking = true; S.umsg = null; render(); return; }
+  if (t.dataset.takeclose) { S.taking = false; render(); return; }
+  if (t.dataset.take) { takeOff(t.dataset.take, t); return; }
+  if (t.dataset.back) { putBack(t.dataset.back, t); return; }
+  if (t.id === 'takeoff') { takeOff(S.rid, t); return; }
   if (t.dataset.k) {
     S.draft[t.dataset.k] = +t.dataset.v;
     $(t.dataset.k === 't' ? 'scT' : 'scL').innerHTML = scaleHtml(t.dataset.k, S.draft[t.dataset.k]); return;
@@ -480,6 +521,63 @@ function putOnUpcoming(rid, btn){
     .then(function(){ return load(); })
     .then(function(){ S.q = ''; render(); msg('pickmsg', 'Added. It is on ' + esc(D.upName) + ' in the Recipe book too.', true); })
     .catch(function(e){ btn.disabled = false; msg('pickmsg', esc(say(e)), false); });
+}
+/* Changing the menu is behind the chef code wherever the recipe lock is loaded, the
+   same as putting a dish on it. */
+function lockedThen(what, go){
+  if (window.RecipeLock && !RecipeLock.isOpen()){
+    RecipeLock.ask(what).then(function(ok){ if (ok) go(); });
+    return true;
+  }
+  return false;
+}
+function takeOff(rid, btn){
+  var U = D.settings.upcoming_menu_id; if (!U || !rid) return;
+  if (lockedThen('Taking a dish off the upcoming menu?', function(){ takeOff(rid, btn); })) return;
+  var row = D.up.filter(function(x){ return x.recipe_id === rid; })[0]; if (!row) return;
+  var was = { rid:rid, menu:U, name:(row.recipes && row.recipes.name) || 'That dish', position:row.position || 0, n:scoresOf(rid).length };
+  var onDish = S.screen === 'dish';
+  if (btn) btn.disabled = true;
+  api('recipe_menus?recipe_id=eq.' + rid + '&menu_id=eq.' + U, { method:'DELETE', prefer:'return=minimal' })
+    .then(function(){ return load(); })
+    .then(function(){
+      if (D.err) throw D.err;
+      if (D.up.some(function(x){ return x.recipe_id === rid; })) throw new Error('it is still on the list');
+      S.undo = [was].concat(S.undo.filter(function(u){ return u.rid !== rid; })).slice(0, 20); keepUndo();
+      S.umsg = null; S.screen = 'list'; S.rid = null;
+      if (!D.up.length) S.taking = false;
+      render(); if (onDish) window.scrollTo(0, 0);
+    })
+    .catch(function(e){
+      if (btn) btn.disabled = false;
+      var t = 'It did not come off. ' + esc(say(e));
+      if (onDish && S.screen === 'dish') msg('decmsg', t, false);
+      else { S.umsg = { text:t, ok:false }; render(); }
+    });
+}
+/* Returns nothing to the caller, but never says "back" unless the reload shows it back;
+   on any failure the offer stays so it can be tried again. */
+function putBack(rid, btn){
+  var U = D.settings.upcoming_menu_id; if (!U) return;
+  if (lockedThen('Putting a dish back on the upcoming menu?', function(){ putBack(rid, btn); })) return;
+  var u = S.undo.filter(function(x){ return x.rid === rid; })[0]; if (!u) return;
+  if (btn) btn.disabled = true;
+  load().then(function(){
+      if (D.err) throw D.err;
+      if (D.up.some(function(x){ return x.recipe_id === rid; })) return null;   /* someone already put it back */
+      return api('recipe_menus', { method:'POST', body:{ recipe_id:rid, menu_id:U, position:u.position }, prefer:'return=minimal' })
+        .then(function(){ return load(); });
+    })
+    .then(function(){
+      if (D.err) throw D.err;
+      if (!D.up.some(function(x){ return x.recipe_id === rid; })) throw new Error('it is not on the list yet');
+      S.umsg = { text:'<b>' + esc(u.name) + '</b> is back on the tasting.', ok:true };
+      render();
+    })
+    .catch(function(e){
+      S.umsg = { text:'Could not put <b>' + esc(u.name) + '</b> back. Nothing is lost — try again. ' + esc(say(e)), ok:false };
+      render();
+    });
 }
 function saveScore(btn){
   if (!WHO) { msg('savemsg', 'Tap your name first.', false); return; }
