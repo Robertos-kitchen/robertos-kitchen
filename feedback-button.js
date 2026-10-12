@@ -173,7 +173,7 @@
       + '<img src="' + draft.shot.url + '" alt="" style="width:74px;height:74px;object-fit:cover;border-radius:9px;border:1px solid #e3d5c2">'
       + '<div style="flex:1;min-width:0">'
       +   '<div style="font-size:12.5px;color:#4a3b2a">Photo attached</div>'
-      +   '<div style="font-size:11px;color:#8b7355;margin-top:2px">' + draft.shot.kb + ' KB &mdash; shrunk so it sends fast</div>'
+      +   '<div style="font-size:11px;color:#4F4535;margin-top:2px">' + draft.shot.kb + ' KB &mdash; shrunk so it sends fast</div>'
       +   '<button type="button" class="fbi-x" style="font-size:12px;padding:4px 0;color:#8A2A1A" onclick="window.FBI.dropPhoto()">Remove</button>'
       + '</div></div>';
   }
@@ -263,20 +263,20 @@
       // 16px above is not a style choice: anything smaller and iOS zooms the whole
       // page in on focus, and they finish typing on a page they then have to pinch back.
       '#fbi-card .fbi-seg{display:flex;border:1.5px solid #e3d5c2;border-radius:9px;overflow:hidden}',
-      '#fbi-card .fbi-seg button{flex:1;border:0;padding:11px 6px;font:600 13.5px/1.2 inherit;cursor:pointer;background:#fff;color:#8b7355}',
+      '#fbi-card .fbi-seg button{flex:1;border:0;padding:11px 6px;font:600 13.5px/1.2 inherit;cursor:pointer;background:#fff;color:#4F4535}',
       '#fbi-card .fbi-seg button.on{background:#400207;color:#E8D9C7}',
       '#fbi-card .fbi-go{background:#400207;color:#E8D9C7;border:0;border-radius:22px;padding:12px 24px;',
       'font:600 14px/1 inherit;cursor:pointer}',
       '#fbi-card .fbi-go:disabled{opacity:.45;cursor:not-allowed}',
-      '#fbi-card .fbi-x{background:transparent;border:0;color:#9c8a72;font-size:20px;cursor:pointer;padding:2px 6px}',
-      '#fbi-card .fbi-lbl{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#9c8a72;margin:14px 0 5px}',
+      '#fbi-card .fbi-x{background:transparent;border:0;color:#4F4535;font-size:20px;cursor:pointer;padding:2px 6px}',
+      '#fbi-card .fbi-lbl{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#4F4535;margin:14px 0 5px}',
       '#fbi-card .fbi-photo{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1.5px dashed #e3d5c2;',
-      'border-radius:9px;padding:11px 15px;font:600 13.5px/1 inherit;color:#8b7355;cursor:pointer}',
+      'border-radius:9px;padding:11px 15px;font:600 13.5px/1 inherit;color:#4F4535;cursor:pointer}',
       '#fbi-card .fbi-photo:active{background:#f7f2e8}',
-      '#fbi-card .fbi-more{font-size:12px;color:#8b7355;line-height:1.5;margin-top:10px}',
+      '#fbi-card .fbi-more{font-size:12px;color:#4F4535;line-height:1.5;margin-top:10px}',
       '#fbi-card .fbi-find{display:block;width:100%;margin-top:11px;text-align:left;background:#f3e9da;border:1px solid #e3d5c2;',
       'border-radius:9px;padding:11px 12px;font:600 13.5px/1.35 inherit;color:#400207;cursor:pointer}',
-      '#fbi-card summary{cursor:pointer;color:#9c8a72;font-size:12px;list-style:none}',
+      '#fbi-card summary{cursor:pointer;color:#4F4535;font-size:12px;list-style:none}',
       '#fbi-card summary::-webkit-details-marker{display:none}'
     ].join('');
     document.head.appendChild(st);
@@ -321,7 +321,7 @@
     return '<div id="fbi-card" role="dialog" aria-modal="true" aria-label="Send feedback">'
       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
       +   '<div><div style="font:600 17px/1.25 Georgia,serif;color:#400207">Send feedback</div>'
-      +   '<div style="font-size:13px;color:#5a4632;margin-top:3px;line-height:1.45">Something in the way? An idea? It goes to Francesco, who reads it later. '
+      +   '<div style="font-size:13px;color:#4F4535;margin-top:3px;line-height:1.45">Something in the way? An idea? It goes to Francesco, who reads it later. '
       +   '<b>This box does not answer and does not search the app.</b></div></div>'
       +   '<button class="fbi-x" type="button" onclick="window.FBI.close()" aria-label="Close">&#10005;</button>'
       + '</div>'
@@ -347,7 +347,7 @@
       + '<input id="fbi-who" value="' + esc(draft.who) + '" placeholder="So we can come back to you" oninput="window.FBI.set(\'who\',this.value)">'
       + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px">'
       +   '<button class="fbi-go" type="button" id="fbi-send" onclick="window.FBI.send()">Send</button>'
-      +   '<span id="fbi-why" style="font-size:12px;color:#8b7355;flex:1;min-width:120px"></span>'
+      +   '<span id="fbi-why" style="font-size:12px;color:#4F4535;flex:1;min-width:120px"></span>'
       + '</div>'
       // Folded away, because it is us explaining ourselves. What is on screen
       // stays the state of THEIR message.
@@ -496,11 +496,11 @@
     c.innerHTML = '<div style="text-align:center;padding:22px 6px 12px">'
       + '<div style="font-size:34px;color:#2E6B34;line-height:1">&#10003;</div>'
       + '<div style="font:600 17px/1.3 Georgia,serif;color:#400207;margin-top:8px">Sent to Francesco</div>'
-      + '<div style="font-size:13px;color:#8b7355;margin-top:7px;line-height:1.55">It&rsquo;s on his list now. When it&rsquo;s fixed you&rsquo;ll be told what changed '
+      + '<div style="font-size:13px;color:#4F4535;margin-top:7px;line-height:1.55">It&rsquo;s on his list now. When it&rsquo;s fixed you&rsquo;ll be told what changed '
       + 'and how to check it yourself&nbsp;&mdash; you shouldn&rsquo;t have to take our word for it.</div>'
       + '<div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap">'
       +   '<button class="fbi-go" type="button" onclick="window.FBI.again()">Send another</button>'
-      +   '<button class="fbi-x" style="font-size:13px;color:#8b7355" type="button" onclick="window.FBI.close()">Done</button>'
+      +   '<button class="fbi-x" style="font-size:13px;color:#4F4535" type="button" onclick="window.FBI.close()">Done</button>'
       + '</div></div>';
   }
 
