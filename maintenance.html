@@ -432,7 +432,7 @@ function drawReport(){
       (r.files.length < MAX_FILES ? '<button class="add" type="button" id="addmedia">+ Add<br>photo / video</button>' : '') + '</div>' +
       '<div class="hint">Up to ' + MAX_FILES + '. A video can be up to 50 MB (about 30 seconds on a phone).</div></div>' +
     '<button class="btn wide" type="submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? esc(S.busy === true ? 'Sending…' : S.busy) : 'Send to maintenance') + '</button>' +
-    '<div class="note">' + esc(listNames(S.me.techs) || 'The technician') + ' gets an email and an in-app alert as soon as you send.</div>' +
+    '<div class="note">' + esc(listNames(S.me.techs) || 'The technician') + ' gets an in-app alert as soon as you send, and one email with the new cards within about half an hour.</div>' +
     '<button class="btn ghost" type="button" id="cancelrep">Cancel</button></form>';
 }
 function listNames(a){ a = a || []; return a.length > 1 ? a.slice(0,-1).join(', ') + ' or ' + a[a.length-1] : (a[0] || ''); }

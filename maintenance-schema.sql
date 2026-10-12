@@ -158,7 +158,8 @@ begin
   end if;
   if v_to is null or cardinality(v_to) = 0 then return; end if;
   insert into maint_mail(card_id, kind, to_list, is_test) values (p_card, p_kind, v_to, c.is_test) returning id into v_id;
-  perform maint_kick(v_id);
+  -- a NEW card waits for maint_retry (30 minutes, grouped into one email); a check goes at once
+  if p_kind <> 'new' then perform maint_kick(v_id); end if;
 end $$;
 
 -- ── cards ─────────────────────────────────────────────────────────────────
@@ -445,7 +446,16 @@ language plpgsql security definer set search_path to 'public' as $$
 declare r record; n int := 0;
 begin
   update maint_mail set status = 'failed', error = coalesce(error,'') || ' (stuck sending)' where status = 'sending' and created_at < now() - interval '30 minutes' and sent_at is null;
-  for r in select id from maint_mail where (status = 'queued' and created_at < now() - interval '3 minutes') or (status = 'failed' and tries < 3) loop
+  -- new cards (12 Oct 2026): one kick per group of recipients, once its oldest waiting card is
+  -- 30 minutes old. The mailer takes every other waiting new card for the same people with it.
+  for r in select min(id) as id from maint_mail where kind = 'new' and status = 'queued'
+            group by to_list, is_test having min(created_at) < now() - interval '30 minutes' loop
+    perform maint_kick(r.id); n := n + 1;
+  end loop;
+  for r in select min(id) as id from maint_mail where kind = 'new' and status = 'failed' and tries < 3 group by to_list, is_test loop
+    perform maint_kick(r.id); n := n + 1;
+  end loop;
+  for r in select id from maint_mail where kind <> 'new' and ((status = 'queued' and created_at < now() - interval '3 minutes') or (status = 'failed' and tries < 3)) loop
     perform maint_kick(r.id); n := n + 1;
   end loop;
   return n;
@@ -454,4 +464,4 @@ revoke all on function maint_retry() from public, anon, authenticated;
 
 select cron.unschedule(jobid) from cron.job where jobname in ('maint-roll-hourly','maint-mail-retry');
 select cron.schedule('maint-roll-hourly', '5 * * * *', 'select maint_roll()');
-select cron.schedule('maint-mail-retry', '*/10 * * * *', 'select maint_retry()');
+select cron.schedule('maint-mail-retry', '*/5 * * * *', 'select maint_retry()');
