@@ -609,14 +609,18 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .sch-ord-btn:hover{color:#fff;background:var(--vino)}
 .sch-ord-off{visibility:hidden;cursor:default}
 .sch-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:5000;display:flex;align-items:center;justify-content:center}
-.sch-modal-box{background:var(--cream);border-radius:6px;padding:24px;min-width:300px;max-width:380px;width:90%}
+/* Tell us 7f637346 (Antonio, 11 Oct 2026): on a short window the shift editor ran off the top AND the
+   bottom with no way to scroll, so Save could not be reached. The box now never grows past the window
+   (12px of air top and bottom) and scrolls inside itself; Cancel / Save stay pinned to its bottom edge.
+   bottom:-24px because a sticky bar is held inside the box's 24px padding (measured: 0 floats 24px up). */
+.sch-modal-box{background:var(--cream);border-radius:6px;padding:24px;min-width:300px;max-width:380px;width:90%;max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain}
 .sch-modal-title{font-family:var(--font-serif);font-size:16px;color:var(--vino);margin-bottom:16px;letter-spacing:.5px}
 .sch-modal-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .sch-modal-label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);width:52px;flex-shrink:0;font-family:var(--font-sans)}
 .sch-modal-sel,.sch-modal-inp{flex:1;padding:8px 10px;border:1px solid var(--sabbia-dark);border-radius:4px;font-size:13px;font-family:var(--font-sans);background:var(--sabbia-light);color:var(--ink)}
 .sch-modal-sel:focus,.sch-modal-inp:focus{outline:none;border-color:var(--vino)}
 .sch-modal-times{margin-bottom:4px}
-.sch-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.sch-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin:4px -24px -24px;padding:12px 24px 24px;position:sticky;bottom:-24px;z-index:2;background:var(--cream);border-radius:0 0 6px 6px}
 .sch-modal-cancel{padding:8px 16px;border:1px solid var(--sabbia-dark);border-radius:4px;background:none;color:var(--vino-light);font-size:12px;cursor:pointer;font-family:var(--font-sans)}
 .sch-modal-save{padding:8px 20px;border:none;border-radius:4px;background:var(--vino);color:var(--cream);font-size:12px;cursor:pointer;font-family:var(--font-sans);letter-spacing:.5px}
 .sch-modal-save:hover{background:var(--vino-light)}
@@ -1592,7 +1596,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <script src="floorplan.js?v=1786343605"></script>
 <!-- the house frame for My Tasks, the Closing report and the Team survey + the footer fix (7 Oct 2026) -->
 <script src="k-frame.js?v=1791366861"></script>
-<script src="app.js?v=1791385729"></script>
+<script src="app.js?v=1791790359"></script>
 
 <!-- "Tell us" — the button the team press when THEY have something to say.
      The SAME file runs in the FOH app, and both write to ONE inbox in the FOH
