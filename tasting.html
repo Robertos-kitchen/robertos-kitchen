@@ -108,6 +108,16 @@ textarea{width:100%;min-height:70px;border:1px solid var(--sabbia-dark);border-r
 .pick .res button{text-align:left;background:#fff;border:1px solid var(--sabbia-dark);border-radius:6px;padding:10px 12px;cursor:pointer;min-height:44px}
 .pick .res small{color:var(--muted);margin-left:6px}
 .fail{background:#fbe9e6;border:1px solid #e3b4ab;color:var(--err);border-radius:8px;padding:12px 14px;line-height:1.5}
+.req{background:#fff;border:1px solid rgba(66,1,7,.12);border-left:4px solid #c28a3a;border-radius:8px;padding:14px;display:grid;gap:8px}
+.req.conf{border-left-color:var(--ok)}
+.rtop{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.rtop .pill{margin-top:0}
+.rwhen{font-family:var(--display);font-size:22px;color:var(--vino);line-height:1.2}
+.rdish{font-size:14.5px;font-weight:500;overflow-wrap:anywhere}
+.rpanel{display:grid;gap:10px;border-top:1px solid var(--sabbia-light);padding-top:10px}
+.fld{display:grid;gap:4px;font-weight:500;font-size:13px}
+.fld input{padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:16px;min-height:44px;background:#fff;color:var(--ink)}
+a.back{text-decoration:none;display:inline-flex;align-items:center}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -154,13 +164,14 @@ function rememberWho(name){
   try { localStorage.setItem(WHOLS, JSON.stringify({ emp_id:WHO.emp_id, name:WHO.name, at:Date.now() })); } catch(e){}
 }
 
-var S = { screen:'list', rid:null, draft:{}, adding:false, taking:false, q:'', otherOpen:false, undo:[], umsg:null };
+var S = { screen:'list', rid:null, draft:{}, adding:false, taking:false, q:'', otherOpen:false, undo:[], umsg:null,
+          ask:null, amsg:null, req:null, reqMode:null, rdate:'', rtime:'', rmsg:null, tmsg:null, sure:null };
 /* Dishes taken off in this visit, newest first, so "Put it back" outlives any message.
    Kept for the tab, so a reload does not lose the way back. */
 var UNDOKEY = 'tastingTakenOff';
 try { S.undo = JSON.parse(sessionStorage.getItem(UNDOKEY) || '[]') || []; } catch(e){ S.undo = []; }
 function keepUndo(){ try { sessionStorage.setItem(UNDOKEY, JSON.stringify(S.undo)); } catch(e){} }
-var D = { settings:null, up:[], scores:[], decisions:[], menus:[], names:{}, loaded:false, err:null };
+var D = { settings:null, up:[], scores:[], decisions:[], menus:[], names:{}, reqs:[], loaded:false, err:null };
 var STAFF = null, BOOK = null;
 var CODE = '';        /* the approver code, typed once — kept for this visit only */
 
@@ -192,6 +203,12 @@ function say(err){
   if (/no_menu/.test(m)) return 'That menu has been removed from the Recipe book. Pick another.';
   if (/no_recipe/.test(m)) return 'This recipe has been removed from the Recipe book, so it cannot go on a menu.';
   if (/not_latest/.test(m)) return 'Something newer has been decided on this dish since. Reload to see it.';
+  if (/not_asker/.test(m)) return 'Only ' + askers().join(', ') + ' can ask for a tasting time. Tap your name at the top.';
+  if (/bad_time/.test(m)) return 'That time has already passed, or is more than six months away.';
+  if (/no_dishes/.test(m)) return 'Tick at least one dish that is still in the recipe book.';
+  if (/too_many_open/.test(m)) return 'Five tasting times are already waiting for Chef Francesco. He needs to answer one first.';
+  if (/same_time/.test(m)) return 'It is already confirmed for that time.';
+  if (/no_request|cancelled/.test(m)) return 'This tasting request has been cancelled since. Reload to see.';
   if (/read-only/i.test(m)) return m;
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
   return 'It did not save: ' + m;
@@ -211,15 +228,18 @@ function load(){
       api('tasting_decisions?select=*&order=created_at.desc&limit=1000'),
       T ? api('menus?select=id,name,parent_id,archived,position&archived=is.false&or=(id.eq.' + T + ',parent_id.eq.' + T + ')&order=position,name')
         : Promise.resolve([]),
-      U ? api('menus?select=id,name&id=eq.' + U) : Promise.resolve([])
+      U ? api('menus?select=id,name&id=eq.' + U) : Promise.resolve([]),
+      api('tasting_requests?select=*&status=neq.cancelled&order=proposed_at&limit=200').catch(function(){ return []; })
     ]);
   }).then(function(r){
     D.up = (r[0] || []).filter(function(x){ return x.recipes && !x.recipes.archived; });
     D.scores = r[1] || []; D.decisions = r[2] || []; D.menus = r[3] || [];
     D.upName = (r[4] && r[4][0] && r[4][0].name) || 'Upcoming';
     D.up.forEach(function(x){ D.names[x.recipe_id] = x.recipes; });
+    D.reqs = r[5] || [];
     var need = [];
     latestByRecipe().forEach(function(d){ if (!D.names[d.recipe_id]) need.push(d.recipe_id); });
+    D.reqs.forEach(function(q){ (q.recipe_ids || []).forEach(function(id){ if (!D.names[id] && need.indexOf(id) < 0) need.push(id); }); });
     return need.length ? api('recipes?select=id,name,section,kind,archived&id=in.(' + need.join(',') + ')') : [];
   }).then(function(rs){
     (rs || []).forEach(function(x){ D.names[x.id] = x; });
@@ -302,16 +322,18 @@ function listHtml(){
       '<span class="rsub">Approved ' + esc(when(d.created_at)) + ' by ' + esc(d.decided_by) + ' → ' + esc(menuName(d.menu_id)) + '</span>' +
       '<span class="score"><span class="big">' + (d.score_avg != null ? f1(Number(d.score_avg)) : '—') + '<small> /10</small></span><br><span class="pill p-done">On the menu</span></span></button>';
   }).join('');
-  return '<div class="crumb"><h2>Tasting</h2></div>' + whoHtml() +
+  return '<div class="crumb">' + homeHtml() + '<h2>Tasting</h2></div>' + whoHtml() + timesHtml() +
     '<div class="sec-h"><h3>Waiting to be tasted</h3><span class="mark">Pass mark <b class="num">' + f1(mark()) + '</b> / 10</span></div>' +
     '<div class="list">' + (rows || '<div class="empty">Nothing is waiting. Put a dish on <b>' + esc(D.upName) + '</b> in the Recipe book, or add one below.</div>') + '</div>' +
     (S.adding ? pickHtml() : '<button class="addrow" data-add="1">+ Taste another dish from the recipe book</button>') +
+    askHtml() +
     (S.taking && D.up.length ? takeHtml() : (D.up.length ? '<button class="addrow" data-takeopen="1">&minus; Take a dish off the tasting</button>' : '')) +
     backHtml() +
     (doneRows ? '<div class="sec-h"><h3>Approved</h3><small>kept here; nothing is deleted</small></div><div class="list">' + doneRows + '</div>' : '') +
     '<details><summary>How this works</summary>' +
       '<p>Every dish on the menu <b>' + esc(D.upName) + '</b> in the Recipe book shows up here. Everyone at the tasting taps their name and scores taste and look, each out of 10. You only ever change your own score. The dish’s score is the average across everyone who scored.</p>' +
       '<p>A dish at or above the pass mark turns green. Nothing moves by itself: Chef Francesco approves it with his code, picks where it goes on the à la carte, and it moves there from ' + esc(D.upName) + '.</p>' +
+      '<p>To set a tasting, ' + esc(askers().join(', ')) + ' can ask Chef Francesco for a day and time. He gets an email, accepts it or picks another time with his code, and the confirmed time goes to his Outlook calendar.</p>' +
     '</details>';
 }
 function pickHtml(){
@@ -430,6 +452,161 @@ function whatHtml(){
   return t;
 }
 
+/* ── tasting times (12 Oct 2026, Francesco) ──
+   A chef on tasting_settings.askers asks Chef Francesco to taste one or more waiting dishes
+   on a day and time. The database emails him (tasting_request_new queues the mail; this page
+   never calls a mail function). He accepts or picks another time with his code, and the
+   database sends the confirmed time to his Outlook as a calendar invite. All times are Dubai. */
+var TESTMODE = /[?&]test=1(&|$)/.test(location.search);
+function askers(){ return (D.settings && D.settings.askers) || []; }
+function isAsker(){ return !!(WHO && askers().indexOf(WHO.name) >= 0); }
+function reqTime(r){ return r.status === 'confirmed' && r.confirmed_at ? r.confirmed_at : r.proposed_at; }
+function reqById(id){ return D.reqs.filter(function(x){ return x.id === id; })[0] || null; }
+function openReqs(){
+  var cut = Date.now() - 6*60*60*1000;
+  return D.reqs.filter(function(r){
+    return r.status !== 'cancelled' && new Date(reqTime(r)).getTime() >= cut && (TESTMODE || !r.is_test || r.id === S.req);
+  }).sort(function(a, b){ return new Date(reqTime(a)) - new Date(reqTime(b)); });
+}
+function whenLong(ts){
+  try { return new Date(ts).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Dubai' }); }
+  catch(e){ return ''; }
+}
+function dubaiParts(ts){ var s = new Date(new Date(ts).getTime() + 4*60*60*1000).toISOString(); return { d:s.slice(0, 10), t:s.slice(11, 16) }; }
+function dubaiIso(d, t){ return d + 'T' + t + ':00+04:00'; }
+function dishNames(r){ return (r.recipe_ids || []).map(function(id){ return (D.names[id] || {}).name; }).filter(Boolean); }
+function homeHtml(){ return window.top === window ? '<a class="back" href="./">&lsaquo; Kitchen</a>' : ''; }
+function codeHtml(){
+  return '<input class="codein" id="rcode" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">';
+}
+function cancelBtn(r, label){
+  return '<button class="btn ghost" data-reqcancel="' + r.id + '">' + (S.sure === r.id ? 'Yes, cancel this tasting' : label) + '</button>';
+}
+function rmsgHtml(r){
+  var m = S.rmsg && S.rmsg.id === r.id ? S.rmsg : null;
+  return '<span class="msg' + (m ? (m.ok ? ' ok' : ' bad') : '') + '">' + (m ? m.text : '') + '</span>';
+}
+function timesHtml(){
+  var rs = openReqs();
+  var top = S.tmsg ? '<div class="' + (S.tmsg.ok ? 'done' : 'fail') + '">' + S.tmsg.text + '</div>' : '';
+  if (!rs.length) return top;
+  return top + '<div class="sec-h"><h3>Tasting times</h3><small>Dubai time</small></div>' +
+    '<div class="list" id="reqbox">' + rs.map(reqHtml).join('') + '</div>';
+}
+function reqHtml(r){
+  var conf = r.status === 'confirmed', names = dishNames(r);
+  var moved = conf && new Date(r.confirmed_at).getTime() !== new Date(r.proposed_at).getTime();
+  var mine = WHO && WHO.name === r.asked_by;
+  return '<div class="req' + (conf ? ' conf' : '') + '" id="req-' + r.id + '">' +
+    '<div class="rtop"><span class="rwhen">' + esc(whenLong(reqTime(r))) + '</span>' +
+      '<span class="pill ' + (conf ? 'p-ok' : 'p-below') + '">' + (conf ? 'Confirmed' : 'Waiting for Chef Francesco') + '</span>' +
+      (r.is_test ? '<span class="pill p-none">Test</span>' : '') + '</div>' +
+    '<div class="rdish">' + esc(names.join(' · ') || 'These dishes are no longer in the recipe book') + '</div>' +
+    '<div class="hint">Asked by ' + esc(r.asked_by) +
+      (moved ? '. Chef Francesco moved it: ' + esc(r.asked_by) + ' had asked for ' + esc(whenLong(r.proposed_at)) : '') +
+      (r.note ? '. “' + esc(r.note) + '”' : '') + '</div>' +
+    (S.req === r.id ? reqPanelHtml(r) :
+      '<div class="line"><button class="btn' + (conf ? ' ghost' : '') + '" data-reqopen="' + r.id + '">' + (conf ? 'Change the time' : 'Chef Francesco: answer') + '</button>' +
+      (mine ? cancelBtn(r, 'Take it back') : '') + rmsgHtml(r) + '</div>') +
+  '</div>';
+}
+function reqPanelHtml(r){
+  var change = r.status === 'confirmed' || S.reqMode === 'change';
+  return '<div class="rpanel">' +
+    (change ? '<div class="line"><label class="fld">Day<input type="date" id="rdate" min="' + dubaiParts(Date.now()).d + '" value="' + esc(S.rdate) + '"></label>' +
+              '<label class="fld">Time<input type="time" id="rtime" step="300" value="' + esc(S.rtime) + '"></label></div>' : '') +
+    '<div class="line">' + codeHtml() +
+      (change ? '<button class="btn go" data-reqgo="change">Confirm the new time</button>'
+              : '<button class="btn go" data-reqgo="accept">Accept ' + esc(whenLong(r.proposed_at)) + '</button>' +
+                '<button class="btn ghost" data-reqmode="change">Pick another time</button>') + '</div>' +
+    '<div class="line">' + cancelBtn(r, 'Cancel this tasting') + '<button class="btn ghost" data-reqclose="1">Close</button>' + rmsgHtml(r) + '</div>' +
+    '<div class="hint">Only Chef Francesco’s code answers. The confirmed time goes to his Outlook calendar.</div></div>';
+}
+function askHtml(){
+  var m = '<span class="msg' + (S.amsg ? (S.amsg.ok ? ' ok' : ' bad') : '') + '" id="askmsg">' + (S.amsg ? S.amsg.text : '') + '</span>';
+  if (!S.ask) return '<button class="addrow" data-ask="1">+ Ask Chef Francesco to taste, with a day and time</button>' + (S.amsg ? m : '');
+  var a = S.ask;
+  return '<div class="card pick" id="askbox"><h4>Ask Chef Francesco to taste' + (WHO ? ' · ' + esc(WHO.name) : '') + '</h4>' +
+    (D.up.length ? '<div class="flab">Which dishes?</div>' + D.up.map(function(x){
+        return '<label class="opt"><input type="checkbox" data-askdish="' + x.recipe_id + '"' + (a.ids[x.recipe_id] ? ' checked' : '') + '> ' + esc(x.recipes.name) + '</label>'; }).join('')
+      : '<div class="hint warn">Nothing is waiting. Put a dish on ' + esc(D.upName) + ' first.</div>') +
+    '<div class="line"><label class="fld">Day<input type="date" id="adate" min="' + dubaiParts(Date.now()).d + '" value="' + esc(a.date) + '"></label>' +
+      '<label class="fld">Time<input type="time" id="atime" step="300" value="' + esc(a.time) + '"></label></div>' +
+    '<div><div class="flab">Anything he should know?</div><textarea id="anote" maxlength="300" placeholder="Optional">' + esc(a.note) + '</textarea></div>' +
+    '<div class="line"><button class="btn" id="asksend">Send to Chef Francesco</button><button class="btn ghost" data-askclose="1">Close</button>' + m + '</div></div>';
+}
+function openReq(r, mode){
+  var p = dubaiParts(reqTime(r));
+  S.req = r.id; S.reqMode = r.status === 'confirmed' ? 'change' : mode; S.rdate = p.d; S.rtime = p.t; S.rmsg = null; S.sure = null;
+}
+function showReq(){
+  if (!S.req) return;
+  var el = $('req-' + S.req); if (el && el.scrollIntoView) el.scrollIntoView({ block:'center' });
+  var c = $('rcode'); if (c && !CODE) c.focus({ preventScroll:true });
+}
+function rsay(id, text, ok){ S.rmsg = { id:id, text:text, ok:ok }; render(); }
+function askSend(btn){
+  var a = S.ask; if (!a) return;
+  var ids = Object.keys(a.ids).filter(function(k){ return a.ids[k]; });
+  function bad(t){ S.amsg = { text:t, ok:false }; var m = $('askmsg'); if (m) { m.className = 'msg bad'; m.innerHTML = t; } }
+  if (!isAsker()) return bad('Only ' + esc(askers().join(', ')) + ' can ask. Tap your name at the top.');
+  if (!ids.length) return bad('Tick at least one dish.');
+  if (!a.date || !a.time) return bad('Pick the day and the time.');
+  var iso = dubaiIso(a.date, a.time);
+  if (!(new Date(iso).getTime() > Date.now())) return bad('That time has already passed.');
+  btn.disabled = true; S.amsg = null;
+  rpc('tasting_request_new', { p_by:WHO.name, p_emp:WHO.emp_id, p_recipes:ids, p_at:iso, p_note:(a.note || '').trim() || null, p_test:TESTMODE })
+    .then(function(){ return load(); })
+    .then(function(){ S.ask = null; S.amsg = { text:'Sent. Chef Francesco has the email. His answer will show at the top of this screen.', ok:true }; render(); })
+    .catch(function(e){ btn.disabled = false; bad(esc(say(e))); });
+}
+function reqGo(kind, btn){
+  var r = reqById(S.req); if (!r) return;
+  if (!CODE) { rsay(r.id, 'Type Chef Francesco’s code first.', false); var c = $('rcode'); if (c) c.focus(); return; }
+  var at = null;
+  if (kind === 'change') {
+    if (!S.rdate || !S.rtime) { rsay(r.id, 'Pick the day and the time.', false); return; }
+    at = dubaiIso(S.rdate, S.rtime);
+    if (!(new Date(at).getTime() > Date.now())) { rsay(r.id, 'That time has already passed.', false); return; }
+  }
+  btn.disabled = true;
+  rpc('tasting_request_decide', { p_code:CODE, p_id:r.id, p_at:at, p_by:(WHO && WHO.name) || 'Francesco' })
+    .then(function(){ return load(); })
+    .then(function(){
+      var n = reqById(r.id); S.req = null; S.sure = null;
+      S.rmsg = { id:r.id, text:'Confirmed for ' + esc(whenLong(n ? reqTime(n) : (at || r.proposed_at))) + '. The invite is on its way to the Outlook calendar.', ok:true };
+      render();
+    })
+    .catch(function(e){ btn.disabled = false; rsay(r.id, esc(say(e)), false); });
+}
+function reqCancel(id, btn){
+  var r = reqById(id); if (!r) return;
+  var mine = WHO && WHO.name === r.asked_by;
+  if (!mine && !CODE) { if (S.req !== id) openReq(r, 'accept'); rsay(id, 'Type Chef Francesco’s code first.', false); showReq(); return; }
+  if (S.sure !== id) { S.sure = id; render(); return; }
+  btn.disabled = true;
+  rpc('tasting_request_cancel', { p_code:CODE || '', p_id:id, p_by:(WHO && WHO.name) || '' })
+    .then(function(){ return load(); })
+    .then(function(){
+      S.req = null; S.sure = null; S.rmsg = null;
+      S.tmsg = { text:'The tasting on ' + esc(whenLong(reqTime(r))) + ' is cancelled.' + (r.status === 'confirmed' ? ' It comes off the Outlook calendar.' : ''), ok:true };
+      render();
+    })
+    .catch(function(e){ btn.disabled = false; S.sure = null; rsay(id, esc(say(e)), false); });
+}
+/* An email button lands here as ?req=<id>&do=accept|change. */
+function deepLink(){
+  var q; try { q = new URLSearchParams(location.search); } catch(e){ return; }
+  var id = q.get('req'); if (!id) return;
+  var mode = q.get('do') === 'change' ? 'change' : 'accept';
+  q.delete('req'); q.delete('do');
+  try { var rest = q.toString(); history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '')); } catch(e){}
+  var r = reqById(id);
+  if (!r) { S.tmsg = { text:'That tasting request is no longer open.', ok:false }; return; }
+  if (new Date(reqTime(r)).getTime() < Date.now() - 6*60*60*1000) { S.tmsg = { text:'That tasting time has already passed.', ok:false }; return; }
+  openReq(r, mode);
+}
+
 /* ── drawing ── */
 function render(){
   var root = $('root');
@@ -456,7 +633,7 @@ function refresh(){
   return load().then(function(){
     if (S.screen === 'list') {
       var typing = document.activeElement && (document.activeElement.id === 'pickq' || document.activeElement.id === 'otherName');
-      if (!typing) render();
+      if (!typing && !S.ask && !S.req) render();
     } else drawParts(false);
   });
 }
@@ -491,6 +668,19 @@ document.addEventListener('click', function(e){
     S.draft[t.dataset.k] = +t.dataset.v;
     $(t.dataset.k === 't' ? 'scT' : 'scL').innerHTML = scaleHtml(t.dataset.k, S.draft[t.dataset.k]); return;
   }
+  if (t.dataset.ask) {
+    if (!isAsker()) { S.amsg = { text:'Only ' + esc(askers().join(', ')) + ' can ask. Tap your name at the top.', ok:false }; render(); return; }
+    S.ask = { ids:{}, date:'', time:'', note:'' }; S.amsg = null; S.tmsg = null;
+    if (D.up.length === 1) S.ask.ids[D.up[0].recipe_id] = true;
+    render(); var ab = $('askbox'); if (ab && ab.scrollIntoView) ab.scrollIntoView({ block:'nearest' }); return;
+  }
+  if (t.dataset.askclose) { S.ask = null; S.amsg = null; render(); return; }
+  if (t.id === 'asksend') { askSend(t); return; }
+  if (t.dataset.reqopen) { var ro = reqById(t.dataset.reqopen); if (ro) { S.tmsg = null; openReq(ro, 'accept'); render(); showReq(); } return; }
+  if (t.dataset.reqclose) { S.req = null; S.sure = null; S.rmsg = null; render(); return; }
+  if (t.dataset.reqmode) { S.reqMode = t.dataset.reqmode; S.rmsg = null; render(); return; }
+  if (t.dataset.reqgo) { reqGo(t.dataset.reqgo, t); return; }
+  if (t.dataset.reqcancel) { reqCancel(t.dataset.reqcancel, t); return; }
   if (t.id === 'save') { saveScore(t); return; }
   if (t.id === 'approve') { decide('approve', t); return; }
   if (t.id === 'notyet') { decide('notyet', t); return; }
@@ -499,11 +689,21 @@ document.addEventListener('click', function(e){
 });
 document.addEventListener('input', function(e){
   if (e.target.id === 'note') S.draft.note = e.target.value;
-  if (e.target.id === 'code') CODE = e.target.value.trim();
+  if (e.target.id === 'code' || e.target.id === 'rcode') CODE = e.target.value.trim();
+  if (e.target.id === 'anote' && S.ask) S.ask.note = e.target.value;
+  if (e.target.id === 'adate' && S.ask) S.ask.date = e.target.value;
+  if (e.target.id === 'atime' && S.ask) S.ask.time = e.target.value;
+  if (e.target.id === 'rdate') S.rdate = e.target.value;
+  if (e.target.id === 'rtime') S.rtime = e.target.value;
   if (e.target.id === 'pickq') { S.q = e.target.value; var r = $('pickres'); if (r) { var tmp = document.createElement('div'); tmp.innerHTML = pickHtml(); r.innerHTML = tmp.querySelector('#pickres').innerHTML; } }
 });
 document.addEventListener('change', function(e){
   if (e.target.name === 'w') { S.where = e.target.value; var w = $('what'); if (w) w.innerHTML = whatHtml(); }
+  if (e.target.dataset && e.target.dataset.askdish && S.ask) { S.ask.ids[e.target.dataset.askdish] = e.target.checked; S.amsg = null; var am = $('askmsg'); if (am) am.textContent = ''; }
+  if (e.target.id === 'adate' && S.ask) S.ask.date = e.target.value;
+  if (e.target.id === 'atime' && S.ask) S.ask.time = e.target.value;
+  if (e.target.id === 'rdate') S.rdate = e.target.value;
+  if (e.target.id === 'rtime') S.rtime = e.target.value;
 });
 document.addEventListener('keydown', function(e){
   if (e.key === 'Enter' && e.target.id === 'otherName') { var v = e.target.value.trim(); if (v) { rememberWho(v); S.otherOpen = false; render(); } }
@@ -627,7 +827,7 @@ setInterval(function(){ if (!document.hidden && D.loaded) refresh(); }, 6000);
 window.__rcpFreshen = function(){ refresh(); };
 
 loadStaff();
-load().then(render);
+load().then(function(){ deepLink(); render(); showReq(); });
 </script>
 <script src="k-frame.js?v=1791366861"></script>
 </body>
