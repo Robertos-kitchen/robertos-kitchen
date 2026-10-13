@@ -28,6 +28,10 @@
 // employee ID (Francesco, 26 Sep 2026). A separate key, so it can be taken away
 // alone — delete that line in CODES. The name shows on the "unlocked" pill.
 //
+// AUNG (Finance, cost controller) opens it with the code he already uses for the
+// stock take (Francesco, 13 Oct 2026): he costs the recipes and takes the batches
+// out for FMC, so every recipe screen has to open for him. Also its own key.
+//
 // HONEST LIMIT: this is a lock on the app's screens, the same kind as the
 // schedule lock — the database itself still accepts writes from the app's key
 // (ARCHITECTURE.md: open RLS, security deliberately deferred). It stops the
@@ -44,7 +48,8 @@
 (function () {
   var CODES = {
     'bbc94fdb46b4892f886f7fa134ef7641c52bf42f484e0347932afbe337a367f3': 'Chef',
-    'd299df0faa05bc94a453b9d44c1dfda9332a3f87e1e3449d47526f1e58b5aa33': 'Andrea Falcone'      // employee ID
+    'd299df0faa05bc94a453b9d44c1dfda9332a3f87e1e3449d47526f1e58b5aa33': 'Andrea Falcone',     // employee ID
+    'bb79e08fc4cfb3ef056069261f47ef8348089d06cd17f691410f15e13576bcfe': 'Aung'                 // cost controller's code
   };
   var KEY = 'kitchen-recipe-edit-until';
   var WHO_KEY = 'kitchen-recipe-edit-who';
