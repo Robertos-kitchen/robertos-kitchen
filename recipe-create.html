@@ -1317,6 +1317,17 @@ body.roomstep .linkp .sub{color:var(--vino-light)}
 .sb1{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--attn-soft);
   border:1px solid var(--attn);border-radius:6px;padding:10px 13px;margin:0 0 10px}
 .sb1.ask{background:rgba(122,18,24,.09);border-color:var(--vino)}
+/* the same-name question. Its own ground and its own ink: it is dropped under the top bar
+   and into the save bar, and neither of those may decide whether it can be read. */
+.snask{flex:1 1 100%;box-sizing:border-box;margin:8px 0;padding:12px 14px;background:#fbf6ec;color:#2a1a10;
+  border:1.5px solid #410207;border-radius:4px;font-family:var(--sans);font-size:14px;line-height:1.5}
+.snask b{font-weight:700}
+.snask .snw{display:block;font-size:13px;margin-top:2px}
+.snask .snb{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.snask button{font-family:var(--sans);font-size:14px;min-height:44px;padding:10px 16px;border-radius:3px;cursor:pointer}
+.snask .sny{background:#410207;color:#f5ede0;border:1.5px solid #410207}
+.snask .snn{background:none;color:#410207;border:1.5px solid #410207}
+.srow .sm .twin{font-weight:700;opacity:1}
 .sbt{flex:1 1 240px;font-size:13px;line-height:1.5;color:var(--ink);min-width:0}
 .sbt b{color:var(--vino)}
 .sbwhy{font-size:12.5px;color:var(--attn);line-height:1.5;margin:-4px 0 10px;padding:0 2px}
@@ -2901,6 +2912,10 @@ function saveRecipe(){
   if (S.id && !S.whole){
     delete head.photos; delete head.method; delete head.allergens;
   }
+  /* Two recipes may share a name only when a chef has said so, twice, for THIS name on
+     THIS sheet — sameNameAsk(). Never sent otherwise, so an ordinary save cannot take
+     the lock off by accident, and one that already has it keeps it. */
+  if (sameNameSaid()) head.same_name_ok = true;
   /* Who wrote it is written on every save, not only the first, because it can be
      corrected on the strip afterwards — a name typed onto the wrong recipe has to be
      fixable without deleting the work.
@@ -2934,6 +2949,7 @@ function saveRecipe(){
   return put(head).then(function(out){
     var rec = out && out[0]; if (!rec) throw new Error('the database did not return the recipe');
     S.id = rec.id;
+    S.sameOk = null;                         /* one yes, one recipe — the next sheet is asked again */
     return sb('recipe_lines?recipe_id=eq.'+S.id, { method:'DELETE', prefer:'return=minimal' });
   }).then(function(){
     /* realRows(), never S.rows: the sheet carries empty lines for him to write on and
@@ -3031,6 +3047,85 @@ function plain(msg){
   if (/Failed to fetch|NetworkError|network/i.test(msg))
     return 'No connection to the Kitchen database. Your sheet is safe here — try Save again in a moment.';
   return msg;
+}
+
+/* ═════════ the same name, on purpose ═════════
+   Chef Andrea, 12 Oct 2026: the canapé menus carry the same plate at two prices — same
+   base, a bigger offer on the dearer one — and Short ribs and mash potato is on two
+   menus as two different recipes. The book refused the second one, so it was saved as
+   "…mash potatos": a spelling mistake made on purpose to get past a lock.
+
+   The lock is still right most of the time (4 August: one dessert typed twice, three
+   minutes apart). So it does not come off — it asks. Twice, in his words: "just ask for
+   double confirmation so we know it will not a mistake". Mains only: a batch is picked
+   BY NAME on every ingredient line, and two of those is a wrong costing waiting. */
+function isNameClash(err){
+  return S.kind === 'main' && /recipes_name_unique/i.test((err && err.message) || '');
+}
+function sameNameSaid(){
+  var k = S.sameOk;
+  return !!(k && k.id === (S.id || null) && k.n === (S.name || '').trim().toLowerCase());
+}
+/* where a recipe lives, in the words on the folders. A section is always on its parent
+   too, so the parent is not said twice. */
+function whereSay(r){
+  var ids = menusOf(r);
+  var ms = (SAVEDMENUS || []).filter(function(m){ return ids.indexOf(m.id) >= 0 && !m.archived; });
+  ms = ms.filter(function(m){ return !ms.some(function(k){ return k.parent_id === m.id; }); });
+  if (!ms.length) return 'not on a menu yet';
+  return 'on ' + ms.map(function(m){ return menuLabel(m, SAVEDMENUS); }).join(', ');
+}
+function sameNameAsk(place, retry){
+  var old = $('samename'); if (old) old.remove();
+  var nm = (S.name || '').trim(), key = nm.toLowerCase();
+  var where = '';
+  var findWhere = function(){
+    var twins = (S.saved || []).filter(function(r){
+      return !r.archived && r.id !== S.id && (r.name || '').trim().toLowerCase() === key; });
+    where = twins.length ? ' — ' + whereSay(twins[0]) : '';
+  };
+  findWhere();
+  var el = document.createElement('div');
+  el.id = 'samename'; el.className = 'snask'; el.setAttribute('role', 'alertdialog');
+  var q = '\u201c' + esc(nm) + '\u201d';
+  var step = function(n){
+    el.setAttribute('data-step', n);
+    if (n === 1) el.innerHTML =
+      '<b>Not saved yet.</b> There is already a recipe called ' + q + esc(where) + '.' +
+      '<span class="snw">Is this one a different version, for another menu?</span>' +
+      '<span class="snb"><button class="sny" data-sn="yes1">Yes, a different version</button>' +
+      '<button class="snn" data-sn="same">No, it is the same dish</button></span>';
+    else if (n === 2) el.innerHTML =
+      '<b>Sure?</b> The book will then hold two recipes called ' + q + '.' +
+      '<span class="snw">Each keeps its own amounts and its own cost. Changing one does not change the other.</span>' +
+      '<span class="snb"><button class="sny" data-sn="yes2">Yes, save it with the same name</button>' +
+      '<button class="snn" data-sn="back">Go back</button></span>';
+    else el.innerHTML =
+      '<b>Then one recipe is enough.</b> Open ' + q + ' and tick this menu on it too ' +
+      '— one recipe can be on as many menus as you like. Nothing here was lost.' +
+      '<span class="snb"><button class="snn" data-sn="close">Close</button></span>';
+  };
+  el.addEventListener('click', function(ev){
+    var t = ev.target.closest('[data-sn]'); if (!t) return;
+    ev.stopPropagation();
+    var w = t.getAttribute('data-sn');
+    if (w === 'yes1') return step(2);
+    if (w === 'back') return step(1);
+    if (w === 'same') return step(3);
+    if (w === 'close'){ el.remove(); return; }
+    if (w === 'yes2'){
+      S.sameOk = { id: S.id || null, n: (S.name || '').trim().toLowerCase() };
+      el.remove(); retry();
+    }
+  });
+  step(1); place(el);
+  /* the sheet does not carry the book, and a frame can be hours old — read it now, so
+     where the other one is on is today's answer and not this morning's */
+  loadSaved().then(function(){
+    if (!el.parentNode || el.getAttribute('data-step') !== '1') return;
+    findWhere(); step(1);
+  });
+  if (el.scrollIntoView) el.scrollIntoView({ block:'nearest' });
 }
 
 /* ═════════ starting a new one without losing the old one ═════════
@@ -7740,6 +7835,11 @@ function render(){
        — search looks in them, and the Removed folder puts them back — but "69 saved" over
        a list of 30 openable recipes is a number that cannot be made to add up. */
     var nlive = S.saved.filter(function(r){ return !r.archived; }).length;
+    /* two recipes with one name are told apart by where they are — said only on those */
+    var twinN = {};
+    S.saved.forEach(function(r){
+      if (r.archived) return;
+      var tk = (r.name || '').trim().toLowerCase(); twinN[tk] = (twinN[tk] || 0) + 1; });
     var card = function(r){
       var mu2 = r.makes_unit || '';
       if (mu2 === 'portions' && r.makes_qty == 1) mu2 = 'portion';
@@ -7748,7 +7848,10 @@ function render(){
       return '<div class="srow'+(S.id===r.id?' on':'')+(r.archived?' gone':'')+(lv?' lv-'+lv:'')+'" id="row-'+r.id+'">' +
         '<button class="sopen" data-open="'+r.id+'">' +
           '<span class="sn">'+esc(r.name)+'</span>' +
-          '<span class="sm">'+(r.section?esc(r.section)+' · ':'') +
+          '<span class="sm">' +
+            (!r.archived && twinN[(r.name || '').trim().toLowerCase()] > 1
+              ? '<span class="twin">' + esc(whereSay(r)) + '</span> · ' : '') +
+            (r.section?esc(r.section)+' · ':'') +
             (makes ? 'makes '+esc(makes) : '<i>doesn\'t say how much it makes</i>') +
             /* who to go and ask about it. Nothing said for the ones written before the
                question was ever asked — an empty space is honest and a guess is not. */
@@ -13216,6 +13319,12 @@ document.addEventListener('click', function(e){
       });
     }).catch(function(err){
       sbb.disabled = false; sbb.textContent = sbWas;
+      if (isNameClash(err)){
+        var sbId = sbb.id;
+        sameNameAsk(function(el){ ($('savebar') || document.body).appendChild(el); },
+                    function(){ var again = $(sbId) || $('act'); if (again) again.click(); });
+        return;
+      }
       var b = $('savebar');
       if (b) b.insertAdjacentHTML('beforeend',
         '<div class="sbwhy"><b>Not saved.</b> ' + esc(plain(err.message)) +
@@ -14251,6 +14360,14 @@ $('act').addEventListener('click', function(){
     setTimeout(function(){ if(!b.dataset.busy) b.textContent = S.id ? 'Save changes' : 'Save'; }, 1800);
   }).catch(function(err){
     delete b.dataset.busy; b.textContent = S.id ? 'Save changes' : 'Save';
+    if (isNameClash(err)){
+      var e0 = $('saveerr'); if (e0) e0.remove();
+      sameNameAsk(function(el){
+        var br = b.closest('.bar');
+        if (br) br.insertAdjacentElement('afterend', el); else document.body.appendChild(el);
+      }, function(){ b.click(); });
+      return;
+    }
     /* This used to be hung on `#foot .in`, which is not on the page while the sheet is
        open — so the append threw inside the catch and a failed save said NOTHING. The
        button went back to "Save changes" and that was the whole story: exactly what
