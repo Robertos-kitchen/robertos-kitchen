@@ -51,6 +51,9 @@
 
   function isMutatingFunctionCall(urlStr) {
     if (urlStr.indexOf('/functions/v1/') === -1) return false;
+    // audit-api (Bartolini audit, 14 Oct 2026): ?read= is the page loading; every other call
+    // saves, translates (a real AI cost) or emails Amin.
+    if (urlStr.indexOf('/functions/v1/audit-api') !== -1) return urlStr.indexOf('/functions/v1/audit-api?read=') === -1;
     for (var i = 0; i < MUTATING_FUNCTIONS.length; i++) {
       if (urlStr.indexOf('/functions/v1/' + MUTATING_FUNCTIONS[i]) !== -1) return true;
     }

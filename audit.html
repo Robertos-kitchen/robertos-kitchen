@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="it" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Audit Roberto's">
+<meta name="theme-color" content="#410207">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Audit — Roberto's DIFC</title>
+<!-- Before any code below can call fetch(): on the DEV host this blocks every write. -->
+<script src="dev-guard.js?v=1791995400"></script>
+<script src="k-dialog.js?v=1791995400"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=DM+Sans:wght@400;500;700&display=swap');
+/* The Kitchen app's own tokens (index.html :root). */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;--line:#e6dacb;
+  --vino:#410207;--vino-mid:#5e0a10;--terra:#c0481f;
+  --ink:#2a1a10;--cream:#f5ede0;--paper:#fbf7f1;--door:#f4ede2;--muted:#6b5b50;
+  --ok:#2f5d1e;--ok-bg:#e4ecd9;--below:#7a4200;--below-bg:#f6e6cc;--err:#8f1d12;--err-bg:#f6dcd6;
+  --display:'Bodoni Moda',Didot,'Times New Roman',serif;
+  --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid var(--terra);outline-offset:2px}
+[hidden]{display:none!important}
+.app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;background:var(--paper)}
+.app.wide{max-width:820px}
+.top{background:var(--vino);color:var(--cream);padding:22px 20px 20px;padding-top:max(22px,env(safe-area-inset-top));display:flex;flex-direction:column;gap:10px}
+.top .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{width:16px;height:24px;object-fit:contain}
+.kick{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--sabbia);font-weight:700}
+.top h1{font-family:var(--display);font-weight:400;font-size:34px;line-height:1.1;margin:0}
+.top .sub{font-size:14px;color:var(--sabbia)}
+.lang{display:flex;gap:4px}
+.lang button{font-size:11px;letter-spacing:.08em;font-weight:700;padding:6px 10px;border-radius:3px;border:1px solid var(--vino-mid);background:transparent;color:var(--sabbia);min-height:32px}
+.lang button.on{background:var(--cream);color:var(--vino);border-color:var(--cream)}
+.bar{display:flex;align-items:center;gap:10px;margin-top:4px}
+.bar .track{flex:1;height:4px;background:var(--vino-mid);border-radius:2px;overflow:hidden}
+.bar .fill{height:4px;background:var(--terra)}
+.bar b{font-size:13px}
+.body{padding:16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.lbl{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--vino);font-weight:700;padding:0 2px;margin-top:6px}
+.card{background:#fff;border:1px solid var(--line);border-radius:8px}
+.sec{display:flex;align-items:center;gap:12px;padding:12px 14px;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:8px;min-height:60px}
+.sec:hover{border-color:var(--terra)}
+.sec.now{border:2px solid var(--terra);padding:11px 13px}
+.sec.final{background:var(--door);border-color:var(--sabbia-dark)}
+.dot{flex:none;width:28px;height:28px;border-radius:14px;background:var(--sabbia-light);color:var(--vino);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.dot.done{background:var(--ok-bg);color:var(--ok)}
+.dot.go{background:var(--vino);color:var(--cream)}
+.dot.star{background:var(--terra);color:#fff}
+.sec .t{display:block;font-family:var(--display);font-size:19px;color:var(--vino);line-height:1.2}
+.sec .s{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.sec .grow{flex:1;min-width:0}
+.sec .sc{font-weight:700;font-size:15px;white-space:nowrap}
+.fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:max(20px,env(safe-area-inset-bottom));height:58px;padding:0 22px 0 18px;border-radius:29px;background:var(--terra);color:#fff;border:0;font-weight:700;font-size:15px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 18px rgba(65,2,7,.28);z-index:20}
+.head{padding:16px 20px 14px;padding-top:max(16px,env(safe-area-inset-top));background:var(--door);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.head .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.back{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:3px;padding:9px 12px;min-height:38px}
+.head h2{font-family:var(--display);font-weight:400;font-size:30px;color:var(--vino);line-height:1.1;margin:0}
+.head .prev{font-size:12.5px;color:var(--muted)}
+.head .prev b{color:var(--terra)}
+.muted{color:var(--muted);font-size:12.5px}
+.scores{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.scores.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.sbtn{height:52px;border:1px solid var(--sabbia-dark);background:#fff;border-radius:6px;font-size:18px;font-weight:700}
+.sbtn.na{font-size:13px;background:var(--sabbia-light);color:var(--muted)}
+.sbtn.on{background:var(--vino);border:2px solid var(--vino);color:var(--cream)}
+.verd{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.vbtn{min-height:46px;border:1px solid var(--sabbia-dark);background:#fff;border-radius:6px;font-size:14px;padding:4px}
+.vbtn.ok{color:var(--ok)}.vbtn.fix{color:var(--below)}.vbtn.urgent{color:var(--err)}
+.vbtn.ok.on{background:var(--ok-bg);border:2px solid var(--ok);font-weight:700}
+.vbtn.fix.on{background:var(--below-bg);border:2px solid var(--below);font-weight:700}
+.vbtn.urgent.on{background:var(--err-bg);border:2px solid var(--err);font-weight:700}
+.note{padding:12px;display:flex;flex-direction:column;gap:10px}
+.note textarea{width:100%;min-height:96px;border:1px solid var(--line);border-radius:6px;padding:10px;font-size:16px;line-height:1.45;background:var(--paper);resize:vertical}
+.note textarea.small{min-height:52px}
+.note .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mic,.cam{min-height:44px;border-radius:22px;padding:0 16px;font-weight:700;font-size:14px;display:inline-flex;align-items:center;gap:8px;border:0}
+.mic{background:var(--vino);color:var(--cream)}
+.mic.live{background:var(--err);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.75}}
+.cam{background:#fff;border:1px solid var(--sabbia-dark);color:var(--vino)}
+.saved{font-size:12px;color:var(--muted);margin-left:auto}
+.saved.bad{color:var(--err);font-weight:700}
+.pics{display:flex;gap:6px;flex-wrap:wrap}
+.pic{position:relative;width:72px;height:72px;border-radius:6px;overflow:hidden;background:var(--sabbia)}
+.pic img{width:100%;height:100%;object-fit:cover;display:block}
+.pic button{position:absolute;top:2px;right:2px;width:26px;height:26px;border-radius:13px;border:0;background:rgba(42,26,16,.75);color:#fff;font-size:15px;line-height:26px;padding:0}
+.pic.up{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+.en{font-size:13px;line-height:1.45;color:var(--muted);border-top:1px solid var(--sabbia-light);padding-top:8px}
+.en b{color:var(--vino);font-size:10.5px;letter-spacing:.12em}
+.foot{position:sticky;bottom:0;padding:12px 16px;padding-bottom:max(16px,env(safe-area-inset-bottom));background:var(--door);border-top:1px solid var(--line);display:flex;gap:10px}
+.big{flex:1;min-height:56px;border-radius:28px;border:0;font-weight:700;font-size:16px}
+.big.vino{background:var(--vino);color:var(--cream)}
+.big.terra{background:var(--terra);color:#fff}
+.big.light{background:#fff;border:1px solid var(--sabbia-dark);color:var(--vino)}
+.big:disabled{opacity:.55}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--sabbia-dark);background:#fff;border-radius:18px;padding:9px 14px;font-size:14px;min-height:42px}
+.chip.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.pick{padding:12px;display:flex;flex-direction:column;gap:8px}
+.pick input{width:100%;border:1px solid var(--sabbia-dark);border-radius:6px;padding:12px;font-size:16px;background:#fff}
+.opt{display:block;width:100%;text-align:left;padding:12px;border:0;border-top:1px solid var(--sabbia-light);background:#fff;font-size:15px}
+.opt small{color:var(--muted);margin-left:6px}
+.shot{min-height:220px;border-radius:8px;border:2px dashed var(--terra);background:var(--door);color:var(--vino);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-weight:700;font-size:17px;width:100%}
+.msg{padding:12px 14px;border-radius:8px;font-size:14px;line-height:1.45}
+.msg.ok{background:var(--ok-bg);color:var(--ok)}
+.msg.err{background:var(--err-bg);color:var(--err)}
+.msg.info{background:var(--sabbia-light);color:var(--ink)}
+.center{text-align:center;padding:40px 20px;color:var(--muted)}
+.link{background:none;border:0;color:var(--vino);text-decoration:underline;padding:8px 0;font-size:14px}
+/* report */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.tile{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.tile b{display:block;font-size:24px}
+.tile span{font-size:12px;color:var(--muted)}
+.top .tile{background:var(--vino-mid);border:0}
+.top .tile span{color:var(--sabbia)}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-weight:400;color:var(--muted);font-size:12px;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.tbl td{padding:9px 4px;border-bottom:1px solid var(--line)}
+.tbl td.a{font-family:var(--display);font-size:17px;color:var(--vino)}
+.act{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.act .h{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.act .n{font-family:var(--display);font-size:18px;color:var(--vino);line-height:1.2}
+.badge{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:10px;white-space:nowrap}
+.badge.urgent,.badge.remove{background:var(--err-bg);color:var(--err)}
+.badge.fix,.badge.attention{background:var(--below-bg);color:var(--below)}
+.badge.ok,.badge.keep{background:var(--ok-bg);color:var(--ok)}
+.act .it{font-size:12.5px;color:var(--muted);font-style:italic}
+.act textarea,.rtext textarea,.item textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:16px;line-height:1.45;background:var(--paper);min-height:44px;resize:vertical}
+.who{display:flex;gap:8px;flex-wrap:wrap}
+.who input{flex:1;min-width:130px;border:1px solid var(--sabbia-dark);border-radius:6px;padding:9px 10px;font-size:16px;background:#fff;min-height:42px}
+.rtext{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.tabs{display:flex;gap:6px}
+.tabs button{flex:1;min-height:40px;border-radius:4px;border:1px solid var(--vino-mid);background:transparent;color:var(--sabbia);font-weight:700;font-size:13px}
+.tabs button.on{background:var(--cream);color:var(--vino);border-color:var(--cream)}
+.item{padding:10px 14px;border-top:1px solid var(--sabbia-light);display:flex;flex-direction:column;gap:6px}
+.item:first-child{border-top:0}
+.item .h{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+@media (max-width:420px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:30px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root" class="app"><div class="center">Caricamento…</div></div>
+<input type="file" id="file" accept="image/*" multiple hidden>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   CHEF BARTOLINI AUDIT (14 Oct 2026, Francesco)
+
+   Enrico opens audit.html?k=<his link> on his iPhone. He scores 33 items in five
+   areas (1–5 or N/A), writes or dictates notes in Italian, takes photos at any
+   moment, tastes dishes one by one, and closes with an overall comment, suggested
+   improvements and his top 3. Everything saves as he goes.
+
+   Francesco opens audit.html?a=<his link>: the report in English (translated by
+   Claude with a chef's glossary, Italian kept), owner + date on every action, a
+   test email to himself, then "Email to Amin".
+
+   All reads and writes go through the audit-api Edge Function, which checks the
+   link. The audit_* tables are closed to the anon key.
+   ════════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var FN = SB_URL + '/functions/v1/audit-api';
+var Q = new URLSearchParams(location.search);
+var TOK = Q.get('a') ? { a: Q.get('a') } : (Q.get('k') ? { k: Q.get('k') } : null);
+var ADMIN = !!(TOK && TOK.a);
+var AREAS = ['arrivo', 'cucina', 'ristorante', 'vino', 'scala'];
+var ORDER = ['arrivo', 'cucina', 'piatti', 'ristorante', 'vino', 'scala'];
+
+function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch(e){ return null; } }
+var LANG = ls('auditLang') || (ADMIN ? 'en' : 'it');
+
+var T = {
+  it: {
+    hello:'Ciao Enrico', visit:'Visita', autosave:'scrivi o parla, salva da solo', sections:'Sezioni',
+    arrivo:'Arrivo & Benvenuto', cucina:'Cucina', piatti:'Piatti — degustazione', ristorante:'Ristorante', vino:'Vino', scala:'Scala',
+    final:'Commento finale', finalSub:'Visita in generale · miglioramenti · 3 priorità',
+    piattiSub:'Piatto per piatto: tieni / correggi / togli', flagBtn:'Foto · Segnala',
+    of:'di', score:'Voto', anchor:'3 = accettabile, non da Bartolini · 5 = standard stellato',
+    note:'Nota', ph:'Scrivi qui, oppure premi Parla…', speak:'Parla', stop:'Stop', photo:'Foto',
+    action:'Azione', ok:'Ok così', fix:'Da correggere', urgent:'Urgente',
+    next:'Avanti', done:'Fatto', back:'Indietro', home:'Sezioni',
+    saved:'Salvato', saving:'Salvo…', notSaved:'Non salvato — riprovo', inProgress:'in corso', avg:'media', na:'N/A',
+    last:'Ultima volta', flagTitle:'Segnalazione', shoot:'Scatta o scegli una foto', onlyNote:'Solo una nota, senza foto',
+    what:"Cos'è", piatto:'Piatto', dishFromMenu:'Piatto dal menu', choose:'Scegli…', keep:'Bello — da tenere', attention:'Attenzione',
+    save:'Salva', remove:'Togli', addDish:'+ Aggiungi piatto', searchDish:'Cerca nel menu…', useName:'Usa questo nome',
+    dKeep:'Tieni', dFix:'Correggi', dRemove:'Togli dal menu', noDishes:'Nessun piatto ancora. Aggiungi il primo che assaggi.',
+    overall:'La visita in generale', improve:'Miglioramenti suggeriti', top3:'Le tue 3 priorità', prio:'Priorità',
+    send:'Invia a Francesco', sendSure:'Premi di nuovo per inviare', sentTitle:'Grazie, Chef.', sentLine:"Francesco ha ricevuto l'audit. Puoi ancora aggiungere o correggere qualcosa: si salva da solo.",
+    closed:'Questo audit è stato inviato. Grazie!', badLink:'Questo link non è valido.', offline:'Connessione assente — tutto quello che scrivi resta qui e si salva appena torna la rete.',
+    noMic:'Su questo telefono usa il microfono della tastiera per dettare.', micBlocked:'Permetti il microfono a Safari per dettare.',
+    uploading:'Carico…', photoFail:'Foto non caricata. Riprova.', removeDish:'Togli questo piatto dalla lista', liked:'tenere', att:'attenzione', notes:'note'
+  },
+  en: {
+    hello:'Hello Enrico', visit:'Visit', autosave:'type or speak, it saves by itself', sections:'Sections',
+    arrivo:'Arrival & welcome', cucina:'Kitchen', piatti:'Dishes — tasting', ristorante:'Restaurant', vino:'Wine', scala:'Scala',
+    final:'Final comment', finalSub:'Overall visit · improvements · top 3',
+    piattiSub:'Dish by dish: keep / fix / take off', flagBtn:'Photo · Flag',
+    of:'of', score:'Score', anchor:'3 = acceptable, not Bartolini level · 5 = Michelin standard',
+    note:'Note', ph:'Type here, or press Speak…', speak:'Speak', stop:'Stop', photo:'Photo',
+    action:'Action', ok:'OK as is', fix:'To fix', urgent:'Urgent',
+    next:'Next', done:'Done', back:'Back', home:'Sections',
+    saved:'Saved', saving:'Saving…', notSaved:'Not saved — retrying', inProgress:'in progress', avg:'avg', na:'N/A',
+    last:'Last time', flagTitle:'Flag', shoot:'Take or choose a photo', onlyNote:'Just a note, no photo',
+    what:'What is it', piatto:'Dish', dishFromMenu:'Dish from the menu', choose:'Choose…', keep:'Great — keep', attention:'Attention',
+    save:'Save', remove:'Remove', addDish:'+ Add a dish', searchDish:'Search the menu…', useName:'Use this name',
+    dKeep:'Keep', dFix:'Fix', dRemove:'Take off the menu', noDishes:'No dishes yet. Add the first one you taste.',
+    overall:'Overall visit', improve:'Suggested improvements', top3:'Your top 3', prio:'Priority',
+    send:'Send to Francesco', sendSure:'Tap again to send', sentTitle:'Thank you, Chef.', sentLine:'Francesco has the audit. You can still add or correct anything: it saves by itself.',
+    closed:'This audit has been sent. Thank you!', badLink:'This link is not valid.', offline:'No connection — everything you write stays here and saves as soon as the network is back.',
+    noMic:'On this phone use the keyboard microphone to dictate.', micBlocked:'Allow the microphone for Safari to dictate.',
+    uploading:'Uploading…', photoFail:'Photo not uploaded. Try again.', removeDish:'Remove this dish from the list', liked:'keep', att:'attention', notes:'notes'
+  }
+};
+function t(k){ return (T[LANG] && T[LANG][k]) || T.it[k] || k; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function areaName(a){ return t(a); }
+function lab(c){ return LANG === 'en' ? c.label_en : c.label_it; }
+function fmtDate(d, lang){ if (!d) return ''; try { return new Date(d + 'T12:00:00Z').toLocaleDateString(lang === 'en' ? 'en-GB' : 'it-IT', { weekday:'long', day:'numeric', month:'long', year:'numeric' }); } catch(e){ return d; } }
+
+var D = null;                 // everything the API returned
+var S = { v: ADMIN ? 'report' : 'home' };
+var root = document.getElementById('root');
+
+/* ── API ─────────────────────────────────────────────────────────────────── */
+function api(action, payload){
+  var body = Object.assign({ action: action }, TOK, payload || {});
+  return fetch(FN + (action === 'load' ? '?read=1' : ''), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY },
+    body: JSON.stringify(body)
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(j){
+      if (!r.ok) { var e = new Error(j.message || j.error || ('Error ' + r.status)); e.status = r.status; throw e; }
+      return j;
+    });
+  });
+}
+
+/* Saves queue: the latest value per key wins, retried until it lands. A copy sits in
+   localStorage so a reload with no network does not lose a note. */
+var PEND = {}, BUSY = false, PKEY = 'auditPending:' + (TOK ? (TOK.k || TOK.a) : '');
+try { PEND = JSON.parse(ls(PKEY) || '{}') || {}; } catch(e){ PEND = {}; }
+function keepPend(){ ls(PKEY, JSON.stringify(PEND)); }
+function queue(key, action, payload){
+  PEND[key] = { action: action, payload: payload };
+  keepPend(); setStatus('saving'); flushSoon();
+}
+var flushT = null;
+function flushSoon(ms){ clearTimeout(flushT); flushT = setTimeout(flush, ms == null ? 700 : ms); }
+function flush(){
+  if (BUSY) return flushSoon(500);
+  var keys = Object.keys(PEND); if (!keys.length) { setStatus('saved'); return; }
+  var k = keys[0], job = PEND[k]; BUSY = true;
+  api(job.action, job.payload).then(function(res){
+    BUSY = false;
+    if (PEND[k] === job) { delete PEND[k]; keepPend(); }
+    merge(job.action, res && res.row);
+    flushSoon(0);
+  }, function(e){
+    BUSY = false;
+    if (e.status && e.status < 500) { delete PEND[k]; keepPend(); toast(e.message, true); flushSoon(0); return; }
+    setStatus('bad'); flushSoon(4000);
+  });
+}
+window.addEventListener('online', function(){ flushSoon(0); });
+function setStatus(s){
+  var els = document.querySelectorAll('.saved');
+  for (var i = 0; i < els.length; i++) {
+    els[i].className = 'saved' + (s === 'bad' ? ' bad' : '');
+    els[i].textContent = s === 'saving' ? t('saving') : s === 'bad' ? t('notSaved') : t('saved');
+  }
+}
+function toast(m, bad){
+  var el = document.getElementById('toast');
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:90px;max-width:92%;z-index:50;padding:12px 16px;border-radius:8px;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.2)';
+    document.body.appendChild(el); }
+  el.textContent = m; el.style.background = bad ? '#8f1d12' : '#2a1a10'; el.style.color = '#fff'; el.hidden = false;
+  clearTimeout(el._t); el._t = setTimeout(function(){ el.hidden = true; }, 3500);
+}
+
+/* Put a saved row back into D so every screen shows it. */
+function merge(action, row){
+  if (!row || !D) return;
+  var list = action === 'score' ? D.scores : action === 'dish' ? D.dishes : action === 'flag' ? D.flags : action === 'text' ? D.texts : null;
+  if (!list) return;
+  var key = action === 'text' ? 'key' : action === 'score' ? 'code' : 'id';
+  for (var i = 0; i < list.length; i++) if (list[i][key] === row[key]) {
+    // Never overwrite a note the user is still typing (the queue holds the newer one).
+    var keepNote = list[i]._local; list[i] = Object.assign(list[i], row); if (keepNote) list[i]._local = keepNote; return;
+  }
+  if (!row.removed) list.push(row);
+}
+function scoreRow(code){ for (var i = 0; i < D.scores.length; i++) if (D.scores[i].code === code) return D.scores[i]; var r = { code: code, photos: [] }; D.scores.push(r); return r; }
+function textRow(key){ for (var i = 0; i < D.texts.length; i++) if (D.texts[i].key === key) return D.texts[i]; var r = { key: key, photos: [] }; D.texts.push(r); return r; }
+function byId(list, id){ for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
+function cat(area){ return D.catalog.filter(function(c){ return c.area === area; }).sort(function(a, b){ return a.position - b.position; }); }
+function prevScore(code){ if (!D.previous) return null; for (var i = 0; i < D.previous.scores.length; i++) if (D.previous.scores[i].code === code) return D.previous.scores[i]; return null; }
+function isDone(code){ var r = scoreRow(code); return !!(r.score || r.na); }
+function areaStats(a){
+  var items = cat(a), n = 0, s = 0, k = 0;
+  items.forEach(function(c){ var r = scoreRow(c.code); if (r.score || r.na) n++; if (r.score) { s += r.score; k++; } });
+  return { done: n, total: items.length, avg: k ? (s / k) : null, pct: k ? Math.round(s / (5 * k) * 100) : null };
+}
+function overallPct(){ var s = 0, k = 0; D.scores.forEach(function(r){ if (r.score && !r.na) { s += r.score; k++; } }); return k ? Math.round(s / (5 * k) * 100) : null; }
+
+/* ── navigation (the iPhone back swipe works) ───────────────────────────── */
+function go(next, replace){
+  stopMic();
+  S = Object.assign({}, next);
+  try { history[replace ? 'replaceState' : 'pushState'](S, '', location.search); } catch(e){}
+  render(); window.scrollTo(0, 0);
+}
+window.addEventListener('popstate', function(e){ stopMic(); S = e.state || { v: ADMIN ? 'report' : 'home' }; render(); });
+
+/* ── shared pieces ──────────────────────────────────────────────────────── */
+var MIC_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>';
+var CAM_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>';
+function pics(row, target, ref){
+  var h = '<div class="pics">';
+  (row.photos || []).forEach(function(p){
+    var u = D.urls[p];
+    h += '<div class="pic">' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="Foto"></a>' : '') +
+         '<button data-act="pdel" data-target="' + target + '" data-ref="' + esc(ref) + '" data-path="' + esc(p) + '" aria-label="Togli foto">×</button></div>';
+  });
+  (UPLOADING[target + ':' + ref] || []).forEach(function(){ h += '<div class="pic up">' + t('uploading') + '</div>'; });
+  return h + '</div>';
+}
+/* A note: textarea + Speak + Photo. target/ref say where it saves. */
+function noteBlock(o){
+  var en = (LANG === 'en' && o.en && o.it) ? '<div class="en"><b>EN</b> ' + esc(o.en) + '</div>' : '';
+  return '<div class="card note">' +
+    '<textarea id="' + o.id + '" data-save="' + o.target + '" data-ref="' + esc(o.ref) + '" class="' + (o.small ? 'small' : '') + '" placeholder="' + esc(o.ph || t('ph')) + '" aria-label="' + esc(o.label || t('note')) + '">' + esc(o.it || '') + '</textarea>' +
+    (o.nopics ? '' : pics(o.row, o.target, o.ref)) +
+    '<div class="tools"><button class="mic" data-act="mic" data-for="' + o.id + '">' + MIC_SVG + '<span>' + t('speak') + '</span></button>' +
+    (o.nopics ? '' : '<button class="cam" data-act="photo" data-target="' + o.target + '" data-ref="' + esc(o.ref) + '">' + CAM_SVG + '<span>' + t('photo') + '</span></button>') +
+    '<span class="saved">' + t('saved') + '</span></div>' + en + '</div>';
+}
+function topBar(sub){   // not "top": window.top cannot be redeclared
+  return '<div class="top"><div class="row"><div class="brand"><img src="data:image/png;base64,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" alt="Roberto\'s"><span class="kick">Roberto\'s DIFC · Audit</span></div>' +
+    '<div class="lang"><button data-act="lang" data-l="it" class="' + (LANG === 'it' ? 'on' : '') + '">IT</button><button data-act="lang" data-l="en" class="' + (LANG === 'en' ? 'on' : '') + '">EN</button></div></div>' + (sub || '') + '</div>';
+}
+function head(backTo, backLabel, right, title, extra){
+  return '<div class="head"><div class="row"><button class="back" data-act="go" data-to=\'' + esc(JSON.stringify(backTo)) + '\'>‹ ' + esc(backLabel) + '</button><span class="muted">' + (right || '') + '</span></div>' +
+    '<h2>' + esc(title) + '</h2>' + (extra || '') + '</div>';
+}
+function adminTabs(){
+  if (!ADMIN) return '';
+  return '<div class="tabs"><button data-act="go" data-to=\'{"v":"report"}\' class="' + (S.v === 'report' ? 'on' : '') + '">Report (EN)</button><button data-act="go" data-to=\'{"v":"home"}\' class="' + (S.v !== 'report' ? 'on' : '') + '">' + (LANG === 'en' ? "Enrico's screens" : 'Schermate di Enrico') + '</button></div>';
+}
+
+/* ── screens ────────────────────────────────────────────────────────────── */
+function render(){
+  if (!TOK) { root.innerHTML = topBar('<h1>Audit</h1>') + '<div class="body"><div class="msg err">' + t('badLink') + '</div></div>'; return; }
+  if (!D) return;
+  root.className = 'app' + (S.v === 'report' ? ' wide' : '');
+  var h = '';
+  if (S.v === 'home') h = vHome();
+  else if (S.v === 'area') h = vArea();
+  else if (S.v === 'item') h = vItem();
+  else if (S.v === 'dishes') h = vDishes();
+  else if (S.v === 'dish') h = vDish();
+  else if (S.v === 'flag') h = vFlag();
+  else if (S.v === 'final') h = vFinal();
+  else if (S.v === 'thanks') h = vThanks();
+  else if (S.v === 'report') h = vReport();
+  // A photo landing must not throw the keyboard away mid-sentence: keep focus and caret.
+  var a = document.activeElement, fid = a && a.id && root.contains(a) ? a.id : null, s0 = fid ? a.selectionStart : 0, s1 = fid ? a.selectionEnd : 0, y = window.scrollY;
+  root.innerHTML = h;
+  setStatus(Object.keys(PEND).length ? 'saving' : 'saved');
+  autosize(); markMic();
+  if (fid) { var el = document.getElementById(fid); if (el) { try { el.focus({ preventScroll: true }); el.setSelectionRange(s0, s1); } catch(e){} window.scrollTo(0, y); } }
+}
+
+function closedBanner(){
+  if (ADMIN || D.visit.status !== 'sent') return '';
+  return '<div class="msg info">' + t('closed') + '</div>';
+}
+
+function vHome(){
+  var total = D.catalog.length, done = D.scores.filter(function(r){ return r.score || r.na; }).length;
+  var pct = total ? Math.round(done / total * 100) : 0;
+  var h = topBar(adminTabs() + '<h1>' + t('hello') + '</h1><div class="sub">' + t('visit') + ' ' + esc(fmtDate(D.visit.visit_date, LANG)) + ' · ' + t('autosave') + '</div>' +
+    '<div class="bar"><div class="track"><div class="fill" style="width:' + pct + '%"></div></div><b>' + done + ' / ' + total + '</b></div>');
+  h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('sections') + '</div>';
+  var n = 0, current = null;
+  ORDER.forEach(function(a){ if (a !== 'piatti' && current === null) { var st = areaStats(a); if (st.done < st.total) current = a; } });
+  ORDER.forEach(function(a){
+    n++;
+    if (a === 'piatti') {
+      var nd = D.dishes.length;
+      h += '<button class="sec" data-act="go" data-to=\'{"v":"dishes"}\'><span class="dot' + (nd ? ' done' : '') + '">' + (nd ? nd : n) + '</span><span class="grow"><span class="t">' + t('piatti') + '</span><span class="s">' + t('piattiSub') + '</span></span></button>';
+      return;
+    }
+    var st = areaStats(a), full = st.done === st.total, now = a === current && st.done > 0;
+    var sub = st.done + '/' + st.total + (st.avg != null ? ' · ' + t('avg') + ' ' + st.avg.toFixed(1) : '') + (now ? ' · ' + t('inProgress') : '');
+    var pv = D.previous && D.previous.area_pct && D.previous.area_pct[a] != null && st.pct != null ? ' · ' + (st.pct - D.previous.area_pct[a] >= 0 ? '↑' : '↓') + ' vs ' + esc(D.previous.title.replace('Novembre', LANG === 'en' ? 'Nov' : 'Nov')) : '';
+    h += '<button class="sec' + (a === current ? ' now' : '') + '" data-act="area" data-a="' + a + '"><span class="dot' + (full ? ' done' : a === current ? ' go' : '') + '">' + (full ? '✓' : n) + '</span>' +
+         '<span class="grow"><span class="t">' + areaName(a) + '</span><span class="s">' + sub + pv + '</span></span>' + (st.pct != null ? '<span class="sc">' + st.pct + '%</span>' : '') + '</button>';
+  });
+  h += '<button class="sec final" data-act="go" data-to=\'{"v":"final"}\'><span class="dot star">★</span><span class="grow"><span class="t">' + t('final') + '</span><span class="s">' + t('finalSub') + '</span></span></button>';
+  var nf = D.flags.length;
+  if (nf) h += '<div class="muted" style="padding:4px 2px">' + nf + ' ' + (LANG === 'en' ? (nf === 1 ? 'flag' : 'flags') : (nf === 1 ? 'segnalazione' : 'segnalazioni')) + '</div>';
+  h += '<div style="height:80px"></div></div>';
+  h += '<button class="fab" data-act="newflag">' + CAM_SVG + t('flagBtn') + '</button>';
+  return h;
+}
+
+function vArea(){
+  var a = S.area, items = cat(a), st = areaStats(a);
+  var h = head({ v: 'home' }, t('home'), st.done + ' / ' + st.total, areaName(a));
+  h += '<div class="body">' + closedBanner() + '<div class="card">';
+  items.forEach(function(c, i){
+    var r = scoreRow(c.code);
+    var sc = r.na ? t('na') : (r.score ? r.score : '');
+    h += '<button class="sec" style="border:0;border-top:' + (i ? '1px solid var(--sabbia-light)' : '0') + ';border-radius:0" data-act="item" data-code="' + c.code + '">' +
+      '<span class="dot' + (r.score || r.na ? ' done' : '') + '">' + (i + 1) + '</span><span class="grow"><span class="t" style="font-size:17px">' + esc(lab(c)) + '</span>' +
+      '<span class="s">' + (r.verdict ? t(r.verdict) : '') + (r.note_it ? (r.verdict ? ' · ' : '') + '✎' : '') + ((r.photos || []).length ? ' · ' + r.photos.length + ' foto' : '') + '</span></span><span class="sc">' + sc + '</span></button>';
+  });
+  h += '</div></div>';
+  var next = items.filter(function(c){ return !isDone(c.code); })[0] || items[0];
+  h += '<div class="foot"><button class="big vino" data-act="item" data-code="' + next.code + '">' + (st.done ? t('next') : (LANG === 'en' ? 'Start' : 'Inizia')) + '</button></div>';
+  return h;
+}
+
+function vItem(){
+  var c = D.catalog.filter(function(x){ return x.code === S.code; })[0]; if (!c) return vHome();
+  var items = cat(c.area), idx = items.indexOf(c), r = scoreRow(c.code), p = prevScore(c.code);
+  var prev = p ? '<div class="prev">' + t('last') + ' (' + esc(D.previous.title) + '): <b>' + (p.na ? 'N/A' : (p.score || '—')) + '</b>' +
+    ((LANG === 'en' ? p.note_en : p.note_it) ? ' — “' + esc(LANG === 'en' ? p.note_en : p.note_it) + '”' : '') + '</div>' : '';
+  var h = head({ v: 'area', area: c.area }, areaName(c.area), (idx + 1) + ' ' + t('of') + ' ' + items.length, lab(c), prev);
+  h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('score') + '</div><div class="scores">';
+  [1, 2, 3, 4, 5].forEach(function(n){ h += '<button class="sbtn' + (r.score === n && !r.na ? ' on' : '') + '" data-act="score" data-v="' + n + '" aria-pressed="' + (r.score === n) + '">' + n + '</button>'; });
+  h += '<button class="sbtn na' + (r.na ? ' on' : '') + '" data-act="score" data-v="na">N/A</button></div><div class="muted">' + t('anchor') + '</div>';
+  h += '<div class="lbl">' + t('note') + '</div>' + noteBlock({ id: 'n-' + c.code, target: 'score', ref: c.code, row: r, it: r._local != null ? r._local : r.note_it, en: r.note_en });
+  h += '<div class="lbl">' + t('action') + '</div><div class="verd">';
+  ['ok', 'fix', 'urgent'].forEach(function(v){ h += '<button class="vbtn ' + v + (r.verdict === v ? ' on' : '') + '" data-act="verdict" data-v="' + v + '">' + t(v) + '</button>'; });
+  h += '</div><div style="height:12px"></div></div>';
+  var last = idx === items.length - 1;
+  h += '<div class="foot"><button class="big light" data-act="go" data-to=\'' + esc(JSON.stringify({ v: 'area', area: c.area })) + '\' style="flex:0 0 auto;padding:0 20px">' + t('home') + '</button>' +
+       '<button class="big terra" data-act="nextitem">' + (last ? t('done') : t('next')) + '</button></div>';
+  return h;
+}
+
+function vDishes(){
+  var h = head({ v: 'home' }, t('home'), D.dishes.length ? String(D.dishes.length) : '', t('piatti'));
+  h += '<div class="body">' + closedBanner();
+  if (!D.dishes.length) h += '<div class="msg info">' + t('noDishes') + '</div>';
+  else {
+    h += '<div class="card">';
+    D.dishes.forEach(function(d, i){
+      var v = d.verdict === 'keep' ? t('dKeep') : d.verdict === 'fix' ? t('dFix') : d.verdict === 'remove' ? t('dRemove') : '';
+      h += '<button class="sec" style="border:0;border-top:' + (i ? '1px solid var(--sabbia-light)' : '0') + ';border-radius:0" data-act="dish" data-id="' + d.id + '"><span class="dot' + (d.score ? ' done' : '') + '">' + (i + 1) + '</span>' +
+        '<span class="grow"><span class="t" style="font-size:17px">' + esc(d.dish_name) + '</span><span class="s">' + v + (d.note_it ? ' · ✎' : '') + ((d.photos || []).length ? ' · ' + d.photos.length + ' foto' : '') + '</span></span><span class="sc">' + (d.score ? d.score + '/5' : '') + '</span></button>';
+    });
+    h += '</div>';
+  }
+  h += picker('adddish');
+  h += '</div>';
+  return h;
+}
+/* Dish search over the à la carte + Scala menus, or a free name. */
+function picker(mode){
+  return '<div class="card pick"><label class="lbl" for="pq" style="margin:0">' + (mode === 'adddish' ? t('addDish').replace('+ ', '') : t('dishFromMenu')) + '</label>' +
+    '<input id="pq" data-mode="' + mode + '" placeholder="' + t('searchDish') + '" value="' + esc(S.q || '') + '" autocomplete="off" autocapitalize="words">' +
+    '<div id="pres">' + presHtml(mode) + '</div></div>';
+}
+function norm(s){ return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function presHtml(mode){
+  var raw = (S.q || '').trim(), q = norm(raw); if (!q) return '';
+  var hits = D.menu.filter(function(m){ return norm(m.name).indexOf(q) !== -1; }).slice(0, 8), h = '';
+  hits.forEach(function(m){ h += '<button class="opt" data-act="pickdish" data-mode="' + mode + '" data-id="' + m.id + '" data-name="' + esc(m.name) + '">' + esc(m.name) + '<small>' + (m.where === 'scala' ? 'Scala' : '') + '</small></button>'; });
+  return h + '<button class="opt" data-act="pickdish" data-mode="' + mode + '" data-id="" data-name="' + esc(raw) + '">' + t('useName') + ': <b>' + esc(raw) + '</b></button>';
+}
+
+function vDish(){
+  var d = byId(D.dishes, S.id); if (!d) return vDishes();
+  var h = head({ v: 'dishes' }, t('piatti').split(' — ')[0], '', d.dish_name);
+  h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('score') + '</div><div class="scores five">';
+  [1, 2, 3, 4, 5].forEach(function(n){ h += '<button class="sbtn' + (d.score === n ? ' on' : '') + '" data-act="dscore" data-v="' + n + '">' + n + '</button>'; });
+  h += '</div><div class="lbl">' + t('note') + '</div>' + noteBlock({ id: 'n-d-' + d.id, target: 'dish', ref: d.id, row: d, it: d._local != null ? d._local : d.note_it, en: d.note_en, ph: LANG === 'en' ? 'Taste, technique, presentation, temperature…' : 'Gusto, tecnica, presentazione, temperatura…' });
+  h += '<div class="lbl">' + t('action') + '</div><div class="verd">';
+  [['keep', 'ok', t('dKeep')], ['fix', 'fix', t('dFix')], ['remove', 'urgent', t('dRemove')]].forEach(function(v){
+    h += '<button class="vbtn ' + v[1] + (d.verdict === v[0] ? ' on' : '') + '" data-act="dverdict" data-v="' + v[0] + '">' + v[2] + '</button>'; });
+  h += '</div><button class="link" data-act="ddel">' + t('removeDish') + '</button></div>';
+  h += '<div class="foot"><button class="big terra" data-act="go" data-to=\'{"v":"dishes"}\'>' + t('done') + '</button></div>';
+  return h;
+}
+
+function vFlag(){
+  var f = S.id ? byId(D.flags, S.id) : null;
+  var h = head({ v: 'home' }, t('home'), '', t('flagTitle'));
+  h += '<div class="body">' + closedBanner();
+  if (!f) {
+    h += '<button class="shot" data-act="flagphoto">' + CAM_SVG.replace('width="20" height="20"', 'width="40" height="40"') + t('shoot') + '</button>';
+    h += '<button class="link" data-act="flagnote">' + t('onlyNote') + '</button></div>';
+    return h;
+  }
+  h += pics(f, 'flag', f.id) + '<button class="cam" data-act="photo" data-target="flag" data-ref="' + f.id + '" style="align-self:flex-start">' + CAM_SVG + '<span>+ ' + t('photo') + '</span></button>';
+  h += '<div class="lbl">' + t('what') + '</div><div class="chips">';
+  ['piatto', 'cucina', 'ristorante', 'scala'].forEach(function(a){ h += '<button class="chip' + (f.area === a ? ' on' : '') + '" data-act="farea" data-a="' + a + '">' + (a === 'piatto' ? t('piatto') : areaName(a)) + '</button>'; });
+  h += '</div>';
+  if (f.area === 'piatto') {
+    if (f.dish_name && !S.picking) h += '<button class="card pick" data-act="fpick" style="text-align:left"><span class="muted">' + t('dishFromMenu') + '</span><span style="font-family:var(--display);font-size:19px;color:var(--vino)">' + esc(f.dish_name) + ' ▾</span></button>';
+    else h += picker('flagdish');
+  }
+  h += '<div class="verd" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button class="vbtn ok' + (f.kind === 'keep' ? ' on' : '') + '" data-act="fkind" data-v="keep">' + t('keep') + '</button><button class="vbtn fix' + (f.kind === 'attention' ? ' on' : '') + '" data-act="fkind" data-v="attention">' + t('attention') + '</button></div>';
+  h += '<div class="lbl">' + t('note') + '</div>' + noteBlock({ id: 'n-f-' + f.id, target: 'flag', ref: f.id, row: f, it: f._local != null ? f._local : f.note_it, en: f.note_en, nopics: true });
+  h += '<button class="link" data-act="fdel">' + t('remove') + '</button></div>';
+  h += '<div class="foot"><button class="big terra" data-act="go" data-to=\'{"v":"home"}\'>' + t('save') + '</button></div>';
+  return h;
+}
+
+function vFinal(){
+  var h = head({ v: 'home' }, t('home'), '', t('final'));
+  var ov = overallPct();
+  h += '<div class="body">' + closedBanner();
+  if (ov != null) {
+    h += '<div class="tiles" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="tile"><b>' + ov + '%</b><span>' + esc(D.visit.title) + '</span></div>';
+    if (D.previous) h += '<div class="tile"><b style="color:var(--muted)">' + D.previous.overall_pct + '%</b><span>' + esc(D.previous.title) + '</span></div><div class="tile"><b style="color:' + (ov >= D.previous.overall_pct ? 'var(--ok)' : 'var(--err)') + '">' + (ov - D.previous.overall_pct >= 0 ? '+' : '') + (ov - D.previous.overall_pct) + '</b><span>trend</span></div>';
+    h += '</div>';
+  }
+  ['overall', 'improve'].forEach(function(k){
+    var r = textRow(k);
+    h += '<div class="lbl">' + t(k) + '</div>' + noteBlock({ id: 'n-t-' + k, target: 'text', ref: k, row: r, it: r._local != null ? r._local : r.it, en: r.en });
+  });
+  h += '<div class="lbl">' + t('top3') + '</div>';
+  ['p1', 'p2', 'p3'].forEach(function(k, i){
+    var r = textRow(k);
+    h += noteBlock({ id: 'n-t-' + k, target: 'text', ref: k, row: r, it: r._local != null ? r._local : r.it, en: r.en, small: true, nopics: true, ph: t('prio') + ' ' + (i + 1), label: t('prio') + ' ' + (i + 1) });
+  });
+  h += '</div>';
+  if (!ADMIN) h += '<div class="foot"><button class="big vino" data-act="submit" id="subbtn">' + t('send') + '</button></div>';
+  return h;
+}
+
+function vThanks(){
+  return topBar('<h1>' + t('sentTitle') + '</h1><div class="sub">' + t('sentLine') + '</div>') +
+    '<div class="body"><button class="sec" data-act="go" data-to=\'{"v":"home"}\'><span class="grow"><span class="t">' + t('sections') + '</span></span></button></div>';
+}
+
+/* ── Francesco's report (English) ───────────────────────────────────────── */
+var AREA_EN = { arrivo: 'Arrival & welcome', cucina: 'Kitchen', ristorante: 'Restaurant', vino: 'Wine', scala: 'Scala', piatto: 'Dish' };
+function vReport(){
+  var ov = overallPct(), pv = D.previous;
+  var urgent = D.scores.filter(function(s){ return s.verdict === 'urgent'; }).length + D.dishes.filter(function(x){ return x.verdict === 'remove'; }).length;
+  var tofix = D.scores.filter(function(s){ return s.verdict === 'fix'; }).length + D.dishes.filter(function(x){ return x.verdict === 'fix'; }).length + D.flags.filter(function(f){ return f.kind === 'attention'; }).length;
+  var st = D.visit.status;
+  var stline = st === 'sent' ? 'Sent to Amin ' + (D.visit.sent_at ? new Date(D.visit.sent_at).toLocaleString('en-GB', { timeZone: 'Asia/Dubai', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') :
+               st === 'submitted' ? 'Enrico has finished. Check the English, set owners, then send.' :
+               st === 'test' ? 'Test visit — it can only be emailed to you.' : 'Enrico has not sent it yet. It fills in live as he works.';
+  var h = topBar(adminTabs() + '<h1>Audit report</h1><div class="sub">Chef Enrico Bartolini · ' + esc(fmtDate(D.visit.visit_date, 'en')) + '</div>' +
+    '<div class="tiles"><div class="tile"><b>' + (ov == null ? '—' : ov + '%') + '</b><span>Overall</span></div>' +
+    '<div class="tile"><b>' + (ov == null || !pv ? '—' : ((ov - pv.overall_pct >= 0 ? '+' : '') + (ov - pv.overall_pct))) + '</b><span>vs ' + esc(pv ? pv.title.replace('Novembre', 'Nov') : 'last') + '</span></div>' +
+    '<div class="tile"><b>' + urgent + '</b><span>Urgent</span></div><div class="tile"><b>' + tofix + '</b><span>To fix</span></div></div>');
+  h += '<div class="body"><div class="msg ' + (st === 'sent' ? 'ok' : 'info') + '">' + esc(stline) + '</div>';
+  if (D.visit.enrico_token) {
+    var link = location.origin + location.pathname + '?k=' + D.visit.enrico_token;
+    h += '<div class="card rtext"><div class="lbl" style="margin:0">Enrico\'s link</div><div style="font-size:13px;word-break:break-all"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></div>' +
+         '<button class="cam" data-act="copy" data-text="' + esc(link) + '" style="align-self:flex-start">Copy link</button></div>';
+  }
+  h += '<div class="muted">English is editable: change any line and it saves. The Italian original stays underneath.</div>';
+
+  ['overall', 'improve'].forEach(function(k){
+    var r = textRow(k);
+    h += '<div class="lbl">' + (k === 'overall' ? 'Overall visit' : 'Suggested improvements') + '</div><div class="card rtext">' + enEdit('text', k, r.en, r.it) + pics(r, 'text', k) + '</div>';
+  });
+  h += '<div class="lbl">Enrico\'s top 3</div><div class="card rtext">';
+  ['p1', 'p2', 'p3'].forEach(function(k, i){ var r = textRow(k); h += '<div class="muted">' + (i + 1) + '</div>' + enEdit('text', k, r.en, r.it); });
+  h += '</div>';
+
+  h += '<div class="lbl">Scores by area</div><div class="card" style="padding:4px 12px"><table class="tbl"><tr><th>Area</th><th>' + esc(D.visit.title) + '</th><th>' + esc(pv ? pv.title : 'Last') + '</th><th>Trend</th></tr>';
+  AREAS.forEach(function(a){
+    var s = areaStats(a), o = pv && pv.area_pct ? pv.area_pct[a] : null;
+    h += '<tr><td class="a">' + AREA_EN[a] + '</td><td>' + (s.pct == null ? '—' : s.pct + '%') + '</td><td>' + (o == null ? 'not scored' : o + '%') + '</td><td>' + (s.pct == null || o == null ? '—' : ((s.pct - o >= 0 ? '+' : '') + (s.pct - o))) + '</td></tr>';
+  });
+  h += '</table></div>';
+
+  // Action plan
+  var acts = [];
+  D.scores.forEach(function(s){ if (s.verdict === 'urgent' || s.verdict === 'fix') { var c = D.catalog.filter(function(x){ return x.code === s.code; })[0] || {}; acts.push({ lvl: s.verdict === 'urgent' ? 0 : 1, v: s.verdict, where: AREA_EN[c.area], what: c.label_en, row: s, target: 'score', ref: s.code }); } });
+  D.dishes.forEach(function(x){ if (x.verdict === 'fix' || x.verdict === 'remove') acts.push({ lvl: x.verdict === 'remove' ? 0 : 1, v: x.verdict, where: 'Dish', what: x.dish_name, row: x, target: 'dish', ref: x.id }); });
+  D.flags.forEach(function(f){ if (f.kind === 'attention') acts.push({ lvl: 1, v: 'attention', where: AREA_EN[f.area], what: f.dish_name || 'Photo note', row: f, target: 'flag', ref: f.id }); });
+  acts.sort(function(a, b){ return a.lvl - b.lvl; });
+  h += '<div class="lbl">Action plan · ' + acts.length + '</div>';
+  if (!acts.length) h += '<div class="muted">Nothing marked to fix yet.</div>';
+  acts.forEach(function(a){
+    var badge = { urgent: 'Urgent', fix: 'To fix', remove: 'Take off', attention: 'Attention' }[a.v];
+    h += '<div class="card act"><div class="h"><span class="n">' + esc(a.what) + '</span><span class="badge ' + a.v + '">' + badge + '</span></div><div class="muted">' + esc(a.where) + '</div>' +
+      enEdit(a.target, a.ref, a.row.note_en, a.row.note_it) + pics(a.row, a.target, a.ref) +
+      '<div class="who"><input aria-label="Owner" placeholder="Owner" value="' + esc(a.row.owner || '') + '" data-set="owner" data-target="' + a.target + '" data-ref="' + esc(a.ref) + '">' +
+      '<input type="date" aria-label="Due date" value="' + esc(a.row.due || '') + '" data-set="due" data-target="' + a.target + '" data-ref="' + esc(a.ref) + '"></div></div>';
+  });
+
+  if (D.dishes.length) {
+    h += '<div class="lbl">Dishes tasted</div><div class="card">';
+    D.dishes.forEach(function(x){
+      h += '<div class="item"><div class="h"><span style="font-family:var(--display);font-size:17px;color:var(--vino)">' + esc(x.dish_name) + '</span><span><b>' + (x.score ? x.score + '/5' : '') + '</b> ' + (x.verdict ? '<span class="badge ' + x.verdict + '">' + { keep: 'Keep', fix: 'To fix', remove: 'Take off' }[x.verdict] + '</span>' : '') + '</span></div>' +
+        enEdit('dish', x.id, x.note_en, x.note_it) + pics(x, 'dish', x.id) + '</div>';
+    });
+    h += '</div>';
+  }
+  var keeps = D.flags.filter(function(f){ return f.kind === 'keep'; });
+  if (keeps.length) {
+    h += '<div class="lbl">What Enrico liked</div><div class="card">';
+    keeps.forEach(function(f){ h += '<div class="item"><div class="muted">' + esc(AREA_EN[f.area]) + (f.dish_name ? ' · ' + esc(f.dish_name) : '') + '</div>' + enEdit('flag', f.id, f.note_en, f.note_it) + pics(f, 'flag', f.id) + '</div>'; });
+    h += '</div>';
+  }
+
+  h += '<div class="lbl">Every item</div>';
+  AREAS.forEach(function(a){
+    var s = areaStats(a);
+    h += '<div class="card"><div class="item" style="background:var(--door)"><div class="h"><span style="font-family:var(--display);font-size:19px;color:var(--vino)">' + AREA_EN[a] + '</span><b>' + (s.pct == null ? '' : s.pct + '%') + '</b></div></div>';
+    cat(a).forEach(function(c){
+      var r = scoreRow(c.code);
+      h += '<div class="item"><div class="h"><span>' + esc(c.label_en) + (r.verdict ? ' <span class="badge ' + r.verdict + '">' + { ok: 'OK', fix: 'To fix', urgent: 'Urgent' }[r.verdict] + '</span>' : '') + '</span><b>' + (r.na ? 'N/A' : (r.score ? r.score + '/5' : '—')) + '</b></div>' +
+        (r.note_it || r.note_en ? enEdit('score', c.code, r.note_en, r.note_it) : '') + pics(r, 'score', c.code) + '</div>';
+    });
+    h += '</div>';
+  });
+  h += '<div style="height:12px"></div></div>';
+  var to = D.recipients ? D.recipients.to : { name: 'Amin' };
+  h += '<div class="foot" style="flex-wrap:wrap"><button class="big light" data-act="translate" style="flex:1 1 140px">Translate new notes</button><button class="big light" data-act="sendtest" style="flex:1 1 140px">Send me a test</button>' +
+       '<button class="big vino" data-act="sendamin" id="aminbtn" style="flex:1 1 100%"' + (st === 'test' ? ' disabled' : '') + '>' + (st === 'sent' ? 'Email ' + esc(to.name) + ' again' : 'Email to ' + esc(to.name)) + '</button></div>';
+  return h;
+}
+function enEdit(target, ref, en, it){
+  return '<textarea class="en-edit" data-en="1" data-target="' + target + '" data-ref="' + esc(ref) + '" aria-label="English" placeholder="' + (it ? 'Not translated yet — press Translate new notes' : '') + '">' + esc(en || '') + '</textarea>' +
+    (it ? '<div class="it" style="font-size:12.5px;color:var(--muted);font-style:italic">IT: ' + esc(it) + '</div>' : '');
+}
+
+/* ── behaviour ──────────────────────────────────────────────────────────── */
+function autosize(){
+  var ts = root.querySelectorAll('textarea');
+  for (var i = 0; i < ts.length; i++) { ts[i].style.height = 'auto'; ts[i].style.height = Math.max(ts[i].scrollHeight + 2, ts[i].classList.contains('small') ? 52 : 44) + 'px'; }
+}
+function saveNote(el){
+  var target = el.getAttribute('data-save'), ref = el.getAttribute('data-ref'), v = el.value;
+  if (target === 'score') { var r = scoreRow(ref); r._local = v; queue('score:' + ref + ':note', 'score', { code: ref, note_it: v }); }
+  else if (target === 'dish') { var d = byId(D.dishes, ref); if (d) d._local = v; queue('dish:' + ref + ':note', 'dish', { id: ref, note_it: v }); }
+  else if (target === 'flag') { var f = byId(D.flags, ref); if (f) f._local = v; queue('flag:' + ref + ':note', 'flag', { id: ref, note_it: v }); }
+  else if (target === 'text') { var x = textRow(ref); x._local = v; queue('text:' + ref, 'text', { key: ref, it: v }); }
+}
+/* When a save lands the server row is merged in, then anything still waiting in the queue
+   is laid back on top, so a newer tap or word is never undone by an older reply. */
+var _merge = merge;
+merge = function(action, row){ _merge(action, row); applyPending(); };
+function applyPending(){
+  if (!D) return;
+  [D.scores, D.dishes, D.flags, D.texts].forEach(function(l){ l.forEach(function(r){ delete r._local; }); });
+  Object.keys(PEND).forEach(function(k){
+    var j = PEND[k], p = j.payload, r = null;
+    if (j.action === 'score') r = scoreRow(p.code);
+    else if (j.action === 'dish') r = byId(D.dishes, p.id);
+    else if (j.action === 'flag') r = byId(D.flags, p.id);
+    else if (j.action === 'text') { textRow(p.key)._local = p.it; return; }
+    else if (j.action === 'set') { ['en', 'owner', 'due'].forEach(function(c){ if (c in p) setLocal(p.target, p.ref, c === 'en' ? (p.target === 'text' ? 'en' : 'note_en') : c, p[c]); }); return; }
+    if (!r) return;
+    Object.keys(p).forEach(function(c){ if (c === 'note_it') r._local = p[c]; else if (c !== 'id' && c !== 'code') r[c] = p[c]; });
+  });
+}
+
+root.addEventListener('input', function(e){
+  var el = e.target;
+  if (el.matches('textarea')) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px'; }
+  if (el.matches('textarea[data-save]')) saveNote(el);
+  else if (el.matches('textarea[data-en]')) {
+    var tg = el.getAttribute('data-target'), rf = el.getAttribute('data-ref');
+    setLocal(tg, rf, tg === 'text' ? 'en' : 'note_en', el.value);
+    queue('en:' + tg + ':' + rf, 'set', { target: tg, ref: rf, en: el.value });
+  } else if (el.id === 'pq') {
+    S.q = el.value;
+    var box = document.getElementById('pres'); if (box) box.innerHTML = presHtml(el.getAttribute('data-mode'));
+  }
+});
+root.addEventListener('change', function(e){
+  var el = e.target;
+  if (el.matches('input[data-set]')) {
+    var tg = el.getAttribute('data-target'), rf = el.getAttribute('data-ref'), k = el.getAttribute('data-set'), p = { target: tg, ref: rf };
+    p[k] = el.value; setLocal(tg, rf, k, el.value);
+    queue('set:' + tg + ':' + rf + ':' + k, 'set', p);
+  }
+});
+function setLocal(target, ref, col, v){
+  var r = target === 'score' ? scoreRow(ref) : target === 'text' ? textRow(ref) : byId(target === 'dish' ? D.dishes : D.flags, ref);
+  if (r) r[col] = v;
+}
+
+root.addEventListener('click', function(e){
+  var b = e.target.closest('[data-act]'); if (!b) return;
+  var act = b.getAttribute('data-act');
+  if (act === 'pq') return;
+  if (act === 'lang') { LANG = b.getAttribute('data-l'); ls('auditLang', LANG); document.documentElement.lang = LANG; render(); return; }
+  if (act === 'go') { e.preventDefault(); go(JSON.parse(b.getAttribute('data-to'))); return; }
+  if (act === 'area') { go({ v: 'area', area: b.getAttribute('data-a') }); return; }
+  if (act === 'item') { go({ v: 'item', code: b.getAttribute('data-code') }); return; }
+  if (act === 'score') {
+    var r = scoreRow(S.code), v = b.getAttribute('data-v');
+    if (v === 'na') { r.na = !r.na; if (r.na) r.score = null; queue('score:' + S.code + ':s', 'score', { code: S.code, na: r.na }); }
+    else { var n = +v; r.score = r.score === n && !r.na ? null : n; r.na = false; queue('score:' + S.code + ':s', 'score', { code: S.code, score: r.score }); }
+    render(); return;
+  }
+  if (act === 'verdict') { var r2 = scoreRow(S.code), vv = b.getAttribute('data-v'); r2.verdict = r2.verdict === vv ? null : vv; queue('score:' + S.code + ':v', 'score', { code: S.code, verdict: r2.verdict }); render(); return; }
+  if (act === 'nextitem') {
+    var c = D.catalog.filter(function(x){ return x.code === S.code; })[0], items = cat(c.area), i = items.indexOf(c);
+    if (i < items.length - 1) go({ v: 'item', code: items[i + 1].code }, true);
+    else {
+      var ai = AREAS.indexOf(c.area);
+      go({ v: 'home' });
+    }
+    return;
+  }
+  if (act === 'mic') { toggleMic(b); return; }
+  if (act === 'photo') { pickPhoto(b.getAttribute('data-target'), b.getAttribute('data-ref')); return; }
+  if (act === 'pdel') { delPhoto(b.getAttribute('data-target'), b.getAttribute('data-ref'), b.getAttribute('data-path')); return; }
+  if (act === 'dish') { go({ v: 'dish', id: b.getAttribute('data-id') }); return; }
+  if (act === 'pickdish') { pickDish(b.getAttribute('data-mode'), b.getAttribute('data-id') || null, b.getAttribute('data-name')); return; }
+  if (act === 'dscore') { var d = byId(D.dishes, S.id), n2 = +b.getAttribute('data-v'); d.score = d.score === n2 ? null : n2; queue('dish:' + d.id + ':s', 'dish', { id: d.id, score: d.score }); render(); return; }
+  if (act === 'dverdict') { var d2 = byId(D.dishes, S.id), v2 = b.getAttribute('data-v'); d2.verdict = d2.verdict === v2 ? null : v2; queue('dish:' + d2.id + ':v', 'dish', { id: d2.id, verdict: d2.verdict }); render(); return; }
+  if (act === 'ddel') { var d3 = byId(D.dishes, S.id); api('dish', { id: d3.id, remove: true }).then(function(){ D.dishes = D.dishes.filter(function(x){ return x.id !== d3.id; }); go({ v: 'dishes' }, true); }, function(er){ toast(er.message, true); }); return; }
+  if (act === 'newflag') { S.q = ''; go({ v: 'flag' }); return; }
+  // The file picker must open inside the tap (iPhone rule); the flag is created once a photo is chosen.
+  if (act === 'flagphoto') { pickPhoto('flag', '__new'); return; }
+  if (act === 'flagnote') { createFlag().then(function(f){ go({ v: 'flag', id: f.id }, true); }); return; }
+  if (act === 'farea') { var f1 = byId(D.flags, S.id); f1.area = b.getAttribute('data-a'); queue('flag:' + f1.id + ':a', 'flag', { id: f1.id, area: f1.area }); render(); return; }
+  if (act === 'fkind') { var f2 = byId(D.flags, S.id); f2.kind = b.getAttribute('data-v'); queue('flag:' + f2.id + ':k', 'flag', { id: f2.id, kind: f2.kind }); render(); return; }
+  if (act === 'fpick') { S.picking = true; S.q = ''; render(); var q = document.getElementById('pq'); if (q) q.focus(); return; }
+  if (act === 'fdel') { var f3 = byId(D.flags, S.id); api('flag', { id: f3.id, remove: true }).then(function(){ D.flags = D.flags.filter(function(x){ return x.id !== f3.id; }); go({ v: 'home' }, true); }, function(er){ toast(er.message, true); }); return; }
+  if (act === 'submit') { submit(b); return; }
+  if (act === 'copy') { copyText(b.getAttribute('data-text')); return; }
+  if (act === 'translate') { runTranslate(b); return; }
+  if (act === 'sendtest') { sendReport(b, 'send_test'); return; }
+  if (act === 'sendamin') { if (!b._sure) { b._sure = true; b.textContent = 'Tap again to email ' + (D.recipients ? D.recipients.to.name : 'Amin'); setTimeout(function(){ if (b.isConnected) { b._sure = false; render(); } }, 5000); return; } sendReport(b, 'send'); return; }
+});
+
+function createFlag(){
+  return api('flag', { area: 'piatto', kind: 'attention' }).then(function(res){ D.flags.push(res.row); return res.row; }, function(er){ toast(er.message, true); throw er; });
+}
+function pickDish(mode, id, name){
+  name = (name || '').trim(); if (!name) return;
+  S.q = ''; S.picking = false;
+  if (mode === 'adddish') {
+    api('dish', { dish_name: name, recipe_id: id }).then(function(res){ D.dishes.push(res.row); go({ v: 'dish', id: res.row.id }); }, function(er){ toast(er.message, true); });
+  } else {
+    var f = byId(D.flags, S.id); f.dish_name = name; f.recipe_id = id;
+    queue('flag:' + f.id + ':d', 'flag', { id: f.id, dish_name: name, recipe_id: id }); render();
+  }
+}
+function submit(b){
+  if (!b._sure) { b._sure = true; b.textContent = t('sendSure'); setTimeout(function(){ if (b.isConnected) { b._sure = false; b.textContent = t('send'); } }, 5000); return; }
+  b.disabled = true; b.textContent = t('saving');
+  waitSaved().then(function(){ return api('submit'); }).then(function(){ D.visit.status = D.visit.status === 'test' ? 'test' : 'submitted'; go({ v: 'thanks' }); }, function(er){ b.disabled = false; b._sure = false; b.textContent = t('send'); toast(er.message, true); });
+}
+function waitSaved(){
+  return new Promise(function(res, rej){
+    var n = 0; flushSoon(0);
+    (function check(){ if (!Object.keys(PEND).length && !BUSY && !anyUploading()) return res(); if (++n > 120) return rej(new Error(t('notSaved'))); setTimeout(check, 250); })();
+  });
+}
+function runTranslate(b){
+  b.disabled = true; var old = b.textContent; b.textContent = 'Translating…';
+  waitSaved().then(function(){ return api('translate'); }).then(function(r){ return reload().then(function(){ toast(r.translated ? r.translated + ' notes translated' : 'Everything is already in English'); }); })
+    .catch(function(er){ toast(er.message, true); }).then(function(){ if (b.isConnected) { b.disabled = false; b.textContent = old; } });
+}
+function sendReport(b, action){
+  b.disabled = true; b.textContent = 'Sending…';
+  waitSaved().then(function(){ return api(action); }).then(function(r){
+    toast('Sent to ' + r.to.join(', '));
+    return reload();
+  }).catch(function(er){ toast(er.message, true); render(); });
+}
+function copyText(s){
+  var done = function(){ toast('Link copied'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(done, function(){ prompt('Copy:', s); });
+  else prompt('Copy:', s);
+}
+
+/* ── photos: resized on the phone (max 1600px) before upload ──────────── */
+var UPLOADING = {};
+function anyUploading(){ for (var k in UPLOADING) if (UPLOADING[k].length) return true; return false; }
+var fileEl = document.getElementById('file'), PHOTO_FOR = null;
+function pickPhoto(target, ref){ PHOTO_FOR = { target: target, ref: ref }; fileEl.value = ''; fileEl.click(); }
+fileEl.addEventListener('change', function(){
+  var files = Array.prototype.slice.call(fileEl.files || []), dest = PHOTO_FOR; if (!dest || !files.length) return;
+  if (dest.ref === '__new') {
+    createFlag().then(function(f){ PHOTO_FOR = { target: 'flag', ref: f.id }; go({ v: 'flag', id: f.id }, true); upload(files, PHOTO_FOR); });
+    return;
+  }
+  upload(files, dest);
+});
+function upload(files, dest){
+  var key = dest.target + ':' + dest.ref;
+  files.forEach(function(file){
+    UPLOADING[key] = (UPLOADING[key] || []).concat([1]); render();
+    shrink(file).then(function(b64){ return api('photo', { target: dest.target, ref: dest.ref, data: b64 }); }).then(function(res){
+      D.urls[res.path] = res.url;
+      var row = dest.target === 'score' ? scoreRow(dest.ref) : dest.target === 'text' ? textRow(dest.ref) : byId(dest.target === 'dish' ? D.dishes : D.flags, dest.ref);
+      if (row) row.photos = res.row.photos;
+    }, function(){ toast(t('photoFail'), true); }).then(function(){ UPLOADING[key].pop(); render(); });
+  });
+}
+function shrink(file){
+  return new Promise(function(res, rej){
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function(){
+      var max = 1600, w = img.naturalWidth, h = img.naturalHeight, s = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('image')); };
+    img.src = url;
+  });
+}
+function delPhoto(target, ref, path){
+  api('photo_del', { target: target, ref: ref, path: path }).then(function(res){
+    var row = target === 'score' ? scoreRow(ref) : target === 'text' ? textRow(ref) : byId(target === 'dish' ? D.dishes : D.flags, ref);
+    if (row) row.photos = res.row.photos; render();
+  }, function(er){ toast(er.message, true); });
+}
+
+/* ── dictation: the iPhone's own speech recognition, Italian ──────────── */
+var REC = null, REC_ID = null;
+function stopMic(){ if (REC) { try { REC.stop(); } catch(e){} } }
+function markMic(){
+  if (!REC_ID) return;
+  var b = root.querySelector('.mic[data-for="' + REC_ID + '"]');
+  if (b && !b.classList.contains('live')) { b.classList.add('live'); b.querySelector('span').textContent = t('stop'); }
+}
+function toggleMic(btn){
+  var id = btn.getAttribute('data-for'), ta = document.getElementById(id);
+  if (REC && REC_ID === id) { stopMic(); return; }
+  stopMic();
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast(t('noMic')); ta.focus(); return; }
+  var rec = new SR(); REC = rec; REC_ID = id;
+  rec.lang = ADMIN && LANG === 'en' ? 'en-GB' : 'it-IT';
+  rec.continuous = true; rec.interimResults = true;
+  var base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '', finalTxt = '';
+  rec.onresult = function(ev){
+    var interim = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++) {
+      var r = ev.results[i];
+      if (r.isFinal) finalTxt += r[0].transcript.replace(/^\s+/, '') + ' ';
+      else interim += r[0].transcript;
+    }
+    var el = document.getElementById(id) || ta;
+    el.value = (base + finalTxt + interim).replace(/\s+$/, ' ');
+    el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px';
+    saveNote(el);
+  };
+  rec.onerror = function(ev){ if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') toast(t('micBlocked'), true); };
+  rec.onend = function(){
+    if (REC === rec) { REC = null; REC_ID = null; }
+    var b = document.querySelector('.mic.live'); if (b) { b.classList.remove('live'); b.querySelector('span').textContent = t('speak'); }
+    var el = document.getElementById(id); if (el) { el.value = el.value.replace(/\s+$/, ''); saveNote(el); }
+  };
+  try { rec.start(); } catch(e){ toast(t('noMic')); return; }
+  btn.classList.add('live'); btn.querySelector('span').textContent = t('stop');
+}
+
+/* ── start ──────────────────────────────────────────────────────────────── */
+function reload(){
+  return api('load').then(function(d){
+    // Keep anything typed but not yet saved.
+    var local = {};
+    if (D) { D.scores.forEach(function(r){ if (r._local != null) local['s:' + r.code] = r._local; }); D.texts.forEach(function(r){ if (r._local != null) local['t:' + r.key] = r._local; });
+             D.dishes.forEach(function(r){ if (r._local != null) local['d:' + r.id] = r._local; }); D.flags.forEach(function(r){ if (r._local != null) local['f:' + r.id] = r._local; }); }
+    D = d;
+    D.scores.forEach(function(r){ if (local['s:' + r.code] != null) r._local = local['s:' + r.code]; });
+    D.texts.forEach(function(r){ if (local['t:' + r.key] != null) r._local = local['t:' + r.key]; });
+    D.dishes.forEach(function(r){ if (local['d:' + r.id] != null) r._local = local['d:' + r.id]; });
+    D.flags.forEach(function(r){ if (local['f:' + r.id] != null) r._local = local['f:' + r.id]; });
+    // Saves still waiting (also from an earlier visit to this page) win over what the server has.
+    applyPending();
+    render();
+  });
+}
+if (!TOK) render();
+else {
+  document.documentElement.lang = LANG;
+  try { history.replaceState(S, '', location.search); } catch(e){}
+  reload().then(function(){ flushSoon(0); }, function(er){
+    root.innerHTML = topBar('<h1>Audit</h1>') + '<div class="body"><div class="msg err">' + esc(er.status === 403 ? t('badLink') : (navigator.onLine ? er.message : t('offline'))) + '</div></div>';
+  });
+}
+window.addEventListener('offline', function(){ toast(t('offline'), true); });
+</script>
+</body>
+</html>
