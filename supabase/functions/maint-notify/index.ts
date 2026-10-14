@@ -6,6 +6,8 @@
 // be sent — once: the row is claimed (queued|failed -> sending) before anything goes out.
 //   kind 'new'   -> the technician(s): a new job card
 //   kind 'check' -> the chefs (Danilo, Antonio): a completed card waiting for their check
+//   kind 'followup' -> the technician who has the card: a chef asked for an update on a card
+//                      nobody has moved for a day (14 Oct 2026, Chef Andrea, Send feedback ba7f8e65)
 // A test card (is_test) was already addressed to Francesco only by the database; the subject
 // gets [TEST] here.
 //
@@ -27,6 +29,7 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const jc = (n: number) => "JC-" + String(n).padStart(4, "0");
 const when = (t: string | null) => t ? new Date(t).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+const STATUS: Record<string, string> = { new: "New", acknowledged: "Acknowledged", in_progress: "In progress", on_hold: "On hold", completed: "Completed" };
 const aed = (v: number | null) => v == null ? "" : "AED " + Number(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Card = Record<string, any>;
@@ -59,6 +62,13 @@ function build(kind: string, c: Card) {
     band = `New job card · ${jc(c.card_no)}`;
     intro = c.source === "calendar" ? "A job on the maintenance calendar is past its date, so it has opened a job card." : "A new maintenance problem has been reported in the kitchen.";
     rows = newRows(c);
+  } else if (kind === "followup") {
+    const by = c.followup_by || "The chef";
+    subject = `Update needed on ${jc(c.card_no)}: ${c.equipment}`;
+    band = `Update needed · ${jc(c.card_no)}`;
+    intro = `${by} is asking for an update on this job card. It has not been updated since ${when(c.updated_at || c.reported_at)}. Open it and update it: start the work, put it on hold with the reason, save the assessment, or complete it.`;
+    rows = [["Equipment", `${c.equipment} (${c.location})`], ["Problem", c.problem], ["Status", (STATUS[c.status] || c.status) + (c.status === "on_hold" && c.hold_reason ? `: ${c.hold_reason}` : "")],
+      ["Reported by", `${c.reported_by}, ${when(c.reported_at)}`], ["Asked by", `${by}, ${when(c.followup_at)}`]];
   } else {
     subject = `${jc(c.card_no)} is ready for your check: ${c.equipment}`;
     band = `Ready for your check · ${jc(c.card_no)}`;

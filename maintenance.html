@@ -209,6 +209,10 @@ html,body{background:var(--ground)}
    · The calendar holds the recurring jobs. Done rolls the next date on; a job past its date opens
      a job card on its own (maint_roll, hourly).
    Every signature is a staff code: the employee ID, typed again at the moment of signing.
+   · Follow up (Chef Andrea, Send feedback ba7f8e65, 14 Oct 2026): a card nobody has moved for a day
+     gets a Follow up button for the people in maint_people with role 'followup' (Chef Danilo, Chef
+     Antonio). It emails the technician who has the card and shows "Update asked" on it until he moves
+     it. The day is maint_followup_after() in the database; this page reads it from maint_me.
    Schema + rules: maintenance-schema.sql. Emails: supabase/functions/maint-notify.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
@@ -247,9 +251,12 @@ function say(err){
   var m = String(err && err.message || err);
   if (/no_emp/.test(m)) return 'That employee ID is not in the kitchen staff list. Check it, or ask Chef Francesco to add it.';
   if (/bad_code/.test(m)) return 'That staff code is not yours. Type your own employee ID to sign.';
+  if (/not_followup/.test(m)) return 'Only ' + chefsSay('followers') + ' can send a follow-up.';
+  if (/not_stale/.test(m)) return 'This job card was updated in the last ' + afterH() + ' hours, so there is nothing to follow up yet.';
+  if (/followed_up/.test(m)) return 'A follow-up was already sent in the last ' + afterH() + ' hours.';
   if (/not_tech/.test(m)) return 'Only the maintenance technician can do this.';
-  if (/not_chef/.test(m)) return 'Only Chef Danilo or Chef Antonio can check a repair.';
-  if (/not_allowed/.test(m)) return 'Only the technician, Chef Danilo or Chef Antonio can change the calendar.';
+  if (/not_chef/.test(m)) return 'Only ' + chefsSay('chefs') + ' can check a repair.';
+  if (/not_allowed/.test(m)) return 'Only the technician or ' + chefsSay('chefs') + ' can change the calendar.';
   if (/same_person/.test(m)) return 'The chef who checks the repair cannot be the technician who signed it.';
   if (/closed/.test(m)) return 'This job card is closed, so it cannot change.';
   if (/not_completed/.test(m)) return 'The technician has not completed this job yet.';
@@ -292,6 +299,17 @@ function isoAdd(d, n, unit){
   return x.toISOString().slice(0,10);
 }
 function todayIso(){ return new Date().toLocaleDateString('en-CA', TZ); }
+function chefsSay(k){ var a = ((S.me && S.me[k]) || []).map(function(n){ return 'Chef ' + n.split(' ')[0]; }); return listNames(a) || 'the chefs in charge'; }
+/* ── follow up: a card nobody has moved for a day ── */
+function afterH(){ return (S.me && S.me.followup_after_h) || 24; }
+function lastMove(c){ return new Date(c.updated_at || c.reported_at).getTime(); }
+function waiting(c){ return !c.checked_at && c.status !== 'completed'; }
+function idleFor(ms){ var h = Math.floor(ms / 3600000); return h < 48 ? h + ' hours' : Math.floor(h / 24) + ' days'; }
+function isStale(c){ return waiting(c) && Date.now() - lastMove(c) >= afterH() * 3600000; }
+// asked, and the technician has not touched the card since
+function asked(c){ return waiting(c) && c.followup_at && new Date(c.followup_at).getTime() > lastMove(c); }
+function canChase(c){ return !!(S.me && S.me.followup) && isStale(c) && !(c.followup_at && Date.now() - new Date(c.followup_at).getTime() < afterH() * 3600000); }
+function techOf(c){ return c.tech_name || listNames(S.me && S.me.techs) || 'the technician'; }
 
 /* ── signing in ── */
 function remembered(){
@@ -402,6 +420,8 @@ function drawList(){
       meta.push(cal ? 'From the calendar' : 'Reported by ' + esc(c.reported_by) + ' · ' + esc(when(c.reported_at)));
       if (c.tech_name && c.status !== 'new' && !c.checked_at) meta.push(esc(c.tech_name));
       if (c.status === 'on_hold' && c.hold_reason && !c.checked_at) meta.push('On hold: ' + esc(c.hold_reason));
+      if (asked(c)) meta.push('<span style="color:var(--err);font-weight:600">Update asked by ' + esc(c.followup_by) + ' · ' + esc(when(c.followup_at)) + '</span>');
+      else if (S.me.followup && isStale(c)) meta.push('<span style="color:var(--err);font-weight:600">No update for ' + idleFor(Date.now() - lastMove(c)) + '</span>');
       if (c.checked_at) meta.push('Checked by ' + esc(c.checked_by) + ' · ' + esc(when(c.checked_at)));
       if (c.is_test) meta.push('TEST');
       return '<button class="jc s-' + stKey(c) + (over ? ' over' : '') + (c.is_test ? ' test' : '') + '" type="button" data-open="' + c.id + '">' + thumbHtml(c) +
@@ -550,7 +570,14 @@ function drawCard(){
   html += '<div class="sec"><h3>Status <small>' + (c.read_at ? 'read ' + esc(when(c.read_at)) : 'not read yet') + '</small></h3><div class="in2">' +
     '<dl class="kv"><dt>Technician</dt><dd>' + esc(c.tech_name || listNames(S.me.techs) || '—') + (c.tech_name ? '' : ' <span class="hint">(not yet opened)</span>') + '</dd>' +
     (c.status === 'on_hold' ? '<dt>On hold</dt><dd>' + esc(c.hold_reason || 'no reason given') + '</dd>' : '') + '</dl>' +
-    (c.sent_back_at && !done ? '<div class="warn"><b>Sent back by ' + esc(c.sent_back_by) + '</b> · ' + esc(when(c.sent_back_at)) + '<br>' + esc(c.sent_back_note) + '</div>' : '');
+    (c.sent_back_at && !done ? '<div class="warn"><b>Sent back by ' + esc(c.sent_back_by) + '</b> · ' + esc(when(c.sent_back_at)) + '<br>' + esc(c.sent_back_note) + '</div>' : '') +
+    (asked(c) ? '<div class="warn"><b>Update asked by ' + esc(c.followup_by) + '</b> · ' + esc(when(c.followup_at)) + '<br>No update on this card since ' + esc(when(c.updated_at || c.reported_at)) + '. ' + (tech ? 'Start it, put it on hold with the reason, save the assessment or complete it.' : esc(techOf(c)) + ' has been emailed.') + '</div>' : '');
+  if (S.me.followup && waiting(c)) {
+    if (canChase(c)) html += '<div class="acts"><button class="btn sm" type="button" id="followup"' + (S.busy ? ' disabled' : '') + '>Follow up with ' + esc(techOf(c)) + '</button>' +
+      '<span class="hint">No update for ' + idleFor(Date.now() - lastMove(c)) + '. They get an email now, and see it on this card.</span></div>';
+    else if (isStale(c)) html += '<div class="hint">Follow-up sent ' + esc(when(c.followup_at)) + '. Another can go from ' + esc(when(new Date(c.followup_at).getTime() + afterH() * 3600000)) + ' if nothing moves.</div>';
+    else html += '<div class="hint">Follow up opens ' + esc(when(lastMove(c) + afterH() * 3600000)) + ' if nothing moves on this card by then.</div>';
+  }
   if (tech && !done && !closed) {
     if (S.hold) html += '<div class="field"><label for="hold-r">Why is it on hold?</label><input id="hold-r" class="in" placeholder="e.g. waiting for the part, waiting for the contractor" value="' + esc(dv('hold','')) + '" data-dk="hold"></div>' +
         '<div class="acts"><button class="btn sm" type="button" id="holdyes">Put on hold</button><button class="btn sm ghost" type="button" id="holdno">Cancel</button></div>';
@@ -773,6 +800,8 @@ document.addEventListener('click', function(e){
     var cc = $('chk-code').value; if (!cc.trim()) { S.err = 'Type your staff code to sign.'; return draw(); }
     return step('check', { code:cc }, 'Repair checked. The job card is closed.');
   }
+  if (b.id === 'followup') { if (S.busy) return; var tn = techOf(S.card.card);
+    return step('followup', {}, 'Follow-up sent. ' + tn + ' has an email asking for an update, and sees it on this card.'); }
   if (b.id === 'sendback') { S.sendBack = true; return draw(); }
   if (b.id === 'sbno') { S.sendBack = false; return draw(); }
   if (b.id === 'sbyes') { var n = $('sb-n').value; if (n.trim().length < 3) { S.err = say('no_note'); return draw(); }
