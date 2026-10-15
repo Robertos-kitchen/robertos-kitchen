@@ -198,7 +198,7 @@ var T = {
     final:'Commento finale', finalSub:'Visita in generale · miglioramenti · 3 priorità',
     piattiSub:'Piatto per piatto: tieni / correggi / togli', flagBtn:'Foto · Segnala',
     of:'di', score:'Voto', anchor:'3 = accettabile, non da Bartolini · 5 = standard stellato',
-    note:'Nota', ph:'Scrivi qui, oppure premi Parla…', speak:'Parla', stop:'Stop', photo:'Foto',
+    note:'Nota', ph:'Scrivi qui, oppure premi Parla…', speak:'Parla · IT', stop:'Stop', photo:'Foto',
     action:'Azione', ok:'Ok così', fix:'Da correggere', urgent:'Urgente',
     next:'Avanti', done:'Fatto', back:'Indietro', home:'Sezioni',
     saved:'Salvato', saving:'Salvo…', notSaved:'Non salvato — riprovo', inProgress:'in corso', avg:'media', na:'N/A',
@@ -220,7 +220,7 @@ var T = {
     final:'Final comment', finalSub:'Overall visit · improvements · top 3',
     piattiSub:'Dish by dish: keep / fix / take off', flagBtn:'Photo · Flag',
     of:'of', score:'Score', anchor:'3 = acceptable, not Bartolini level · 5 = Michelin standard',
-    note:'Note', ph:'Type here, or press Speak…', speak:'Speak', stop:'Stop', photo:'Photo',
+    note:'Note', ph:'Type here, or press Speak…', speak:'Speak · EN', stop:'Stop', photo:'Photo',
     action:'Action', ok:'OK as is', fix:'To fix', urgent:'Urgent',
     next:'Next', done:'Done', back:'Back', home:'Sections',
     saved:'Saved', saving:'Saving…', notSaved:'Not saved — retrying', inProgress:'in progress', avg:'avg', na:'N/A',
@@ -920,7 +920,9 @@ function toggleMic(btn){
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast(t('noMic')); ta.focus(); return; }
   var rec = new SR(); REC = rec; REC_ID = id;
-  rec.lang = ADMIN && LANG === 'en' ? 'en-GB' : 'it-IT';
+  // Listens in the language on screen (IT/EN at the top): an English speaker on an Italian listener
+  // came out as half-English nonsense (Francesco's test, 15 Oct 2026).
+  rec.lang = LANG === 'en' ? 'en-GB' : 'it-IT';
   rec.continuous = true; rec.interimResults = true;
   var base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '', finalTxt = '';
   rec.onresult = function(ev){
