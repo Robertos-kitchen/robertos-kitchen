@@ -167,6 +167,11 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
    Claude with a chef's glossary, Italian kept), owner + date on every action, a
    test email to himself, then "Email to Amin".
 
+   Shared link (15 Oct 2026): audit.html?n=<invite>. Whoever opens it types their
+   name and gets their own audit (new visit, date and time stamped), then lands on
+   ?k= like Enrico. The same invite's ?a= link is Francesco's list of those audits.
+   "All N/A" on an area marks every item not yet scored as not experienced.
+
    All reads and writes go through the audit-api Edge Function, which checks the
    link. The audit_* tables are closed to the anon key.
    ════════════════════════════════════════════════════════════════════════════ */
@@ -174,13 +179,17 @@ var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
 var FN = SB_URL + '/functions/v1/audit-api';
 var Q = new URLSearchParams(location.search);
-var TOK = Q.get('a') ? { a: Q.get('a') } : (Q.get('k') ? { k: Q.get('k') } : null);
+var TOK = Q.get('a') ? { a: Q.get('a') } : (Q.get('k') ? { k: Q.get('k') } : (Q.get('n') ? { n: Q.get('n') } : null));
 var ADMIN = !!(TOK && TOK.a);
 var AREAS = ['arrivo', 'cucina', 'ristorante', 'vino', 'scala'];
 var ORDER = ['arrivo', 'cucina', 'piatti', 'ristorante', 'vino', 'scala'];
 
 function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch(e){ return null; } }
 var LANG = ls('auditLang') || (ADMIN ? 'en' : 'it');
+var ENRICO = 'Chef Enrico Bartolini';
+function isEnrico(){ return !D || !D.visit || D.visit.auditor === ENRICO; }
+function who(){ return String((D && D.visit && D.visit.auditor) || ENRICO).replace(/^Chef\s+/i, '').trim().split(/\s+/)[0]; }
+function dubaiTime(iso){ try { return new Date(iso).toLocaleString(LANG === 'en' ? 'en-GB' : 'it-IT', { timeZone: 'Asia/Dubai', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch(e){ return ''; } }
 
 var T = {
   it: {
@@ -201,7 +210,9 @@ var T = {
     send:'Invia a Francesco', sendSure:'Premi di nuovo per inviare', sentTitle:'Grazie, Chef.', sentLine:"Francesco ha ricevuto l'audit. Puoi ancora aggiungere o correggere qualcosa: si salva da solo.",
     closed:'Questo audit è stato inviato. Grazie!', badLink:'Questo link non è valido.', offline:'Connessione assente — tutto quello che scrivi resta qui e si salva appena torna la rete.',
     noMic:'Su questo telefono usa il microfono della tastiera per dettare.', micBlocked:'Permetti il microfono a Safari per dettare.',
-    uploading:'Carico…', photoFail:'Foto non caricata. Riprova.', removeDish:'Togli questo piatto dalla lista', liked:'tenere', att:'attenzione', notes:'note'
+    uploading:'Carico…', photoFail:'Foto non caricata. Riprova.', removeDish:'Togli questo piatto dalla lista', liked:'tenere', att:'attenzione', notes:'note',
+    anchorAll:'1 = scarso · 3 = accettabile · 5 = eccellente', started:'iniziato', allNa:'Non visto — tutto N/A', undoNa:'Togli i N/A',
+    startTitle:'Audit', startSub:'Scrivi il tuo nome per iniziare. Data e ora si salvano da sole.', yourName:'Il tuo nome', begin:'Inizia', cont:'Continua il tuo audit', newOne:'oppure inizia un nuovo audit'
   },
   en: {
     hello:'Hello Enrico', visit:'Visit', autosave:'type or speak, it saves by itself', sections:'Sections',
@@ -221,7 +232,9 @@ var T = {
     send:'Send to Francesco', sendSure:'Tap again to send', sentTitle:'Thank you, Chef.', sentLine:'Francesco has the audit. You can still add or correct anything: it saves by itself.',
     closed:'This audit has been sent. Thank you!', badLink:'This link is not valid.', offline:'No connection — everything you write stays here and saves as soon as the network is back.',
     noMic:'On this phone use the keyboard microphone to dictate.', micBlocked:'Allow the microphone for Safari to dictate.',
-    uploading:'Uploading…', photoFail:'Photo not uploaded. Try again.', removeDish:'Remove this dish from the list', liked:'keep', att:'attention', notes:'notes'
+    uploading:'Uploading…', photoFail:'Photo not uploaded. Try again.', removeDish:'Remove this dish from the list', liked:'keep', att:'attention', notes:'notes',
+    anchorAll:'1 = poor · 3 = acceptable · 5 = excellent', started:'started', allNa:'Not experienced — all N/A', undoNa:'Clear the N/As',
+    startTitle:'Audit', startSub:'Type your name to start. The date and time are saved for you.', yourName:'Your name', begin:'Start', cont:'Continue your audit', newOne:'or start a new audit'
   }
 };
 function t(k){ return (T[LANG] && T[LANG][k]) || T.it[k] || k; }
@@ -359,13 +372,15 @@ function head(backTo, backLabel, right, title, extra){
 }
 function adminTabs(){
   if (!ADMIN) return '';
-  return '<div class="tabs"><button data-act="go" data-to=\'{"v":"report"}\' class="' + (S.v === 'report' ? 'on' : '') + '">Report (EN)</button><button data-act="go" data-to=\'{"v":"home"}\' class="' + (S.v !== 'report' ? 'on' : '') + '">' + (LANG === 'en' ? "Enrico's screens" : 'Schermate di Enrico') + '</button></div>';
+  return '<div class="tabs"><button data-act="go" data-to=\'{"v":"report"}\' class="' + (S.v === 'report' ? 'on' : '') + '">Report (EN)</button><button data-act="go" data-to=\'{"v":"home"}\' class="' + (S.v !== 'report' ? 'on' : '') + '">' + (LANG === 'en' ? esc(who()) + "'s screens" : 'Schermate di ' + esc(who())) + '</button></div>';
 }
 
 /* ── screens ────────────────────────────────────────────────────────────── */
 function render(){
   if (!TOK) { root.innerHTML = topBar('<h1>Audit</h1>') + '<div class="body"><div class="msg err">' + t('badLink') + '</div></div>'; return; }
   if (!D) return;
+  if (D.role === 'invite') { root.className = 'app'; root.innerHTML = vStart(); return; }
+  if (D.role === 'invite_admin') { root.className = 'app wide'; root.innerHTML = vList(); return; }
   root.className = 'app' + (S.v === 'report' ? ' wide' : '');
   var h = '';
   if (S.v === 'home') h = vHome();
@@ -393,7 +408,9 @@ function closedBanner(){
 function vHome(){
   var total = D.catalog.length, done = D.scores.filter(function(r){ return r.score || r.na; }).length;
   var pct = total ? Math.round(done / total * 100) : 0;
-  var h = topBar(adminTabs() + '<h1>' + t('hello') + '</h1><div class="sub">' + t('visit') + ' ' + esc(fmtDate(D.visit.visit_date, LANG)) + ' · ' + t('autosave') + '</div>' +
+  var hello = isEnrico() ? t('hello') : (LANG === 'en' ? 'Hello ' : 'Ciao ') + esc(who());
+  var when = isEnrico() ? esc(fmtDate(D.visit.visit_date, LANG)) : t('started') + ' ' + esc(dubaiTime(D.visit.created_at));
+  var h = topBar(adminTabs() + '<h1>' + hello + '</h1><div class="sub">' + t('visit') + ' ' + when + ' · ' + t('autosave') + '</div>' +
     '<div class="bar"><div class="track"><div class="fill" style="width:' + pct + '%"></div></div><b>' + done + ' / ' + total + '</b></div>');
   h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('sections') + '</div>';
   var n = 0, current = null;
@@ -430,7 +447,11 @@ function vArea(){
       '<span class="dot' + (r.score || r.na ? ' done' : '') + '">' + (i + 1) + '</span><span class="grow"><span class="t" style="font-size:17px">' + esc(lab(c)) + '</span>' +
       '<span class="s">' + (r.verdict ? t(r.verdict) : '') + (r.note_it ? (r.verdict ? ' · ' : '') + '✎' : '') + ((r.photos || []).length ? ' · ' + r.photos.length + ' foto' : '') + '</span></span><span class="sc">' + sc + '</span></button>';
   });
-  h += '</div></div>';
+  h += '</div>';
+  var open = items.filter(function(c){ return !isDone(c.code); }).length, nas = items.filter(function(c){ return scoreRow(c.code).na; }).length;
+  if (open) h += '<button class="link" data-act="areana" data-a="' + a + '">' + t('allNa') + '</button>';
+  else if (nas) h += '<button class="link" data-act="areaclear" data-a="' + a + '">' + t('undoNa') + '</button>';
+  h += '</div>';
   var next = items.filter(function(c){ return !isDone(c.code); })[0] || items[0];
   h += '<div class="foot"><button class="big vino" data-act="item" data-code="' + next.code + '">' + (st.done ? t('next') : (LANG === 'en' ? 'Start' : 'Inizia')) + '</button></div>';
   return h;
@@ -444,7 +465,7 @@ function vItem(){
   var h = head({ v: 'area', area: c.area }, areaName(c.area), (idx + 1) + ' ' + t('of') + ' ' + items.length, lab(c), prev);
   h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('score') + '</div><div class="scores">';
   [1, 2, 3, 4, 5].forEach(function(n){ h += '<button class="sbtn' + (r.score === n && !r.na ? ' on' : '') + '" data-act="score" data-v="' + n + '" aria-pressed="' + (r.score === n) + '">' + n + '</button>'; });
-  h += '<button class="sbtn na' + (r.na ? ' on' : '') + '" data-act="score" data-v="na">N/A</button></div><div class="muted">' + t('anchor') + '</div>';
+  h += '<button class="sbtn na' + (r.na ? ' on' : '') + '" data-act="score" data-v="na">N/A</button></div><div class="muted">' + (isEnrico() ? t('anchor') : t('anchorAll')) + '</div>';
   h += '<div class="lbl">' + t('note') + '</div>' + noteBlock({ id: 'n-' + c.code, target: 'score', ref: c.code, row: r, it: r._local != null ? r._local : r.note_it, en: r.note_en });
   h += '<div class="lbl">' + t('action') + '</div><div class="verd">';
   ['ok', 'fix', 'urgent'].forEach(function(v){ h += '<button class="vbtn ' + v + (r.verdict === v ? ' on' : '') + '" data-act="verdict" data-v="' + v + '">' + t(v) + '</button>'; });
@@ -552,6 +573,46 @@ function vThanks(){
     '<div class="body"><button class="sec" data-act="go" data-to=\'{"v":"home"}\'><span class="grow"><span class="t">' + t('sections') + '</span></span></button></div>';
 }
 
+/* ── shared link: name first, then their own audit ──────────────────────── */
+function mine(){ try { return JSON.parse(ls('auditMine:' + TOK.n) || 'null'); } catch(e){ return null; } }
+function vStart(){
+  var m = mine();
+  var h = topBar('<h1>' + t('startTitle') + '</h1><div class="sub">' + t('startSub') + '</div>') + '<div class="body">';
+  if (m && m.k) h += '<button class="sec now" data-act="resume"><span class="dot go">›</span><span class="grow"><span class="t">' + t('cont') + '</span><span class="s">' + esc(m.name) + ' · ' + t('started') + ' ' + esc(dubaiTime(m.at)) + '</span></span></button><div class="muted" style="padding:2px">' + t('newOne') + '</div>';
+  h += '<div class="card pick"><label class="lbl" for="aname" style="margin:0">' + t('yourName') + '</label>' +
+       '<input id="aname" autocomplete="name" autocapitalize="words" maxlength="60" value="' + esc(S.name || '') + '"></div></div>';
+  h += '<div class="foot"><button class="big vino" data-act="begin" id="beginbtn">' + t('begin') + '</button></div>';
+  return h;
+}
+function begin(b){
+  var el = document.getElementById('aname'), name = el ? el.value.trim() : '';
+  if (name.length < 2) { if (el) el.focus(); toast(t('yourName'), true); return; }
+  b.disabled = true; b.textContent = t('saving');
+  api('start', { name: name }).then(function(r){
+    ls('auditMine:' + TOK.n, JSON.stringify({ k: r.k, name: name, at: new Date().toISOString() }));
+    location.replace(location.pathname + '?k=' + encodeURIComponent(r.k));
+  }, function(er){ b.disabled = false; b.textContent = t('begin'); toast(er.message, true); });
+}
+/* Francesco: every audit started from the shared link. */
+function vList(){
+  var link = location.origin + location.pathname + '?n=' + D.invite_token;
+  var h = topBar('<h1>Audits from the shared link</h1><div class="sub">' + D.audits.length + ' started · newest first · times are Dubai</div>') + '<div class="body">';
+  h += '<div class="card rtext"><div class="lbl" style="margin:0">Link to share</div><div style="font-size:13px;word-break:break-all"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></div>' +
+       '<button class="cam" data-act="copy" data-text="' + esc(link) + '" style="align-self:flex-start">Copy link</button></div>';
+  if (!D.audits.length) h += '<div class="msg info">Nobody has started one yet. Share the link: each person types their name and gets their own audit.</div>';
+  else {
+    h += '<div class="card">';
+    D.audits.forEach(function(x, i){
+      var st = x.status === 'sent' ? 'Sent to Amin' : x.status === 'submitted' ? 'Finished' : x.status === 'test' ? 'Test' : 'In progress';
+      h += '<a class="sec" style="border:0;border-top:' + (i ? '1px solid var(--sabbia-light)' : '0') + ';border-radius:0;text-decoration:none" href="' + esc(location.pathname + '?a=' + x.admin_token) + '">' +
+        '<span class="dot' + (x.status === 'submitted' || x.status === 'sent' ? ' done' : '') + '">' + (D.audits.length - i) + '</span><span class="grow"><span class="t" style="font-size:17px">' + esc(x.auditor) + '</span>' +
+        '<span class="s">' + esc(dubaiTime(x.created_at)) + ' · ' + st + ' · ' + x.done + '/' + D.total + '</span></span><span class="sc">' + (x.overall_pct == null ? '' : Math.round(x.overall_pct) + '%') + '</span></a>';
+    });
+    h += '</div>';
+  }
+  return h + '</div>';
+}
+
 /* ── Francesco's report (English) ───────────────────────────────────────── */
 var AREA_EN = { arrivo: 'Arrival & welcome', cucina: 'Kitchen', ristorante: 'Restaurant', vino: 'Wine', scala: 'Scala', piatto: 'Dish' };
 function vReport(){
@@ -560,16 +621,16 @@ function vReport(){
   var tofix = D.scores.filter(function(s){ return s.verdict === 'fix'; }).length + D.dishes.filter(function(x){ return x.verdict === 'fix'; }).length + D.flags.filter(function(f){ return f.kind === 'attention'; }).length;
   var st = D.visit.status;
   var stline = st === 'sent' ? 'Sent to Amin ' + (D.visit.sent_at ? new Date(D.visit.sent_at).toLocaleString('en-GB', { timeZone: 'Asia/Dubai', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') :
-               st === 'submitted' ? 'Enrico has finished. Check the English, set owners, then send.' :
-               st === 'test' ? 'Test visit — it can only be emailed to you.' : 'Enrico has not sent it yet. It fills in live as he works.';
-  var h = topBar(adminTabs() + '<h1>Audit report</h1><div class="sub">Chef Enrico Bartolini · ' + esc(fmtDate(D.visit.visit_date, 'en')) + '</div>' +
+               st === 'submitted' ? who() + ' has finished. Check the English, set owners, then send.' :
+               st === 'test' ? 'Test visit — it can only be emailed to you.' : who() + ' has not sent it yet. It fills in live as they work.';
+  var h = topBar(adminTabs() + '<h1>Audit report</h1><div class="sub">' + esc(D.visit.auditor) + ' · ' + (isEnrico() ? esc(fmtDate(D.visit.visit_date, 'en')) : 'started ' + esc(dubaiTime(D.visit.created_at))) + '</div>' +
     '<div class="tiles"><div class="tile"><b>' + (ov == null ? '—' : ov + '%') + '</b><span>Overall</span></div>' +
     '<div class="tile"><b>' + (ov == null || !pv ? '—' : ((ov - pv.overall_pct >= 0 ? '+' : '') + (ov - pv.overall_pct))) + '</b><span>vs ' + esc(pv ? pv.title.replace('Novembre', 'Nov') : 'last') + '</span></div>' +
     '<div class="tile"><b>' + urgent + '</b><span>Urgent</span></div><div class="tile"><b>' + tofix + '</b><span>To fix</span></div></div>');
   h += '<div class="body"><div class="msg ' + (st === 'sent' ? 'ok' : 'info') + '">' + esc(stline) + '</div>';
   if (D.visit.enrico_token) {
     var link = location.origin + location.pathname + '?k=' + D.visit.enrico_token;
-    h += '<div class="card rtext"><div class="lbl" style="margin:0">Enrico\'s link</div><div style="font-size:13px;word-break:break-all"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></div>' +
+    h += '<div class="card rtext"><div class="lbl" style="margin:0">' + esc(who()) + '\'s link</div><div style="font-size:13px;word-break:break-all"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></div>' +
          '<button class="cam" data-act="copy" data-text="' + esc(link) + '" style="align-self:flex-start">Copy link</button></div>';
   }
   h += '<div class="muted">English is editable: change any line and it saves. The Italian original stays underneath.</div>';
@@ -578,7 +639,7 @@ function vReport(){
     var r = textRow(k);
     h += '<div class="lbl">' + (k === 'overall' ? 'Overall visit' : 'Suggested improvements') + '</div><div class="card rtext">' + enEdit('text', k, r.en, r.it) + pics(r, 'text', k) + '</div>';
   });
-  h += '<div class="lbl">Enrico\'s top 3</div><div class="card rtext">';
+  h += '<div class="lbl">' + esc(who()) + '\'s top 3</div><div class="card rtext">';
   ['p1', 'p2', 'p3'].forEach(function(k, i){ var r = textRow(k); h += '<div class="muted">' + (i + 1) + '</div>' + enEdit('text', k, r.en, r.it); });
   h += '</div>';
 
@@ -615,7 +676,7 @@ function vReport(){
   }
   var keeps = D.flags.filter(function(f){ return f.kind === 'keep'; });
   if (keeps.length) {
-    h += '<div class="lbl">What Enrico liked</div><div class="card">';
+    h += '<div class="lbl">What ' + esc(who()) + ' liked</div><div class="card">';
     keeps.forEach(function(f){ h += '<div class="item"><div class="muted">' + esc(AREA_EN[f.area]) + (f.dish_name ? ' · ' + esc(f.dish_name) : '') + '</div>' + enEdit('flag', f.id, f.note_en, f.note_it) + pics(f, 'flag', f.id) + '</div>'; });
     h += '</div>';
   }
@@ -681,6 +742,7 @@ root.addEventListener('input', function(e){
     var tg = el.getAttribute('data-target'), rf = el.getAttribute('data-ref');
     setLocal(tg, rf, tg === 'text' ? 'en' : 'note_en', el.value);
     queue('en:' + tg + ':' + rf, 'set', { target: tg, ref: rf, en: el.value });
+  } else if (el.id === 'aname') { S.name = el.value;
   } else if (el.id === 'pq') {
     S.q = el.value;
     var box = document.getElementById('pres'); if (box) box.innerHTML = presHtml(el.getAttribute('data-mode'));
@@ -740,6 +802,16 @@ root.addEventListener('click', function(e){
   if (act === 'fpick') { S.picking = true; S.q = ''; render(); var q = document.getElementById('pq'); if (q) q.focus(); return; }
   if (act === 'fdel') { var f3 = byId(D.flags, S.id); api('flag', { id: f3.id, remove: true }).then(function(){ D.flags = D.flags.filter(function(x){ return x.id !== f3.id; }); go({ v: 'home' }, true); }, function(er){ toast(er.message, true); }); return; }
   if (act === 'submit') { submit(b); return; }
+  if (act === 'begin') { begin(b); return; }
+  if (act === 'resume') { var m = mine(); if (m && m.k) location.href = location.pathname + '?k=' + encodeURIComponent(m.k); return; }
+  if (act === 'areana' || act === 'areaclear') {
+    cat(b.getAttribute('data-a')).forEach(function(c){
+      var r = scoreRow(c.code);
+      if (act === 'areana' && !r.score && !r.na) { r.na = true; queue('score:' + c.code + ':s', 'score', { code: c.code, na: true }); }
+      if (act === 'areaclear' && r.na) { r.na = false; queue('score:' + c.code + ':s', 'score', { code: c.code, na: false }); }
+    });
+    render(); return;
+  }
   if (act === 'copy') { copyText(b.getAttribute('data-text')); return; }
   if (act === 'translate') { runTranslate(b); return; }
   if (act === 'sendtest') { sendReport(b, 'send_test'); return; }
@@ -762,7 +834,7 @@ function pickDish(mode, id, name){
 function submit(b){
   if (!b._sure) { b._sure = true; b.textContent = t('sendSure'); setTimeout(function(){ if (b.isConnected) { b._sure = false; b.textContent = t('send'); } }, 5000); return; }
   b.disabled = true; b.textContent = t('saving');
-  waitSaved().then(function(){ return api('submit'); }).then(function(){ D.visit.status = D.visit.status === 'test' ? 'test' : 'submitted'; go({ v: 'thanks' }); }, function(er){ b.disabled = false; b._sure = false; b.textContent = t('send'); toast(er.message, true); });
+  waitSaved().then(function(){ return api('submit', { page: location.origin + location.pathname }); }).then(function(){ D.visit.status = D.visit.status === 'test' ? 'test' : 'submitted'; go({ v: 'thanks' }); }, function(er){ b.disabled = false; b._sure = false; b.textContent = t('send'); toast(er.message, true); });
 }
 function waitSaved(){
   return new Promise(function(res, rej){
@@ -784,8 +856,9 @@ function sendReport(b, action){
 }
 function copyText(s){
   var done = function(){ toast('Link copied'); };
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(done, function(){ prompt('Copy:', s); });
-  else prompt('Copy:', s);
+  var show = function(){ toast(s); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(done, show);
+  else show();
 }
 
 /* ── photos: resized on the phone (max 1600px) before upload ──────────── */
@@ -875,6 +948,7 @@ function toggleMic(btn){
 /* ── start ──────────────────────────────────────────────────────────────── */
 function reload(){
   return api('load').then(function(d){
+    if (d.role === 'invite' || d.role === 'invite_admin') { D = d; render(); return; }
     // Keep anything typed but not yet saved.
     var local = {};
     if (D) { D.scores.forEach(function(r){ if (r._local != null) local['s:' + r.code] = r._local; }); D.texts.forEach(function(r){ if (r._local != null) local['t:' + r.key] = r._local; });

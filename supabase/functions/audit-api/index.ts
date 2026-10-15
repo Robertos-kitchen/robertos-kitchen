@@ -4,6 +4,11 @@
 //   ?k=<enrico_token>  Enrico: scores, notes, photos, dishes, flags, final comment, "send to Francesco".
 //   ?a=<admin_token>   Francesco: everything Enrico can do, plus edit the English, owner/date on the
 //                      actions, send himself a test, and email the report to Amin.
+//   ?n=<invite token>  A shared link (15 Oct 2026): anyone opening it types their name and gets
+//                      their OWN audit (a new visit, stamped with the date and time), then carries on
+//                      at ?k= like Enrico. The invite is itself an audit_visits row, status 'invite';
+//                      its admin_token (?a=) shows Francesco the list of every audit started from it.
+//                      A visit started from an invite carries source_note 'invite:<invite id>'.
 // Enrico writes in Italian. Every note is translated to English by Claude with a chef's glossary
 // (Italian kitchen terms kept, explained once). The Italian is never overwritten.
 //
@@ -21,6 +26,16 @@ const MENUS = ["217de140-5257-405f-be72-eaef8dde2c8b", "b7af4ba8-6ecc-4883-a16f-
 const SCALA_MENU = "b7af4ba8-6ecc-4883-a16f-fdce9ba4a075";
 const AREAS = ["arrivo", "cucina", "ristorante", "vino", "scala"];
 const AREA_EN: Record<string, string> = { arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", piatto: "Dish" };
+const ENRICO = "Chef Enrico Bartolini";
+const firstName = (n: string) => String(n || "").replace(/^Chef\s+/i, "").trim().split(/\s+/)[0] || "the auditor";
+// Pages that may be linked to in mails (the report link goes to the page that asked).
+const PAGES = ["https://guarracinofamily.github.io/robertos-kitchen/audit.html", "https://robertos-kitchen.github.io/robertos-kitchen/audit.html"];
+const pageFor = (o: unknown) => PAGES.find((p) => p === o) || PAGES[0];
+const newToken = () => crypto.randomUUID().replace(/-/g, "");
+const dubaiNow = () => {
+  const d = new Date(Date.now() + 4 * 3600 * 1000).toISOString();   // Dubai is UTC+4, no DST
+  return { date: d.slice(0, 10), time: d.slice(11, 16) };
+};
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -55,22 +70,22 @@ function pcts(scores: Row[], catalog: Row[]) {
 }
 
 // ── translation ───────────────────────────────────────────────────────────────────────
-const SYSTEM = `You translate the spoken or typed notes of Chef Enrico Bartolini (Italian, multi-Michelin-starred) from his audit of Roberto's, an Italian restaurant and lounge in Dubai, into English for the restaurant's chairman.
+const system = (auditor: string) => `You translate the spoken or typed notes of ${auditor === ENRICO ? "Chef Enrico Bartolini (Italian, multi-Michelin-starred)" : auditor} from an audit of Roberto's, an Italian restaurant and lounge in Dubai, into English for the restaurant's chairman.
 
 Rules:
-- Faithful meaning first. Never add, soften or invent anything. Keep his tone and his strength of judgement.
+- Faithful meaning first. Never add, soften or invent anything. Keep the auditor's tone and strength of judgement.
 - Plain, clear English with short sentences. Not flowery.
 - Italian kitchen and service terms with no exact English equal (e.g. mantecatura, all'onda, partita, brigata, fondo, battuto, soffritto, mise en place a regola d'arte, sala, servizio al guéridon, stuzzichini, piccola pasticceria): keep the Italian word in the sentence and add a short English meaning in brackets the first time it appears in that note. Common ones the chairman knows (pasta, risotto, al dente, aperitivo, mise en place, antipasto) stay as they are with no bracket.
 - The notes may come from phone dictation: fix obvious dictation errors only when the intended word is certain from context.
 - Names of people, dishes and places stay as written.
 - If a note is already in English, return it tidied but unchanged in meaning.`;
 
-async function claude(model: string, texts: string[]) {
+async function claude(model: string, texts: string[], sys: string) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model, max_tokens: 8000, system: SYSTEM,
+      model, max_tokens: 8000, system: sys,
       messages: [{ role: "user", content: "Translate each note. Return ONLY a JSON array of strings, same order and same count, nothing else.\n\n" + JSON.stringify(texts) }],
     }),
   });
@@ -82,20 +97,20 @@ async function claude(model: string, texts: string[]) {
   if (!Array.isArray(arr) || arr.length !== texts.length) throw new Error("translate: wrong count");
   return arr.map((x: unknown) => String(x ?? ""));
 }
-async function translateAll(texts: string[]) {
+async function translateAll(texts: string[], sys: string) {
   const out: string[] = [];
   for (let i = 0; i < texts.length; i += 25) {
     const part = texts.slice(i, i + 25);
     let res: string[];
-    try { res = await claude("claude-sonnet-5-5", part); }
-    catch (_e) { res = await claude("claude-sonnet-4-6", part); }
+    try { res = await claude("claude-sonnet-5-5", part, sys); }
+    catch (_e) { res = await claude("claude-sonnet-4-6", part, sys); }
     out.push(...res);
   }
   return out;
 }
 
 // Every note whose English was made from different Italian (or never made) is translated now.
-async function translatePending(visitId: string) {
+async function translatePending(visitId: string, auditor: string) {
   const jobs: { table: string; match: Row; it: string; enCol: string; srcCol: string }[] = [];
   const [sc, di, fl, tx] = await Promise.all([
     sb.from("audit_scores").select("id,note_it,en_src").eq("visit_id", visitId),
@@ -109,7 +124,7 @@ async function translatePending(visitId: string) {
   for (const r of tx.data || []) if (r.it && r.it !== r.en_src) jobs.push({ table: "audit_texts", match: { visit_id: visitId, key: r.key }, it: r.it, enCol: "en", srcCol: "en_src" });
   if (!jobs.length) return 0;
   if (!ANTHROPIC_API_KEY) throw new Error("No ANTHROPIC_API_KEY on this project");
-  const en = await translateAll(jobs.map((j) => j.it));
+  const en = await translateAll(jobs.map((j) => j.it), system(auditor));
   await Promise.all(jobs.map((j, i) => {
     let q = sb.from(j.table).update({ [j.enCol]: en[i], [j.srcCol]: j.it });
     for (const [k, v] of Object.entries(j.match)) q = q.eq(k, v as string);
@@ -145,7 +160,7 @@ async function dishList() {
 
 async function previousVisit(v: Row) {
   const { data } = await sb.from("audit_visits").select("id,title,visit_date,overall_pct,area_pct,status,created_at")
-    .in("status", ["archived", "sent"]).neq("id", v.id);
+    .in("status", ["archived", "sent"]).eq("auditor", v.auditor).neq("id", v.id);   // same auditor only
   const list = (data || []).filter((p) => !v.visit_date || !p.visit_date || p.visit_date < v.visit_date)
     .sort((a, b) => String(b.visit_date || "0000").localeCompare(String(a.visit_date || "0000")) || String(b.created_at).localeCompare(String(a.created_at)));
   const p = list[0]; if (!p) return null;
@@ -169,7 +184,7 @@ async function loadAll(v: Row, admin: boolean) {
   const p = pcts(sc.data || [], cat.data || []);
   return {
     role: admin ? "admin" : "enrico",
-    visit: { id: v.id, title: v.title, visit_date: v.visit_date, auditor: v.auditor, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
+    visit: { id: v.id, title: v.title, visit_date: v.visit_date, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
     catalog: cat.data || [], scores: sc.data || [], dishes: di.data || [], flags: fl.data || [], texts: tx.data || [],
     previous: prev, menu: dishes, urls, pct: p, recipients: admin ? { to: AMIN, cc: FRANCESCO } : null,
   };
@@ -235,12 +250,12 @@ function emailHtml(d: Row, urls: Record<string, string>) {
 
   let h = `<!doctype html><html><body style="margin:0;background:${C.paper}"><div style="max-width:680px;margin:0 auto;padding:24px 18px;font-family:Arial,sans-serif;color:${C.ink}">`;
   h += `<div style="background:${C.vino};color:#f5ede0;border-radius:8px;padding:24px 22px"><div style="font:700 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#e1d3c2">Roberto's DIFC · Audit</div>`;
-  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">Chef Enrico Bartolini</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}</div></div>`;
+  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}</div></div>`;
   h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${tile(diff(d.pct.overall, prev?.overall_pct ?? null), "vs " + (prev?.title || "last visit"), C.ok)}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
   if (t.overall && en(t.overall, "it", "en")) h += lbl("Overall visit") + para(en(t.overall, "it", "en")) + pics(t.overall.photos, urls);
   if (t.improve && en(t.improve, "it", "en")) h += lbl("Suggested improvements") + para(en(t.improve, "it", "en")) + pics(t.improve.photos, urls);
   const tops = ["p1", "p2", "p3"].map((k) => t[k] ? en(t[k], "it", "en") : "").filter(Boolean);
-  if (tops.length) h += lbl("Enrico's top 3") + tops.map((s, i) => `<div style="font:15px/1.5 Arial,sans-serif;margin:4px 0"><b style="color:${C.terra};font:20px Georgia,serif">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
+  if (tops.length) h += lbl(firstName(d.visit.auditor) + "'s top 3") + tops.map((s, i) => `<div style="font:15px/1.5 Arial,sans-serif;margin:4px 0"><b style="color:${C.terra};font:20px Georgia,serif">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
 
   h += lbl("Scores by area") + `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font:14px Arial,sans-serif"><tr style="color:${C.muted};font-size:12px"><td style="padding:6px 0;border-bottom:1px solid ${C.line}">Area</td><td style="border-bottom:1px solid ${C.line}">${esc(d.visit.title)}</td><td style="border-bottom:1px solid ${C.line}">${esc(prev?.title || "Last visit")}</td><td style="border-bottom:1px solid ${C.line}">Trend</td></tr>`;
   for (const a of AREAS) {
@@ -267,7 +282,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
   }
   const keeps = d.flags.filter((f: Row) => f.kind === "keep");
   if (keeps.length) {
-    h += lbl("What Enrico liked");
+    h += lbl("What " + firstName(d.visit.auditor) + " liked");
     for (const f of keeps) h += `<div style="border-bottom:1px solid ${C.line};padding:10px 0"><div style="font:12px Arial,sans-serif;color:${C.muted}">${esc(AREA_EN[f.area] || "")}${f.dish_name ? " · " + esc(f.dish_name) : ""}</div>${en(f) ? `<div style="font:14px/1.5 Arial,sans-serif;margin-top:4px">${esc(en(f))}</div>` : ""}${pics(f.photos, urls)}</div>`;
   }
 
@@ -282,7 +297,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
       h += `<div style="border-bottom:1px solid ${C.line};padding:8px 0;font:14px Arial,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td>${esc(c.label_en)} ${badge(s.verdict)}</td><td align="right" style="font-weight:700;white-space:nowrap">${sc}</td></tr></table>${en(s) ? `<div style="color:${C.muted};font-size:13px;line-height:1.5;margin-top:3px;white-space:pre-line">${esc(en(s))}</div>` : ""}${pics(s.photos, urls)}</div>`;
     }
   }
-  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items Enrico scored. ${prev ? esc(prev.title) + " is recalculated on the same items." : ""} Notes translated from Enrico's Italian; the original is kept in the Kitchen App.</div>`;
+  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? esc(prev.title) + " is recalculated on the same items." : ""} Notes translated to English where needed; the original is kept in the Kitchen App.</div>`;
   h += `</div></body></html>`;
   return h;
 }
@@ -309,17 +324,51 @@ Deno.serve(async (req) => {
   const action = String(b.action || "");
   if (readOnly && action !== "load") return json({ error: "read-only call" }, 400);
 
+  // ── the shared link ──
+  if (typeof b.n === "string") {
+    if (b.n.length < 20) return json({ error: "Link not valid" }, 403);
+    const { data: inv } = await sb.from("audit_visits").select("id,title,status").eq("enrico_token", b.n).eq("status", "invite").maybeSingle();
+    if (!inv) return json({ error: "Link not valid" }, 403);
+    if (action === "load") return json({ role: "invite", title: inv.title });
+    if (action !== "start") return json({ error: "Not allowed" }, 403);
+    const name = clean(b.name, 60);
+    if (!name || name.length < 2) return json({ error: "Name needed" }, 400);
+    // A shared link can be forwarded: cap how many audits it can start in a day.
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { count } = await sb.from("audit_visits").select("id", { count: "exact", head: true }).eq("source_note", "invite:" + inv.id).gte("created_at", since);
+    if ((count || 0) >= 40) return json({ error: "Too many audits started from this link today. Ask Francesco." }, 429);
+    const now = dubaiNow();
+    const { data: nv, error } = await sb.from("audit_visits").insert({
+      title: `${name} · ${now.date.split("-").reverse().join("/")} ${now.time}`, auditor: name, visit_date: now.date,
+      status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id,
+    }).select("enrico_token").single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ k: nv.enrico_token });
+  }
+
   const admin = typeof b.a === "string" && b.a.length >= 20;
   const token = admin ? b.a : b.k;
   if (typeof token !== "string" || token.length < 20) return json({ error: "Link not valid" }, 403);
   const { data: v } = await sb.from("audit_visits").select("*").eq(admin ? "admin_token" : "enrico_token", token).maybeSingle();
   if (!v) return json({ error: "Link not valid" }, 403);
+  if (v.status === "invite") {   // ?k= of an invite is refused (it is the ?n= link); ?a= of an invite is Francesco's list
+    if (!admin || action !== "load") return json({ error: "Link not valid" }, 403);
+    const { data: list } = await sb.from("audit_visits").select("id,title,auditor,visit_date,created_at,status,overall_pct,submitted_at,sent_at,admin_token")
+      .eq("source_note", "invite:" + v.id).order("created_at", { ascending: false });
+    const ids = (list || []).map((x) => x.id);
+    const { data: sc } = ids.length ? await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids) : { data: [] as Row[] };
+    const done: Record<string, number> = {};
+    for (const s of sc || []) if (s.score || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
+    const { count: total } = await sb.from("audit_catalog").select("code", { count: "exact", head: true }).eq("active", true);
+    return json({ role: "invite_admin", title: v.title, invite_token: v.enrico_token, total: total || 0,
+      audits: (list || []).map((x) => ({ ...x, done: done[x.id] || 0 })) });
+  }
 
   try {
     if (action === "load") return json(await loadAll(v, admin));
 
     // Enrico cannot change anything once the report has gone to Amin.
-    if (!admin && v.status === "sent") return json({ error: "Questo audit è già stato inviato. Grazie!" }, 409);
+    if (!admin && v.status === "sent") return json({ error: v.auditor === ENRICO ? "Questo audit è già stato inviato. Grazie!" : "This audit has already been sent. Thank you!" }, 409);
     const touch = () => sb.from("audit_visits").update({ updated_at: new Date().toISOString() }).eq("id", v.id);
 
     if (action === "score") {
@@ -405,15 +454,16 @@ Deno.serve(async (req) => {
     }
 
     if (action === "submit") {
-      const n = await translatePending(v.id).catch((e) => { console.error(e); return -1; });
+      const n = await translatePending(v.id, v.auditor).catch((e) => { console.error(e); return -1; });
       const { data: sc } = await sb.from("audit_scores").select("code,score,na").eq("visit_id", v.id);
       const { data: cat } = await sb.from("audit_catalog").select("code,area");
       const p = pcts(sc || [], cat || []);
       await sb.from("audit_visits").update({ status: v.status === "sent" || v.status === "test" ? v.status : "submitted", submitted_at: new Date().toISOString(), overall_pct: p.overall, area_pct: p.area, updated_at: new Date().toISOString() }).eq("id", v.id);
-      // Tell Francesco it is ready (his report link is never in Enrico's hands, so it is not in this mail).
+      // Tell Francesco it is ready. This mail goes only to him, so it carries his report link.
+      const link = pageFor(b.page) + "?a=" + v.admin_token;
       try {
-        await sendMail([FRANCESCO], [], (v.status === "test" ? "[TEST] " : "") + "Chef Bartolini has finished the audit",
-          `<div style="font:15px/1.5 Arial,sans-serif;color:#2a1a10">Chef Enrico has sent his audit (${p.scored} items scored, overall ${p.overall ?? "—"}%).<br>Open your report link in the Kitchen App to check the English and send it to Amin.</div>`);
+        await sendMail([FRANCESCO], [], (v.status === "test" ? "[TEST] " : "") + `${v.auditor} has finished the audit`,
+          `<div style="font:15px/1.5 Arial,sans-serif;color:#2a1a10">${esc(v.auditor)} has sent the audit (${p.scored} items scored, overall ${p.overall ?? "—"}%).<br><a href="${esc(link)}">Open the report</a> to check the English and send it to Amin.</div>`);
       } catch (e) { console.error(e); }
       return json({ ok: true, translated: n, pct: p });
     }
@@ -421,7 +471,7 @@ Deno.serve(async (req) => {
     // ── Francesco only from here ──
     if (!admin) return json({ error: "Not allowed" }, 403);
 
-    if (action === "translate") return json({ translated: await translatePending(v.id) });
+    if (action === "translate") return json({ translated: await translatePending(v.id, v.auditor) });
 
     if (action === "set") {   // edit the English, owner, date, done
       const t = await rowFor(String(b.target), String(b.ref), v.id);
@@ -436,13 +486,13 @@ Deno.serve(async (req) => {
 
     if (action === "send" || action === "send_test") {
       if (action === "send" && v.status === "test") return json({ error: "This is a test visit: it can only be sent to Francesco." }, 400);
-      await translatePending(v.id);
+      await translatePending(v.id, v.auditor);
       const d = await loadAll(v, true);
       const all: string[] = [];
       for (const r of [...d.scores, ...d.dishes, ...d.flags, ...d.texts]) for (const p of r.photos || []) all.push(p);
       const urls = await signAll(all, 60 * 60 * 24 * 365);   // a year, so the photos still open from the email
       const html = emailHtml(d, urls);
-      const subject = (action === "send_test" ? "[TEST] " : "") + `Chef Enrico Bartolini Audit — Roberto's DIFC — ${fmtDate(v.visit_date)}`;
+      const subject = (action === "send_test" ? "[TEST] " : "") + `${v.auditor} Audit — Roberto's DIFC — ${fmtDate(v.visit_date)}`;
       const to = action === "send_test" ? [FRANCESCO] : [AMIN];
       const cc = action === "send_test" ? [] : [FRANCESCO];
       try {
