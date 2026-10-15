@@ -9528,12 +9528,13 @@ function drawYield(){
   if (!main.length && y.pcs) main.push({ v: String(+y.pcs.toFixed(2)), u: y.pcs === 1 ? 'pc' : 'pcs' });
   var notes = [];
   if (y.pcs && (y.g || y.ml))
-    notes.push('<b>+ ' + (+y.pcs.toFixed(2)) + ' pcs</b> counted on their own, not in the weight');
+    notes.push('<b>+ ' + (+y.pcs.toFixed(2)) + (y.pcs === 1 ? ' pc' : ' pcs') + '</b> counted on their own, not in the weight');
   if (y.g && y.ml) notes.push('grams and ml kept apart — not added together');
   if (y.noQty) notes.push('<b>' + y.noQty + '</b> line' + (y.noQty === 1 ? '' : 's') + ' with no amount yet, not counted');
   if (y.odd)   notes.push('<b>' + y.odd + '</b> line' + (y.odd === 1 ? '' : 's') + ' with no unit, not counted');
   /* a batch says what it makes — set against what goes in, that is the cooking loss */
-  var mk = (S.kind === 'batch' && S.makesQty > 0) ? S.makesQty : null, mu = S.makesUnit;
+  var mk = (S.kind === 'batch' && S.makesQty > 0) ? S.makesQty : null;
+  var mu = S.makesUnit || 'kg';      /* the same default the costing bar shows — foot() */
   if (mk && mu === 'kg' && y.g)  notes.push('Makes ' + (+mk.toFixed(3)) + ' kg = <b>' + fmt(mk*1000/y.g*100, 0) + '%</b> of the weight in');
   if (mk && mu === 'L'  && y.ml) notes.push('Makes ' + (+mk.toFixed(3)) + ' L = <b>' + fmt(mk*1000/y.ml*100, 0) + '%</b> of the volume in');
   f.innerHTML = '<tr class="yrow"><td></td>' +
