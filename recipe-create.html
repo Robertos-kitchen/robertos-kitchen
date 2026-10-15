@@ -205,6 +205,13 @@ input.pick,input.cell,select.unit{height:22px;line-height:22px;padding-top:0;pad
 td.money{line-height:22px}
 table.sheet tr.main:nth-of-type(odd) td{background:rgba(237,229,216,.45)}
 table.sheet tr.pick td{background:var(--attn-soft)}
+/* YIELD — Chef Andrea, 15 Oct 2026: the sheet adds itself up under the Qty column */
+table.sheet tfoot td{border-top:1.5px solid var(--vino);border-bottom:none;background:var(--sabbia-light);padding:10px 8px;vertical-align:top}
+table.sheet tfoot .yl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);font-weight:700}
+table.sheet tfoot .yv{font-family:var(--serif);font-size:19px;color:var(--vino);text-align:right;white-space:nowrap;line-height:22px}
+table.sheet tfoot .yv small{font-family:var(--sans);font-size:10px;letter-spacing:1px}
+table.sheet tfoot .yn{font-size:11.5px;line-height:16px;color:var(--text2,#8B7355)}
+table.sheet tfoot .yn b{color:var(--vino)}
 
 td.w{padding:12px 8px 12px 14px}
 /* one line each, so every row is the same height — the full text is on hover, and the
@@ -9091,7 +9098,7 @@ function render(){
            caused, and it is a fair one. */
         '<th class="c"></th><th>You wrote</th><th>Ingredient — Aung\'s list</th><th class="n">Qty</th><th class="un">Unit</th>' +
         '<th class="n">Cost</th><th class="c">Trim</th><th></th><th></th>' +
-      '</tr></thead><tbody id="tb"></tbody></table></div>' +
+      '</tr></thead><tbody id="tb"></tbody><tfoot id="yf"></tfoot></table></div>' +
       '<div class="undobar" id="undobar"></div>' +
       /* This was here already, but it was a dashed box that only answered the Enter key
          and said "more ingredients" — so the way to add a forgotten one looked like
@@ -9478,6 +9485,65 @@ function pickedTotals(){
   return { g:g, ml:ml, pcs:pcs, cost:cost, noQty:noQty, noCost:noCost, n:(S.sel||[]).length };
 }
 
+/* ═════════ YIELD ═════════
+   Chef Andrea, 15 Oct 2026: "a yield window which automatically calculates the yield of
+   a recipe … PCS have to be calculated separately". So the sheet adds up what goes in,
+   under the Qty column, the moment a quantity changes.
+   Qty on a line is what goes INTO the dish — the trim tick moves the cost, never the
+   quantity (see rowCostRaw) — so the yield is the plain sum of Qty, and trim does not
+   touch it. Weight, volume and pieces are three different questions, exactly as in
+   pickedTotals(): a lemon is not grams, and 500 ml of stock is not 500 g without a
+   guess about density. Each is shown on its own; pieces are never folded into the
+   weight, so a recipe with "2 pcs lemon" keeps a weight that is true. A line with no
+   amount, or no unit we can read, is counted and SAID, never guessed. */
+function yieldTotals(){
+  var g = 0, ml = 0, pcs = 0, noQty = 0, odd = 0, n = 0;
+  realRows().forEach(function(r){
+    n++;
+    if (r.qty == null || !isFinite(r.qty) || !(r.qty > 0)){ noQty++; return; }
+    var it = itemOf(r);
+    var u = String(r.unit || (it ? defUnit(it) : '') || '').toLowerCase();
+    var t = TOBASE[u];
+    if (!t){ odd++; return; }
+    if (t[0] === 'kg')       g   += r.qty * t[1] * 1000;
+    else if (t[0] === 'L')   ml  += r.qty * t[1] * 1000;
+    else if (t[0] === 'pcs') pcs += r.qty;
+    else odd++;
+  });
+  return { g:g, ml:ml, pcs:pcs, noQty:noQty, odd:odd, n:n };
+}
+/* 2350 g reads as 2.35 kg, 350 g stays 350 g — no trailing zeros, nothing rounded
+   away that a chef weighing a small batch would need */
+function yAmt(v, small, big){
+  v = Math.round(v * 1000) / 1000;
+  return v >= 1000 ? { v: String(+(v/1000).toFixed(3)), u: big } : { v: String(+v.toFixed(2)), u: small };
+}
+function drawYield(){
+  var f = $('yf'); if (!f) return;
+  var y = yieldTotals();
+  if (!y.n){ f.innerHTML = ''; return; }
+  var main = [];
+  if (y.g)  main.push(yAmt(y.g,  'g',  'kg'));
+  if (y.ml) main.push(yAmt(y.ml, 'ml', 'L'));
+  if (!main.length && y.pcs) main.push({ v: String(+y.pcs.toFixed(2)), u: y.pcs === 1 ? 'pc' : 'pcs' });
+  var notes = [];
+  if (y.pcs && (y.g || y.ml))
+    notes.push('<b>+ ' + (+y.pcs.toFixed(2)) + ' pcs</b> counted on their own, not in the weight');
+  if (y.g && y.ml) notes.push('grams and ml kept apart — not added together');
+  if (y.noQty) notes.push('<b>' + y.noQty + '</b> line' + (y.noQty === 1 ? '' : 's') + ' with no amount yet, not counted');
+  if (y.odd)   notes.push('<b>' + y.odd + '</b> line' + (y.odd === 1 ? '' : 's') + ' with no unit, not counted');
+  /* a batch says what it makes — set against what goes in, that is the cooking loss */
+  var mk = (S.kind === 'batch' && S.makesQty > 0) ? S.makesQty : null, mu = S.makesUnit;
+  if (mk && mu === 'kg' && y.g)  notes.push('Makes ' + (+mk.toFixed(3)) + ' kg = <b>' + fmt(mk*1000/y.g*100, 0) + '%</b> of the weight in');
+  if (mk && mu === 'L'  && y.ml) notes.push('Makes ' + (+mk.toFixed(3)) + ' L = <b>' + fmt(mk*1000/y.ml*100, 0) + '%</b> of the volume in');
+  f.innerHTML = '<tr class="yrow"><td></td>' +
+    '<td colspan="2"><div class="yl">Yield</div><div class="yn">everything on the sheet, added up</div></td>' +
+    '<td colspan="2" class="yv" id="yieldv">' +
+      (main.length ? main.map(function(a){ return a.v + ' <small>' + a.u.toUpperCase() + '</small>'; }).join('<br>') : '—') +
+    '</td>' +
+    '<td colspan="4" class="yn" id="yieldn">' + notes.join('<br>') + '</td></tr>';
+}
+
 function rowHTML(r, i){
   /* Until an ingredient is picked the sheet does not know what the line is measured in,
      and it used to answer "g" anyway — baseOf(null) falls back to kilos. On a line that
@@ -9792,6 +9858,7 @@ function keepFocus(draw){
 }
 function rows(){
   keepFocus(function(){ $('tb').innerHTML = S.rows.map(rowHTML).join(''); });
+  drawYield();
   if (typeof fitBar==='function') fitBar();
 }
 
@@ -12397,6 +12464,7 @@ function addPhotos(files){
 
 function foot(){
   if (S.step !== 'sheet') return;
+  drawYield();                       /* every edit that moves the cost moves the yield */
   /* ── while lines are picked, this strip answers HIS question ──
      It takes over the costing rather than sitting beside it: two totals on one strip,
      one of the sheet and one of a handful of lines, is exactly how the wrong number
