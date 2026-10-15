@@ -775,7 +775,7 @@ function fmInjectCss(){
 }
 
 // ── entry point ───────────────────────────────────────────────────────────
-var FM_BUILD = '1790323868';   // kept in step with index.html's ?v= on this file
+var FM_BUILD = '1790347723';   // kept in step with index.html's ?v= on this file
 
 async function openFmcMatch(){
   activeStation = FM_KEY;

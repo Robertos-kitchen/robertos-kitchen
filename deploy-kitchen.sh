@@ -61,7 +61,7 @@ FROM_HTML=$( { grep -aoE '(src|href)="[^"]+"' index.html | sed -E 's/.*="//; s/"
 # index.html scan nor the HTML reference check can see it. Left out, LIVE
 # would serve a Download button that 404s - the same shape of omission that
 # took the app down on 7 Aug, just quieter.
-EXTRAS="downloads/FMC-order-helper.exe my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes.js recipe-create.html recipe-card.html food-bible.html menu-pdfs.html photo-options.html writing-help.js writing-review.html"
+EXTRAS="downloads/FMC-order-helper.exe recipe-lock.js my-tasks.js team.js closing-report.js stock-take.js menu-plan.js recipes.js recipe-create.html recipe-card.html food-bible.html menu-pdfs.html photo-options.html writing-help.js writing-review.html"
 
 # Images and other assets the PAGES reference. Caught the same day as the
 # dev-guard.js outage: food-bible.html names its room photos inside a JavaScript
