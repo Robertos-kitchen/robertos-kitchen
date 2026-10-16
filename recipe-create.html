@@ -9495,7 +9495,12 @@ function pickedTotals(){
    pickedTotals(): a lemon is not grams, and 500 ml of stock is not 500 g without a
    guess about density. Each is shown on its own; pieces are never folded into the
    weight, so a recipe with "2 pcs lemon" keeps a weight that is true. A line with no
-   amount, or no unit we can read, is counted and SAID, never guessed. */
+   amount, or no unit we can read, is counted and SAID, never guessed.
+   Chef Andrea, 16 Oct 2026: "Grams and ml needs to be accounted together. make a quick
+   and small conversion on ML to GR. Unit have to counted separate if any." So when a
+   sheet has both, ml is folded into the weight at 1 ml = 1 g — the kitchen's own rule
+   of thumb — and the line SAYS how many ml went in that way, so nobody reads it as
+   weighed. Pieces still stay on their own. A sheet that is all liquid keeps ml / L. */
 function yieldTotals(){
   var g = 0, ml = 0, pcs = 0, noQty = 0, odd = 0, n = 0;
   realRows().forEach(function(r){
@@ -9523,20 +9528,26 @@ function drawYield(){
   var y = yieldTotals();
   if (!y.n){ f.innerHTML = ''; return; }
   var main = [];
-  if (y.g)  main.push(yAmt(y.g,  'g',  'kg'));
-  if (y.ml) main.push(yAmt(y.ml, 'ml', 'L'));
+  var both = y.g > 0 && y.ml > 0, wt = y.g + y.ml;   /* 1 ml = 1 g, only when both are there */
+  if (both)      main.push(yAmt(wt,   'g',  'kg'));
+  else if (y.g)  main.push(yAmt(y.g,  'g',  'kg'));
+  else if (y.ml) main.push(yAmt(y.ml, 'ml', 'L'));
   if (!main.length && y.pcs) main.push({ v: String(+y.pcs.toFixed(2)), u: y.pcs === 1 ? 'pc' : 'pcs' });
   var notes = [];
   if (y.pcs && (y.g || y.ml))
     notes.push('<b>+ ' + (+y.pcs.toFixed(2)) + (y.pcs === 1 ? ' pc' : ' pcs') + '</b> counted on their own, not in the weight');
-  if (y.g && y.ml) notes.push('grams and ml kept apart — not added together');
+  if (both) notes.push('<b>' + (+y.g.toFixed(2)) + ' g</b> + <b>' + (+y.ml.toFixed(2)) + ' ml</b> added together — 1 ml counted as 1 g');
   if (y.noQty) notes.push('<b>' + y.noQty + '</b> line' + (y.noQty === 1 ? '' : 's') + ' with no amount yet, not counted');
   if (y.odd)   notes.push('<b>' + y.odd + '</b> line' + (y.odd === 1 ? '' : 's') + ' with no unit, not counted');
   /* a batch says what it makes — set against what goes in, that is the cooking loss */
   var mk = (S.kind === 'batch' && S.makesQty > 0) ? S.makesQty : null;
   var mu = S.makesUnit || 'kg';      /* the same default the costing bar shows — foot() */
-  if (mk && mu === 'kg' && y.g)  notes.push('Makes ' + (+mk.toFixed(3)) + ' kg = <b>' + fmt(mk*1000/y.g*100, 0) + '%</b> of the weight in');
-  if (mk && mu === 'L'  && y.ml) notes.push('Makes ' + (+mk.toFixed(3)) + ' L = <b>' + fmt(mk*1000/y.ml*100, 0) + '%</b> of the volume in');
+  if (both){
+    if (mk && (mu === 'kg' || mu === 'L')) notes.push('Makes ' + (+mk.toFixed(3)) + ' ' + mu + ' = <b>' + fmt(mk*1000/wt*100, 0) + '%</b> of what goes in');
+  } else {
+    if (mk && mu === 'kg' && y.g)  notes.push('Makes ' + (+mk.toFixed(3)) + ' kg = <b>' + fmt(mk*1000/y.g*100, 0) + '%</b> of the weight in');
+    if (mk && mu === 'L'  && y.ml) notes.push('Makes ' + (+mk.toFixed(3)) + ' L = <b>' + fmt(mk*1000/y.ml*100, 0) + '%</b> of the volume in');
+  }
   f.innerHTML = '<tr class="yrow"><td></td>' +
     '<td colspan="2"><div class="yl">Yield</div><div class="yn">everything on the sheet, added up</div></td>' +
     '<td colspan="2" class="yv" id="yieldv">' +
@@ -12474,8 +12485,11 @@ function foot(){
   if (S.sel && S.sel.length){
     var s = pickedTotals(), f0 = $('foot');
     var amt = [];
-    if (s.g)   amt.push({ v:fmt(s.g,   s.g   % 1 ? 1 : 0), u:'G' });
-    if (s.ml)  amt.push({ v:fmt(s.ml,  s.ml  % 1 ? 1 : 0), u:'ML' });
+    /* grams and ml together at 1 ml = 1 g (Chef Andrea, 16 Oct) — said in the strip */
+    var sw = s.g + s.ml, sboth = s.g > 0 && s.ml > 0;
+    if (sboth)      amt.push({ v:fmt(sw,   sw   % 1 ? 1 : 0), u:'G' });
+    else if (s.g)   amt.push({ v:fmt(s.g,  s.g  % 1 ? 1 : 0), u:'G' });
+    else if (s.ml)  amt.push({ v:fmt(s.ml, s.ml % 1 ? 1 : 0), u:'ML' });
     if (s.pcs) amt.push({ v:fmt(s.pcs, s.pcs % 1 ? 1 : 0), u:s.pcs === 1 ? 'PIECE' : 'PIECES' });
     f0.classList.add('sel');
     f0.classList.remove('shut');            /* it is one line either way — never 200px */
@@ -12485,9 +12499,10 @@ function foot(){
         : '<span class="sv">—</span>') +
       '<span class="sv">'+(s.noCost ? 'at least ' : '')+fmt(s.cost)+' <small>AED</small></span>' +
       '<span class="spick">'+s.n+' picked</span>' +
-      ((s.noQty || s.noCost)
+      ((s.noQty || s.noCost || sboth)
         ? '<span class="swhat">' +
-            [ s.noQty  ? '<b>'+s.noQty+'</b> with no amount yet, not counted' : '',
+            [ sboth    ? fmt(s.ml, s.ml % 1 ? 1 : 0)+' ml counted as g (1 ml = 1 g)' : '',
+              s.noQty  ? '<b>'+s.noQty+'</b> with no amount yet, not counted' : '',
               s.noCost ? s.noCost+' with no cost yet' : '' ].filter(Boolean).join(' · ') +
           '</span>'
         : '') +
