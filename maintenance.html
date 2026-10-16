@@ -144,6 +144,9 @@ html,body{background:var(--ground)}
 .hstat i{font-style:normal;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.82)}
 .hstat.hot b{color:var(--kick)}
 .body{padding:16px 0 0}
+.tq{width:78px;min-width:78px;text-align:center;font-size:18px;font-weight:700;align-self:center}
+.tq.bad{border:2px solid var(--err);background:var(--err-bg)}
+.tqv{font-size:18px;align-self:center;padding:0 10px}
 .head{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .sec{margin:0;border-radius:8px}
 .signin{margin:16px 0 0;border-radius:8px;max-width:none;grid-template-columns:minmax(0,440px);padding:20px 24px}
@@ -213,6 +216,13 @@ html,body{background:var(--ground)}
      gets a Follow up button for the people in maint_people with role 'followup' (Chef Danilo, Chef
      Antonio). It emails the technician who has the card and shows "Update asked" on it until he moves
      it. The day is maint_followup_after() in the database; this page reads it from maint_me.
+   · Tools (Chef Andrea, Send feedback 9d2beffc, 16 Oct 2026): "an inventory list for Oliver, carried
+     out every end of the month for tools — the number of tools we have, what we have and the value of
+     item purchase". The technician and the chefs only. The list (maint_tools) holds what was bought
+     and the price per piece; at month end the technician types how many he finds of each, every box
+     saves on its own, and he signs the month with his staff code, which locks it. Value = found ×
+     price; a tool with no price is never counted as 0, the page says how many have none. The tab
+     carries a ! from 3 days before month end until the month is signed. Schema: maintenance-tools.sql.
    Schema + rules: maintenance-schema.sql. Emails: supabase/functions/maint-notify.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
@@ -227,7 +237,8 @@ var UNITS = { day:['day','days'], week:['week','weeks'], month:['month','months'
 var qs = new URLSearchParams(location.search);
 var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:'cards', filter:'open', list:null, card:null, cal:null,
           month:null, day:null, places:null, rep:null, d:{}, hold:false, completing:false, sendBack:false,
-          task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null };
+          task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null,
+          tools:null, tmonth:'', tf:'all', tool:null };
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function $(id){ return document.getElementById(id); }
@@ -254,6 +265,14 @@ function say(err){
   if (/not_followup/.test(m)) return 'Only ' + chefsSay('followers') + ' can send a follow-up.';
   if (/not_stale/.test(m)) return 'This job card was updated in the last ' + afterH() + ' hours, so there is nothing to follow up yet.';
   if (/followed_up/.test(m)) return 'A follow-up was already sent in the last ' + afterH() + ' hours.';
+  var nl = /not_all_counted:(\d+)/.exec(m);
+  if (nl) return 'Every tool needs a number before you sign, 0 if it is gone. ' + nl[1] + (nl[1] === '1' ? ' tool is' : ' tools are') + ' still to count: use “Not counted” to find them.';
+  if (/month_closed/.test(m)) return 'This month is signed off, so its count cannot change.';
+  if (/bad_qty/.test(m)) return 'Type a whole number with no commas or dots, for example 3.';
+  if (/bad_month/.test(m)) return 'That month cannot be counted yet.';
+  if (/no_tool/.test(m)) return 'This tool is no longer on the list. Go back to the list.';
+  if (S.tab === 'tools' && /not_allowed/.test(m)) return 'Only the technician or ' + chefsSay('chefs') + ' can see and count the tools.';
+  if (S.tab === 'tools' && /no_name/.test(m)) return 'Give the tool a name.';
   if (/not_tech/.test(m)) return 'Only the maintenance technician can do this.';
   if (/not_chef/.test(m)) return 'Only ' + chefsSay('chefs') + ' can check a repair.';
   if (/not_allowed/.test(m)) return 'Only the technician or ' + chefsSay('chefs') + ' can change the calendar.';
@@ -326,18 +345,22 @@ function signIn(emp){
     try { localStorage.setItem(EMPLS, JSON.stringify({ emp:emp, at:Date.now() })); } catch(e){}
     S.busy = false;
     if (S.wantCard) { var id = S.wantCard; S.wantCard = ''; return openCard(id); }
-    return (S.tab === 'cal' ? Promise.all([loadList(), loadCal()]) : loadList()).then(draw);
+    // the technician and the chefs get the Tools tab; reading it now puts the month-end ! on the tab
+    return Promise.all([loadList(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null]).then(draw);
   }).catch(function(e){ S.busy = false; S.err = say(e); S.me = null; draw(); });
 }
 function signOut(){
   try { localStorage.removeItem(EMPLS); } catch(e){}
-  S.emp = null; S.me = null; S.list = null; S.card = null; S.cal = null; S.view = 'list'; S.tab = 'cards'; S.day = null; S.doneAsk = null; S.task = null; S.tryEmp = ''; S.err = ''; S.ok = ''; S.rep = null; S.d = {}; draw();
+  S.emp = null; S.me = null; S.list = null; S.card = null; S.cal = null; S.view = 'list'; S.tab = 'cards'; S.day = null; S.doneAsk = null; S.task = null; S.tryEmp = ''; S.err = ''; S.ok = ''; S.rep = null; S.d = {};
+  S.tools = null; S.tmonth = ''; S.tf = 'all'; S.tool = null; draw();
 }
 
 /* ── data ── */
 function loadList(){ return get('maint_list', { p_emp:S.emp }).then(function(r){ S.list = (r && r.cards) || []; }); }
 function loadCard(id){ return get('maint_get', { p_emp:S.emp, p_id:id }).then(function(r){ S.card = r; }); }
 function loadCal(){ return get('maint_tasks_list', { p_emp:S.emp }).then(function(r){ S.cal = r; if (!S.month) S.month = (r.today || todayIso()).slice(0,7); }); }
+function loadTools(){ return get('maint_tools_get', { p_emp:S.emp, p_month:S.tmonth }).then(function(r){ S.tools = r; }); }
+function loadTab(){ return (S.tab === 'cal' ? loadCal() : S.tab === 'tools' ? loadTools() : loadList()); }
 function loadPlaces(){ return get('maint_places', { p_emp:S.emp }).then(function(r){ S.places = r; }); }
 
 /* ── drawing ── */
@@ -345,7 +368,7 @@ function draw(){
   var root = $('root');
   var y = window.scrollY;
   var ae = document.activeElement, keep = ae && ae.id && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && ae.type !== 'file' ? { id:ae.id, s:ae.selectionStart } : null;
-  root.innerHTML = !S.me ? drawSign() : S.view === 'report' ? drawReport() : S.view === 'card' ? drawCard() : S.view === 'task' ? drawTask() : S.tab === 'cal' ? drawCal() : drawList();
+  root.innerHTML = !S.me ? drawSign() : S.view === 'report' ? drawReport() : S.view === 'card' ? drawCard() : S.view === 'task' ? drawTask() : S.view === 'tool' ? drawTool() : S.tab === 'cal' ? drawCal() : S.tab === 'tools' && canTools() ? drawTools() : drawList();
   if (keep) { var el = $(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.s); } catch(e){} } }
   window.scrollTo(0, y);
   drawViewer();
@@ -372,7 +395,8 @@ function openCount(){ return (S.list || []).filter(function(c){ return !c.checke
 function tabsHtml(){
   var n = S.list ? openCount() : 0;
   return '<div class="tabs" role="tablist"><button class="tab' + (S.tab === 'cards' ? ' on' : '') + '" type="button" data-tab="cards">Job cards' + (n ? '<b>' + n + '</b>' : '') + '</button>' +
-    '<button class="tab' + (S.tab === 'cal' ? ' on' : '') + '" type="button" data-tab="cal">Calendar</button></div>';
+    '<button class="tab' + (S.tab === 'cal' ? ' on' : '') + '" type="button" data-tab="cal">Calendar</button>' +
+    (canTools() ? '<button class="tab' + (S.tab === 'tools' ? ' on' : '') + '" type="button" data-tab="tools">Tools' + (toolsDue() ? '<b title="Month-end count due">!</b>' : '') + '</button>' : '') + '</div>';
 }
 function stKey(c){ return c.checked_at ? 'closed' : c.status === 'completed' ? 'tocheck' : c.status; }
 function pillOf(c){
@@ -725,6 +749,110 @@ function drawTask(){
                                : '<button class="link" type="button" id="rmtask">Take this job off the calendar</button>') : '') + '</form>';
 }
 
+/* ── tools: the list and the month-end count ── */
+function canTools(){ return !!(S.me && (S.me.tech || S.me.chef)); }
+function monthName(ym){ return new Date(ym + '-15T12:00:00Z').toLocaleDateString('en-GB', { month:'long', year:'numeric', timeZone:'UTC' }); }
+function signedMonth(ym){ return ((S.tools && S.tools.months) || []).filter(function(m){ return m.month === ym; })[0]; }
+// due from 3 days before month end (and through the first week after) until the month is signed
+function toolsDue(){
+  var T = S.tools; if (!T || signedMonth(T.open_month)) return false;
+  return T.today >= isoAdd(T.last_day, -2, 'day') || T.open_month < T.today.slice(0,7);
+}
+function num(n){ return Number(n).toLocaleString('en-GB'); }
+function toolTotals(L){
+  var t = { lines:L.length, counted:0, found:0, value:0, unpriced:0, short:0, shortVal:0, shortUnpriced:0 };
+  L.forEach(function(x){
+    if (x.found == null) return;
+    t.counted++; t.found += x.found;
+    if (x.price == null) { if (x.found > 0) t.unpriced++; } else t.value += x.found * x.price;
+    var miss = x.qty - x.found;
+    if (miss > 0) { t.short += miss; if (x.price == null) t.shortUnpriced++; else t.shortVal += miss * x.price; }
+  });
+  t.value = Math.round(t.value * 100) / 100; t.shortVal = Math.round(t.shortVal * 100) / 100;
+  return t;
+}
+function toolsHero(t){
+  var st = [[t.counted + '/' + t.lines, 'Counted'], [num(t.found), 'Pieces found'], [num(Math.round(t.value)), 'Value AED'], [num(t.short), 'Missing']];
+  return '<div class="hrow"><button class="gold" type="button" id="newrep">+ Report a problem</button><div class="hstats">' + st.map(function(x, i){
+    return '<div class="hstat' + (i === 3 && t.short ? ' hot' : '') + '"><b>' + x[0] + '</b><i>' + x[1] + '</i></div>'; }).join('') + '</div></div>';
+}
+function drawTools(){
+  var T = S.tools, SUB = 'Every tool we have, how many, and what they are worth. Counted at the end of each month.';
+  if (!T) return barHtml('Maintenance', SUB) + tabsHtml() + '<div class="body">' + msgs() + '<div class="hint">Reading the tools…</div></div>';
+  var L = T.tools || [], t = toolTotals(L), closed = T.closed, open = !closed && T.month === T.open_month;
+  var html = barHtml('Maintenance', SUB, toolsHero(t)) + tabsHtml() + '<div class="body">' + msgs();
+  // months: the one being counted, then every signed one
+  var ms = [T.open_month].concat((T.months || []).map(function(m){ return m.month; })).filter(function(m, i, a){ return a.indexOf(m) === i; }).sort().reverse();
+  html += '<div class="chips">' + ms.map(function(m){ var sm = signedMonth(m);
+    return '<button class="chip' + (T.month === m ? ' on' : '') + '" type="button" data-tm="' + m + '" aria-pressed="' + (T.month === m) + '">' + esc(monthName(m)) + (sm ? ' ✓' : '') + '</button>'; }).join('') + '</div>';
+  if (closed) html += '<div class="msg ok">' + esc(monthName(T.month)) + ' was signed by ' + esc(closed.by) + ' · ' + esc(when(closed.at)) + '. It is locked.</div>';
+  else if (open && toolsDue()) html += '<div class="warn"><b>Month-end count due.</b> Count every tool and sign ' + esc(monthName(T.month)) + (T.open_month < T.today.slice(0,7) ? ' now, the month is over.' : ' by ' + esc(dayOf(T.last_day)) + '.') + '</div>';
+  else if (open) html += '<div class="hint">At the end of the month, type how many you find of each tool. Each number saves when you leave the box. Then sign the count below.</div>';
+  // the sums, in full
+  html += '<div class="sec"><h3>' + esc(monthName(T.month)) + '<small>' + t.counted + ' of ' + t.lines + ' counted</small></h3><dl class="kv" style="padding:10px 12px;margin:0">' +
+    '<dt>Found</dt><dd>' + num(t.found) + (t.found === 1 ? ' piece' : ' pieces') + '</dd>' +
+    '<dt>Value</dt><dd><b>' + aed(t.value) + '</b>' + (t.unpriced ? ' <span class="hint">+ ' + t.unpriced + ' tool' + (t.unpriced === 1 ? '' : 's') + ' with no price, not in this value</span>' : '') + '</dd>' +
+    '<dt>Missing</dt><dd>' + (t.short ? num(t.short) + (t.short === 1 ? ' piece' : ' pieces') + ' fewer than we should have · ' + aed(t.shortVal) + (t.shortUnpriced ? ' <span class="hint">+ ' + t.shortUnpriced + ' with no price</span>' : '') : !t.counted ? 'Not counted yet' : t.counted < t.lines ? 'None so far' : 'None') + '</dd></dl></div>';
+  var F = [['all','All'],['todo','Not counted'],['short','Missing']];
+  var shown = L.filter(function(x){ return S.tf === 'todo' ? x.found == null : S.tf === 'short' ? x.found != null && x.found < x.qty : true; });
+  html += '<div class="chips">' + F.map(function(f){ var n = f[0] === 'all' ? L.length : L.filter(function(x){ return f[0] === 'todo' ? x.found == null : x.found != null && x.found < x.qty; }).length;
+    return '<button class="chip' + (S.tf === f[0] ? ' on' : '') + '" type="button" data-tf="' + f[0] + '" aria-pressed="' + (S.tf === f[0]) + '">' + f[1] + (n ? '<small>' + n + '</small>' : '') + '</button>'; }).join('') + '</div>';
+  if (!L.length) html += '<div class="empty">No tools on the list yet. Add the first one with the button below.</div>';
+  else if (!shown.length) html += '<div class="empty">' + (S.tf === 'todo' ? 'Every tool is counted.' : 'Nothing missing.') + '</div>';
+  html += shown.map(function(x){
+    var meta = ['Should have ' + num(x.qty)];
+    meta.push(x.price == null ? '<span style="color:var(--err)">No price</span>' : aed(x.price) + ' each');
+    if (x.prev != null) meta.push('Last month ' + num(x.prev));
+    if (x.found != null && x.found < x.qty) meta.push('<span style="color:var(--err);font-weight:600">' + num(x.qty - x.found) + ' missing</span>');
+    else if (x.found != null && x.found > x.qty) meta.push('<span style="color:var(--info);font-weight:600">' + num(x.found - x.qty) + ' more than the list says</span>');
+    if (!x.active) meta.push('Taken off the list');
+    var nm = '<span class="n">' + esc(x.name) + '</span>';
+    var right = open
+      ? '<input class="in tq' + (/^\d{0,5}$/.test(String(dv('tc_' + x.id, '')).trim()) ? '' : ' bad') + '" id="tc-' + x.id + '" data-tc="' + x.id + '" data-dk="tc_' + x.id + '" inputmode="numeric" autocomplete="off" enterkeyhint="next" aria-label="How many ' + esc(x.name) + ' found" placeholder="–" value="' + esc(dv('tc_' + x.id, x.found == null ? '' : x.found)) + '">'
+      : '<b class="tqv">' + (x.found == null ? '–' : num(x.found)) + '</b>';
+    return '<div class="card' + (x.found != null && x.found < x.qty ? ' over' : '') + '" style="cursor:default">' +
+      '<div>' + (x.active ? '<button class="link" style="padding:0;min-height:0;text-decoration:none;color:var(--ink)" type="button" data-tool="' + x.id + '">' + nm + '</button>' : nm) +
+      (x.used_for ? '<div class="l">' + esc(x.used_for) + '</div>' : '') + '</div>' + right +
+      '<div class="m">' + meta.join(' · ') + '</div></div>';
+  }).join('');
+  html += '<button class="btn ghost wide" type="button" id="newtool">+ Add a tool</button>';
+  if (open) {
+    var left = t.lines - t.counted;
+    html += '<div class="sign"><b>Sign the ' + esc(monthName(T.month)) + ' count</b>' +
+      (left ? '<span>' + left + (left === 1 ? ' tool' : ' tools') + ' still to count. Every tool needs a number, 0 if it is gone.</span>'
+            : '<span>Every tool is counted. Signing locks the month, so nobody can change it after.</span>' +
+              '<input id="tc-code" class="in" autocomplete="off" inputmode="numeric" style="-webkit-text-security:disc" aria-label="Your staff code" placeholder="Your staff code">' +
+              '<button class="btn" type="button" id="toolsign"' + (S.busy ? ' disabled' : '') + '>Sign the count</button>') + '</div>';
+  }
+  return html + '</div>';
+}
+function drawTool(){
+  var x = S.tool;
+  var v = function(k, d){ return esc(dv('x_' + k, x[k] != null ? x[k] : d)); };
+  return barHtml(x.id ? 'Edit tool' : 'Add a tool', 'Tools list') + '<form class="body" id="ftool">' + msgs() +
+    '<div class="field"><label for="x-name">Tool</label><input id="x-name" class="in" data-dk="x_name" placeholder="e.g. Cordless drill 18V" value="' + v('name','') + '"></div>' +
+    '<div class="field"><label for="x-for">Used for</label><input id="x-for" class="in" data-dk="x_used_for" placeholder="e.g. Electrical works" value="' + v('used_for','') + '"></div>' +
+    '<div class="two"><div class="field"><label for="x-qty">How many we should have</label><input id="x-qty" class="in" inputmode="numeric" data-dk="x_qty" value="' + v('qty', 1) + '"></div>' +
+      '<div class="field"><label for="x-price">Price per piece, AED</label><input id="x-price" class="in" inputmode="decimal" data-dk="x_price" placeholder="e.g. 125 or 125.50" value="' + v('price','') + '"></div></div>' +
+    '<div class="field"><label for="x-on">Bought on</label><input id="x-on" class="in" type="date" data-dk="x_bought_on" value="' + v('bought_on','') + '"></div>' +
+    '<div class="field"><label for="x-notes">Notes</label><textarea id="x-notes" data-dk="x_notes">' + v('notes','') + '</textarea></div>' +
+    '<div class="hint">Leave the price empty if you do not know it. It is never counted as 0, and the list shows it as “No price”.</div>' +
+    '<div class="acts"><button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Save</button><button class="btn ghost" type="button" id="canceltool">Cancel</button></div>' +
+    (x.id ? (S.doneAsk === 'rmtool' ? '<div class="acts"><span>Take this tool off the list? Past counts keep it.</span><button class="btn sm" type="button" id="rmtoolyes">Take it off</button><button class="btn sm ghost" type="button" id="rmtoolno">Keep it</button></div>'
+                                    : '<button class="link" type="button" id="rmtool">Take this tool off the list (lost, broken, thrown away)</button>') : '') + '</form>';
+}
+function saveCount(id, raw){
+  var v = String(raw || '').trim(), T = S.tools;
+  if (v !== '' && !/^\d{1,5}$/.test(v)) { S.err = say('bad_qty'); return draw(); }
+  var x = (T.tools || []).filter(function(y){ return y.id === id; })[0];
+  if (x && String(x.found == null ? '' : x.found) === v) { delete S.d['tc_' + id]; return; }
+  return post('maint_tool_count', { p_emp:S.emp, p_month:T.month, p_tool:id, p_qty:v }).then(function(r){
+    if (x) { x.found = r.found; x.counted_by = r.counted_by || null; }
+    if (S.d['tc_' + id] === raw) delete S.d['tc_' + id];
+    S.err = ''; draw();
+  }).catch(fail);
+}
+
 /* ── media viewer ── */
 function drawViewer(){
   var old = $('viewer'); if (old) old.remove();
@@ -741,7 +869,7 @@ function drawViewer(){
 function fail(e){ S.err = say(e); S.ok = ''; draw(); }
 function backToList(){
   S.view = 'list'; S.card = null; S.err = ''; S.ok = ''; S.d = {}; S.viewer = null;
-  return (S.tab === 'cal' ? loadCal() : loadList()).then(draw).catch(fail);
+  return loadTab().then(draw).catch(fail);
 }
 document.addEventListener('submit', function(e){
   e.preventDefault();
@@ -760,13 +888,43 @@ document.addEventListener('submit', function(e){
       return Promise.all([loadCal(), loadList()]).then(draw);
     }).catch(function(err){ S.busy = false; fail(err); });
   }
+  if (f.id === 'ftool') {
+    var x = { id:S.tool.id || '', name:$('x-name').value, used_for:$('x-for').value, qty:$('x-qty').value.trim(),
+      price:$('x-price').value.trim(), bought_on:$('x-on').value, notes:$('x-notes').value };
+    if (x.name.trim().length < 2) { S.err = say('no_name'); return draw(); }
+    if (!/^\d{1,5}$/.test(x.qty)) { S.err = say('bad_qty'); return draw(); }
+    if (x.price && !okAmount(x.price)) { S.err = say('bad_amount'); return draw(); }
+    if (S.busy) return;
+    S.busy = true; S.err = ''; draw();
+    return post('maint_tool_save', { p_emp:S.emp, p_args:x }).then(function(){
+      S.busy = false; S.view = 'list'; S.tab = 'tools'; S.tool = null; S.d = {}; S.ok = '“' + x.name.trim() + '” saved.';
+      return loadTools().then(draw);
+    }).catch(function(err){ S.busy = false; fail(err); });
+  }
 });
 document.addEventListener('click', function(e){
   var b = e.target.closest('button'); if (!b || b.disabled) return;
   var ds = b.dataset;
   if (b.id === 'out') return signOut();
   if (b.id === 'vclose') { S.viewer = null; return drawViewer(); }
-  if (ds.tab) { S.tab = ds.tab; S.err = ''; S.ok = ''; S.day = null; S.doneAsk = null; draw(); return (ds.tab === 'cal' ? loadCal() : loadList()).then(draw).catch(fail); }
+  if (ds.tab) { S.tab = ds.tab; S.err = ''; S.ok = ''; S.day = null; S.doneAsk = null; draw(); return loadTab().then(draw).catch(fail); }
+  // tools
+  if (ds.tm) { S.tmonth = ds.tm; S.d = {}; S.err = ''; S.ok = ''; return loadTools().then(draw).catch(fail); }
+  if (ds.tf) { S.tf = ds.tf; return draw(); }
+  if (b.id === 'newtool') { S.tool = { qty:1 }; S.d = {}; S.view = 'tool'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
+  if (ds.tool) { S.tool = (S.tools.tools || []).filter(function(x){ return x.id === ds.tool; })[0]; S.d = {}; S.view = 'tool'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
+  if (b.id === 'canceltool') { S.view = 'list'; S.tab = 'tools'; S.tool = null; S.d = {}; S.err = ''; S.doneAsk = null; return draw(); }
+  if (b.id === 'rmtool') { S.doneAsk = 'rmtool'; return draw(); }
+  if (b.id === 'rmtoolno') { S.doneAsk = null; return draw(); }
+  if (b.id === 'rmtoolyes') return post('maint_tool_retire', { p_emp:S.emp, p_id:S.tool.id }).then(function(){
+      S.view = 'list'; S.tab = 'tools'; S.ok = '“' + S.tool.name + '” taken off the list.'; S.tool = null; S.doneAsk = null; return loadTools().then(draw); }).catch(fail);
+  if (b.id === 'toolsign') {
+    var tc = $('tc-code').value; if (!tc.trim()) { S.err = 'Type your staff code to sign.'; return draw(); }
+    S.busy = true; S.err = ''; draw();
+    return post('maint_tool_close', { p_emp:S.emp, p_month:S.tools.month, p_code:tc }).then(function(){
+      S.busy = false; S.ok = monthName(S.tools.month) + ' count signed and locked.'; return loadTools().then(draw);
+    }).catch(function(err){ S.busy = false; fail(err); });
+  }
   if (ds.f) { S.filter = ds.f; return draw(); }
   if (b.id === 'newrep') return newReport();
   if (b.id === 'cancelrep') { if (S.rep) S.rep.files.forEach(function(f){ URL.revokeObjectURL(f.url); }); S.rep = null; S.view = 'list'; S.err = ''; return draw(); }
@@ -832,6 +990,7 @@ document.addEventListener('input', function(e){
 });
 document.addEventListener('change', function(e){
   if (e.target.id === 'pick') return addFiles(e.target.files);
+  if (e.target.dataset.tc) { S.d['tc_' + e.target.dataset.tc] = e.target.value; return saveCount(e.target.dataset.tc, e.target.value); }
   var el = e.target; if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
 });
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && S.viewer != null) { S.viewer = null; drawViewer(); } });
@@ -846,6 +1005,7 @@ function freshen(){
   if (S.view === 'card' && S.card && !S.hold && !S.completing && !S.sendBack && !Object.keys(S.d).length) loadCard(S.card.card.id).then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cards') loadList().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cal' && !S.doneAsk) loadCal().then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'tools' && !Object.keys(S.d).length) loadTools().then(draw).catch(function(){});
 }
 setInterval(freshen, 30000);
 document.addEventListener('visibilitychange', freshen);
