@@ -237,6 +237,19 @@ const pics = (ps: string[], urls: Record<string, string>) => (ps || []).filter((
   `<a href="${esc(urls[p])}"><img src="${esc(urls[p])}" width="120" height="90" style="width:120px;height:90px;object-fit:cover;border-radius:4px;margin:6px 6px 0 0;border:0" alt="Photo"></a>`).join("");
 const en = (r: Row, itCol = "note_it", enCol = "note_en") => r[enCol] || r[itCol] || "";
 
+// Trend against the last visit, like for like: only items scored (not N/A) in BOTH visits.
+function like(scores: Row[], prevScores: Row[], catalog: Row[], area?: string) {
+  const old: Record<string, number> = {};
+  for (const p of prevScores || []) if (p.score && !p.na) old[p.code] = p.score;
+  const inArea = new Set(catalog.filter((c) => !area || c.area === area).map((c) => c.code));
+  let a = 0, b = 0, n = 0;
+  for (const s of scores) if (inArea.has(s.code) && s.score && !s.na && old[s.code]) { a += s.score; b += old[s.code]; n++; }
+  if (!n) return null;
+  const now = Math.round((a / (5 * n)) * 100), then = Math.round((b / (5 * n)) * 100);
+  return { diff: now - then, n };
+}
+const signed = (x: number) => (x > 0 ? "+" : "") + x;
+
 function emailHtml(d: Row, urls: Record<string, string>) {
   const cat: Record<string, Row> = {}; for (const c of d.catalog) cat[c.code] = c;
   const t: Record<string, Row> = {}; for (const x of d.texts) t[x.key] = x;
@@ -251,7 +264,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
   let h = `<!doctype html><html><body style="margin:0;background:${C.paper}"><div style="max-width:680px;margin:0 auto;padding:24px 18px;font-family:Arial,sans-serif;color:${C.ink}">`;
   h += `<div style="background:${C.vino};color:#f5ede0;border-radius:8px;padding:24px 22px"><div style="font:700 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#e1d3c2">Roberto's DIFC · Audit</div>`;
   h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}</div></div>`;
-  h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${tile(diff(d.pct.overall, prev?.overall_pct ?? null), "vs " + (prev?.title || "last visit"), C.ok)}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
+  h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${(() => { const l = prev ? like(d.scores, prev.scores, d.catalog) : null; return tile(l ? signed(l.diff) : "—", "vs " + (prev?.title || "last visit") + (l ? ` · same ${l.n} items` : ""), l && l.diff < 0 ? C.err : C.ok); })()}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
   if (t.overall && en(t.overall, "it", "en")) h += lbl("Overall visit") + para(en(t.overall, "it", "en")) + pics(t.overall.photos, urls);
   if (t.improve && en(t.improve, "it", "en")) h += lbl("Suggested improvements") + para(en(t.improve, "it", "en")) + pics(t.improve.photos, urls);
   const tops = ["p1", "p2", "p3"].map((k) => t[k] ? en(t[k], "it", "en") : "").filter(Boolean);
@@ -259,8 +272,8 @@ function emailHtml(d: Row, urls: Record<string, string>) {
 
   h += lbl("Scores by area") + `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font:14px Arial,sans-serif"><tr style="color:${C.muted};font-size:12px"><td style="padding:6px 0;border-bottom:1px solid ${C.line}">Area</td><td style="border-bottom:1px solid ${C.line}">${esc(d.visit.title)}</td><td style="border-bottom:1px solid ${C.line}">${esc(prev?.title || "Last visit")}</td><td style="border-bottom:1px solid ${C.line}">Trend</td></tr>`;
   for (const a of AREAS) {
-    const n = pa[a] ?? null, o = pp[a] ?? null;
-    h += `<tr><td style="padding:8px 0;border-bottom:1px solid ${C.line};font:16px Georgia,serif;color:${C.vino}">${AREA_EN[a]}</td><td style="border-bottom:1px solid ${C.line}">${n == null ? "not scored" : n + "%"}</td><td style="border-bottom:1px solid ${C.line}">${o == null ? "not scored" : o + "%"}</td><td style="border-bottom:1px solid ${C.line}">${diff(n, o)}</td></tr>`;
+    const n = pa[a] ?? null, o = pp[a] ?? null, l = prev ? like(d.scores, prev.scores, d.catalog, a) : null;
+    h += `<tr><td style="padding:8px 0;border-bottom:1px solid ${C.line};font:16px Georgia,serif;color:${C.vino}">${AREA_EN[a]}</td><td style="border-bottom:1px solid ${C.line}">${n == null ? "not scored" : n + "%"}</td><td style="border-bottom:1px solid ${C.line}">${o == null ? "not scored" : o + "%"}</td><td style="border-bottom:1px solid ${C.line}">${l ? `${signed(l.diff)} <span style="color:${C.muted};font-size:12px">(${l.n})</span>` : "—"}</td></tr>`;
   }
   h += `</table>`;
 
@@ -297,7 +310,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
       h += `<div style="border-bottom:1px solid ${C.line};padding:8px 0;font:14px Arial,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td>${esc(c.label_en)} ${badge(s.verdict)}</td><td align="right" style="font-weight:700;white-space:nowrap">${sc}</td></tr></table>${en(s) ? `<div style="color:${C.muted};font-size:13px;line-height:1.5;margin-top:3px;white-space:pre-line">${esc(en(s))}</div>` : ""}${pics(s.photos, urls)}</div>`;
     }
   }
-  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? esc(prev.title) + " is recalculated on the same items." : ""} Notes translated to English where needed; the original is kept in the Kitchen App.</div>`;
+  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? "Trends against " + esc(prev.title) + " compare only the items scored in both visits (how many in brackets)." : ""} Notes translated to English where needed; the original is kept in the Kitchen App.</div>`;
   h += `</div></body></html>`;
   return h;
 }

@@ -321,6 +321,23 @@ function scoreRow(code){ for (var i = 0; i < D.scores.length; i++) if (D.scores[
 function textRow(key){ for (var i = 0; i < D.texts.length; i++) if (D.texts[i].key === key) return D.texts[i]; var r = { key: key, photos: [] }; D.texts.push(r); return r; }
 function byId(list, id){ for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 function cat(area){ return D.catalog.filter(function(c){ return c.area === area; }).sort(function(a, b){ return a.position - b.position; }); }
+/* Trend against the last visit, like for like: only items scored (not N/A) in BOTH visits.
+   Nov 2022 scored 17 items in 3 areas; this audit can score 33 in 5, so comparing the two
+   overall %s would compare different things. n = how many items the trend stands on. */
+function like(area){
+  if (!D.previous) return null;
+  var old = {}; D.previous.scores.forEach(function(p){ if (p.score && !p.na) old[p.code] = p.score; });
+  var a = 0, b = 0, n = 0;
+  D.catalog.forEach(function(c){
+    if (area && c.area !== area) return;
+    var r = scoreRow(c.code);
+    if (r.score && !r.na && old[c.code]) { a += r.score; b += old[c.code]; n++; }
+  });
+  if (!n) return null;
+  var now = Math.round(a / (5 * n) * 100), then = Math.round(b / (5 * n) * 100);
+  return { now: now, prev: then, diff: now - then, n: n };
+}
+function signed(x){ return (x >= 0 ? '+' : '') + x; }
 function prevScore(code){ if (!D.previous) return null; for (var i = 0; i < D.previous.scores.length; i++) if (D.previous.scores[i].code === code) return D.previous.scores[i]; return null; }
 function isDone(code){ var r = scoreRow(code); return !!(r.score || r.na); }
 function areaStats(a){
@@ -424,7 +441,7 @@ function vHome(){
     }
     var st = areaStats(a), full = st.done === st.total, now = a === current && st.done > 0;
     var sub = st.done + '/' + st.total + (st.avg != null ? ' · ' + t('avg') + ' ' + st.avg.toFixed(1) : '') + (now ? ' · ' + t('inProgress') : '');
-    var pv = D.previous && D.previous.area_pct && D.previous.area_pct[a] != null && st.pct != null ? ' · ' + (st.pct - D.previous.area_pct[a] >= 0 ? '↑' : '↓') + ' vs ' + esc(D.previous.title.replace('Novembre', LANG === 'en' ? 'Nov' : 'Nov')) : '';
+    var lf = like(a), pv = lf ? ' · ' + (lf.diff >= 0 ? '↑' : '↓') + ' vs ' + esc(D.previous.title.replace('Novembre', 'Nov')) : '';
     h += '<button class="sec' + (a === current ? ' now' : '') + '" data-act="area" data-a="' + a + '"><span class="dot' + (full ? ' done' : a === current ? ' go' : '') + '">' + (full ? '✓' : n) + '</span>' +
          '<span class="grow"><span class="t">' + areaName(a) + '</span><span class="s">' + sub + pv + '</span></span>' + (st.pct != null ? '<span class="sc">' + st.pct + '%</span>' : '') + '</button>';
   });
@@ -551,7 +568,8 @@ function vFinal(){
   h += '<div class="body">' + closedBanner();
   if (ov != null) {
     h += '<div class="tiles" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="tile"><b>' + ov + '%</b><span>' + esc(D.visit.title) + '</span></div>';
-    if (D.previous) h += '<div class="tile"><b style="color:var(--muted)">' + D.previous.overall_pct + '%</b><span>' + esc(D.previous.title) + '</span></div><div class="tile"><b style="color:' + (ov >= D.previous.overall_pct ? 'var(--ok)' : 'var(--err)') + '">' + (ov - D.previous.overall_pct >= 0 ? '+' : '') + (ov - D.previous.overall_pct) + '</b><span>trend</span></div>';
+    var lf = like();
+    if (lf) h += '<div class="tile"><b style="color:var(--muted)">' + lf.prev + '%</b><span>' + esc(D.previous.title) + '</span></div><div class="tile"><b style="color:' + (lf.diff >= 0 ? 'var(--ok)' : 'var(--err)') + '">' + signed(lf.diff) + '</b><span>' + (LANG === 'en' ? 'on the same ' + lf.n + ' items' : 'sugli stessi ' + lf.n + ' punti') + '</span></div>';
     h += '</div>';
   }
   ['overall', 'improve'].forEach(function(k){
@@ -616,7 +634,7 @@ function vList(){
 /* ── Francesco's report (English) ───────────────────────────────────────── */
 var AREA_EN = { arrivo: 'Arrival & welcome', cucina: 'Kitchen', ristorante: 'Restaurant', vino: 'Wine', scala: 'Scala', piatto: 'Dish' };
 function vReport(){
-  var ov = overallPct(), pv = D.previous;
+  var ov = overallPct(), pv = D.previous, lfAll = like();
   var urgent = D.scores.filter(function(s){ return s.verdict === 'urgent'; }).length + D.dishes.filter(function(x){ return x.verdict === 'remove'; }).length;
   var tofix = D.scores.filter(function(s){ return s.verdict === 'fix'; }).length + D.dishes.filter(function(x){ return x.verdict === 'fix'; }).length + D.flags.filter(function(f){ return f.kind === 'attention'; }).length;
   var st = D.visit.status;
@@ -625,7 +643,7 @@ function vReport(){
                st === 'test' ? 'Test visit — it can only be emailed to you.' : who() + ' has not sent it yet. It fills in live as they work.';
   var h = topBar(adminTabs() + '<h1>Audit report</h1><div class="sub">' + esc(D.visit.auditor) + ' · ' + (isEnrico() ? esc(fmtDate(D.visit.visit_date, 'en')) : 'started ' + esc(dubaiTime(D.visit.created_at))) + '</div>' +
     '<div class="tiles"><div class="tile"><b>' + (ov == null ? '—' : ov + '%') + '</b><span>Overall</span></div>' +
-    '<div class="tile"><b>' + (ov == null || !pv ? '—' : ((ov - pv.overall_pct >= 0 ? '+' : '') + (ov - pv.overall_pct))) + '</b><span>vs ' + esc(pv ? pv.title.replace('Novembre', 'Nov') : 'last') + '</span></div>' +
+    '<div class="tile"><b>' + (lfAll ? signed(lfAll.diff) : '—') + '</b><span>vs ' + esc(pv ? pv.title.replace('Novembre', 'Nov') : 'last') + (lfAll ? ' · same ' + lfAll.n + ' items' : '') + '</span></div>' +
     '<div class="tile"><b>' + urgent + '</b><span>Urgent</span></div><div class="tile"><b>' + tofix + '</b><span>To fix</span></div></div>');
   h += '<div class="body"><div class="msg ' + (st === 'sent' ? 'ok' : 'info') + '">' + esc(stline) + '</div>';
   if (D.visit.enrico_token) {
@@ -633,7 +651,7 @@ function vReport(){
     h += '<div class="card rtext"><div class="lbl" style="margin:0">' + esc(who()) + '\'s link</div><div style="font-size:13px;word-break:break-all"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></div>' +
          '<button class="cam" data-act="copy" data-text="' + esc(link) + '" style="align-self:flex-start">Copy link</button></div>';
   }
-  h += '<div class="muted">English is editable: change any line and it saves. The Italian original stays underneath.</div>';
+  h += '<div class="muted">English is editable: change any line and it saves. The original stays underneath.</div>';
 
   ['overall', 'improve'].forEach(function(k){
     var r = textRow(k);
@@ -645,10 +663,11 @@ function vReport(){
 
   h += '<div class="lbl">Scores by area</div><div class="card" style="padding:4px 12px"><table class="tbl"><tr><th>Area</th><th>' + esc(D.visit.title) + '</th><th>' + esc(pv ? pv.title : 'Last') + '</th><th>Trend</th></tr>';
   AREAS.forEach(function(a){
-    var s = areaStats(a), o = pv && pv.area_pct ? pv.area_pct[a] : null;
-    h += '<tr><td class="a">' + AREA_EN[a] + '</td><td>' + (s.pct == null ? '—' : s.pct + '%') + '</td><td>' + (o == null ? 'not scored' : o + '%') + '</td><td>' + (s.pct == null || o == null ? '—' : ((s.pct - o >= 0 ? '+' : '') + (s.pct - o))) + '</td></tr>';
+    var s = areaStats(a), o = pv && pv.area_pct ? pv.area_pct[a] : null, lf = like(a);
+    h += '<tr><td class="a">' + AREA_EN[a] + '</td><td>' + (s.pct == null ? '—' : s.pct + '%') + '</td><td>' + (o == null ? 'not scored' : o + '%') + '</td><td>' + (lf ? signed(lf.diff) + ' <small class="muted">(' + lf.n + ')</small>' : '—') + '</td></tr>';
   });
   h += '</table></div>';
+  if (pv) h += '<div class="muted">Trend compares only the items scored in both visits (how many in brackets), so the two visits are measured on the same things.</div>';
 
   // Action plan
   var acts = [];
@@ -700,7 +719,7 @@ function vReport(){
 }
 function enEdit(target, ref, en, it){
   return '<textarea class="en-edit" data-en="1" data-target="' + target + '" data-ref="' + esc(ref) + '" aria-label="English" placeholder="' + (it ? 'Not translated yet — press Translate new notes' : '') + '">' + esc(en || '') + '</textarea>' +
-    (it ? '<div class="it" style="font-size:12.5px;color:var(--muted);font-style:italic">IT: ' + esc(it) + '</div>' : '');
+    (it ? '<div class="it" style="font-size:12.5px;color:var(--muted);font-style:italic">Original: ' + esc(it) + '</div>' : '');
 }
 
 /* ── behaviour ──────────────────────────────────────────────────────────── */
