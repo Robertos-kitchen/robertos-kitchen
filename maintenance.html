@@ -235,7 +235,8 @@ var KINDS = { grease:'Grease trap', hood:'Hood & extraction', service:'Equipment
 var UNITS = { day:['day','days'], week:['week','weeks'], month:['month','months'] };
 
 var qs = new URLSearchParams(location.search);
-var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:'cards', filter:'open', list:null, card:null, cal:null,
+var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:qs.get('tab') === 'tools' ? 'tools' : 'cards',   // ?tab=tools: the month-end tools email
+          filter:'open', list:null, card:null, cal:null,
           month:null, day:null, places:null, rep:null, d:{}, hold:false, completing:false, sendBack:false,
           task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null,
           tools:null, tmonth:'', tf:'all', tool:null };
@@ -346,6 +347,7 @@ function signIn(emp){
     S.busy = false;
     if (S.wantCard) { var id = S.wantCard; S.wantCard = ''; return openCard(id); }
     // the technician and the chefs get the Tools tab; reading it now puts the month-end ! on the tab
+    if (S.tab === 'tools' && !canTools()) S.tab = 'cards';
     return Promise.all([loadList(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null]).then(draw);
   }).catch(function(e){ S.busy = false; S.err = say(e); S.me = null; draw(); });
 }

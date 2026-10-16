@@ -8,6 +8,10 @@
 //   kind 'check' -> the chefs (Danilo, Antonio): a completed card waiting for their check
 //   kind 'followup' -> the technician who has the card: a chef asked for an update on a card
 //                      nobody has moved for a day (14 Oct 2026, Chef Andrea, Send feedback ba7f8e65)
+//   kind 'tools'    -> the technicians: the month-end tools count is due (or the month ended unsigned).
+//                      No card: the row carries the month. Queued by maint_tools_remind() (cron, 09:00
+//                      Dubai) 3 days before month end and again after it if still unsigned (16 Oct 2026,
+//                      Chef Andrea, Send feedback 9d2beffc; Francesco: "Oliver gets it by email").
 // A test card (is_test) was already addressed to Francesco only by the database; the subject
 // gets [TEST] here.
 //
@@ -98,6 +102,45 @@ function buildMany(cards: Card[]) {
   return { subject, text, html };
 }
 
+// The month-end tools count. The numbers come from the database at the moment of sending.
+const TOOLS_LINK = APP + "maintenance.html?tab=tools";
+async function buildTools(sb: any, m: any) {
+  const month: string = m.month; // 'YYYY-MM-01'
+  const name = new Date(month + "T12:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  const d = new Date(month + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCDate(0);
+  const last = d.toISOString().slice(0, 10);
+  const lastSay = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  const sentDay = new Date(m.created_at).toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+  const late = sentDay > last;
+  const tools = await sb.from("maint_tools").select("id", { count: "exact", head: true }).eq("active", true);
+  const counted = await sb.from("maint_tool_counts").select("tool_id", { count: "exact", head: true }).eq("month", month);
+  if (tools.error || counted.error) throw new Error("tools not read");
+  const n = tools.count ?? 0, c = counted.count ?? 0;
+  const subject = late ? `Tools count for ${name} is not signed yet` : `Month-end tools count: ${name}`;
+  const band = late ? `Tools count overdue · ${name}` : `Month-end tools count · ${name}`;
+  const intro = late
+    ? `${name} has ended and its tools count is not signed. Count every tool, then sign the count with your staff code.`
+    : `It is time for the month-end tools count. Count every tool on the list, type how many you find, then sign the count with your staff code by ${lastSay}.`;
+  const rows: [string, string][] = [["Month", name], ["Tools on the list", String(n)], ["Counted so far", `${c} of ${n}`], ["Sign by", late ? "Now, the month is over" : lastSay]];
+  const text = intro + "\n\n" + rows.map(([k, v]) => `${k}: ${v}`).join("\n") + "\n\nOpen the tools count: " + TOOLS_LINK + "\n\n" + FOOT;
+  const html = shell(band, '<p style="margin:14px 18px">' + esc(intro) + "</p>" + tableOf(rows) + buttonOf(TOOLS_LINK, "Open the tools count"));
+  return { subject, text, html };
+}
+
+async function sendResend(to: string[], mail: { subject: string; text: string; html: string }) {
+  let resendId: string | null = null, err = "";
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to, subject: mail.subject, text: mail.text, html: mail.html }),
+    });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.id) resendId = d.id; else err = (d && (d.message || d.error)) ? String(d.message || d.error) : "HTTP " + r.status;
+  } catch (e) { err = String((e as Error).message || e); }
+  return { resendId, err };
+}
+
 const sameList = (a: string[] | null, b: string[] | null) => [...(a || [])].sort().join(",") === [...(b || [])].sort().join(",");
 
 Deno.serve(async (req) => {
@@ -115,6 +158,19 @@ Deno.serve(async (req) => {
   if (!(m.status === "queued" || (m.status === "failed" && m.tries < 3))) return json({ ok: true, skipped: m.status });
   const upd = await sb.from("maint_mail").update({ status: "sending", tries: m.tries + 1 }).eq("id", id).eq("status", m.status).select("id");
   if (upd.error || !upd.data || !upd.data.length) return json({ ok: true, skipped: "taken" });
+
+  if (m.kind === "tools") {
+    if (!RESEND_API_KEY) { await sb.from("maint_mail").update({ status: "failed", error: "no RESEND_API_KEY" }).eq("id", id); return json({ error: "no key" }, 500); }
+    let mail;
+    try { mail = await buildTools(sb, m); }
+    catch (e) { await sb.from("maint_mail").update({ status: "failed", error: String((e as Error).message || e).slice(0, 500) }).eq("id", id); return json({ error: "tools not read" }, 500); }
+    if (m.is_test) mail.subject = "[TEST] " + mail.subject;
+    const { resendId, err } = await sendResend(m.to_list, mail);
+    await sb.from("maint_mail").update(resendId ? { status: "sent", resend_id: resendId, sent_at: new Date().toISOString(), error: null }
+                                                 : { status: "failed", error: err.slice(0, 500) }).eq("id", id);
+    console.log("maint-notify", id, "tools", m.month, resendId ? "sent " + resendId : "FAILED " + err);
+    return resendId ? json({ ok: true, id: resendId }) : json({ error: err }, 502);
+  }
 
   // a new card takes every other waiting new card for the same people with it, each claimed
   // the same guarded way, so a card can only ever ride in one email

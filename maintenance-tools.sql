@@ -174,3 +174,44 @@ revoke all on function maint_tool_month(text), maint_tool_open_month(), maint_to
   maint_tool_retire(text,uuid), maint_tool_count(text,text,uuid,text), maint_tool_close(text,text,text) from public;
 grant execute on function maint_tools_get(text,text), maint_tool_save(text,jsonb), maint_tool_retire(text,uuid),
   maint_tool_count(text,text,uuid,text), maint_tool_close(text,text,text) to anon, authenticated;
+
+-- ── 16 Oct 2026 (Francesco: "Oliver should get it by email, like the job cards") ──
+-- The month-end reminder rides the job-card mail queue. A 'tools' row has no card, it carries the month.
+-- maint_tools_remind() runs daily at 09:00 Dubai (cron maint-tools-remind, 0 5 * * * UTC):
+--   from 3 days before month end -> one email to every active technician ("Month-end tools count")
+--   after month end, still unsigned -> one more ("... is not signed yet"). Nothing once the month is signed.
+-- maint_tools_remind(true) sends a [TEST] to Francesco only. maint-notify v4 builds the email.
+alter table maint_mail alter column card_id drop not null;
+alter table maint_mail add column if not exists month date;
+alter table maint_mail drop constraint if exists maint_mail_kind_check;
+alter table maint_mail add constraint maint_mail_kind_check check (kind in ('new','check','followup','tools'));
+alter table maint_mail add constraint maint_mail_tools_shape check ((kind = 'tools') = (card_id is null and month is not null));
+
+create or replace function maint_tools_remind(p_test boolean default false) returns text
+language plpgsql security definer set search_path = public as $$
+declare today date := (now() at time zone 'Asia/Dubai')::date; om date; last date; v_to text[]; v_id bigint;
+begin
+  om := maint_tool_open_month();
+  last := (om + interval '1 month - 1 day')::date;
+  if p_test then
+    insert into maint_mail(card_id, month, kind, to_list, is_test) values (null, om, 'tools', array['fguarracino@robertos.ae'], true) returning id into v_id;
+    perform maint_kick(v_id);
+    return 'test ' || v_id;
+  end if;
+  if exists(select 1 from maint_tool_months where month = om) then return 'signed'; end if;
+  if not exists(select 1 from maint_tools where active) then return 'no tools'; end if;
+  if today between last - 2 and last then
+    if exists(select 1 from maint_mail where kind = 'tools' and month = om and not is_test) then return 'already sent'; end if;
+  elsif today > last then
+    if exists(select 1 from maint_mail where kind = 'tools' and month = om and not is_test and (created_at at time zone 'Asia/Dubai')::date > last) then return 'already sent late'; end if;
+  else
+    return 'not due';
+  end if;
+  select array_agg(distinct lower(email)) into v_to from maint_people where active and role = 'technician';
+  if v_to is null or cardinality(v_to) = 0 then return 'no technician'; end if;
+  insert into maint_mail(card_id, month, kind, to_list, is_test) values (null, om, 'tools', v_to, false) returning id into v_id;
+  perform maint_kick(v_id);
+  return 'sent ' || v_id;
+end $$;
+revoke all on function maint_tools_remind(boolean) from public, anon, authenticated;
+select cron.schedule('maint-tools-remind', '0 5 * * *', 'select maint_tools_remind()');
