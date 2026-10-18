@@ -147,6 +147,14 @@ html,body{background:var(--ground)}
 .tq{width:78px;min-width:78px;text-align:center;font-size:18px;font-weight:700;align-self:center}
 .tq.bad{border:2px solid var(--err);background:var(--err-bg)}
 .tqv{font-size:18px;align-self:center;padding:0 10px}
+.tn{display:flex;gap:10px;align-items:center;min-width:0}
+.tph{width:56px;height:56px;min-width:56px;border-radius:6px;overflow:hidden;background:var(--sabbia-light);border:1px dashed var(--sabbia-dark);display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--vino);text-align:center;line-height:1.2;padding:0;cursor:pointer}
+.tph.img{border:0}
+.tph img{width:100%;height:100%;object-fit:cover;display:block}
+.ta{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.ta .tqq{font-size:13.5px;font-weight:600;flex-basis:100%}
+.tphoto{width:160px;height:160px;border-radius:8px;overflow:hidden;border:0;padding:0;cursor:pointer;background:var(--sabbia-light)}
+.tphoto img{width:100%;height:100%;object-fit:cover;display:block}
 .head{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .sec{margin:0;border-radius:8px}
 .signin{margin:16px 0 0;border-radius:8px;max-width:none;grid-template-columns:minmax(0,440px);padding:20px 24px}
@@ -195,6 +203,7 @@ html,body{background:var(--ground)}
 <body>
 <div id="root" class="wrap"><div class="body">Loading…</div></div>
 <input type="file" id="pick" accept="image/*,video/*" multiple hidden>
+<input type="file" id="tpick" accept="image/*" hidden>
 <script>
 /* ════════════════════════════════════════════════════════════════════════════
    MAINTENANCE — Chef Andrea through Tell us, 25 Sep 2026 (inbox fe2b2456): "Every fault, breakdown
@@ -223,6 +232,11 @@ html,body{background:var(--ground)}
      saves on its own, and he signs the month with his staff code, which locks it. Value = found ×
      price; a tool with no price is never counted as 0, the page says how many have none. The tab
      carries a ! from 3 days before month end until the month is signed. Schema: maintenance-tools.sql.
+   · Tools, 18 Oct 2026 (Chef Andrea, Send feedback 20574fbe): "Add a button to cancel the items and we
+     need to be able to add a photo of the tools". Each row now has Photo, Edit and Remove in plain sight
+     (Remove was only inside the edit screen, and nobody had found it). Remove = maint_tool_retire, so
+     past counts keep the tool; the Removed chip lists them with Put it back (maint_tool_restore). One
+     photo per tool in maint-media under t/<tool id>/, set by maint_tool_photo. Schema: maintenance-tools-photo.sql.
    Schema + rules: maintenance-schema.sql. Emails: supabase/functions/maint-notify.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
@@ -274,6 +288,7 @@ function say(err){
   if (/no_tool/.test(m)) return 'This tool is no longer on the list. Go back to the list.';
   if (S.tab === 'tools' && /not_allowed/.test(m)) return 'Only the technician or ' + chefsSay('chefs') + ' can see and count the tools.';
   if (S.tab === 'tools' && /no_name/.test(m)) return 'Give the tool a name.';
+  if (S.tab === 'tools' && /bad_media/.test(m)) return 'The photo did not upload properly. Add it again.';
   if (/not_tech/.test(m)) return 'Only the maintenance technician can do this.';
   if (/not_chef/.test(m)) return 'Only ' + chefsSay('chefs') + ' can check a repair.';
   if (/not_allowed/.test(m)) return 'Only the technician or ' + chefsSay('chefs') + ' can change the calendar.';
@@ -795,10 +810,11 @@ function drawTools(){
     '<dt>Found</dt><dd>' + num(t.found) + (t.found === 1 ? ' piece' : ' pieces') + '</dd>' +
     '<dt>Value</dt><dd><b>' + aed(t.value) + '</b>' + (t.unpriced ? ' <span class="hint">+ ' + t.unpriced + ' tool' + (t.unpriced === 1 ? '' : 's') + ' with no price, not in this value</span>' : '') + '</dd>' +
     '<dt>Missing</dt><dd>' + (t.short ? num(t.short) + (t.short === 1 ? ' piece' : ' pieces') + ' fewer than we should have · ' + aed(t.shortVal) + (t.shortUnpriced ? ' <span class="hint">+ ' + t.shortUnpriced + ' with no price</span>' : '') : !t.counted ? 'Not counted yet' : t.counted < t.lines ? 'None so far' : 'None') + '</dd></dl></div>';
-  var F = [['all','All'],['todo','Not counted'],['short','Missing']];
+  var F = [['all','All'],['todo','Not counted'],['short','Missing'],['gone','Removed']], R = T.removed || [];
   var shown = L.filter(function(x){ return S.tf === 'todo' ? x.found == null : S.tf === 'short' ? x.found != null && x.found < x.qty : true; });
-  html += '<div class="chips">' + F.map(function(f){ var n = f[0] === 'all' ? L.length : L.filter(function(x){ return f[0] === 'todo' ? x.found == null : x.found != null && x.found < x.qty; }).length;
+  html += '<div class="chips">' + F.map(function(f){ var n = f[0] === 'all' ? L.length : f[0] === 'gone' ? R.length : L.filter(function(x){ return f[0] === 'todo' ? x.found == null : x.found != null && x.found < x.qty; }).length;
     return '<button class="chip' + (S.tf === f[0] ? ' on' : '') + '" type="button" data-tf="' + f[0] + '" aria-pressed="' + (S.tf === f[0]) + '">' + f[1] + (n ? '<small>' + n + '</small>' : '') + '</button>'; }).join('') + '</div>';
+  if (S.tf === 'gone') return html + drawRemoved(R) + '</div>';
   if (!L.length) html += '<div class="empty">No tools on the list yet. Add the first one with the button below.</div>';
   else if (!shown.length) html += '<div class="empty">' + (S.tf === 'todo' ? 'Every tool is counted.' : 'Nothing missing.') + '</div>';
   html += shown.map(function(x){
@@ -813,9 +829,9 @@ function drawTools(){
       ? '<input class="in tq' + (/^\d{0,5}$/.test(String(dv('tc_' + x.id, '')).trim()) ? '' : ' bad') + '" id="tc-' + x.id + '" data-tc="' + x.id + '" data-dk="tc_' + x.id + '" inputmode="numeric" autocomplete="off" enterkeyhint="next" aria-label="How many ' + esc(x.name) + ' found" placeholder="–" value="' + esc(dv('tc_' + x.id, x.found == null ? '' : x.found)) + '">'
       : '<b class="tqv">' + (x.found == null ? '–' : num(x.found)) + '</b>';
     return '<div class="card' + (x.found != null && x.found < x.qty ? ' over' : '') + '" style="cursor:default">' +
-      '<div>' + (x.active ? '<button class="link" style="padding:0;min-height:0;text-decoration:none;color:var(--ink)" type="button" data-tool="' + x.id + '">' + nm + '</button>' : nm) +
-      (x.used_for ? '<div class="l">' + esc(x.used_for) + '</div>' : '') + '</div>' + right +
-      '<div class="m">' + meta.join(' · ') + '</div></div>';
+      '<div class="tn">' + toolThumb(x) + '<div>' + (x.active ? '<button class="link" style="padding:0;min-height:0;text-decoration:none;color:var(--ink)" type="button" data-tool="' + x.id + '">' + nm + '</button>' : nm) +
+      (x.used_for ? '<div class="l">' + esc(x.used_for) + '</div>' : '') + '</div></div>' + right +
+      '<div class="m">' + meta.join(' · ') + '</div>' + toolActs(x) + '</div>';
   }).join('');
   html += '<button class="btn ghost wide" type="button" id="newtool">+ Add a tool</button>';
   if (open) {
@@ -828,6 +844,51 @@ function drawTools(){
   }
   return html + '</div>';
 }
+// the photo square on a row: tap to see it big, or to add one
+function toolThumb(x){
+  if (S.tbusy === x.id) return '<span class="tph">Uploading…</span>';
+  if (x.photo) return '<button class="tph img" type="button" data-tview="' + esc(x.photo) + '" aria-label="See the photo of ' + esc(x.name) + '"><img src="' + mediaUrl(x.photo) + '" alt="" loading="lazy"></button>';
+  return x.active ? '<button class="tph" type="button" data-tphoto="' + x.id + '" aria-label="Add a photo of ' + esc(x.name) + '">+ Photo</button>' : '<span class="tph">No photo</span>';
+}
+// Photo, Edit and Remove on every row, in plain sight; Remove asks once, on the row
+function toolActs(x){
+  if (!x.active) return '';
+  if (S.rmTool === x.id) return '<div class="ta"><span class="tqq">Remove “' + esc(x.name) + '” from the list? Past counts keep it, and you can put it back from Removed.</span>' +
+    '<button class="btn sm" type="button" data-trmyes="' + x.id + '"' + (S.busy ? ' disabled' : '') + '>Remove</button><button class="btn sm ghost" type="button" id="trmno">Keep it</button></div>';
+  return '<div class="ta"><button class="btn sm ghost" type="button" data-tphoto="' + x.id + '"' + (S.tbusy ? ' disabled' : '') + '>' + (x.photo ? 'Change photo' : 'Add photo') + '</button>' +
+    '<button class="btn sm ghost" type="button" data-tool="' + x.id + '">Edit</button>' +
+    '<button class="btn sm ghost" type="button" data-trm="' + x.id + '">Remove</button></div>';
+}
+function drawRemoved(R){
+  if (!R.length) return '<div class="empty">Nothing removed. A tool you remove shows here, and you can put it back.</div>';
+  return '<div class="hint">Tools taken off the list. Their past counts are kept.</div>' + R.map(function(x){
+    return '<div class="card" style="cursor:default"><div class="tn">' + toolThumb(x) + '<div><span class="n">' + esc(x.name) + '</span>' +
+      (x.used_for ? '<div class="l">' + esc(x.used_for) + '</div>' : '') + '</div></div><span></span>' +
+      '<div class="m">Removed' + (x.retired_by ? ' by ' + esc(x.retired_by) : '') + (x.retired_at ? ' · ' + esc(when(x.retired_at)) : '') + '</div>' +
+      '<div class="ta"><button class="btn sm" type="button" data-trestore="' + x.id + '"' + (S.busy ? ' disabled' : '') + '>Put it back</button></div></div>';
+  }).join('');
+}
+function findTool(id){ return ((S.tools && S.tools.tools) || []).filter(function(y){ return y.id === id; })[0] || (S.tool && S.tool.id === id ? S.tool : null); }
+// One photo per tool: shrink it like a job-card photo, upload under t/<tool id>/, then point the tool at it
+function setToolPhoto(id, file){
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { S.err = file.name + ' is not a photo.'; return draw(); }
+  if (window.DEV_READ_ONLY) { S.err = say('read-only'); return draw(); }
+  S.tbusy = id; S.err = ''; S.ok = ''; draw();
+  return shrink(file).then(function(b){
+    if (b.size > MAX_FILE) throw new Error('upload: too big');
+    var ext = b.type === 'image/jpeg' ? 'jpg' : ((file.name.match(/\.([A-Za-z0-9]{2,5})$/) || [,'jpg'])[1]).toLowerCase();
+    var name = 't/' + id + '/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+    return fetch(SB_URL + '/storage/v1/object/maint-media/' + name, { method:'POST',
+        headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY, 'Content-Type':b.type || file.type || 'image/jpeg', 'x-upsert':'false', 'cache-control':'31536000' }, body:b })
+      .then(function(r){ if (!r.ok) return r.text().then(function(t){ throw new Error('upload: ' + (t || r.status)); }); return name; });
+  }).then(function(path){ return post('maint_tool_photo', { p_emp:S.emp, p_id:id, p_path:path }); })
+    .then(function(r){
+      var x = findTool(id); S.tbusy = null;
+      if (x) x.photo = r.photo; if (S.tool && S.tool.id === id) S.tool.photo = r.photo;
+      S.ok = 'Photo saved' + (x ? ' for “' + x.name + '”.' : '.'); draw();
+    }).catch(function(e){ S.tbusy = null; S.err = /upload/.test(String(e.message)) ? 'The photo did not upload. Nothing was changed. Try again.' : say(e); draw(); });
+}
 function drawTool(){
   var x = S.tool;
   var v = function(k, d){ return esc(dv('x_' + k, x[k] != null ? x[k] : d)); };
@@ -838,6 +899,12 @@ function drawTool(){
       '<div class="field"><label for="x-price">Price per piece, AED</label><input id="x-price" class="in" inputmode="decimal" data-dk="x_price" placeholder="e.g. 125 or 125.50" value="' + v('price','') + '"></div></div>' +
     '<div class="field"><label for="x-on">Bought on</label><input id="x-on" class="in" type="date" data-dk="x_bought_on" value="' + v('bought_on','') + '"></div>' +
     '<div class="field"><label for="x-notes">Notes</label><textarea id="x-notes" data-dk="x_notes">' + v('notes','') + '</textarea></div>' +
+    '<div class="field"><label>Photo</label>' + (x.id
+      ? (S.tbusy === x.id ? '<div class="hint">Uploading the photo…</div>'
+        : (x.photo ? '<button class="tphoto" type="button" data-tview="' + esc(x.photo) + '" aria-label="See the photo"><img src="' + mediaUrl(x.photo) + '" alt=""></button>' : '') +
+          '<div class="acts"><button class="btn sm ghost" type="button" data-tphoto="' + x.id + '">' + (x.photo ? 'Change photo' : 'Add photo') + '</button>' +
+          (x.photo ? '<button class="btn sm ghost" type="button" id="tphotorm">Remove photo</button>' : '') + '</div>')
+      : '<div class="hint">Save the tool first, then add its photo from the list.</div>') + '</div>' +
     '<div class="hint">Leave the price empty if you do not know it. It is never counted as 0, and the list shows it as “No price”.</div>' +
     '<div class="acts"><button class="btn" type="submit"' + (S.busy ? ' disabled' : '') + '>Save</button><button class="btn ghost" type="button" id="canceltool">Cancel</button></div>' +
     (x.id ? (S.doneAsk === 'rmtool' ? '<div class="acts"><span>Take this tool off the list? Past counts keep it.</span><button class="btn sm" type="button" id="rmtoolyes">Take it off</button><button class="btn sm ghost" type="button" id="rmtoolno">Keep it</button></div>'
@@ -858,8 +925,8 @@ function saveCount(id, raw){
 /* ── media viewer ── */
 function drawViewer(){
   var old = $('viewer'); if (old) old.remove();
-  if (S.viewer == null || !S.card) return;
-  var m = S.card.card.media[S.viewer]; if (!m) return;
+  var m = S.tview ? { path:S.tview, kind:'photo' } : S.viewer != null && S.card ? S.card.card.media[S.viewer] : null;
+  if (!m) return;
   var u = mediaUrl(m.path), v = document.createElement('div');
   v.className = 'viewer'; v.id = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', m.kind);
   v.innerHTML = '<div class="vb"><button type="button" id="vclose">Close</button></div><div class="vm">' +
@@ -899,7 +966,7 @@ document.addEventListener('submit', function(e){
     if (S.busy) return;
     S.busy = true; S.err = ''; draw();
     return post('maint_tool_save', { p_emp:S.emp, p_args:x }).then(function(){
-      S.busy = false; S.view = 'list'; S.tab = 'tools'; S.tool = null; S.d = {}; S.ok = '“' + x.name.trim() + '” saved.';
+      S.busy = false; S.view = 'list'; S.tab = 'tools'; S.tool = null; S.d = {}; S.ok = '“' + x.name.trim() + '” saved.' + (x.id ? '' : ' Add its photo with Add photo on its row.');
       return loadTools().then(draw);
     }).catch(function(err){ S.busy = false; fail(err); });
   }
@@ -908,11 +975,25 @@ document.addEventListener('click', function(e){
   var b = e.target.closest('button'); if (!b || b.disabled) return;
   var ds = b.dataset;
   if (b.id === 'out') return signOut();
-  if (b.id === 'vclose') { S.viewer = null; return drawViewer(); }
+  if (b.id === 'vclose') { S.viewer = null; S.tview = null; return drawViewer(); }
   if (ds.tab) { S.tab = ds.tab; S.err = ''; S.ok = ''; S.day = null; S.doneAsk = null; draw(); return loadTab().then(draw).catch(fail); }
   // tools
   if (ds.tm) { S.tmonth = ds.tm; S.d = {}; S.err = ''; S.ok = ''; return loadTools().then(draw).catch(fail); }
-  if (ds.tf) { S.tf = ds.tf; return draw(); }
+  if (ds.tf) { S.tf = ds.tf; S.rmTool = null; return draw(); }
+  if (ds.tview) { S.tview = ds.tview; return drawViewer(); }
+  if (ds.tphoto) { if (S.tbusy) return; S.photoFor = ds.tphoto; $('tpick').value = ''; return $('tpick').click(); }
+  if (b.id === 'tphotorm') { var tid = S.tool.id;
+    return post('maint_tool_photo', { p_emp:S.emp, p_id:tid, p_path:'' }).then(function(){ S.tool.photo = null; var y = findTool(tid); if (y) y.photo = null; S.ok = 'Photo removed.'; draw(); }).catch(fail); }
+  if (ds.trm) { S.rmTool = ds.trm; S.err = ''; S.ok = ''; return draw(); }
+  if (b.id === 'trmno') { S.rmTool = null; return draw(); }
+  if (ds.trmyes) { if (S.busy) return; var rx = findTool(ds.trmyes); S.busy = true; draw();
+    return post('maint_tool_retire', { p_emp:S.emp, p_id:ds.trmyes }).then(function(){
+      S.busy = false; S.rmTool = null; S.ok = '“' + (rx ? rx.name : 'The tool') + '” removed from the list. Changed your mind? It is under Removed.'; return loadTools().then(draw);
+    }).catch(function(err){ S.busy = false; S.rmTool = null; fail(err); }); }
+  if (ds.trestore) { if (S.busy) return; var px = ((S.tools && S.tools.removed) || []).filter(function(y){ return y.id === ds.trestore; })[0]; S.busy = true; draw();
+    return post('maint_tool_restore', { p_emp:S.emp, p_id:ds.trestore }).then(function(){
+      S.busy = false; S.tf = 'all'; S.ok = '“' + (px ? px.name : 'The tool') + '” is back on the list.'; return loadTools().then(draw);
+    }).catch(function(err){ S.busy = false; fail(err); }); }
   if (b.id === 'newtool') { S.tool = { qty:1 }; S.d = {}; S.view = 'tool'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
   if (ds.tool) { S.tool = (S.tools.tools || []).filter(function(x){ return x.id === ds.tool; })[0]; S.d = {}; S.view = 'tool'; S.err = ''; S.ok = ''; S.doneAsk = null; window.scrollTo(0,0); return draw(); }
   if (b.id === 'canceltool') { S.view = 'list'; S.tab = 'tools'; S.tool = null; S.d = {}; S.err = ''; S.doneAsk = null; return draw(); }
@@ -992,10 +1073,11 @@ document.addEventListener('input', function(e){
 });
 document.addEventListener('change', function(e){
   if (e.target.id === 'pick') return addFiles(e.target.files);
+  if (e.target.id === 'tpick') return setToolPhoto(S.photoFor, e.target.files && e.target.files[0]);
   if (e.target.dataset.tc) { S.d['tc_' + e.target.dataset.tc] = e.target.value; return saveCount(e.target.dataset.tc, e.target.value); }
   var el = e.target; if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
 });
-document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && S.viewer != null) { S.viewer = null; drawViewer(); } });
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && (S.viewer != null || S.tview)) { S.viewer = null; S.tview = null; drawViewer(); } });
 
 /* ── keep phones in step: the cook reports on one phone, the technician works on another ── */
 function typing(){
@@ -1003,11 +1085,11 @@ function typing(){
   return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT');
 }
 function freshen(){
-  if (!S.me || document.hidden || S.busy || typing() || S.viewer != null) return;
+  if (!S.me || document.hidden || S.busy || typing() || S.viewer != null || S.tview || S.tbusy) return;
   if (S.view === 'card' && S.card && !S.hold && !S.completing && !S.sendBack && !Object.keys(S.d).length) loadCard(S.card.card.id).then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cards') loadList().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cal' && !S.doneAsk) loadCal().then(draw).catch(function(){});
-  else if (S.view === 'list' && S.tab === 'tools' && !Object.keys(S.d).length) loadTools().then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'tools' && !S.rmTool && !Object.keys(S.d).length) loadTools().then(draw).catch(function(){});
 }
 setInterval(freshen, 30000);
 document.addEventListener('visibilitychange', freshen);
