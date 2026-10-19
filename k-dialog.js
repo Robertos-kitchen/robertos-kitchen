@@ -8,7 +8,8 @@
 //
 //   await kAsk({ title, body, ok, cancel, danger })        -> true / false
 //   await kAskText({ title, body, value, placeholder,
-//                    ok, cancel, secret, numeric, check })  -> string / null
+//                    ok, cancel, secret, numeric, check,
+//                    type:'date' })                         -> string / null (YYYY-MM-DD for a date)
 //   kNotice(msg | { title, body, ok })                      -> Promise (resolves on OK)
 //
 // A plain string is split on its first blank line: the part before is the
@@ -73,7 +74,7 @@
         var hasCancel = kind !== 'notice';
         w.innerHTML = '<div class="kdp" role="' + (kind === 'text' ? 'dialog' : 'alertdialog') + '" aria-modal="true">' +
           '<h4>' + esc(o.title) + '</h4>' + (o.body ? '<p>' + esc(o.body) + '</p>' : '') +
-          (kind === 'text' ? '<input type="text" autocomplete="off" autocapitalize="off" spellcheck="false"' +
+          (kind === 'text' ? '<input type="' + (o.type === 'date' ? 'date' : 'text') + '" autocomplete="off" autocapitalize="off" spellcheck="false"' +
             (o.numeric ? ' inputmode="numeric"' : '') + (o.secret ? ' class="kdsec"' : '') +
             ' placeholder="' + esc(o.placeholder || '') + '"><div class="kderr" aria-live="polite"></div>' : '') +
           '<div class="kdb">' +

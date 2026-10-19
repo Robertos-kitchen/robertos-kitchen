@@ -3386,7 +3386,7 @@ async function loadSchedData() {
   var weekEnd = formatDate(addDays(schedWeekStart, 13));
   var weekFrom = formatDate(addDays(schedWeekStart, -7));
   var res = await Promise.all([
-    sb.from('staff').select('*').eq('active', true).order('sort_order'),
+    sb.from('staff').select('*').order('sort_order'),   // leavers too — the weeks they worked keep them (Tell us a52b3fc2)
     sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd).limit(3000),
     sb.from('sched_events').select('*').gte('event_date', weekFrom).lte('event_date', weekEnd).limit(2000),
     sb.from('staff_section_history').select('staff_id,station_key,from_date').order('from_date').limit(5000)
@@ -3394,7 +3394,7 @@ async function loadSchedData() {
   schedSecHistFromRows(res[3]);   // where each person sat in earlier weeks (Tell us 899d2737)
   // A failed read would otherwise draw an empty week that reads as "nobody rostered".
   if (res[0].error || res[1].error) kToast('Schedule did not load fully — ' + (res[0].error ? 'staff' : 'shifts') + ' could not be read. Reopen before changing anything.', true);
-  schedStaff = (res[0].data || []).filter(function(s){ return s.in_schedule!==false; });   // FOH Admin "show in schedule" toggle (staff.in_schedule); null/absent = shown
+  var schedTeam = (res[0].data || []).filter(function(s){ return s.in_schedule!==false && schedOnTeam(s); });   // FOH Admin "show in schedule" toggle (staff.in_schedule); null/absent = shown
   schedRoster = {};
   var rosterRows = res[1].data || [];
   // Guard against the 1000-row API cap silently truncating the window as staff
@@ -3403,6 +3403,9 @@ async function loadSchedData() {
   rosterRows.forEach(function(r) {
     schedRoster[schedRosterKey(r.staff_id, r.work_date)] = r;
   });
+  // Only the people on the rota in the week on screen (Antonio, Tell us a52b3fc2).
+  schedStaff = schedTeam.filter(function(s){ return schedShownIn(s, formatDate(schedWeekStart), formatDate(addDays(schedWeekStart, 6))); });
+  schedRotaRetire(res[0].data || []);
   // Events (table is optional — if it isn't created yet, res[2].error is set and we just show none)
   schedEvents = {};
   if (res[2] && !res[2].error) {
@@ -4191,6 +4194,7 @@ async function krtWeekPaste(tgtMon){
     var sds = formatDate(addDays(srcMon, d)), tds = formatDate(addDays(tMon, d));
     schedStaff.forEach(function(s){
       var sk = schedRosterKey(s.id, sds), tk = schedRosterKey(s.id, tds);
+      if(!schedOnRotaOn(s, tds)) return;
       var src = schedRoster[sk] || null;   // effective plan for the source week (live + your draft)
       var e = src ? { status:src.status||'working', shift_start:src.shift_start||null, shift_end:src.shift_end||null,
                       shift_start2:src.shift_start2||null, shift_end2:src.shift_end2||null, notes:src.notes||null }
@@ -4295,12 +4299,15 @@ async function krtLoadRange(numWeeks){
   var from = formatDate(addDays(schedWeekStart,-7));
   var to   = formatDate(addDays(schedWeekStart, numWeeks*7+6));
   var res = await Promise.all([
-    sb.from('staff').select('*').eq('active',true).order('sort_order'),
+    sb.from('staff').select('*').order('sort_order'),
     sb.from('roster').select('*').gte('work_date',from).lte('work_date',to).limit(8000),
-    sb.from('sched_events').select('*').gte('event_date',from).lte('event_date',to).limit(3000)
+    sb.from('sched_events').select('*').gte('event_date',from).lte('event_date',to).limit(3000),
+    sb.from('staff_section_history').select('staff_id,station_key,from_date').order('from_date').limit(5000)
   ]);
-  schedStaff = (res[0].data||[]).filter(function(s){ return s.in_schedule!==false; });
+  schedSecHistFromRows(res[3]);
+  var team = (res[0].data||[]).filter(function(s){ return s.in_schedule!==false && schedOnTeam(s); });
   schedRoster = {}; (res[1].data||[]).forEach(function(r){ schedRoster[schedRosterKey(r.staff_id, String(r.work_date).slice(0,10))]=r; });
+  schedStaff = team.filter(function(s){ return schedShownIn(s, formatDate(schedWeekStart), formatDate(addDays(schedWeekStart, numWeeks*7-1))); });
   schedEvents = {}; if(res[2] && !res[2].error){ (res[2].data||[]).forEach(function(e){ var d=String(e.event_date).slice(0,10); (schedEvents[d]=schedEvents[d]||[]).push({slot:e.slot||1,name:e.name}); }); }
 }
 // After (re)loading live for a week/range: in planning mode keep the draft on top.
@@ -4414,6 +4421,7 @@ function krtBuildWeekOff(){
   return payloads;
 }
 async function krtWriteRoster(payloads){
+  payloads = payloads.filter(function(p){ var s = schedStaff.find(function(x){ return x.id === p.staff_id; }); return !s || schedOnRotaOn(s, p.work_date); });
   if(!payloads.length) return 0;
   payloads.forEach(function(p){ var k=schedRosterKey(p.staff_id,p.work_date); schedRoster[k]=Object.assign({}, schedRoster[k]||{}, p); });
   if(schedPlanMode){ schedPlanCapture(); krtRender(); return payloads.length; }   // planning: into the draft, not the live DB
@@ -5765,6 +5773,10 @@ async function kplDoPublish(){
       var res=await sb.from('staff').insert({ name:np.name, designation:np.designation||null, station_key:np.station_key, active:true, in_schedule:true, sort_order:(kplDraftOrd[np.id]!=null?kplDraftOrd[np.id]:999) }).select().single();
       if(res.error) throw res.error;
       insertedIds.push(res.data.id);
+      var npFirst = null; dates.forEach(function(ds){ var e=kplDraft[kplKey(np.id,ds)]; if(e && e.status && (!npFirst || ds < npFirst)) npFirst = ds; });
+      var npFrom = formatDate(getMonday(new Date((npFirst || minD || formatDate(schedWeekStart)) + 'T12:00:00')));
+      var nph = await sb.from('staff_section_history').insert({ staff_id: res.data.id, station_key: np.station_key, from_date: npFrom });
+      if(nph.error){ console.error('Start day', nph.error); kToast(np.name+' was added, but the start week did not save \u2014 they show on every week. Tell Francesco.', true); }
       dates.forEach(function(ds){ var e=kplDraft[kplKey(np.id,ds)]; if(e && e.status){ payloads.push(kplRosterRow(res.data.id,ds,e)); } });
     }
     // 4) persist the undo snapshot
@@ -5906,6 +5918,9 @@ function schedDayCellHtml(staff, sid, ds2, today) {
   var isTod = ds2 === today;
   var planChg = (schedPlanMode && kplDraft && kplDraft[schedRosterKey(sid, ds2)]) ? ' sch-plan-changed' : '';
   var wHours = 0, wDays = 0, inner = '';
+  if (!schedOnRotaOn(staff, ds2) && (!rrow || ds2 > today)) {
+    return { html: '<td class="sch-cell sch-cell-offrota' + (isTod ? ' sch-cell-today' : '') + '" title="Not on the rota this day"></td>', hours: 0, days: 0 };
+  }
   if (!rrow || rrow.status === 'working') {
     var ts = rrow ? formatTime(rrow.shift_start) : '';
     var te = rrow ? formatTime(rrow.shift_end) : '';
@@ -6613,6 +6628,7 @@ function schedCopyShift() {
   schedShowPasteBar();
 }
 async function schedWriteClipboard(targets, undoLabel) {
+  targets = (targets || []).filter(function(t){ var s = schedStaff.find(function(x){ return x.id === t.staffId; }); return !s || schedOnRotaOn(s, t.date); });
   if (!schedClipboard || !targets.length) return 0;
   if (undoLabel) schedPushUndo(targets, undoLabel);   // snapshot BEFORE overwriting, so this paste is undoable
   var c = schedClipboard, now = new Date().toISOString(), payloads = [];
@@ -6773,8 +6789,60 @@ function schedSecAt(s, ds) {
   if (!h || !h.length) return s.station_key;
   var hit = 0;
   for (var i = 0; i < h.length; i++) { if (h[i].from_date <= ds) hit = i; }
-  return hit === h.length - 1 ? s.station_key : h[hit].station_key;
+  while (hit > 0 && h[hit].station_key === SCHED_OFF) hit--;   // off the rota: keep the section they last sat in
+  for (var j = hit + 1; j < h.length; j++) { if (h[j].station_key !== SCHED_OFF) return h[hit].station_key === SCHED_OFF ? s.station_key : h[hit].station_key; }
+  return s.station_key;
 }
+// On the rota from a date, off it from a date (Antonio, Tell us a52b3fc2, 19 Oct 2026): adding someone
+// used to put them in every past week, and removing them took them out of every past week, because
+// the grid showed whoever was active TODAY. The dates live in the same staff_section_history:
+// a new person's first row is the day they start; "taken off" is a row with station_key SCHED_OFF.
+// Nobody without history changes — they are on every week, as before.
+var SCHED_OFF = '__off';
+function schedOnRotaOn(s, ds) {
+  var h = s && schedSecHist[s.id];
+  if (!h || !h.length) return true;
+  if (ds < h[0].from_date) return false;            // not started yet
+  var hit = 0;
+  for (var i = 0; i < h.length; i++) { if (h[i].from_date <= ds) hit = i; }
+  return h[hit].station_key !== SCHED_OFF;
+}
+// Drawn in a span when on the rota any day of it, or holding a shift there up to today —
+// days someone really worked stay on screen, with their hours, after they leave.
+function schedShownIn(s, fromDs, toDs) {
+  var today = formatDate(new Date());
+  for (var d = new Date(fromDs + 'T12:00:00'); formatDate(d) <= toDs; d = addDays(d, 1)) {
+    var ds = formatDate(d);
+    if (schedOnRotaOn(s, ds)) return true;
+    if (ds <= today && schedRoster[schedRosterKey(s.id, ds)]) return true;
+  }
+  return false;
+}
+// Inactive people are loaded only if they were taken off with a date (so their past weeks keep them).
+function schedOnTeam(s) {
+  if (s.active !== false) return true;
+  var h = schedSecHist[s.id];
+  return !!(h && h.some(function(x){ return x.station_key === SCHED_OFF; }));
+}
+// Someone taken off from a later day stays active (their code still works) until that day comes.
+function schedRotaRetire(all) {
+  if (DEV_READ_ONLY) return;
+  var today = formatDate(new Date());
+  all.forEach(function(s){
+    var h = schedSecHist[s.id];
+    if (s.active === false || !h || !h.length) return;
+    var last = h[h.length - 1];
+    if (last.station_key !== SCHED_OFF || last.from_date > today) return;
+    s.active = false;
+    sb.from('staff').update({ active: false }).eq('id', s.id).then(function(r){ if (r.error) console.warn('rota retire', r.error); });
+  });
+}
+function schedRotaDefaultDate(adding) {
+  var mon = formatDate(schedWeekStart), t = formatDate(adding ? new Date() : addDays(new Date(), 1));
+  return mon > t ? mon : t;
+}
+function schedFmtDay(ds) { try { return new Date(ds + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year:'numeric' }); } catch(e) { return ds; } }
+function schedDateOk(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? '' : 'Pick a day.'; }
 function schedSecThisWeek(s) { return schedSecAt(s, formatDate(schedWeekStart)); }
 // A move at week fromDs runs until that person's next recorded move, or for good if there is none.
 // Returns the new list, and whether this move is the latest (only then does staff.station_key change).
@@ -6782,7 +6850,7 @@ function schedSecHistApply(rows, oldKey, newKey, fromDs) {
   rows = (rows || []).filter(function(x){ return x.from_date !== fromDs; });
   if (!rows.length && oldKey) rows.push({ station_key: oldKey, from_date: SCHED_SEC_BASE });
   var before = null, after = null;
-  rows.forEach(function(x){ if (x.from_date < fromDs) before = x; else if (!after) after = x; });
+  rows.forEach(function(x){ if (x.from_date < fromDs) before = x; else if (!after && x.station_key !== SCHED_OFF) after = x; });
   var out = rows.filter(function(x){ return x.from_date < fromDs; });
   if (!before || before.station_key !== newKey) out.push({ station_key: newKey, from_date: fromDs });
   rows.forEach(function(x){ if (x.from_date > fromDs && !(x === after && x.station_key === newKey)) out.push(x); });
@@ -6925,14 +6993,46 @@ async function schedConfirmDelete(event, staffId) {
     renderSchedWeek(); schedPlanSaveDraft();
     return;
   }
-  if (!(await kAsk('Remove ' + staff.name + ' from the roster? This cannot be undone.', { ok:'Remove', danger:true }))) return;
-  schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
-  renderSchedWeek();
-  if (!DEV_READ_ONLY) {
-    sb.from('staff').update({ active: false }).eq('id', staffId).then(function(res) {
-      if (res.error) { console.error('Delete error:', res.error); loadSchedData().then(renderSchedWeek); }
-    });
+  // Off the rota FROM a day: the weeks before keep them (Antonio, Tell us a52b3fc2).
+  var h0 = schedSecHist[staffId];
+  var joined = (h0 && h0.length && h0[0].from_date !== SCHED_SEC_BASE && h0[0].station_key !== SCHED_OFF) ? h0[0].from_date : null;
+  var offDs = await kAskText({ title: 'Take ' + staff.name + ' off the rota',
+    body: 'From which day? Every week before it keeps ' + staff.name + ' and the shifts they worked.',
+    type: 'date', value: schedRotaDefaultDate(false), ok: 'Next',
+    check: function(v){ var m = schedDateOk(v); if (m) return m; if (joined && v <= joined) return staff.name + ' only started on ' + schedFmtDay(joined) + '.'; return ''; } });
+  if (offDs == null) return;
+  var today = formatDate(new Date());
+  var clearFrom = offDs > today ? offDs : formatDate(addDays(new Date(), 1));   // today and earlier are worked days — never cleared
+  var fut = await sb.from('roster').select('work_date').eq('staff_id', staffId).gte('work_date', clearFrom);
+  if (fut.error) { kToast('Could not read ' + staff.name + '\u2019s shifts \u2014 nothing changed. Try again.', true); return; }
+  var nFut = (fut.data || []).length;
+  if (!(await kAsk({ title: 'Take ' + staff.name + ' off the rota from ' + schedFmtDay(offDs) + '?',
+      body: 'The weeks before stay exactly as they are.' +
+        (nFut ? '\n\n' + nFut + ' planned shift' + (nFut === 1 ? '' : 's') + ' from ' + schedFmtDay(clearFrom) + ' on will be cleared.' : '') +
+        '\n\nThis cannot be undone.',
+      ok: 'Take off the rota', danger: true }))) return;
+  if (DEV_READ_ONLY) return;
+  try {
+    var cur = await sb.from('staff_section_history').select('station_key,from_date').eq('staff_id', staffId).order('from_date');
+    if (cur.error) throw cur.error;
+    var hrows = (cur.data || []).map(function(x){ return { station_key: x.station_key, from_date: String(x.from_date).substring(0,10) }; });
+    if (!hrows.length) {
+      var b = await sb.from('staff_section_history').insert({ staff_id: staffId, station_key: staff.station_key, from_date: SCHED_SEC_BASE });
+      if (b.error) throw b.error;
+    }
+    var later = hrows.filter(function(x){ return x.from_date >= offDs; }).map(function(x){ return x.from_date; });
+    if (later.length) { var dl = await sb.from('staff_section_history').delete().eq('staff_id', staffId).in('from_date', later); if (dl.error) throw dl.error; }
+    var off = await sb.from('staff_section_history').insert({ staff_id: staffId, station_key: SCHED_OFF, from_date: offDs });
+    if (off.error) throw off.error;
+    if (nFut) { var dr = await sb.from('roster').delete().eq('staff_id', staffId).gte('work_date', clearFrom); if (dr.error) throw dr.error; }
+    if (offDs <= today) { var ua = await sb.from('staff').update({ active: false }).eq('id', staffId); if (ua.error) throw ua.error; }
+    kToast(staff.name + ' is off the rota from ' + schedFmtDay(offDs) + '.');
+  } catch (err) {
+    console.error('Off-rota error:', err);
+    kToast('Taking ' + staff.name + ' off the rota did not fully save. Reload and check before changing anything.', true);
   }
+  await loadSchedData();
+  renderSchedWeek();
 }
 
 // ── Add staff ──
@@ -6952,6 +7052,14 @@ async function schedSaveNewStaff(stationKey) {
   var name = nameInp ? nameInp.value.trim() : '';
   var role = roleInp ? roleInp.value.trim() : '';
   if (!name || !role) { alert('Please enter both name and role.'); return; }
+  // On the rota FROM a day: the weeks before stay without them (Antonio, Tell us a52b3fc2).
+  var fromDs = null;
+  if (!schedPlanMode) {
+    fromDs = await kAskText({ title: 'When does ' + name + ' start on the rota?',
+      body: 'Pick their first day. The weeks before it stay as they were, without ' + name + '.',
+      type: 'date', value: schedRotaDefaultDate(true), ok: 'Add to the rota', check: schedDateOk });
+    if (fromDs == null) return;
+  }
   schedHideAddStaff(stationKey);
   var sortOrder = schedStaff.filter(function(s){ return s.station_key === stationKey; }).length + 1;
   // Optimistic add with temp id
@@ -6969,6 +7077,10 @@ async function schedSaveNewStaff(stationKey) {
       // Replace temp id with real id
       var idx = schedStaff.findIndex(function(s){ return s.id === tempId; });
       if (idx !== -1) schedStaff[idx].id = res.data.id;
+      var hs = await sb.from('staff_section_history').insert({ staff_id: res.data.id, station_key: stationKey, from_date: fromDs });
+      if (hs.error) { console.error('Start day error:', hs.error); kToast(name + ' was added, but the start day did not save \u2014 they show on every week. Tell Francesco.', true); }
+      else kToast(name + ' is on the rota from ' + schedFmtDay(fromDs) + '.');
+      await loadSchedData();
       renderSchedWeek();
     }
   }
@@ -7050,6 +7162,7 @@ async function schedConfirmDuplicate() {
       var tgtDate = formatDate(addDays(d, offsetDays));
       var existing = schedRoster[schedRosterKey(staff.id, srcDate)];
       if (!existing) return;
+      if (!schedOnRotaOn(staff, tgtDate)) return;   // not on the rota that day
       if (!overwrite && existingSet[staff.id + '|' + tgtDate]) return;
       upserts.push({
         staff_id: staff.id, work_date: tgtDate,
