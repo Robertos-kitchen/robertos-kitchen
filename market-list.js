@@ -1755,13 +1755,20 @@ function mlRenderRows(days){
       // Counted by supplier, not by quote: one supplier in two pack sizes is
       // still one supplier. Not drawn when that one is not the supplier the
       // line stores — the order would go elsewhere, and the ▾/warning says so.
+      // Antonio, 19 Oct 2026 (Send feedback 64f8fbbf): with two or more, name
+      // the one this line is ordered from too — the ▾ still changes it. Drawn
+      // only when the stored supplier is one FMC will take; otherwise nothing,
+      // exactly as before, so the row never names a supplier no order can go to.
       const sOne = mlSupplierState(it);
       const sNames = sOne.opts.map(function(o){ return o.supplier; })
         .filter(function(s, i, a){ return a.indexOf(s) === i; });
       const onlySup = (sNames.length === 1 && sOne.ok) ? sNames[0] : '';
-      const supTag = onlySup ? ` · <span class="ml-unit-sup">${mlEsc(onlySup)}</span>` : '';
+      const rowSup = onlySup || (sNames.length > 1 && sOne.chosen ? sOne.chosen.supplier : '');
+      const rowSupTitle = onlySup ? 'Only supplier: ' + onlySup
+        : 'Ordered from ' + rowSup + ' — ' + sNames.length + ' suppliers in FMC';
+      const supTag = rowSup ? ` · <span class="ml-unit-sup">${mlEsc(rowSup)}</span>` : '';
       html += `<div class="ml-row ml-row-tap" data-id="${it.id}" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit${onlySup?' has-sup':''}"${onlySup?` title="Only supplier: ${mlEsc(onlySup)}"`:''}>${mlUnitFor(it)}${supTag}</div></div>${quick}</div>
+        <div class="ml-cell-name">${grip}<div class="ml-nametext"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit${rowSup?' has-sup':''}"${rowSup?` title="${mlEsc(rowSupTitle)}"`:''}>${mlUnitFor(it)}${supTag}</div></div>${quick}</div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -2816,6 +2823,10 @@ async function mlPickSupplier(itemId, idx){
     const node = fresh.firstElementChild;
     if(node){ node.classList.add('open'); host.replaceWith(node); }
   }
+  // The row behind the editor now names its supplier, so it must not keep the
+  // old one when the editor is closed without Save. The editor hangs off
+  // <body>, outside #ml-content, so this redraw leaves it open.
+  mlRenderRows(mlVisibleDays());
   if(typeof kToast==='function'){
     kToast(was && was!==pick.supplier
       ? 'Ordering from ' + pick.supplier + ' instead of ' + was + '.'
