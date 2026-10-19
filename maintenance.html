@@ -204,6 +204,7 @@ html,body{background:var(--ground)}
 <div id="root" class="wrap"><div class="body">Loading…</div></div>
 <input type="file" id="pick" accept="image/*,video/*" multiple hidden>
 <input type="file" id="tpick" accept="image/*" hidden>
+<input type="file" id="bpick" accept="image/*" multiple hidden>
 <script>
 /* ════════════════════════════════════════════════════════════════════════════
    MAINTENANCE — Chef Andrea through Tell us, 25 Sep 2026 (inbox fe2b2456): "Every fault, breakdown
@@ -237,6 +238,12 @@ html,body{background:var(--ground)}
      (Remove was only inside the edit screen, and nobody had found it). Remove = maint_tool_retire, so
      past counts keep the tool; the Removed chip lists them with Put it back (maint_tool_restore). One
      photo per tool in maint-media under t/<tool id>/, set by maint_tool_photo. Schema: maintenance-tools-photo.sql.
+   · To buy, 19 Oct 2026 (Chef Andrea, Send feedback 2ce28fd4 + 0dbd7f59): "it has to work like a purchase
+     request, Oliver will place photo exact descriptions and price range and it will go afalcone@robertos.ae
+     and i will provide him with the spare part he needs". Fourth tab: the technician or a chef asks (what,
+     exact model, how many, price range per piece, photos, optional job card); the buyers (maint_people role
+     'buyer', Andrea Falcone) get an email at once with the photos in it and press Provided when they hand it
+     over. A job card has "Ask to buy a part for this job". Schema: maintenance-buy.sql.
    Schema + rules: maintenance-schema.sql. Emails: supabase/functions/maint-notify.
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
@@ -249,11 +256,11 @@ var KINDS = { grease:'Grease trap', hood:'Hood & extraction', service:'Equipment
 var UNITS = { day:['day','days'], week:['week','weeks'], month:['month','months'] };
 
 var qs = new URLSearchParams(location.search);
-var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:qs.get('tab') === 'tools' ? 'tools' : 'cards',   // ?tab=tools: the month-end tools email
+var S = { q:'', emp:null, me:null, err:'', ok:'', view:'list', tab:qs.get('tab') === 'tools' ? 'tools' : qs.get('tab') === 'buy' || qs.get('buy') ? 'buy' : 'cards',   // ?tab=tools: the month-end tools email; ?tab=buy&buy=<id>: a purchase request email
           filter:'open', list:null, card:null, cal:null,
           month:null, day:null, places:null, rep:null, d:{}, hold:false, completing:false, sendBack:false,
           task:null, doneAsk:null, busy:false, tryEmp:'', wantCard:qs.get('card') || '', viewer:null,
-          tools:null, tmonth:'', tf:'all', tool:null };
+          tools:null, tmonth:'', tf:'all', tool:null, buys:null, bf:'asked', buy:null, ask:null, buyAsk:null, wantBuy:qs.get('buy') || '' };
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function $(id){ return document.getElementById(id); }
@@ -280,6 +287,14 @@ function say(err){
   if (/not_followup/.test(m)) return 'Only ' + chefsSay('followers') + ' can send a follow-up.';
   if (/not_stale/.test(m)) return 'This job card was updated in the last ' + afterH() + ' hours, so there is nothing to follow up yet.';
   if (/followed_up/.test(m)) return 'A follow-up was already sent in the last ' + afterH() + ' hours.';
+  if (/no_item/.test(m)) return 'Say what to buy.';
+  if (/no_model/.test(m)) return 'Write the exact model or a full description, so the right one is bought.';
+  if (/bad_range/.test(m)) return 'Type the price range in dirhams with no commas, from and to, for example 80 and 120.';
+  if (/not_buyer/.test(m)) return 'Only ' + buyersSay() + ' can mark a request provided.';
+  if (/buy_done/.test(m)) return 'This request is already provided or cancelled.';
+  if (/buy_open/.test(m)) return 'This request is already waiting.';
+  if (/no_buy/.test(m)) return 'This request is no longer there. Go back to the list.';
+  if (S.tab === 'buy' && /not_allowed/.test(m)) return 'Only the technicians, ' + chefsSay('chefs') + ' and ' + buyersSay() + ' can see the purchase requests.';
   var nl = /not_all_counted:(\d+)/.exec(m);
   if (nl) return 'Every tool needs a number before you sign, 0 if it is gone. ' + nl[1] + (nl[1] === '1' ? ' tool is' : ' tools are') + ' still to count: use “Not counted” to find them.';
   if (/month_closed/.test(m)) return 'This month is signed off, so its count cannot change.';
@@ -361,15 +376,17 @@ function signIn(emp){
     try { localStorage.setItem(EMPLS, JSON.stringify({ emp:emp, at:Date.now() })); } catch(e){}
     S.busy = false;
     if (S.wantCard) { var id = S.wantCard; S.wantCard = ''; return openCard(id); }
+    if (S.wantBuy && canBuy()) { var bid = S.wantBuy; S.wantBuy = ''; S.tab = 'buy'; return Promise.all([loadList().catch(function(){}), canTools() ? loadTools().catch(function(){}) : null]).then(function(){ return openBuy(bid); }); }
+    if (S.tab === 'buy' && !canBuy()) S.tab = 'cards';
     // the technician and the chefs get the Tools tab; reading it now puts the month-end ! on the tab
     if (S.tab === 'tools' && !canTools()) S.tab = 'cards';
-    return Promise.all([loadList(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null]).then(draw);
+    return Promise.all([loadList(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null, canBuy() ? loadBuys().catch(function(){}) : null]).then(draw);
   }).catch(function(e){ S.busy = false; S.err = say(e); S.me = null; draw(); });
 }
 function signOut(){
   try { localStorage.removeItem(EMPLS); } catch(e){}
   S.emp = null; S.me = null; S.list = null; S.card = null; S.cal = null; S.view = 'list'; S.tab = 'cards'; S.day = null; S.doneAsk = null; S.task = null; S.tryEmp = ''; S.err = ''; S.ok = ''; S.rep = null; S.d = {};
-  S.tools = null; S.tmonth = ''; S.tf = 'all'; S.tool = null; draw();
+  S.tools = null; S.tmonth = ''; S.tf = 'all'; S.tool = null; S.buys = null; S.buy = null; S.ask = null; S.buyAsk = null; S.bf = 'asked'; draw();
 }
 
 /* ── data ── */
@@ -377,7 +394,7 @@ function loadList(){ return get('maint_list', { p_emp:S.emp }).then(function(r){
 function loadCard(id){ return get('maint_get', { p_emp:S.emp, p_id:id }).then(function(r){ S.card = r; }); }
 function loadCal(){ return get('maint_tasks_list', { p_emp:S.emp }).then(function(r){ S.cal = r; if (!S.month) S.month = (r.today || todayIso()).slice(0,7); }); }
 function loadTools(){ return get('maint_tools_get', { p_emp:S.emp, p_month:S.tmonth }).then(function(r){ S.tools = r; }); }
-function loadTab(){ return (S.tab === 'cal' ? loadCal() : S.tab === 'tools' ? loadTools() : loadList()); }
+function loadTab(){ return (S.tab === 'cal' ? loadCal() : S.tab === 'tools' ? loadTools() : S.tab === 'buy' ? loadBuys() : loadList()); }
 function loadPlaces(){ return get('maint_places', { p_emp:S.emp }).then(function(r){ S.places = r; }); }
 
 /* ── drawing ── */
@@ -385,13 +402,13 @@ function draw(){
   var root = $('root');
   var y = window.scrollY;
   var ae = document.activeElement, keep = ae && ae.id && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && ae.type !== 'file' ? { id:ae.id, s:ae.selectionStart } : null;
-  root.innerHTML = !S.me ? drawSign() : S.view === 'report' ? drawReport() : S.view === 'card' ? drawCard() : S.view === 'task' ? drawTask() : S.view === 'tool' ? drawTool() : S.tab === 'cal' ? drawCal() : S.tab === 'tools' && canTools() ? drawTools() : drawList();
+  root.innerHTML = !S.me ? drawSign() : S.view === 'report' ? drawReport() : S.view === 'card' ? drawCard() : S.view === 'task' ? drawTask() : S.view === 'tool' ? drawTool() : S.view === 'buy' ? drawBuy() : S.view === 'ask' ? drawAsk() : S.tab === 'cal' ? drawCal() : S.tab === 'tools' && canTools() ? drawTools() : S.tab === 'buy' && canBuy() ? drawBuys() : drawList();
   if (keep) { var el = $(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.s); } catch(e){} } }
   window.scrollTo(0, y);
   drawViewer();
 }
 function barHtml(title, sub, extra){
-  var role = S.me ? (S.me.tech ? 'Technician' : S.me.chef ? 'Chef in charge' : '') : '';
+  var role = S.me ? (S.me.tech ? 'Technician' : S.me.chef ? 'Chef in charge' : S.me.buyer ? 'Buyer' : '') : '';
   var me = S.me ? '<div class="hme">' + esc(S.me.name) + (role ? ' · ' + role : '') + '<button id="out" type="button">Not you?</button></div>' : '';
   return '' +
     '<div class="hero">' + me + '<div class="kick">Kitchen · Maintenance</div><div class="ht">' + esc(title) + '</div>' +
@@ -413,7 +430,8 @@ function tabsHtml(){
   var n = S.list ? openCount() : 0;
   return '<div class="tabs" role="tablist"><button class="tab' + (S.tab === 'cards' ? ' on' : '') + '" type="button" data-tab="cards">Job cards' + (n ? '<b>' + n + '</b>' : '') + '</button>' +
     '<button class="tab' + (S.tab === 'cal' ? ' on' : '') + '" type="button" data-tab="cal">Calendar</button>' +
-    (canTools() ? '<button class="tab' + (S.tab === 'tools' ? ' on' : '') + '" type="button" data-tab="tools">Tools' + (toolsDue() ? '<b title="Month-end count due">!</b>' : '') + '</button>' : '') + '</div>';
+    (canTools() ? '<button class="tab' + (S.tab === 'tools' ? ' on' : '') + '" type="button" data-tab="tools">Tools' + (toolsDue() ? '<b title="Month-end count due">!</b>' : '') + '</button>' : '') +
+    (canBuy() ? '<button class="tab' + (S.tab === 'buy' ? ' on' : '') + '" type="button" data-tab="buy">To buy' + (buysOpen() ? '<b title="Waiting to be bought">' + buysOpen() + '</b>' : '') + '</button>' : '') + '</div>';
 }
 function stKey(c){ return c.checked_at ? 'closed' : c.status === 'completed' ? 'tocheck' : c.status; }
 function pillOf(c){
@@ -626,7 +644,8 @@ function drawCard(){
         (c.status === 'new' || c.status === 'acknowledged' ? '<button class="btn sm" type="button" data-step="start">Start work</button>' : '') +
         (c.status === 'on_hold' ? '<button class="btn sm" type="button" data-step="resume">Resume work</button>' : '') +
         (c.status !== 'on_hold' ? '<button class="btn sm ghost" type="button" id="hold">On hold</button>' : '') +
-        (!S.completing ? '<button class="btn sm" type="button" id="complete">Mark completed →</button>' : '') + '</div>';
+        (!S.completing ? '<button class="btn sm" type="button" id="complete">Mark completed →</button>' : '') + '</div>' +
+        '<div class="acts"><button class="btn sm ghost" type="button" id="askforcard">Ask to buy a part for this job</button></div>';
   }
   html += '</div></div>';
   // 3 · assessment
@@ -922,6 +941,168 @@ function saveCount(id, raw){
   }).catch(fail);
 }
 
+/* ── to buy: a purchase request for a spare part or a tool ──
+   The technician (or a chef) says what, the exact model, how many, a price range and adds photos; the
+   buyers (maint_people role 'buyer') get it by email at once and press Provided when they hand it over. */
+function canBuy(){ return !!(S.me && (S.me.tech || S.me.chef || S.me.buyer)); }
+function canAsk(){ return !!(S.me && (S.me.tech || S.me.chef)); }
+function pr(n){ return 'PR-' + String(n).padStart(4, '0'); }
+function buyersSay(){ return listNames(((S.buys && S.buys.buyers) || (S.me && S.me.buyers) || []).map(function(n){ return n; })) || 'the buyer'; }
+function rangeOf(b){ return Number(b.price_min) === Number(b.price_max) ? aed(b.price_min) : aed(b.price_min) + ' to ' + aed(b.price_max); }
+function loadBuys(){ return get('maint_buys_get', { p_emp:S.emp }).then(function(r){ S.buys = r; }); }
+function buysOpen(){ return ((S.buys && S.buys.buys) || []).filter(function(b){ return b.status === 'asked' && !b.is_test; }).length; }
+var BUYF = [['asked','Waiting'],['provided','Provided'],['cancelled','Cancelled']];
+var BUYST = { asked:'Waiting', provided:'Provided', cancelled:'Cancelled' };
+function buyPill(b){ return '<span class="pill ' + (b.status === 'provided' ? 'p-closed' : b.status === 'cancelled' ? 'p-on_hold' : 'p-tocheck') + '">' + BUYST[b.status] + '</span>'; }
+function buyThumb(b){
+  var m = (b.media || [])[0];
+  return m ? '<span class="jt img"><img src="' + mediaUrl(m.path) + '" alt="" loading="lazy">' + (b.media.length > 1 ? '<i>' + b.media.length + '</i>' : '') + '</span>' : '<span class="jt">no photo</span>';
+}
+function drawBuys(){
+  var SUB = 'Spare parts and tools to buy: what, the exact model, how many, the price range and photos. ' + buyersSay() + ' gets each one by email.';
+  var B = S.buys, L = (B && B.buys) || [];
+  var wait = L.filter(function(b){ return b.status === 'asked'; });
+  var lo = 0, hi = 0; wait.forEach(function(b){ lo += b.qty * b.price_min; hi += b.qty * b.price_max; });
+  var st = [[wait.length, 'Waiting'], [lo === hi ? num(Math.round(lo)) : num(Math.round(lo)) + '–' + num(Math.round(hi)), 'AED waiting']];
+  var hero = '<div class="hrow">' + (canAsk() ? '<button class="gold" type="button" id="newask">+ Ask to buy</button>' : '') +
+    '<div class="hstats">' + st.map(function(x, i){ return '<div class="hstat' + (i === 0 && x[0] ? ' hot' : '') + '"><b>' + x[0] + '</b><i>' + x[1] + '</i></div>'; }).join('') + '</div></div>';
+  var html = barHtml('Maintenance', SUB, hero) + tabsHtml() + '<div class="body">' + msgs();
+  if (!B) return html + '<div class="hint">Reading the requests…</div></div>';
+  html += '<div class="chips">' + BUYF.map(function(x){
+    var n = L.filter(function(b){ return b.status === x[0]; }).length;
+    return '<button class="chip' + (S.bf === x[0] ? ' on' : '') + '" type="button" data-bf="' + x[0] + '" aria-pressed="' + (S.bf === x[0]) + '">' + x[1] + (n ? '<small>' + n + '</small>' : '') + '</button>'; }).join('') + '</div>';
+  var shown = L.filter(function(b){ return b.status === S.bf; });
+  html += '<div class="h2">' + (S.bf === 'asked' ? 'Waiting to be bought' : BUYST[S.bf] + ', last 60 days') + '<span>newest first</span></div>';
+  if (!shown.length) html += '<div class="empty">' + (S.bf === 'asked' ? 'Nothing waiting to be bought.' + (canAsk() ? ' Need a spare part or a tool? Press “+ Ask to buy”.' : '') : 'Nothing here.') + '</div>';
+  html += shown.map(function(b){
+    var meta = [pr(b.buy_no), esc(rangeOf(b)) + (b.qty > 1 ? ' each' : ''), 'Asked by ' + esc(b.asked_by) + ' · ' + esc(when(b.asked_at))];
+    if (b.card_no) meta.push('For ' + jc(b.card_no));
+    if (b.status !== 'asked') meta.push(BUYST[b.status] + ' by ' + esc(b.done_by) + ' · ' + esc(when(b.done_at)));
+    if (b.is_test) meta.push('TEST');
+    return '<button class="jc s-' + (b.status === 'provided' ? 'closed' : b.status === 'cancelled' ? 'on_hold' : 'tocheck') + (b.is_test ? ' test' : '') + '" type="button" data-buy="' + b.id + '">' + buyThumb(b) +
+      '<span><span class="ct">' + esc(b.qty + ' × ' + b.item) + '</span><span class="cm" style="display:block">' + esc(b.model.length > 120 ? b.model.slice(0, 119) + '…' : b.model) + '</span>' +
+      '<span class="cx" style="display:block">' + meta.join(' · ') + '</span></span>' + buyPill(b) + '</button>';
+  }).join('');
+  return html + '</div>';
+}
+function openBuy(id){
+  S.err = ''; S.ok = ''; S.d = {}; S.buyAsk = null;
+  return loadBuys().then(function(){
+    var b = ((S.buys && S.buys.buys) || []).filter(function(x){ return x.id === id; })[0];
+    if (!b) { S.view = 'list'; S.tab = 'buy'; S.err = 'That request is no longer on the list (provided or cancelled more than 60 days ago).'; return draw(); }
+    S.buy = b; S.view = 'buy'; window.scrollTo(0,0); draw();
+  }).catch(fail);
+}
+function drawBuy(){
+  var b = S.buy, me = S.me, open = b.status === 'asked';
+  var mine = b.asked_by_id === me.staff_id;
+  var html = barHtml(pr(b.buy_no), b.qty + ' × ' + b.item) + '<div class="body">' + msgs() +
+    (b.is_test ? '<div class="note">TEST request: its email went to Chef Francesco only.</div>' : '');
+  html += '<div class="sec"><h3>What to buy <small>' + buyPill(b) + '</small></h3><div class="in2"><dl class="kv">' +
+    '<dt>Item</dt><dd>' + esc(b.item) + '</dd><dt>Exact model</dt><dd>' + esc(b.model) + '</dd>' +
+    '<dt>How many</dt><dd>' + esc(b.qty) + '</dd><dt>Price range</dt><dd>' + esc(rangeOf(b)) + (b.qty > 1 ? ' each' : '') + '</dd>' +
+    (b.note ? '<dt>Note</dt><dd>' + esc(b.note) + '</dd>' : '') +
+    (b.card_no ? '<dt>For job card</dt><dd><button class="link" style="padding:0;min-height:0" type="button" data-open="' + b.card_id + '">' + jc(b.card_no) + ' · ' + esc(b.card_title || '') + '</button></dd>' : '') +
+    '<dt>Asked by</dt><dd>' + esc(b.asked_by) + ' · ' + esc(when(b.asked_at)) + '</dd></dl>' +
+    ((b.media || []).length ? '<div class="media">' + b.media.map(function(m){
+      return '<button class="th" type="button" data-tview="' + esc(m.path) + '" aria-label="Open photo"><img src="' + mediaUrl(m.path) + '" alt="" loading="lazy"></button>'; }).join('') + '</div>' : '<div class="hint">No photo.</div>') +
+    '</div></div>';
+  html += '<div class="sec"><h3>' + (open ? 'Waiting for ' + esc(buyersSay()) : BUYST[b.status]) + '</h3><div class="in2">';
+  if (!open) {
+    html += '<dl class="kv"><dt>' + BUYST[b.status] + ' by</dt><dd>' + esc(b.done_by) + ' · ' + esc(when(b.done_at)) + '</dd>' +
+      (b.paid != null ? '<dt>It cost</dt><dd>' + esc(aed(b.paid)) + '</dd>' : '') + (b.done_note ? '<dt>Note</dt><dd>' + esc(b.done_note) + '</dd>' : '') + '</dl>';
+    if (me.buyer || me.chef || mine) html += S.buyAsk === 'reopen'
+      ? '<div class="acts"><span>Put it back on the Waiting list?</span><button class="btn sm" type="button" id="buyreopen"' + (S.busy ? ' disabled' : '') + '>Yes, back to Waiting</button><button class="btn sm ghost" type="button" id="buyno">Cancel</button></div>'
+      : '<button class="link" type="button" data-buyask="reopen">Done by mistake? Put it back on the Waiting list</button>';
+  } else {
+    if (me.buyer) html += '<div class="two"><div class="field"><label for="bp-paid">What it cost, AED (optional)</label><input id="bp-paid" class="in" inputmode="decimal" data-dk="bpaid" placeholder="e.g. 85 or 85.50" value="' + esc(dv('bpaid','')) + '"></div>' +
+        '<div class="field"><label for="bp-note">Note (optional)</label><input id="bp-note" class="in" data-dk="bnote" placeholder="e.g. bought at Ace, receipt to accounts" value="' + esc(dv('bnote','')) + '"></div></div>' +
+        '<div class="acts"><button class="btn" type="button" id="buyprovided"' + (S.busy ? ' disabled' : '') + '>Provided: handed to ' + esc(b.asked_by.split(' ')[0]) + '</button></div>';
+    else html += '<div class="hint">' + esc(buyersSay()) + ' got this by email with the photos. It moves to Provided when they hand it over.</div>';
+    if (me.buyer || me.chef || mine) html += S.buyAsk === 'cancel'
+      ? '<div class="acts"><span>Cancel this request? It is not needed any more.</span><button class="btn sm" type="button" id="buycancel"' + (S.busy ? ' disabled' : '') + '>Cancel the request</button><button class="btn sm ghost" type="button" id="buyno">Keep it</button></div>'
+      : '<button class="link" type="button" data-buyask="cancel">Not needed any more? Cancel the request</button>';
+  }
+  html += '</div></div><div class="foot"><button class="btn ghost" type="button" id="buyback">‹ All requests</button></div></div>';
+  return html;
+}
+function buyStep(op, args, okMsg){
+  if (S.busy) return;
+  if (window.DEV_READ_ONLY) { S.err = say('read-only'); return draw(); }
+  S.busy = true; S.err = ''; S.ok = ''; draw();
+  return post('maint_buy_step', { p_emp:S.emp, p_id:S.buy.id, p_op:op, p_args:args || {} }).then(function(row){
+    S.busy = false; S.buy = row; S.buyAsk = null; S.d = {}; S.ok = okMsg; draw();
+  }).catch(function(e){ S.busy = false; fail(e); });
+}
+/* asking */
+function newAsk(cardId){
+  var fid = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, function(){ return (Math.random()*16|0).toString(16); }));
+  S.ask = { folder:fid, item:'', model:'', qty:'1', lo:'', hi:'', note:'', card:cardId || '', files:[] };
+  S.view = 'ask'; S.err = ''; S.ok = ''; window.scrollTo(0,0); draw();
+  if (!S.list) loadList().then(draw).catch(function(){});
+}
+function drawAsk(){
+  var a = S.ask, open = (S.list || []).filter(function(c){ return !c.checked_at && !c.is_test; });
+  if (a.card && !open.some(function(c){ return c.id === a.card; }) && S.card && S.card.card.id === a.card) open.unshift(S.card.card);
+  return barHtml('Ask to buy', 'A spare part or a tool. ' + buyersSay() + ' gets it by email, with the photos.') + '<form class="body" id="fask">' + msgs() +
+    '<div class="two"><div class="auto">' + esc(S.me.name) + '<i>Asked by</i></div><div class="auto">' + esc(buyersSay()) + '<i>Goes to</i></div></div>' +
+    '<div class="field"><label for="a-item">What to buy</label><input id="a-item" class="in" data-a="item" autocomplete="off" placeholder="e.g. Door gasket for walk-in fridge" value="' + esc(a.item) + '"></div>' +
+    '<div class="field"><label for="a-model">Exact model / description</label><textarea id="a-model" data-a="model" placeholder="Brand, model or part number, size, colour, voltage: everything needed to buy the right one">' + esc(a.model) + '</textarea></div>' +
+    '<div class="field"><label for="a-qty">How many</label><input id="a-qty" class="in" style="max-width:140px" inputmode="numeric" data-a="qty" value="' + esc(a.qty) + '"></div>' +
+    '<div class="field"><label>Price range per piece, AED</label><div class="two"><input id="a-lo" class="in" inputmode="decimal" data-a="lo" placeholder="From, e.g. 80" aria-label="Price from, AED" value="' + esc(a.lo) + '">' +
+      '<input id="a-hi" class="in" inputmode="decimal" data-a="hi" placeholder="To, e.g. 120" aria-label="Price to, AED" value="' + esc(a.hi) + '"></div></div>' +
+    '<div class="field"><label for="a-card">For a job card (optional)</label><select id="a-card" data-a="card"><option value="">Not for a job card</option>' + open.map(function(c){
+        return '<option value="' + c.id + '"' + (a.card === c.id ? ' selected' : '') + '>' + esc(jc(c.card_no) + ' · ' + titleOf(c, 60)) + '</option>'; }).join('') + '</select></div>' +
+    '<div class="field"><label for="a-note">Note (optional)</label><input id="a-note" class="in" data-a="note" placeholder="e.g. where to find it, how urgent" value="' + esc(a.note) + '"></div>' +
+    '<div class="field"><label>Photos</label><div class="media">' + a.files.map(function(f, i){
+        return '<div class="th"><img src="' + f.url + '" alt=""><button class="x" type="button" data-rmask="' + i + '" aria-label="Remove">×</button></div>'; }).join('') +
+      (a.files.length < 6 ? '<button class="add" type="button" id="addbuyph">+ Add<br>photo</button>' : '') + '</div>' +
+      '<div class="hint">Up to 6: the part, its label or model plate, where it goes.</div></div>' +
+    '<button class="btn wide" type="submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? esc(S.busy === true ? 'Sending…' : S.busy) : 'Send to ' + esc(buyersSay())) + '</button>' +
+    '<button class="btn ghost" type="button" id="cancelask">Cancel</button></form>';
+}
+function addBuyFiles(list){
+  var a = S.ask; if (!a) return;
+  var errs = [];
+  return Promise.all([].slice.call(list || []).map(function(f){
+    if (!/^image\//.test(f.type)) { errs.push(f.name + ' is not a photo.'); return null; }
+    return shrink(f).then(function(b){
+      if (b.size > MAX_FILE) { errs.push(f.name + ' is over 50 MB.'); return; }
+      if (a.files.length >= 6) { errs.push('Up to 6 photos on one request.'); return; }
+      var ext = b.type === 'image/jpeg' ? 'jpg' : ((f.name.match(/\.([A-Za-z0-9]{2,5})$/) || [,'jpg'])[1]).toLowerCase();
+      a.files.push({ blob:b, ext:ext, type:b.type || f.type || 'image/jpeg', url:URL.createObjectURL(b) });
+    });
+  })).then(function(){ S.err = errs.join(' '); draw(); });
+}
+function sendAsk(){
+  var a = S.ask;
+  ['item','model','qty','lo','hi','note','card'].forEach(function(k){ var el = document.querySelector('[data-a="' + k + '"]'); if (el) a[k] = el.value; });
+  if (a.item.trim().length < 2) { S.err = say('no_item'); return draw(); }
+  if (a.model.trim().length < 3) { S.err = say('no_model'); return draw(); }
+  if (!/^\d{1,4}$/.test(a.qty.trim()) || +a.qty < 1) { S.err = 'Type how many as a whole number, for example 2.'; return draw(); }
+  if (!okAmount(a.lo) || !okAmount(a.hi) || +a.hi < +a.lo) { S.err = say('bad_range'); return draw(); }
+  if (window.DEV_READ_ONLY) { S.err = say('read-only'); return draw(); }
+  S.err = ''; S.busy = true; draw();
+  var done = [], i = 0;
+  function next(){
+    if (i >= a.files.length) return Promise.resolve();
+    S.busy = 'Uploading ' + (i+1) + ' of ' + a.files.length + '…'; draw();
+    var f = a.files[i], name = 'b/' + a.folder + '/' + (i+1) + '-' + Math.random().toString(36).slice(2,8) + '.' + f.ext;
+    return fetch(SB_URL + '/storage/v1/object/maint-media/' + name, { method:'POST',
+        headers:{ apikey:SB_KEY, Authorization:'Bearer ' + SB_KEY, 'Content-Type':f.type, 'x-upsert':'false', 'cache-control':'31536000' }, body:f.blob })
+      .then(function(r){ if (!r.ok) return r.text().then(function(t){ throw new Error('upload: ' + (t || r.status)); }); done.push({ path:name }); i++; return next(); });
+  }
+  return next().then(function(){
+    S.busy = 'Sending…'; draw();
+    return post('maint_buy_ask', { p_emp:S.emp, p_args:{ item:a.item, model:a.model, qty:a.qty.trim(), price_min:a.lo.trim(), price_max:a.hi.trim(), note:a.note, card_id:a.card, media:done } });
+  }).then(function(row){
+    a.files.forEach(function(f){ URL.revokeObjectURL(f.url); });
+    S.ask = null; S.busy = false; S.view = 'list'; S.tab = 'buy'; S.bf = 'asked';
+    S.ok = pr(row.buy_no) + ' sent. ' + buyersSay() + ' has it by email, with the photos.';
+    return loadBuys().then(draw);
+  }).catch(function(e){ S.busy = false; S.err = say(e) + (/upload/.test(String(e.message)) ? ' Nothing was sent.' : ''); draw(); });
+}
+
 /* ── media viewer ── */
 function drawViewer(){
   var old = $('viewer'); if (old) old.remove();
@@ -945,6 +1126,7 @@ document.addEventListener('submit', function(e){
   var f = e.target;
   if (f.id === 'fsign') return signIn($('emp').value);
   if (f.id === 'frep') return S.busy ? null : sendReport();
+  if (f.id === 'fask') return S.busy ? null : sendAsk();
   if (f.id === 'ftask') {
     var t = S.task, a = { id:t.id || '', name:$('t-name').value, kind:$('t-kind').value, every_n:$('t-n').value.trim(), every_unit:$('t-u').value,
       next_due:$('t-due').value, location:$('t-loc').value, equipment:$('t-eq').value, by_who:$('t-by').value, notes:$('t-notes').value };
@@ -977,6 +1159,22 @@ document.addEventListener('click', function(e){
   if (b.id === 'out') return signOut();
   if (b.id === 'vclose') { S.viewer = null; S.tview = null; return drawViewer(); }
   if (ds.tab) { S.tab = ds.tab; S.err = ''; S.ok = ''; S.day = null; S.doneAsk = null; draw(); return loadTab().then(draw).catch(fail); }
+  // to buy
+  if (b.id === 'newask') return newAsk('');
+  if (b.id === 'askforcard') return newAsk(S.card.card.id);
+  if (b.id === 'cancelask') { if (S.ask) S.ask.files.forEach(function(f){ URL.revokeObjectURL(f.url); }); var back = S.ask && S.ask.card && S.card ? 'card' : 'list'; S.ask = null; S.view = back; S.err = ''; return draw(); }
+  if (b.id === 'addbuyph') { ['item','model','qty','lo','hi','note','card'].forEach(function(k){ var el = document.querySelector('[data-a="' + k + '"]'); if (el) S.ask[k] = el.value; }); $('bpick').value = ''; return $('bpick').click(); }
+  if (ds.rmask) { var af = S.ask.files.splice(+ds.rmask, 1)[0]; if (af) URL.revokeObjectURL(af.url); return draw(); }
+  if (ds.bf) { S.bf = ds.bf; return draw(); }
+  if (ds.buy) return openBuy(ds.buy);
+  if (b.id === 'buyback') { S.view = 'list'; S.tab = 'buy'; S.buy = null; S.buyAsk = null; S.d = {}; S.err = ''; S.ok = ''; return loadBuys().then(draw).catch(fail); }
+  if (ds.buyask) { S.buyAsk = ds.buyask; return draw(); }
+  if (b.id === 'buyno') { S.buyAsk = null; return draw(); }
+  if (b.id === 'buyprovided') { var pd = $('bp-paid').value.trim(), pn = $('bp-note').value;
+    if (pd && !okAmount(pd)) { S.err = say('bad_amount'); return draw(); }
+    return buyStep('provided', { paid:pd, note:pn }, 'Marked provided. ' + S.buy.asked_by + ' sees it on the request.'); }
+  if (b.id === 'buycancel') return buyStep('cancel', {}, 'Request cancelled.');
+  if (b.id === 'buyreopen') return buyStep('reopen', {}, 'Back on the Waiting list.');
   // tools
   if (ds.tm) { S.tmonth = ds.tm; S.d = {}; S.err = ''; S.ok = ''; return loadTools().then(draw).catch(fail); }
   if (ds.tf) { S.tf = ds.tf; S.rmTool = null; return draw(); }
@@ -1070,10 +1268,13 @@ document.addEventListener('input', function(e){
   if (el.id === 'q') { S.q = el.value; return draw(); }
   if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
   if (el.dataset.r && S.rep) S.rep[el.dataset.r] = el.value;
+  if (el.dataset.a && S.ask) S.ask[el.dataset.a] = el.value;
 });
 document.addEventListener('change', function(e){
   if (e.target.id === 'pick') return addFiles(e.target.files);
   if (e.target.id === 'tpick') return setToolPhoto(S.photoFor, e.target.files && e.target.files[0]);
+  if (e.target.id === 'bpick') return addBuyFiles(e.target.files);
+  if (e.target.dataset.a && S.ask) S.ask[e.target.dataset.a] = e.target.value;
   if (e.target.dataset.tc) { S.d['tc_' + e.target.dataset.tc] = e.target.value; return saveCount(e.target.dataset.tc, e.target.value); }
   var el = e.target; if (el.dataset.dk) S.d[el.dataset.dk] = el.value;
 });
@@ -1090,6 +1291,7 @@ function freshen(){
   else if (S.view === 'list' && S.tab === 'cards') loadList().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cal' && !S.doneAsk) loadCal().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'tools' && !S.rmTool && !Object.keys(S.d).length) loadTools().then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'buy') loadBuys().then(draw).catch(function(){});
 }
 setInterval(freshen, 30000);
 document.addEventListener('visibilitychange', freshen);
