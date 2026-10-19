@@ -7046,12 +7046,79 @@ function schedHideAddStaff(stationKey) {
   var panel = document.getElementById('sadd-' + stationKey);
   if (panel) { panel.classList.remove('show'); }
 }
+// A removed (inactive) staff row with this exact name, case and spacing ignored.
+// Prefers the row that holds an employee ID, then the newest. Null when none or offline.
+async function schedFindRemovedStaff(name) {
+  var norm = function(s){ return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var want = norm(name);
+  var first = want.split(' ')[0].replace(/[%_\\,()]/g, '');
+  if (!first) return null;
+  try {
+    var res = await sb.from('staff').select('id,name,designation,emp_id,created_at').eq('active', false).ilike('name', '%' + first + '%');
+    if (res.error || !res.data) return null;
+    var hits = res.data.filter(function(s){ return norm(s.name) === want; });
+    hits.sort(function(a, b){
+      var ea = a.emp_id && String(a.emp_id).trim() ? 1 : 0, eb = b.emp_id && String(b.emp_id).trim() ? 1 : 0;
+      return (eb - ea) || String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    });
+    return hits[0] || null;
+  } catch (e) { return null; }
+}
+// Put a removed person back on the rota from a day, on their OWN row. The start day goes in
+// staff_section_history like a new add's, and must fall after the day they were taken off,
+// or schedRotaRetire would switch them straight back off.
+async function schedBringBack(back, role, stationKey) {
+  var h = schedSecHist[back.id] || [], offAt = null;
+  h.forEach(function(x){ if (x.station_key === SCHED_OFF) offAt = x.from_date; });
+  var fromDs = await kAskText({ title: 'When does ' + back.name + ' start on the rota again?',
+    body: 'Pick their first day back. The weeks before it stay as they were.',
+    type: 'date', value: schedRotaDefaultDate(true), ok: 'Bring back',
+    check: function(v){ var m = schedDateOk(v); if (m) return m; if (offAt && v <= offAt) return back.name + ' was taken off on ' + schedFmtDay(offAt) + '. Pick a later day.'; return ''; } });
+  if (fromDs == null) return;
+  schedHideAddStaff(stationKey);
+  if (DEV_READ_ONLY) return;
+  var sortOrder = schedStaff.filter(function(s){ return s.station_key === stationKey; }).length + 1;
+  var rv = await sb.from('staff').update({ active: true, in_schedule: true, designation: role, station_key: stationKey, sort_order: sortOrder }).eq('id', back.id);
+  if (rv.error) { console.error('Bring back error:', rv.error); kToast('Could not bring ' + back.name + ' back \u2014 nothing changed. Try again.', true); return; }
+  var hs = await sb.from('staff_section_history').upsert({ staff_id: back.id, station_key: stationKey, from_date: fromDs }, { onConflict: 'staff_id,from_date' });
+  if (hs.error) { console.error('Start day error:', hs.error); kToast(back.name + ' is back, but the start day did not save \u2014 they may show on every week. Tell Francesco.', true); }
+  else kToast(back.name + ' is back on the rota from ' + schedFmtDay(fromDs) + (back.emp_id ? ', with employee ID ' + back.emp_id : '') + '.');
+  await loadSchedData();
+  renderSchedWeek();
+}
 async function schedSaveNewStaff(stationKey) {
   var nameInp = document.getElementById('sadd-name-' + stationKey);
   var roleInp = document.getElementById('sadd-role-' + stationKey);
   var name = nameInp ? nameInp.value.trim() : '';
   var role = roleInp ? roleInp.value.trim() : '';
   if (!name || !role) { alert('Please enter both name and role.'); return; }
+  // Someone being added again (19 Oct 2026: a title change done as Remove + Add left Chef
+  // Andrea on a new row with no employee ID, and Learning refused his ID). Offer the old row
+  // back instead: the employee ID, scores, roster and roles all hang off its id.
+  if (!schedPlanMode) {
+    var normName = function(s){ return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+    var here = schedStaff.find(function(s){ return s.active !== false && normName(s.name) === normName(name); });
+    if (here) {
+      if (!(await kAsk({ title: here.name + ' is already on the schedule',
+            body: (here.designation || '') + (here.station_key && here.station_key !== stationKey ? ' \u00b7 in another section' : '') +
+                  '\n\nTo change their title, tap their role. To move them, use \u2194 Move. Add a second person with the same name?',
+            ok: 'Add another', cancel: 'Cancel' }))) return;
+    } else {
+      var back = await schedFindRemovedStaff(name);
+      if (back) {
+        var was = (back.designation ? back.designation : 'On the team') + (back.emp_id ? ' \u00b7 employee ID ' + back.emp_id : '');
+        if (await kAsk({ title: back.name + ' was on the team before',
+              body: was + '\n\nBring them back as ' + role + '? Their employee ID, test scores and past schedule come back with them.',
+              ok: 'Bring back', cancel: 'Not them' })) {
+          await schedBringBack(back, role, stationKey);
+          return;
+        }
+        if (!(await kAsk({ title: 'Add a new person called ' + name + '?',
+              body: 'They start with no employee ID. Tap their name afterwards to set it, or Learning and other sign-ins will not know them.',
+              ok: 'Add new person', cancel: 'Cancel' }))) return;
+      }
+    }
+  }
   // On the rota FROM a day: the weeks before stay without them (Antonio, Tell us a52b3fc2).
   var fromDs = null;
   if (!schedPlanMode) {
