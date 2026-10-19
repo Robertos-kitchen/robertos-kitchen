@@ -757,8 +757,37 @@ async function mlAddCustom(category, safe, auto){
                 fmc_verified_at: new Date().toISOString(),
                 fmc_verified_by: 'catalogue' };
 
-  const { data, error } = await sb.from('order_items').insert(row).select().single();
+  // ── a line that was taken off comes BACK, it is not made twice ──────────
+  // order_items is UNIQUE on (category, name), and taking a line off never
+  // deletes it - it sets active = false and the row stays. So until 19 Oct
+  // 2026 adding back anything that had once been taken off died here on the
+  // database's duplicate-key refusal: Antonio could not add Baking Soda
+  // 150gm -Foster Clerk (inactive row 467, PASTRY) nor Vinegar White Grape De
+  // Nigris 5Ltr (row 294, DRY GOODS), and 152 removed lines carried the same
+  // trap. The removed row is now switched back on and refreshed from the
+  // article just picked, which also keeps its id - so everything ever ordered
+  // against it is attached to it again, exactly as Undo would have done.
+  let data = null, error = null;
+  const prev = await sb.from('order_items').select('*')
+    .eq('category', category).eq('name', art.name).limit(1);
+  if(prev.error){ alert('Could not add item: ' + prev.error.message); return; }
+  const old = (prev.data || [])[0] || null;
+  if(old && old.active){
+    // Already there in this very category - another device added it, or "Add
+    // again" was pressed for the category it already sits in. Nothing to do.
+    var there = art.name + ' is already on the list under ' + category + '.';
+    if(typeof kToast === 'function') kToast(there, true); else alert(there);
+    return;
+  }
+  if(old){
+    mlQuickEditEchoUntil = Date.now() + 3000;    // same reason as mlRestoreItem
+    ({ data, error } = await sb.from('order_items').update(row).eq('id', old.id).select().single());
+    if(error) mlQuickEditEchoUntil = 0;
+  } else {
+    ({ data, error } = await sb.from('order_items').insert(row).select().single());
+  }
   if(error){ alert('Could not add item: ' + error.message); return; }
+  if(old) mlItems = mlItems.filter(function(x){ return x.id !== data.id; });
   data.custom = true;
   mlItems.push(data);
   mlItems.sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
