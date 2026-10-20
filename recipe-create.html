@@ -3679,8 +3679,9 @@ function batchCost(id, stack){
     }
     if (l.qty == null){ why = why || 'a line in it has no quantity'; continue; }
     var c = qtyInBase(l.qty, l.unit || (base==='kg'?'g':base==='L'?'ml':'pcs')) * per;
-    total += c / ((l.trim_on ? (l.yield_pct==null?100:l.yield_pct) : 100)/100)
-               * (1 + (l.trim_on ? (l.waste_pct||0) : 0)/100);
+    var wf = wasteFactor(l.trim_on ? l.waste_pct : 0);
+    if (wf == null){ why = why || 'a line in it is set to 100% waste'; continue; }
+    total += c / ((l.trim_on ? (l.yield_pct==null?100:l.yield_pct) : 100)/100) * wf;
   }
   if (why) return { problem: why };
   if (!b.lines.length) return { problem:'it has nothing in it yet' };
@@ -5413,8 +5414,9 @@ function micLineFacts(l){
   if (o.unitPrice != null && o.qty != null){
     var u = o.unit || (o.base === 'kg' ? 'g' : o.base === 'L' ? 'ml' : 'pcs');
     var c = qtyInBase(o.qty, u) * o.unitPrice;
-    o.cost = c / ((l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : 100) / 100)
-               * (1 + (l.trim_on ? (l.waste_pct || 0) : 0) / 100);
+    var wf = wasteFactor(l.trim_on ? l.waste_pct : 0);
+    if (wf == null) o.note = 'waste is set to 100%, nothing is left to use';
+    else o.cost = c / ((l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : 100) / 100) * wf;
   }
   if (o.qty == null && !o.note) o.note = 'no quantity on this line yet';
   return o;
@@ -6719,6 +6721,12 @@ function badUnit(r){ var it = itemOf(r); return !!it && !basePrice(it); }
    switch and never a shredder. Everything that costs a line asks through here. */
 function trimYield(r){ return r.adj ? (r.yield||100) : 100; }
 function trimWaste(r){ return r.adj ? (r.waste||0)  : 0;   }
+/* Waste is the share of what is BOUGHT that ends in the bin, so the cost is divided by
+   what is left: 80% waste on thyme means 500 g bought for 100 g used, ×5. It used to be
+   added on top (×1.80), which undercosted every line by waste² — Aung found it, 20 Oct
+   2026. 100% or more leaves nothing to use, so the line has no cost rather than a
+   division by zero. Every costing in this file goes through here. */
+function wasteFactor(w){ w = +w || 0; return w < 100 ? 1 / (1 - w/100) : null; }
 /* is there anything worth remembering on this line at all */
 function trimSet(r){ return (r.yield != null && r.yield != 100) || !!r.waste; }
 /* what it says on the side when the tick is off — short, it lives in a narrow column */
@@ -6734,7 +6742,8 @@ function rowCost(r){
   var it = itemOf(r); if (!it || !r.qty) return null;
   var bp = basePrice(it); if (!bp) return null;
   var c = qtyInBase(r.qty, r.unit || defUnit(it)) * bp.v;
-  return c / (trimYield(r)/100) * (1 + trimWaste(r)/100);
+  var wf = wasteFactor(trimWaste(r)); if (wf == null) return null;
+  return c / (trimYield(r)/100) * wf;
 }
 /* the one sentence that shows what the two boxes actually did, live */
 function ywSum(r){
@@ -9780,7 +9789,7 @@ function rowHTML(r, i){
     : !r.help ? '' :
     '<tr class="drop"><td colspan="9"><div class="dropin">' +
       '<div class="exp"><b>Yield</b> — what\'s left after you clean it. 4 kg octopus in, 2.4 kg out, that\'s 60.<br>' +
-      '<b>Waste</b> — what you lose on top: trim, spillage, the plate that comes back.' +
+      '<b>Waste</b> — the part of what you buy that goes in the bin: stems, peel, trim. 500 g thyme bought, 100 g leaves used, that\'s 80.' +
       /* This is the part nobody could see, and it is the whole point of the two
          boxes. Without it a chef reasonably reads them as changing the recipe. */
       '<br><br><b>These change the COST only — never the quantity.</b> The line still says ' +
