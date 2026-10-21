@@ -95,6 +95,9 @@ textarea{width:100%;min-height:70px;border:1px solid var(--sabbia-dark);border-r
 .approve{border:2px solid var(--vino);background:var(--paper)}
 .opt{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;cursor:pointer;font-size:14px;background:#fff;min-height:44px}
 .opt input{accent-color:var(--vino);width:18px;height:18px;flex:0 0 auto}
+.newd{display:grid;gap:8px;padding:12px;border:1px solid var(--sabbia-dark);border-radius:6px;background:#fff;margin-bottom:8px}
+.newd input{padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:16px;min-height:44px;background:#fff;color:var(--ink);width:100%}
+.newd textarea{font-size:16px}
 .codein{width:120px;letter-spacing:6px;text-align:center;font-size:18px;padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;font-family:inherit}
 .what{font-size:13.5px;line-height:1.6;background:var(--sabbia-light);border-radius:6px;padding:10px 12px}
 .warn{color:var(--below);font-weight:700}
@@ -205,7 +208,9 @@ function say(err){
   if (/not_latest/.test(m)) return 'Something newer has been decided on this dish since. Reload to see it.';
   if (/not_asker/.test(m)) return 'Only ' + askers().join(', ') + ' can ask for a tasting time. Tap your name at the top.';
   if (/bad_time/.test(m)) return 'That time has already passed, or is more than six months away.';
-  if (/no_dishes/.test(m)) return 'Tick at least one dish that is still in the recipe book.';
+  if (/no_dishes/.test(m)) return 'Tick at least one dish, or add a new dish with its name.';
+  if (/bad_new_dish/.test(m)) return 'Give each new dish a name (2 to 80 letters).';
+  if (/new_dish_about/.test(m)) return 'Write a few lines about each new dish: what it is.';
   if (/too_many_open/.test(m)) return 'Five tasting times are already waiting for Chef Francesco. He needs to answer one first.';
   if (/same_time/.test(m)) return 'It is already confirmed for that time.';
   if (/no_request|cancelled/.test(m)) return 'This tasting request has been cancelled since. Reload to see.';
@@ -333,7 +338,7 @@ function listHtml(){
     '<details id="howto"' + (S.how ? ' open' : '') + '><summary>How this works</summary>' +
       '<p>Every dish on the menu <b>' + esc(D.upName) + '</b> in the Recipe book shows up here. Everyone at the tasting taps their name and scores taste and look, each out of 10. You only ever change your own score. The dish’s score is the average across everyone who scored.</p>' +
       '<p>A dish at or above the pass mark turns green. Nothing moves by itself: Chef Francesco approves it with his code, picks where it goes on the à la carte, and it moves there from ' + esc(D.upName) + '.</p>' +
-      '<p>To set a tasting, ' + esc(askers().join(', ')) + ' can ask Chef Francesco for a day and time. He gets an email, accepts it or picks another time with his code, and the confirmed time goes to his Outlook calendar.</p>' +
+      '<p>To set a tasting, ' + esc(askers().join(', ')) + ' can ask Chef Francesco for a day and time, for dishes waiting here or for a new dish that has no recipe yet (a name and a few lines on what it is). He gets an email, accepts it or picks another time with his code, and the confirmed time goes to his Outlook calendar.</p>' +
     '</details>';
 }
 function pickHtml(){
@@ -474,7 +479,18 @@ function whenLong(ts){
 }
 function dubaiParts(ts){ var s = new Date(new Date(ts).getTime() + 4*60*60*1000).toISOString(); return { d:s.slice(0, 10), t:s.slice(11, 16) }; }
 function dubaiIso(d, t){ return d + 'T' + t + ':00+04:00'; }
-function dishNames(r){ return (r.recipe_ids || []).map(function(id){ return (D.names[id] || {}).name; }).filter(Boolean); }
+function dishNames(r){ return (r.recipe_ids || []).map(function(id){ return (D.names[id] || {}).name; }).filter(Boolean)
+  .concat(newOf(r).map(function(x){ return x.name + ' (new)'; })); }
+/* New dishes (21 Oct 2026, Danilo): a dish with no recipe yet can be booked for a tasting with
+   a name and a few lines on what it is. The recipe is written after. Kept on the request only. */
+function newOf(r){ return (Array.isArray(r.new_dishes) ? r.new_dishes : []).filter(function(x){ return x && x.name; }); }
+function newRowsHtml(a){
+  return a.news.map(function(n, i){
+    return '<div class="newd"><label class="fld">Name of the dish<input type="text" data-newname="' + i + '" maxlength="80" autocomplete="off" value="' + esc(n.name) + '"></label>' +
+      '<label class="fld">What is it? A few lines<textarea data-newabout="' + i + '" maxlength="400">' + esc(n.about) + '</textarea></label>' +
+      '<div><button class="btn ghost" data-newdel="' + i + '">Remove this dish</button></div></div>';
+  }).join('') + (a.news.length < 10 ? '<button class="addrow" data-newadd="1">+ A new dish, not in the recipe book yet</button>' : '');
+}
 function homeHtml(){ return window.top === window ? '<a class="back" href="./">&lsaquo; Kitchen</a>' : ''; }
 function codeHtml(){
   return '<input class="codein" id="rcode" type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Code" aria-label="Chef Francesco’s code" value="' + esc(CODE) + '">';
@@ -505,6 +521,7 @@ function reqHtml(r){
     '<div class="hint">Asked by ' + esc(r.asked_by) +
       (moved ? '. Chef Francesco moved it: ' + esc(r.asked_by) + ' had asked for ' + esc(whenLong(r.proposed_at)) : '') +
       (r.note ? '. “' + esc(r.note) + '”' : '') + '</div>' +
+    newOf(r).map(function(x){ return '<div class="hint"><b>' + esc(x.name) + '</b> (new, no recipe yet): ' + esc(x.about) + '</div>'; }).join('') +
     (S.req === r.id ? reqPanelHtml(r) :
       '<div class="line"><button class="btn' + (conf ? ' ghost' : '') + '" data-reqopen="' + r.id + '">' + (conf ? 'Change the time' : 'Chef Francesco: answer') + '</button>' +
       (mine ? cancelBtn(r, 'Take it back') : '') + rmsgHtml(r) + '</div>') +
@@ -529,7 +546,8 @@ function askHtml(){
   return '<div class="card pick" id="askbox"><h4>Ask Chef Francesco to taste' + (WHO ? ' · ' + esc(WHO.name) : '') + '</h4>' +
     (D.up.length ? '<div class="flab">Which dishes?</div>' + D.up.map(function(x){
         return '<label class="opt"><input type="checkbox" data-askdish="' + x.recipe_id + '"' + (a.ids[x.recipe_id] ? ' checked' : '') + '> ' + esc(x.recipes.name) + '</label>'; }).join('')
-      : '<div class="hint warn">Nothing is waiting. Put a dish on ' + esc(D.upName) + ' first.</div>') +
+      : '<div class="hint">Nothing from the recipe book is waiting. Add a new dish below.</div>') +
+    '<div class="flab" style="margin-top:10px">A new dish with no recipe yet?</div>' + newRowsHtml(a) +
     '<div class="line"><label class="fld">Day<input type="date" id="adate" min="' + dubaiParts(Date.now()).d + '" value="' + esc(a.date) + '"></label>' +
       '<label class="fld">Time<input type="time" id="atime" step="300" value="' + esc(a.time) + '"></label></div>' +
     '<div><div class="flab">Anything he should know?</div><textarea id="anote" maxlength="300" placeholder="Optional">' + esc(a.note) + '</textarea></div>' +
@@ -550,12 +568,20 @@ function askSend(btn){
   var ids = Object.keys(a.ids).filter(function(k){ return a.ids[k]; });
   function bad(t){ S.amsg = { text:t, ok:false }; var m = $('askmsg'); if (m) { m.className = 'msg bad'; m.innerHTML = t; } }
   if (!isAsker()) return bad('Only ' + esc(askers().join(', ')) + ' can ask. Tap your name at the top.');
-  if (!ids.length) return bad('Tick at least one dish.');
+  var news = [];
+  for (var i = 0; i < a.news.length; i++) {
+    var nn = (a.news[i].name || '').trim(), na = (a.news[i].about || '').trim();
+    if (!nn && !na) continue;
+    if (nn.length < 2) return bad('Give the new dish its name.');
+    if (na.length < 3) return bad('Write a few lines about ' + esc(nn) + ': what it is.');
+    news.push({ name:nn, about:na });
+  }
+  if (!ids.length && !news.length) return bad('Tick at least one dish, or add a new dish.');
   if (!a.date || !a.time) return bad('Pick the day and the time.');
   var iso = dubaiIso(a.date, a.time);
   if (!(new Date(iso).getTime() > Date.now())) return bad('That time has already passed.');
   btn.disabled = true; S.amsg = null;
-  rpc('tasting_request_new', { p_by:WHO.name, p_emp:WHO.emp_id, p_recipes:ids, p_at:iso, p_note:(a.note || '').trim() || null, p_test:TESTMODE })
+  rpc('tasting_request_new', { p_by:WHO.name, p_emp:WHO.emp_id, p_recipes:ids, p_at:iso, p_note:(a.note || '').trim() || null, p_test:TESTMODE, p_new:news })
     .then(function(){ return load(); })
     .then(function(){ S.ask = null; S.amsg = { text:'Sent. Chef Francesco has the email. His answer will show at the top of this screen.', ok:true }; render(); })
     .catch(function(e){ btn.disabled = false; bad(esc(say(e))); });
@@ -670,11 +696,14 @@ document.addEventListener('click', function(e){
   }
   if (t.dataset.ask) {
     if (!isAsker()) { S.amsg = { text:'Only ' + esc(askers().join(', ')) + ' can ask. Tap your name at the top.', ok:false }; render(); return; }
-    S.ask = { ids:{}, date:'', time:'', note:'' }; S.amsg = null; S.tmsg = null;
+    S.ask = { ids:{}, date:'', time:'', note:'', news:[] }; S.amsg = null; S.tmsg = null;
+    if (!D.up.length) S.ask.news.push({ name:'', about:'' });
     if (D.up.length === 1) S.ask.ids[D.up[0].recipe_id] = true;
     render(); var ab = $('askbox'); if (ab && ab.scrollIntoView) ab.scrollIntoView({ block:'nearest' }); return;
   }
   if (t.dataset.askclose) { S.ask = null; S.amsg = null; render(); return; }
+  if (t.dataset.newadd && S.ask) { S.ask.news.push({ name:'', about:'' }); render(); var ni = document.querySelectorAll('[data-newname]'); if (ni.length) ni[ni.length - 1].focus(); return; }
+  if (t.dataset.newdel && S.ask) { S.ask.news.splice(+t.dataset.newdel, 1); render(); return; }
   if (t.id === 'asksend') { askSend(t); return; }
   if (t.dataset.reqopen) { var ro = reqById(t.dataset.reqopen); if (ro) { S.tmsg = null; openReq(ro, 'accept'); render(); showReq(); } return; }
   if (t.dataset.reqclose) { S.req = null; S.sure = null; S.rmsg = null; render(); return; }
@@ -691,6 +720,8 @@ document.addEventListener('input', function(e){
   if (e.target.id === 'note') S.draft.note = e.target.value;
   if (e.target.id === 'code' || e.target.id === 'rcode') CODE = e.target.value.trim();
   if (e.target.id === 'anote' && S.ask) S.ask.note = e.target.value;
+  if (e.target.dataset && e.target.dataset.newname && S.ask && S.ask.news[+e.target.dataset.newname]) S.ask.news[+e.target.dataset.newname].name = e.target.value;
+  if (e.target.dataset && e.target.dataset.newabout && S.ask && S.ask.news[+e.target.dataset.newabout]) S.ask.news[+e.target.dataset.newabout].about = e.target.value;
   if (e.target.id === 'adate' && S.ask) S.ask.date = e.target.value;
   if (e.target.id === 'atime' && S.ask) S.ask.time = e.target.value;
   if (e.target.id === 'rdate') S.rdate = e.target.value;
