@@ -330,7 +330,7 @@ function listHtml(){
     (S.taking && D.up.length ? takeHtml() : (D.up.length ? '<button class="addrow" data-takeopen="1">&minus; Take a dish off the tasting</button>' : '')) +
     backHtml() +
     (doneRows ? '<div class="sec-h"><h3>Approved</h3><small>kept here; nothing is deleted</small></div><div class="list">' + doneRows + '</div>' : '') +
-    '<details><summary>How this works</summary>' +
+    '<details id="howto"' + (S.how ? ' open' : '') + '><summary>How this works</summary>' +
       '<p>Every dish on the menu <b>' + esc(D.upName) + '</b> in the Recipe book shows up here. Everyone at the tasting taps their name and scores taste and look, each out of 10. You only ever change your own score. The dish’s score is the average across everyone who scored.</p>' +
       '<p>A dish at or above the pass mark turns green. Nothing moves by itself: Chef Francesco approves it with his code, picks where it goes on the à la carte, and it moves there from ' + esc(D.upName) + '.</p>' +
       '<p>To set a tasting, ' + esc(askers().join(', ')) + ' can ask Chef Francesco for a day and time. He gets an email, accepts it or picks another time with his code, and the confirmed time goes to his Outlook calendar.</p>' +
@@ -823,6 +823,9 @@ function decide(kind, btn){
 
 /* Other phones at the same tasting: look again every 6 seconds while this screen is
    showing, never while it is hidden. */
+/* "How this works" kept closing by itself (21 Oct 2026): the 6-second refresh redraws
+   the list and the new <details> came back shut. Its open state now lives in S. */
+document.addEventListener('toggle', function(e){ if (e.target && e.target.id === 'howto') S.how = e.target.open; }, true);
 setInterval(function(){ if (!document.hidden && D.loaded) refresh(); }, 6000);
 window.__rcpFreshen = function(){ refresh(); };
 
