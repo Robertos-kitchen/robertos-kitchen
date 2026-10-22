@@ -32,8 +32,23 @@ const FRANCESCO = { name: "Francesco Guarracino", email: "fguarracino@robertos.a
 const BUCKET = "audit-photos";
 const MENUS = ["217de140-5257-405f-be72-eaef8dde2c8b", "b7af4ba8-6ecc-4883-a16f-fdce9ba4a075"]; // A la carte 2026, Scala Bites Menu
 const SCALA_MENU = "b7af4ba8-6ecc-4883-a16f-fdce9ba4a075";
-const AREAS = ["arrivo", "cucina", "ristorante", "vino", "scala"];
-const AREA_EN: Record<string, string> = { arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", piatto: "Dish" };
+// Three kinds of audit (22 Oct 2026): 'venue' = Chef Enrico, the whole venue; 'restaurant' = a guest
+// visit to the restaurant, booking included; 'scala' = the bar & lounge. audit_catalog.kinds says
+// which questions belong to which; AREA_ORDER is the order the sections are shown and reported in.
+const KINDS = ["venue", "restaurant", "scala"];
+const KIND_EN: Record<string, string> = { venue: "Whole venue", restaurant: "Restaurant visit", scala: "Scala visit" };
+const AREA_ORDER: Record<string, string[]> = {
+  venue: ["arrivo", "cucina", "ristorante", "vino", "scala", "bagno", "congedo"],
+  restaurant: ["prenota", "arrivo", "ristorante", "vino", "cucina", "bagno", "congedo"],
+  scala: ["prenota", "arrivo", "scala", "bagno", "congedo"],
+};
+// Sections an older audit page cannot draw: hidden from any page that does not send pv >= 2.
+const NEW_AREAS = ["prenota", "bagno", "congedo"];
+const AREAS = AREA_ORDER.venue;
+const AREA_EN: Record<string, string> = { prenota: "Booking", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
+// For a guest the kitchen section is the food on the plate.
+const areaEn = (kind: string, a: string) => (a === "cucina" && kind !== "venue" ? "Food" : AREA_EN[a] || a);
+const kindOf = (k: unknown) => (KINDS.includes(String(k)) ? String(k) : "venue");
 const ENRICO = "Chef Enrico Bartolini";
 const firstName = (n: string) => String(n || "").replace(/^Chef\s+/i, "").trim().split(/\s+/)[0] || "the auditor";
 // Pages that may be linked to (the link goes to the page that asked). The audit moved to the FOH app
@@ -61,7 +76,7 @@ const FLAG_AREAS = ["piatto", "cucina", "ristorante", "scala"];
 const isDate = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isTime = (s: unknown) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 // Statuses a reader sees in the FOH list (never the invites themselves or test visits).
-const LISTED = ["open", "submitted", "sent", "archived"];
+const LISTED = ["open", "submitted", "sent"];   // archived = the Nov 2022 visit: not compared, not listed
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const FOH_URL = "https://paoaivwtkzujmrgrfjuq.supabase.co";
@@ -176,7 +191,9 @@ async function dishList() {
 
 async function previousVisit(v: Row) {
   const { data } = await sb.from("audit_visits").select("id,title,visit_date,overall_pct,area_pct,status,created_at")
-    .in("status", ["archived", "sent"]).eq("auditor", v.auditor).neq("id", v.id);   // same auditor only
+    .in("status", ["submitted", "sent"]).eq("auditor", v.auditor).eq("kind", kindOf(v.kind)).is("removed_at", null).neq("id", v.id);
+    // Same auditor, same kind of audit, under the new standard only. Nov 2022 is never compared
+    // (Francesco, 22 Oct 2026: "different restaurant, different standard, we start a new one").
   const list = (data || []).filter((p) => !v.visit_date || !p.visit_date || p.visit_date < v.visit_date)
     .sort((a, b) => String(b.visit_date || "0000").localeCompare(String(a.visit_date || "0000")) || String(b.created_at).localeCompare(String(a.created_at)));
   const p = list[0]; if (!p) return null;
@@ -184,9 +201,15 @@ async function previousVisit(v: Row) {
   return { title: p.title, overall_pct: p.overall_pct, area_pct: p.area_pct || {}, scores: sc || [] };
 }
 
-async function loadAll(v: Row, admin: boolean) {
+// The questions for this visit's kind. A page older than pv 2 only draws the original sections.
+function catalogFor(kind: string, pv: number) {
+  let q = sb.from("audit_catalog").select("*").eq("active", true).contains("kinds", [kindOf(kind)]);
+  if (pv < 2) q = q.not("area", "in", "(" + NEW_AREAS.join(",") + ")");
+  return q.order("area").order("position");
+}
+async function loadAll(v: Row, admin: boolean, pv = 2) {
   const [cat, sc, di, fl, tx, prev, dishes] = await Promise.all([
-    sb.from("audit_catalog").select("*").eq("active", true).order("area").order("position"),
+    catalogFor(v.kind, pv),
     sb.from("audit_scores").select("*").eq("visit_id", v.id),
     sb.from("audit_dishes").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
     sb.from("audit_flags").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
@@ -199,8 +222,8 @@ async function loadAll(v: Row, admin: boolean) {
   const urls = await signAll(paths, 60 * 60 * 24);
   const p = pcts(sc.data || [], cat.data || []);
   return {
-    role: admin ? "admin" : "enrico",
-    visit: { id: v.id, title: v.title, visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
+    role: admin ? "admin" : "enrico", kind: kindOf(v.kind), areas: AREA_ORDER[kindOf(v.kind)], area_en: Object.fromEntries(AREA_ORDER[kindOf(v.kind)].map((a) => [a, areaEn(kindOf(v.kind), a)])),
+    visit: { id: v.id, title: v.title, kind: kindOf(v.kind), visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
     catalog: cat.data || [], scores: sc.data || [], dishes: di.data || [], flags: fl.data || [], texts: tx.data || [],
     previous: prev, menu: dishes, urls, pct: p, recipients: admin ? { to: AMIN, cc: FRANCESCO } : null,
   };
@@ -279,7 +302,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
 
   let h = `<!doctype html><html><body style="margin:0;background:${C.paper}"><div style="max-width:680px;margin:0 auto;padding:24px 18px;font-family:Arial,sans-serif;color:${C.ink}">`;
   h += `<div style="background:${C.vino};color:#f5ede0;border-radius:8px;padding:24px 22px"><div style="font:700 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#e1d3c2">Roberto's DIFC · Audit</div>`;
-  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}${d.visit.visit_time ? " · " + esc(d.visit.visit_time) : ""}</div></div>`;
+  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">${esc(KIND_EN[kindOf(d.visit.kind)])} · ${esc(fmtDate(d.visit.visit_date))}${d.visit.visit_time ? " · " + esc(d.visit.visit_time) : ""}</div></div>`;
   h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${(() => { const l = prev ? like(d.scores, prev.scores, d.catalog) : null; return tile(l ? signed(l.diff) : "—", "vs " + (prev?.title || "last visit") + (l ? ` · same ${l.n} items` : ""), l && l.diff < 0 ? C.err : C.ok); })()}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
   if (t.overall && en(t.overall, "it", "en")) h += lbl("Overall visit") + para(en(t.overall, "it", "en")) + pics(t.overall.photos, urls);
   if (t.improve && en(t.improve, "it", "en")) h += lbl("Suggested improvements") + para(en(t.improve, "it", "en")) + pics(t.improve.photos, urls);
@@ -287,16 +310,16 @@ function emailHtml(d: Row, urls: Record<string, string>) {
   if (tops.length) h += lbl(firstName(d.visit.auditor) + "'s top 3") + tops.map((s, i) => `<div style="font:15px/1.5 Arial,sans-serif;margin:4px 0"><b style="color:${C.terra};font:20px Georgia,serif">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
 
   h += lbl("Scores by area") + `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font:14px Arial,sans-serif"><tr style="color:${C.muted};font-size:12px"><td style="padding:6px 0;border-bottom:1px solid ${C.line}">Area</td><td style="border-bottom:1px solid ${C.line}">${esc(d.visit.title)}</td><td style="border-bottom:1px solid ${C.line}">${esc(prev?.title || "Last visit")}</td><td style="border-bottom:1px solid ${C.line}">Trend</td></tr>`;
-  for (const a of AREAS) {
+  for (const a of AREA_ORDER[kindOf(d.visit.kind)]) {
     const n = pa[a] ?? null, o = pp[a] ?? null, l = prev ? like(d.scores, prev.scores, d.catalog, a) : null;
-    h += `<tr><td style="padding:8px 0;border-bottom:1px solid ${C.line};font:16px Georgia,serif;color:${C.vino}">${AREA_EN[a]}</td><td style="border-bottom:1px solid ${C.line}">${n == null ? "not scored" : n + "%"}</td><td style="border-bottom:1px solid ${C.line}">${o == null ? "not scored" : o + "%"}</td><td style="border-bottom:1px solid ${C.line}">${l ? `${signed(l.diff)} <span style="color:${C.muted};font-size:12px">(${l.n})</span>` : "—"}</td></tr>`;
+    h += `<tr><td style="padding:8px 0;border-bottom:1px solid ${C.line};font:16px Georgia,serif;color:${C.vino}">${esc(areaEn(kindOf(d.visit.kind), a))}</td><td style="border-bottom:1px solid ${C.line}">${n == null ? "not scored" : n + "%"}</td><td style="border-bottom:1px solid ${C.line}">${o == null ? "not scored" : o + "%"}</td><td style="border-bottom:1px solid ${C.line}">${l ? `${signed(l.diff)} <span style="color:${C.muted};font-size:12px">(${l.n})</span>` : "—"}</td></tr>`;
   }
   h += `</table>`;
 
   // Action plan: urgent first, then to fix — items, dishes, photo flags.
   type A = { lvl: number; v: string; where: string; what: string; note: string; owner: string; due: string; photos: string[] };
   const acts: A[] = [];
-  for (const s of d.scores) if (s.verdict === "urgent" || s.verdict === "fix") { const c = cat[s.code] || {}; acts.push({ lvl: s.verdict === "urgent" ? 0 : 1, v: s.verdict, where: AREA_EN[c.area] || "", what: c.label_en || s.code, note: en(s), owner: s.owner || "", due: dueTxt(s.due), photos: s.photos }); }
+  for (const s of d.scores) if (s.verdict === "urgent" || s.verdict === "fix") { const c = cat[s.code] || {}; acts.push({ lvl: s.verdict === "urgent" ? 0 : 1, v: s.verdict, where: areaEn(kindOf(d.visit.kind), c.area), what: c.label_en || s.code, note: en(s), owner: s.owner || "", due: dueTxt(s.due), photos: s.photos }); }
   for (const x of d.dishes) if (x.verdict === "fix" || x.verdict === "remove") acts.push({ lvl: x.verdict === "remove" ? 0 : 1, v: x.verdict, where: "Dish", what: x.dish_name, note: en(x), owner: x.owner || "", due: dueTxt(x.due), photos: x.photos });
   for (const f of d.flags) if (f.kind === "attention") acts.push({ lvl: 1, v: "attention", where: AREA_EN[f.area] || "", what: f.dish_name || "Photo note", note: en(f), owner: f.owner || "", due: dueTxt(f.due), photos: f.photos });
   acts.sort((a, b) => a.lvl - b.lvl);
@@ -317,9 +340,9 @@ function emailHtml(d: Row, urls: Record<string, string>) {
 
   h += lbl("Every item");
   const byCode: Record<string, Row> = {}; for (const s of d.scores) byCode[s.code] = s;
-  for (const a of AREAS) {
+  for (const a of AREA_ORDER[kindOf(d.visit.kind)]) {
     const items = d.catalog.filter((c: Row) => c.area === a);
-    h += `<div style="font:18px Georgia,serif;color:${C.vino};margin:14px 0 4px">${AREA_EN[a]}${pa[a] != null ? ` <span style="font:13px Arial,sans-serif;color:${C.muted}">${pa[a]}%</span>` : ""}</div>`;
+    h += `<div style="font:18px Georgia,serif;color:${C.vino};margin:14px 0 4px">${esc(areaEn(kindOf(d.visit.kind), a))}${pa[a] != null ? ` <span style="font:13px Arial,sans-serif;color:${C.muted}">${pa[a]}%</span>` : ""}</div>`;
     for (const c of items) {
       const s = byCode[c.code] || {};
       const sc = s.na ? "N/A" : (s.score ? s.score + "/5" : "—");
@@ -354,7 +377,7 @@ async function fohWho(jwt: string) {
   const { data: u } = await foh.from("app_users").select("name,modules,is_admin").eq("email", email).maybeSingle();
   const mods: string[] = (u && u.modules) || [];
   const read = !!(u && u.is_admin) || mods.includes("audit_read");
-  return { email, name: (u && u.name) || email.split("@")[0], read, send: read || mods.includes("audit_send") };
+  return { email, name: (u && u.name) || email.split("@")[0], read, send: read || mods.includes("audit_send"), admin: !!(u && u.is_admin) };
 }
 
 // The sender's own invite: made the first time they open the module.
@@ -378,16 +401,19 @@ async function fohCall(b: Row, action: string) {
 
   if (action === "me" || action === "new_link") {
     const token = await senderLink(who, action === "new_link");
-    return json({ name: who.name, send: who.send, read: who.read, link: pageFor(b.page) + "?n=" + token });
+    return json({ name: who.name, send: who.send, read: who.read, admin: who.admin, link: pageFor(b.page) + "?n=" + token });
   }
   if (!who.read) return json({ error: "Not allowed" }, 403);
 
-  if (action === "list") {
+  // list: every audit still in use. removed: (Admin) the ones taken out, with who, when and why.
+  if (action === "list" || action === "removed") {
+    if (action === "removed" && !who.admin) return json({ error: "Admins only" }, 403);
     const { data: inv } = await sb.from("audit_visits").select("id,sender_name").in("status", ["invite", "invite_off"]);
     const by: Record<string, string> = {}; for (const i of inv || []) by["invite:" + i.id] = i.sender_name || "Shared link";
-    const { data: list, error } = await sb.from("audit_visits")
-      .select("id,title,auditor,visit_date,visit_time,created_at,updated_at,status,overall_pct,submitted_at,source_note,sender_name")
-      .in("status", LISTED).order("created_at", { ascending: false }).limit(500);
+    let q = sb.from("audit_visits")
+      .select("id,title,kind,auditor,visit_date,visit_time,created_at,updated_at,status,overall_pct,submitted_at,source_note,sender_name,removed_at,removed_by,removed_reason");
+    q = action === "removed" ? q.in("status", [...LISTED, "archived"]).not("removed_at", "is", null) : q.in("status", LISTED).is("removed_at", null);
+    const { data: list, error } = await q.order("created_at", { ascending: false }).limit(500);
     if (error) throw error;
     const ids = (list || []).map((x) => x.id);
     const done: Record<string, number> = {};
@@ -395,17 +421,38 @@ async function fohCall(b: Row, action: string) {
       const { data: sc } = await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids.slice(i, i + 200));
       for (const s of sc || []) if (s.score || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
     }
-    const { count: total } = await sb.from("audit_catalog").select("code", { count: "exact", head: true }).eq("active", true);
-    return json({ total: total || 0, audits: (list || []).map((x) => ({
-      id: x.id, title: x.title, auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time, created_at: x.created_at, updated_at: x.updated_at,
-      status: x.status, overall_pct: x.overall_pct, submitted_at: x.submitted_at, done: done[x.id] || 0,
+    // How many questions each kind has (the "x of N" on each row).
+    const { data: cat } = await sb.from("audit_catalog").select("kinds").eq("active", true);
+    const totals: Record<string, number> = {};
+    for (const k of KINDS) totals[k] = (cat || []).filter((c) => (c.kinds || []).includes(k)).length;
+    return json({ totals, kinds: KIND_EN, audits: (list || []).map((x) => ({
+      id: x.id, title: x.title, kind: kindOf(x.kind), auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time,
+      created_at: x.created_at, updated_at: x.updated_at, status: x.status, overall_pct: x.overall_pct, submitted_at: x.submitted_at,
+      done: done[x.id] || 0, total: totals[kindOf(x.kind)] || 0,
       sent_by: x.auditor === ENRICO ? "Chef Bartolini's own link" : (x.sender_name || by[x.source_note || ""] || "Shared link"),
+      removed_at: x.removed_at, removed_by: x.removed_by, removed_reason: x.removed_reason,
     })) });
   }
 
+  // Remove / put back (Admin only). Nothing is deleted: the audit leaves the list and the chart,
+  // and is kept with who removed it, when and why.
+  if (action === "remove" || action === "restore") {
+    if (!who.admin) return json({ error: "Admins only" }, 403);
+    const id = String(b.id || "");
+    const reason = clean(b.reason, 300);
+    if (action === "remove" && !reason) return json({ error: "Give a reason" }, 400);
+    const f: Row = action === "remove"
+      ? { removed_at: new Date().toISOString(), removed_by: who.email, removed_reason: reason }
+      : { removed_at: null, removed_by: null, removed_reason: null };
+    const { data, error } = await sb.from("audit_visits").update(f).eq("id", id).in("status", [...LISTED, "archived"]).select("id,removed_at").maybeSingle();
+    if (error) throw error;
+    if (!data) return json({ error: "Not found" }, 404);
+    return json({ ok: true, row: data });
+  }
+
   if (action === "report") {
-    const { data: v } = await sb.from("audit_visits").select("*").eq("id", String(b.id || "")).in("status", LISTED).maybeSingle();
-    if (!v) return json({ error: "Not found" }, 404);
+    const { data: v } = await sb.from("audit_visits").select("*").eq("id", String(b.id || "")).in("status", [...LISTED, "archived"]).maybeSingle();
+    if (!v || (v.removed_at && !who.admin) || (v.status === "archived" && !who.admin)) return json({ error: "Not found" }, 404);
     await translatePending(v.id, v.auditor).catch((e) => console.error(e));   // English for the reader; the Italian stays
     const d = await loadAll(v, true);
     const all: string[] = [];
@@ -441,6 +488,10 @@ Deno.serve(async (req) => {
     if (action !== "start") return json({ error: "Not allowed" }, 403);
     const name = clean(b.name, 60);
     if (!name || name.length < 2) return json({ error: "Name needed" }, 400);
+    // Where they went: a shared link is a Restaurant or a Scala visit, chosen at the start.
+    // (Only an older page sends no kind; it gets the whole-venue form, as before.)
+    const kind = b.kind == null ? "venue" : String(b.kind);
+    if (!["restaurant", "scala", "venue"].includes(kind) || (b.kind != null && kind === "venue")) return json({ error: "Choose Restaurant or Scala" }, 400);
     // A shared link can be forwarded: cap how many audits it can start in a day.
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const { count } = await sb.from("audit_visits").select("id", { count: "exact", head: true }).eq("source_note", "invite:" + inv.id).gte("created_at", since);
@@ -456,7 +507,7 @@ Deno.serve(async (req) => {
       date = b.visit_date; time = b.visit_time;
     }
     const { data: nv, error } = await sb.from("audit_visits").insert({
-      title: `${name} · ${date.split("-").reverse().join("/")} ${time}`, auditor: name, visit_date: date, visit_time: time,
+      title: `${name} · ${date.split("-").reverse().join("/")} ${time}`, auditor: name, visit_date: date, visit_time: time, kind,
       status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id,
       sender_name: inv.sender_name, sender_email: inv.sender_email,
     }).select("enrico_token").single();
@@ -483,7 +534,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    if (action === "load") return json(await loadAll(v, admin));
+    if (action === "load") return json(await loadAll(v, admin, Number(b.pv) || 1));
 
     // Enrico cannot change anything once the report has gone to Amin.
     if (!admin && v.status === "sent") return json({ error: v.auditor === ENRICO ? "Questo audit è già stato inviato. Grazie!" : "This audit has already been sent. Thank you!" }, 409);
@@ -491,7 +542,7 @@ Deno.serve(async (req) => {
 
     if (action === "score") {
       const code = String(b.code || "");
-      const { data: c } = await sb.from("audit_catalog").select("code").eq("code", code).maybeSingle();
+      const { data: c } = await sb.from("audit_catalog").select("code").eq("code", code).contains("kinds", [kindOf(v.kind)]).maybeSingle();
       if (!c) return json({ error: "Unknown item" }, 400);
       const f: Row = { visit_id: v.id, code, updated_at: new Date().toISOString() };
       if ("score" in b) f.score = b.score == null ? null : Math.max(1, Math.min(5, Math.round(Number(b.score))));
