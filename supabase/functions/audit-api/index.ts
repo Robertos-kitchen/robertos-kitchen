@@ -32,6 +32,7 @@ const FRANCESCO = { name: "Francesco Guarracino", email: "fguarracino@robertos.a
 const BUCKET = "audit-photos";
 const MENUS = ["217de140-5257-405f-be72-eaef8dde2c8b", "b7af4ba8-6ecc-4883-a16f-fdce9ba4a075"]; // A la carte 2026, Scala Bites Menu
 const SCALA_MENU = "b7af4ba8-6ecc-4883-a16f-fdce9ba4a075";
+const MENU_SECTIONS = ["Crudo", "Antipasti", "Insalate", "Pasta", "Pizza", "Pesce", "Secondi", "Grill", "Side Dish", "Dessert"];
 // Three kinds of audit (22 Oct 2026): 'venue' = Chef Enrico, the whole venue; 'restaurant' = a guest
 // visit to the restaurant, booking included; 'scala' = the bar & lounge. audit_catalog.kinds says
 // which questions belong to which; AREA_ORDER is the order the sections are shown and reported in.
@@ -188,11 +189,14 @@ async function dishList() {
   const { data: rm } = await sb.from("recipe_menus").select("recipe_id,menu_id").in("menu_id", ids);
   const rids = [...new Set((rm || []).map((r) => r.recipe_id))];
   if (!rids.length) return [];
-  const { data: rec } = await sb.from("recipes").select("id,name,archived").in("id", rids);
+  const { data: rec } = await sb.from("recipes").select("id,name,archived,section").in("id", rids);
   const place: Record<string, string> = {};
   for (const r of rm || []) place[r.recipe_id] = scala.has(r.menu_id) ? "scala" : (place[r.recipe_id] || "ristorante");
-  return (rec || []).filter((r) => !r.archived && r.name).map((r) => ({ id: r.id, name: String(r.name).trim(), where: place[r.id] }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  // Each dish carries its menu section, so a guest can open the menu by section and pick what they
+  // ordered without remembering the name (Francesco, 22 Oct 2026). Sections in menu order.
+  const rank = (x: string) => { const i = MENU_SECTIONS.indexOf(x); return i < 0 ? 99 : i; };
+  return (rec || []).filter((r) => !r.archived && r.name).map((r) => ({ id: r.id, name: String(r.name).trim(), where: place[r.id], section: r.section || "Other" }))
+    .sort((a, b) => rank(a.section) - rank(b.section) || a.name.localeCompare(b.name));
 }
 
 async function previousVisit(v: Row) {
