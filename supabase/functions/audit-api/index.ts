@@ -395,7 +395,7 @@ async function fohCall(b: Row, action: string) {
     }
     const { count: total } = await sb.from("audit_catalog").select("code", { count: "exact", head: true }).eq("active", true);
     return json({ total: total || 0, audits: (list || []).map((x) => ({
-      id: x.id, auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time, created_at: x.created_at, updated_at: x.updated_at,
+      id: x.id, title: x.title, auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time, created_at: x.created_at, updated_at: x.updated_at,
       status: x.status, overall_pct: x.overall_pct, submitted_at: x.submitted_at, done: done[x.id] || 0,
       sent_by: x.auditor === ENRICO ? "Chef Bartolini's own link" : (x.sender_name || by[x.source_note || ""] || "Shared link"),
     })) });
