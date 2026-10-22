@@ -26,7 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const FROM = "Roberto's Kitchen <no-reply@kitchenteam.robertos.ae>";
+const FROM = "Roberto's DIFC <no-reply@kitchenteam.robertos.ae>";   // the verified domain stays
 const AMIN = { name: "Amin Kadrie", email: "akadrie@skelmore.com" };
 const FRANCESCO = { name: "Francesco Guarracino", email: "fguarracino@robertos.ae" };
 const BUCKET = "audit-photos";
@@ -36,9 +36,11 @@ const AREAS = ["arrivo", "cucina", "ristorante", "vino", "scala"];
 const AREA_EN: Record<string, string> = { arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", piatto: "Dish" };
 const ENRICO = "Chef Enrico Bartolini";
 const firstName = (n: string) => String(n || "").replace(/^Chef\s+/i, "").trim().split(/\s+/)[0] || "the auditor";
-// Pages that may be linked to in mails (the report link goes to the page that asked).
-const PAGES = ["https://guarracinofamily.github.io/robertos-kitchen/audit.html", "https://robertos-kitchen.github.io/robertos-kitchen/audit.html"];
-const pageFor = (o: unknown) => PAGES.find((p) => p === o) || PAGES[0];
+// Pages that may be linked to (the link goes to the page that asked). The audit moved to the FOH app
+// on 22 Oct 2026; the Kitchen pages only forward there. Cloudflare serves "/audit.html" as "/audit".
+const PAGES = ["https://robertos-leadership.github.io/robertos-foh/audit.html", "https://robertos-foh-dev.pages.dev/audit.html",
+  "https://guarracinofamily.github.io/robertos-kitchen/audit.html", "https://robertos-kitchen.github.io/robertos-kitchen/audit.html"];
+const pageFor = (o: unknown) => { const s = String(o || "").replace(/\/audit$/, "/audit.html"); return PAGES.find((p) => p === s) || PAGES[0]; };
 const newToken = () => crypto.randomUUID().replace(/-/g, "");
 const dubaiNow = () => {
   const d = new Date(Date.now() + 4 * 3600 * 1000).toISOString();   // Dubai is UTC+4, no DST
@@ -324,7 +326,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
       h += `<div style="border-bottom:1px solid ${C.line};padding:8px 0;font:14px Arial,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td>${esc(c.label_en)} ${badge(s.verdict)}</td><td align="right" style="font-weight:700;white-space:nowrap">${sc}</td></tr></table>${en(s) ? `<div style="color:${C.muted};font-size:13px;line-height:1.5;margin-top:3px;white-space:pre-line">${esc(en(s))}</div>` : ""}${pics(s.photos, urls)}</div>`;
     }
   }
-  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? "Trends against " + esc(prev.title) + " compare only the items scored in both visits (how many in brackets)." : ""} Notes translated to English where needed; the original is kept in the Kitchen App.</div>`;
+  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? "Trends against " + esc(prev.title) + " compare only the items scored in both visits (how many in brackets)." : ""} Notes translated to English where needed; the original is kept in the FOH app.</div>`;
   h += `</div></body></html>`;
   return h;
 }
