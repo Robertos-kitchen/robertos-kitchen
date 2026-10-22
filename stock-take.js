@@ -976,18 +976,18 @@ function stExcelAoa(){
   aoa.push(['','','','','','TOTAL', Math.round(grand*100)/100]);
   return aoa;
 }
-function stExcelBook(){
-  var ws = XLSX.utils.aoa_to_sheet(stExcelAoa());
-  ws['!cols'] = [{wch:22},{wch:12},{wch:42},{wch:16},{wch:10},{wch:8},{wch:12}];
-  var wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Kitchen');
-  return wb;
+// Resolves to the finished file's bytes -- one builder for the download and
+// the email, so the attachment can never look different from the download.
+async function stExcelBook(){
+  await stLoadExcelJS();
+  var wb = new ExcelJS.Workbook(); wb.creator = "Roberto's DIFC";
+  stXlSheet(wb, 'Kitchen', stExcelAoa(), [22,12,42,16,10,8,12]);
+  return wb.xlsx.writeBuffer();
 }
 function stExcelName(){ return "Roberto's Kitchen Stock Take "+stMonth+".xlsx"; }
 async function stExportExcel(){
   try{
-    await stLoadXLSX();
-    XLSX.writeFile(stExcelBook(), stExcelName());
+    stXlSave(await stExcelBook(), stExcelName());
   }catch(e){ if(typeof kToast==='function') kToast('Could not build Excel: '+e.message, true); else alert('Could not build Excel: '+e.message); }
 }
 
@@ -1027,9 +1027,8 @@ async function stSendEmail(mode){
   try{
     if(statusEl){ statusEl.style.color='#8a7a55'; statusEl.textContent='Sending…'; }
     if(mode==='excel'){
-      await stLoadXLSX();
       body.html='<p style="font-family:Arial,Helvetica,sans-serif;color:#2a1a10">Please find attached the Kitchen Stock Take for '+monLabel+'.<br>Total stock value: <b>'+stMoney(stGrandTotal())+'</b> · '+stCountedCount()+' of '+stItems.length+' items counted.</p>';
-      body.attachments=[{ filename:stExcelName(), content:XLSX.write(stExcelBook(), {type:'base64', bookType:'xlsx'}) }];
+      body.attachments=[{ filename:stExcelName(), content:stXlBase64(await stExcelBook()) }];
     } else {
       body.html=stReportHtml().html;
     }
@@ -1367,12 +1366,10 @@ function stCompareAoa(){
 }
 async function stCompareExcel(){
   try{
-    await stLoadXLSX();
-    var ws = XLSX.utils.aoa_to_sheet(stCompareAoa());
-    ws['!cols'] = [{wch:8},{wch:20},{wch:42},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14},{wch:10},{wch:26}];
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Comparison');
-    XLSX.writeFile(wb, "Roberto's Kitchen Stock Take comparison "+stPrevMonth+" vs "+stMonth+".xlsx");
+    await stLoadExcelJS();
+    var wb = new ExcelJS.Workbook(); wb.creator = "Roberto's DIFC";
+    stXlSheet(wb, 'Comparison', stCompareAoa(), [8,20,42,14,12,14,12,14,14,10,26]);
+    stXlSave(await wb.xlsx.writeBuffer(), "Roberto's Kitchen Stock Take comparison "+stPrevMonth+" vs "+stMonth+".xlsx");
   }catch(e){ if(typeof kToast==='function') kToast('Could not build the comparison Excel: '+e.message, true); else alert('Could not build Excel: '+e.message); }
 }
 
@@ -1387,6 +1384,103 @@ function stGateHtml(){
 }
 
 // ══ Excel upload — anyone with a valid employee ID loads the new month's list ══
+// ── Branded Excel ──
+// ExcelJS, not SheetJS: SheetJS's free build cannot style a cell, so every stock
+// take left the app as plain black-on-white. The cells stay EXACTLY where they
+// were -- the cost controller keys this file into his system, and the upload
+// below finds the header by its text -- only the look changes. Same palette as
+// the roster export, so every file from the apps looks like one company's.
+var ST_XL = { VINO:'6B1F2A', SABBIA:'F5F0E8', GOLD:'C9A84C', LIGHT:'FBF8F3', LINE:'E6DED2', MUTED:'8B7355', INK:'2C1810' };
+function stLoadExcelJS(){
+  if(window.ExcelJS) return Promise.resolve();
+  var url='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+  if(typeof lazyLoad==='function') return lazyLoad(url);
+  return new Promise(function(res,rej){ var s=document.createElement('script'); s.src=url; s.onload=res; s.onerror=rej; document.body.appendChild(s); });
+}
+// One sheet from the same array the old file was made of. Row 1 is the title,
+// row 2 the subtitle, the first row as wide as the table is the header; a short
+// row between them is a caveat or a summary line; everything after is the table.
+function stXlSheet(wb, name, aoa, widths){
+  var C = ST_XL, n = widths.length;
+  var hi = -1;
+  for(var r=0; r<aoa.length; r++){ if((aoa[r]||[]).length >= n){ hi = r; break; } }
+  var ws = wb.addWorksheet(String(name).replace(/[\\\/?*\[\]:]/g,' ').slice(0,31), {
+    views: hi > -1 ? [{ state:'frozen', ySplit:hi+1 }] : [],
+    pageSetup: { orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0 }
+  });
+  ws.columns = widths.map(function(w){ return { width:w }; });
+  var head = hi > -1 ? aoa[hi].map(function(h){ return String(h); }) : [];
+  var fmt = head.map(function(h){
+    if(/% change/i.test(h)) return '0"%"';
+    if(/price|value|difference/i.test(h)) return '#,##0.00';
+    return null;
+  });
+  var hair = { style:'thin', color:{argb:'FF'+C.LINE} };
+  var band = 0;
+  aoa.forEach(function(vals, i){
+    vals = vals || [];
+    var row = ws.getRow(i+1);
+    vals.forEach(function(v, j){ if(v !== '' && v != null) row.getCell(j+1).value = v; });
+    if(i === 0){
+      ws.mergeCells(1, 1, 1, n); row.height = 32;
+      row.getCell(1).style = { font:{name:'Calibri', size:16, bold:true, color:{argb:'FF'+C.SABBIA}},
+        fill:{type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C.VINO}}, alignment:{horizontal:'center', vertical:'middle'} };
+    } else if(i === 1){
+      ws.mergeCells(2, 1, 2, n); row.height = 20;
+      row.getCell(1).style = { font:{name:'Calibri', size:11, bold:true, color:{argb:'FF'+C.VINO}},
+        fill:{type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C.SABBIA}}, alignment:{horizontal:'center', vertical:'middle'} };
+    } else if(hi > -1 && i < hi){
+      if(vals.length === 1){
+        ws.mergeCells(i+1, 1, i+1, n);
+        row.getCell(1).style = { font:{name:'Calibri', size:10, italic:true, color:{argb:'FF'+C.MUTED}}, alignment:{horizontal:'center', wrapText:true} };
+      } else if(vals.length){
+        row.getCell(1).font = { name:'Calibri', size:10.5, bold:true, color:{argb:'FF'+C.VINO} };
+        // the label sits in the narrow first column -- widen it to fit rather than move it
+        ws.getColumn(1).width = Math.max(ws.getColumn(1).width || 8, Math.min(34, String(vals[0]).length + 2));
+        var v = row.getCell(2);
+        v.font = { name:'Calibri', size:10.5, color:{argb:'FF'+C.INK} };
+        if(typeof vals[1] === 'number' && /value|difference/i.test(vals[0])) v.numFmt = '#,##0.00';
+      }
+    } else if(i === hi){
+      row.height = 30;
+      for(var c=1; c<=n; c++){
+        row.getCell(c).style = { font:{name:'Calibri', size:10, bold:true, color:{argb:'FFFFFFFF'}},
+          fill:{type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C.VINO}},
+          alignment:{horizontal:'center', vertical:'middle', wrapText:true},
+          border:{ top:{style:'thin', color:{argb:'FF'+C.GOLD}}, bottom:{style:'thin', color:{argb:'FF'+C.GOLD}} } };
+      }
+    } else if(vals.length){
+      var total = vals.indexOf('TOTAL') > -1;
+      band++;
+      for(var k=1; k<=n; k++){
+        var cell = row.getCell(k);
+        cell.font = { name:'Calibri', size:10.5, bold:total, color:{argb:'FF'+(total ? C.VINO : C.INK)} };
+        if(total) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C.SABBIA}};
+        else if(band % 2 === 0) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C.LIGHT}};
+        cell.border = total ? { top:{style:'thin', color:{argb:'FF'+C.VINO}} } : { bottom:hair };
+        cell.alignment = { vertical:'top', wrapText: typeof cell.value === 'string' };
+        if(fmt[k-1] && typeof cell.value === 'number') cell.numFmt = fmt[k-1];
+      }
+      if(vals[0] === 'REVIEW') row.getCell(1).font = { name:'Calibri', size:10.5, bold:true, color:{argb:'FFB3261E'} };
+      else if(vals[0] === 'watch') row.getCell(1).font = { name:'Calibri', size:10.5, bold:true, color:{argb:'FF9A6A00'} };
+    }
+  });
+  return ws;
+}
+function stXlSave(buf, name){
+  var blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+// Resend wants the attachment as base64. Chunked, because one apply() over a
+// whole workbook overruns the argument limit on a long stock list.
+function stXlBase64(buf){
+  var b = new Uint8Array(buf), out = '';
+  for(var i=0; i<b.length; i+=0x8000) out += String.fromCharCode.apply(null, b.subarray(i, i+0x8000));
+  return btoa(out);
+}
 function stLoadXLSX(){
   if(window.XLSX) return Promise.resolve();
   var url='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
