@@ -45,12 +45,10 @@ const AREA_ORDER: Record<string, string[]> = {
 };
 // Sections an older audit page cannot draw: hidden from any page that does not send pv >= 2.
 const NEW_AREAS = ["prenota", "bagno", "congedo"];
-// Question set 2 (22 Oct 2026, Francesco): "Who served you" (name, personality, knowledge of the waiter or
-// bartender, a manager visited) and the cigar selection on Scala. Hidden from a page that does not send
-// qset >= 2; on such a page the team-knowledge question it replaces stays, unless it was already answered.
-const QSET2_AREAS = ["servito"];
-const QSET2_CODES = ["sc.cigarsel"];
-const QSET2_RETIRED = ["rt.knowledge"];
+// Question sets (22 Oct 2026, Francesco). Each audit keeps the set it started with (audit_visits.qset);
+// a question shows when since_qset <= set and (until_qset is empty or set < until_qset). Set 2 = "Who served you",
+// bar-counter wording, cigar selection. Set 3 = SOP timings, split double questions, how long the food took,
+// dessert / coffee offered, name used, and dish scores counted in the food %. A page older than set 2 sees set 1.
 const AREAS = AREA_ORDER.venue;
 const AREA_EN: Record<string, string> = { prenota: "Booking", servito: "Who served you", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
 // For a guest the kitchen section is the food on the plate.
@@ -99,7 +97,13 @@ const foh = FOH_KEY ? createClient(FOH_URL, FOH_KEY, { auth: { persistSession: f
 type Row = Record<string, any>;
 
 // ── percentages: score / (5 × scored items), N/A and empty left out ──────────────────
-function pcts(scores: Row[], catalog: Row[]) {
+// Which area a scored dish counts in: the food on a Restaurant visit, Scala on a Scala visit (set 3 on).
+const dishArea = (kind: string, qset: number) => qset >= 3 ? (kind === "restaurant" ? "cucina" : kind === "scala" ? "scala" : "") : "";
+const dishItems = (kind: string, qset: number, dishes: Row[]) => {
+  const area = dishArea(kind, qset);
+  return area ? (dishes || []).filter((d) => !d.removed && d.score != null && Number(d.score) > 0).map((d) => ({ area, score: Number(d.score) })) : [];
+};
+function pcts(scores: Row[], catalog: Row[], dishes: { area: string; score: number }[] = []) {
   const area: Record<string, string> = {}; for (const c of catalog) area[c.code] = c.area;
   const sum: Record<string, number> = {}, n: Record<string, number> = {};
   let S = 0, N = 0;
@@ -108,6 +112,8 @@ function pcts(scores: Row[], catalog: Row[]) {
     const a = area[s.code]; if (!a) continue;
     sum[a] = (sum[a] || 0) + s.score; n[a] = (n[a] || 0) + 1; S += s.score; N++;
   }
+  // A scored dish is one more item in its area (set 3 guests: the food, or Scala). Not for Enrico's tasting.
+  for (const d of dishes) { sum[d.area] = (sum[d.area] || 0) + d.score; n[d.area] = (n[d.area] || 0) + 1; S += d.score; N++; }
   const out: Record<string, number> = {};
   for (const a of Object.keys(n)) out[a] = Math.round((sum[a] / (5 * n[a])) * 100);
   return { area: out, overall: N ? Math.round((S / (5 * N)) * 100) : null, scored: N };
@@ -265,15 +271,15 @@ async function previousVisit(v: Row) {
 }
 
 // The questions for this visit's kind. A page older than pv 2 only draws the original sections.
-function catalogFor(kind: string, pv: number, qset = 2) {
+function catalogFor(kind: string, pv: number) {
   let q = sb.from("audit_catalog").select("*").eq("active", true).contains("kinds", [kindOf(kind)]);
   if (pv < 2) q = q.not("area", "in", "(" + NEW_AREAS.join(",") + ")");
-  if (qset < 2) q = q.not("area", "in", "(" + QSET2_AREAS.join(",") + ")").not("code", "in", "(" + QSET2_CODES.join(",") + ")");
   return q.order("area").order("position");
 }
-async function loadAll(v: Row, admin: boolean, pv = 2, qset = 2) {
+async function loadAll(v: Row, admin: boolean, pv = 2, pageQset?: number) {
+  const qset = pageQset != null && pageQset < 2 ? 1 : Number(v.qset) || 2;
   const [cat, sc, di, fl, tx, prev, dishes] = await Promise.all([
-    catalogFor(v.kind, pv, qset),
+    catalogFor(v.kind, pv),
     sb.from("audit_scores").select("*").eq("visit_id", v.id),
     sb.from("audit_dishes").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
     sb.from("audit_flags").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
@@ -284,14 +290,14 @@ async function loadAll(v: Row, admin: boolean, pv = 2, qset = 2) {
   const paths: string[] = [];
   for (const r of [...(sc.data || []), ...(di.data || []), ...(fl.data || []), ...(tx.data || [])]) for (const p of r.photos || []) paths.push(p);
   const urls = await signAll(paths, 60 * 60 * 24);
-  // Set 2 drops the question it replaced, unless this visit already answered it.
+  // A question belongs to some sets only; one it replaced stays for a visit that already answered it.
   const answered = new Set((sc.data || []).filter((r: Row) => r.na || r.score != null).map((r: Row) => r.code));
-  if (qset >= 2 && cat.data) cat.data = cat.data.filter((c: Row) => !QSET2_RETIRED.includes(c.code) || answered.has(c.code));
+  if (cat.data) cat.data = cat.data.filter((c: Row) => (Number(c.since_qset) || 1) <= qset && (!c.until_qset || qset < Number(c.until_qset) || answered.has(c.code)));
   // Scala: a guest at the bar counter gets the counter wording (label_bar_*), at a lounge table the usual one.
   const seat = ((tx.data || []).find((r: Row) => r.key === "seat") || {}).it;
   if (qset >= 2 && seat === "bar" && cat.data) cat.data = cat.data.map((c: Row) => c.label_bar_en ? { ...c, label_en: c.label_bar_en, label_it: c.label_bar_it || c.label_it, hint_en: c.hint_bar_en ?? c.hint_en, hint_it: c.hint_bar_it ?? c.hint_it } : c);
-  const areaList = AREA_ORDER[kindOf(v.kind)].filter((a) => qset >= 2 || !QSET2_AREAS.includes(a));
-  const p = pcts(sc.data || [], cat.data || []);
+  const areaList = AREA_ORDER[kindOf(v.kind)].filter((a) => (cat.data || []).some((c: Row) => c.area === a));
+  const p = pcts(sc.data || [], cat.data || [], dishItems(kindOf(v.kind), qset, di.data || []));
   return {
     role: admin ? "admin" : "enrico", kind: kindOf(v.kind), areas: areaList, area_en: Object.fromEntries(areaList.map((a) => [a, areaEn(kindOf(v.kind), a)])),
     visit: { id: v.id, title: v.title, kind: kindOf(v.kind), sender_name: v.sender_name, visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
@@ -660,7 +666,7 @@ Deno.serve(async (req) => {
     }
     const { data: nv, error } = await sb.from("audit_visits").insert({
       title: `${name} · ${date.split("-").reverse().join("/")} ${time}`, auditor: name, visit_date: date, visit_time: time, kind,
-      status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id,
+      status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id, qset: Number(b.qset) >= 3 ? 3 : 2,
       sender_name: inv.sender_name, sender_email: inv.sender_email,
     }).select("enrico_token").single();
     if (error) return json({ error: error.message }, 500);
@@ -819,7 +825,8 @@ Deno.serve(async (req) => {
       const n = await translatePending(v.id, v.auditor).catch((e) => { console.error(e); return -1; });
       const { data: sc } = await sb.from("audit_scores").select("code,score,na").eq("visit_id", v.id);
       const { data: cat } = await sb.from("audit_catalog").select("code,area");
-      const p = pcts(sc || [], cat || []);
+      const { data: dsh } = await sb.from("audit_dishes").select("score,removed").eq("visit_id", v.id);
+      const p = pcts(sc || [], cat || [], dishItems(kindOf(v.kind), Number(v.qset) || 2, dsh || []));
       await sb.from("audit_visits").update({ status: v.status === "sent" || v.status === "test" ? v.status : "submitted", submitted_at: new Date().toISOString(), overall_pct: p.overall, area_pct: p.area, updated_at: new Date().toISOString() }).eq("id", v.id);
       // Anyone else's audit goes to Roberto's management team: it is in the FOH Audits module now, no mail.
       if (v.auditor !== ENRICO) return json({ ok: true, translated: n, pct: p });
