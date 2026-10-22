@@ -837,18 +837,28 @@ root.addEventListener('click', function(e){
   if (act === 'sendamin') { if (!b._sure) { b._sure = true; b.textContent = 'Tap again to email ' + (D.recipients ? D.recipients.to.name : 'Amin'); setTimeout(function(){ if (b.isConnected) { b._sure = false; render(); } }, 5000); return; } sendReport(b, 'send'); return; }
 });
 
+// One add at a time: the list stays on screen until the server answers, and Danilo's taps in
+// that gap saved Burrata four times (21 Oct 2026). A dish already in this audit is opened, not added again.
+var ADDING = null;
 function createFlag(){
-  return api('flag', { area: 'piatto', kind: 'attention' }).then(function(res){ D.flags.push(res.row); return res.row; }, function(er){ toast(er.message, true); throw er; });
+  if (ADDING) return ADDING;
+  ADDING = api('flag', { area: 'piatto', kind: 'attention' }).then(function(res){ ADDING = null; D.flags.push(res.row); return res.row; }, function(er){ ADDING = null; toast(er.message, true); throw er; });
+  return ADDING;
 }
 function pickDish(mode, id, name){
   name = (name || '').trim(); if (!name) return;
-  S.q = ''; S.picking = false;
   if (mode === 'adddish') {
-    api('dish', { dish_name: name, recipe_id: id }).then(function(res){ D.dishes.push(res.row); go({ v: 'dish', id: res.row.id }); }, function(er){ toast(er.message, true); });
-  } else {
-    var f = byId(D.flags, S.id); f.dish_name = name; f.recipe_id = id;
-    queue('flag:' + f.id + ':d', 'flag', { id: f.id, dish_name: name, recipe_id: id }); render();
+    if (ADDING) return;
+    var same = D.dishes.filter(function(x){ return !x.removed && (id ? x.recipe_id === id : !x.recipe_id && low(x.dish_name || '') === low(name)); })[0];
+    S.q = ''; S.picking = false;
+    if (same) { go({ v: 'dish', id: same.id }); return; }
+    root.querySelectorAll('[data-act="pickdish"]').forEach(function(x){ x.disabled = true; });
+    ADDING = api('dish', { dish_name: name, recipe_id: id }).then(function(res){ ADDING = null; D.dishes.push(res.row); go({ v: 'dish', id: res.row.id }); }, function(er){ ADDING = null; toast(er.message, true); render(); });
+    return;
   }
+  S.q = ''; S.picking = false;
+  var f = byId(D.flags, S.id); f.dish_name = name; f.recipe_id = id;
+  queue('flag:' + f.id + ':d', 'flag', { id: f.id, dish_name: name, recipe_id: id }); render();
 }
 function submit(b){
   if (!b._sure) { b._sure = true; b.textContent = t('sendSure'); setTimeout(function(){ if (b.isConnected) { b._sure = false; b.textContent = t('send'); } }, 5000); return; }
@@ -926,6 +936,7 @@ function delPhoto(target, ref, path){
 
 /* ── dictation: the iPhone's own speech recognition, Italian ──────────── */
 var REC = null, REC_ID = null;
+function low(s){ return String(s).toLowerCase().replace(/\s+/g, ' ').trim(); }
 function stopMic(){ if (REC) { try { REC.stop(); } catch(e){} } }
 function markMic(){
   if (!REC_ID) return;
@@ -943,16 +954,24 @@ function toggleMic(btn){
   // came out as half-English nonsense (Francesco's test, 15 Oct 2026).
   rec.lang = LANG === 'en' ? 'en-GB' : 'it-IT';
   rec.continuous = true; rec.interimResults = true;
-  var base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '', finalTxt = '';
+  // The text is rebuilt from the whole result list on every event, never appended to. The iPhone
+  // sends each "final" result as the whole sentence so far ("Sì", "Sì allora", "Sì allora tutto
+  // bene"…), so appending each one saved Danilo's note as one phrase repeated ~30 times (21 Oct 2026).
+  // A result that starts with what came before replaces it; anything else is a new piece.
+  // If the list starts over after a final result, what was heard before is kept; an unfinished
+  // guess that changes ("benne" → "bene") is replaced.
+  var base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '', kept = '', last = '', lastFinal = false;
   rec.onresult = function(ev){
-    var interim = '';
-    for (var i = ev.resultIndex; i < ev.results.length; i++) {
-      var r = ev.results[i];
-      if (r.isFinal) finalTxt += r[0].transcript.replace(/^\s+/, '') + ' ';
-      else interim += r[0].transcript;
+    var heard = '', n = ev.results.length;
+    for (var i = 0; i < n; i++) {
+      var s = ev.results[i][0].transcript.replace(/\s+/g, ' ').trim();
+      if (!s) continue;
+      if (heard && low(s).indexOf(low(heard)) !== 0) heard += ' ' + s; else heard = s;
     }
+    if (last && lastFinal && low(heard).indexOf(low(last)) !== 0) kept += last + ' ';
+    last = heard; lastFinal = n > 0 && ev.results[n - 1].isFinal;
     var el = document.getElementById(id) || ta;
-    el.value = (base + finalTxt + interim).replace(/\s+$/, ' ');
+    el.value = (base + kept + heard).replace(/\s+$/, '') + ' ';
     el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px';
     saveNote(el);
   };
