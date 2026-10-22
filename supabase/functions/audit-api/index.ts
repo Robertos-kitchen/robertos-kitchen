@@ -578,14 +578,14 @@ async function fohCall(b: Row, action: string) {
     return json({ ok: true, row: data });
   }
 
-  // Delete for good (Admin only): only audits already removed. Scores, dishes, notes, mail log
+  // Delete for good (Admin only): only audits already removed, never the archived Nov 2022 record. Scores, dishes, notes, mail log
   // and tidy log go with the visit (FK cascade); the photos are deleted from storage first.
   if (action === "purge") {
     if (!who.admin) return json({ error: "Admins only" }, 403);
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 500);
     if (!ids.length) return json({ error: "Nothing chosen" }, 400);
     const { data: rows, error } = await sb.from("audit_visits").select("id").in("id", ids)
-      .in("status", [...LISTED, "archived"]).not("removed_at", "is", null);
+      .in("status", LISTED).not("removed_at", "is", null);
     if (error) throw error;
     const ok = (rows || []).map((r) => r.id);
     if (!ok.length) return json({ ok: true, deleted: 0 });
@@ -596,7 +596,7 @@ async function fohCall(b: Row, action: string) {
     }
     const uniq = [...new Set(paths)];
     for (let i = 0; i < uniq.length; i += 100) await sb.storage.from(BUCKET).remove(uniq.slice(i, i + 100));
-    const { error: de } = await sb.from("audit_visits").delete().in("id", ok).not("removed_at", "is", null);
+    const { error: de } = await sb.from("audit_visits").delete().in("id", ok).in("status", LISTED).not("removed_at", "is", null);
     if (de) throw de;
     console.log("audit purge", who.email, ok.length, ok.join(","));
     return json({ ok: true, deleted: ok.length });
