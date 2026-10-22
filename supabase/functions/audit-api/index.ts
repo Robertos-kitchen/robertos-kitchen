@@ -40,13 +40,19 @@ const KINDS = ["venue", "restaurant", "scala"];
 const KIND_EN: Record<string, string> = { venue: "Whole venue", restaurant: "Restaurant visit", scala: "Scala visit" };
 const AREA_ORDER: Record<string, string[]> = {
   venue: ["arrivo", "cucina", "ristorante", "vino", "scala", "bagno", "congedo"],
-  restaurant: ["prenota", "arrivo", "ristorante", "vino", "cucina", "bagno", "congedo"],
-  scala: ["prenota", "arrivo", "scala", "bagno", "congedo"],
+  restaurant: ["prenota", "arrivo", "ristorante", "servito", "vino", "cucina", "bagno", "congedo"],
+  scala: ["prenota", "arrivo", "scala", "servito", "bagno", "congedo"],
 };
 // Sections an older audit page cannot draw: hidden from any page that does not send pv >= 2.
 const NEW_AREAS = ["prenota", "bagno", "congedo"];
+// Question set 2 (22 Oct 2026, Francesco): "Who served you" (name, personality, knowledge of the waiter or
+// bartender, a manager visited) and the cigar selection on Scala. Hidden from a page that does not send
+// qset >= 2; on such a page the team-knowledge question it replaces stays, unless it was already answered.
+const QSET2_AREAS = ["servito"];
+const QSET2_CODES = ["sc.cigarsel"];
+const QSET2_RETIRED = ["rt.knowledge"];
 const AREAS = AREA_ORDER.venue;
-const AREA_EN: Record<string, string> = { prenota: "Booking", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
+const AREA_EN: Record<string, string> = { prenota: "Booking", servito: "Who served you", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
 // For a guest the kitchen section is the food on the plate.
 // A guest's sections are named for a guest: the kitchen is the food on the plate, the restaurant is
 // what happens at the table, Scala is the bar & lounge itself.
@@ -159,7 +165,7 @@ async function translatePending(visitId: string, auditor: string) {
   for (const r of sc.data || []) if (r.note_it && r.note_it !== r.en_src) jobs.push({ table: "audit_scores", match: { id: r.id }, it: r.note_it, enCol: "note_en", srcCol: "en_src" });
   for (const r of di.data || []) if (r.note_it && r.note_it !== r.en_src) jobs.push({ table: "audit_dishes", match: { id: r.id }, it: r.note_it, enCol: "note_en", srcCol: "en_src" });
   for (const r of fl.data || []) if (r.note_it && r.note_it !== r.en_src) jobs.push({ table: "audit_flags", match: { id: r.id }, it: r.note_it, enCol: "note_en", srcCol: "en_src" });
-  for (const r of tx.data || []) if (r.it && r.it !== r.en_src) jobs.push({ table: "audit_texts", match: { visit_id: visitId, key: r.key }, it: r.it, enCol: "en", srcCol: "en_src" });
+  for (const r of tx.data || []) if (r.key !== "seat" && r.it && r.it !== r.en_src) jobs.push({ table: "audit_texts", match: { visit_id: visitId, key: r.key }, it: r.it, enCol: "en", srcCol: "en_src" });
   if (!jobs.length) return 0;
   if (!ANTHROPIC_API_KEY) throw new Error("No ANTHROPIC_API_KEY on this project");
   const en = await translateAll(jobs.map((j) => j.it), system(auditor));
@@ -212,14 +218,15 @@ async function previousVisit(v: Row) {
 }
 
 // The questions for this visit's kind. A page older than pv 2 only draws the original sections.
-function catalogFor(kind: string, pv: number) {
+function catalogFor(kind: string, pv: number, qset = 2) {
   let q = sb.from("audit_catalog").select("*").eq("active", true).contains("kinds", [kindOf(kind)]);
   if (pv < 2) q = q.not("area", "in", "(" + NEW_AREAS.join(",") + ")");
+  if (qset < 2) q = q.not("area", "in", "(" + QSET2_AREAS.join(",") + ")").not("code", "in", "(" + QSET2_CODES.join(",") + ")");
   return q.order("area").order("position");
 }
-async function loadAll(v: Row, admin: boolean, pv = 2) {
+async function loadAll(v: Row, admin: boolean, pv = 2, qset = 2) {
   const [cat, sc, di, fl, tx, prev, dishes] = await Promise.all([
-    catalogFor(v.kind, pv),
+    catalogFor(v.kind, pv, qset),
     sb.from("audit_scores").select("*").eq("visit_id", v.id),
     sb.from("audit_dishes").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
     sb.from("audit_flags").select("*").eq("visit_id", v.id).eq("removed", false).order("created_at"),
@@ -230,9 +237,16 @@ async function loadAll(v: Row, admin: boolean, pv = 2) {
   const paths: string[] = [];
   for (const r of [...(sc.data || []), ...(di.data || []), ...(fl.data || []), ...(tx.data || [])]) for (const p of r.photos || []) paths.push(p);
   const urls = await signAll(paths, 60 * 60 * 24);
+  // Set 2 drops the question it replaced, unless this visit already answered it.
+  const answered = new Set((sc.data || []).filter((r: Row) => r.na || r.score != null).map((r: Row) => r.code));
+  if (qset >= 2 && cat.data) cat.data = cat.data.filter((c: Row) => !QSET2_RETIRED.includes(c.code) || answered.has(c.code));
+  // Scala: a guest at the bar counter gets the counter wording (label_bar_*), at a lounge table the usual one.
+  const seat = ((tx.data || []).find((r: Row) => r.key === "seat") || {}).it;
+  if (qset >= 2 && seat === "bar" && cat.data) cat.data = cat.data.map((c: Row) => c.label_bar_en ? { ...c, label_en: c.label_bar_en, label_it: c.label_bar_it || c.label_it, hint_en: c.hint_bar_en ?? c.hint_en, hint_it: c.hint_bar_it ?? c.hint_it } : c);
+  const areaList = AREA_ORDER[kindOf(v.kind)].filter((a) => qset >= 2 || !QSET2_AREAS.includes(a));
   const p = pcts(sc.data || [], cat.data || []);
   return {
-    role: admin ? "admin" : "enrico", kind: kindOf(v.kind), areas: AREA_ORDER[kindOf(v.kind)], area_en: Object.fromEntries(AREA_ORDER[kindOf(v.kind)].map((a) => [a, areaEn(kindOf(v.kind), a)])),
+    role: admin ? "admin" : "enrico", kind: kindOf(v.kind), areas: areaList, area_en: Object.fromEntries(areaList.map((a) => [a, areaEn(kindOf(v.kind), a)])),
     visit: { id: v.id, title: v.title, kind: kindOf(v.kind), sender_name: v.sender_name, visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
     catalog: cat.data || [], scores: sc.data || [], dishes: di.data || [], flags: fl.data || [], texts: tx.data || [],
     previous: prev, menu: dishes, urls, pct: p, recipients: admin ? { to: AMIN, cc: FRANCESCO } : null,
@@ -331,6 +345,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
   const card = (inner: string) => `<div style="background:#ffffff;border:1px solid ${B.line};border-radius:12px;padding:12px 14px;margin:0 0 10px">${inner}</div>`;
   const whenTxt = [fmtDate(d.visit.visit_date), d.visit.visit_time].filter(Boolean).join(", ");
   const by = enrico ? "" : (d.visit.sender_name ? " · sent by " + d.visit.sender_name : "");
+  const seatTxt = ({ bar: " · at the bar counter", lounge: " · at a lounge table" } as Record<string, string>)[(t.seat && t.seat.it) || ""] || "";
 
   let h = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<link href="https://fonts.googleapis.com/css2?family=Forum&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet"></head>` +
@@ -341,7 +356,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
     `<img src="${LOGO}" alt="Roberto's" width="190" style="display:block;width:190px;height:auto;border:0;margin:0 0 18px">` +
     `<div style="font:500 12px ${SANS};letter-spacing:1.6px;text-transform:uppercase;color:${B.muted}">${esc(KIND_TITLE[kind])}</div>` +
     `<div style="font:400 34px/1.1 ${DISPLAY};color:${B.wine};margin:4px 0 4px">${esc(d.visit.auditor)}</div>` +
-    `<div style="font:14px ${SANS};color:${B.muted}">${esc(whenTxt)}${esc(by)}</div>` +
+    `<div style="font:14px ${SANS};color:${B.muted}">${esc(whenTxt)}${esc(seatTxt)}${esc(by)}</div>` +
     `<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:16px"><tr>` +
     `<td style="font:400 64px/0.9 ${DISPLAY};color:${d.pct.overall != null && d.pct.overall >= TARGET ? B.ok : B.wine};padding-right:16px;vertical-align:bottom">${d.pct.overall ?? "—"}${d.pct.overall != null ? "%" : ""}</td>` +
     `<td style="font:14px/1.5 ${SANS};color:${B.muted};vertical-align:bottom;padding-bottom:4px">${answered} of ${d.catalog.length} answered<br>${notSeen} not seen · target ${TARGET}%</td></tr></table></div>`;
@@ -389,6 +404,8 @@ function emailHtml(d: Row, urls: Record<string, string>) {
     if (tops.length) said += `<div style="font:500 12px ${SANS};color:${B.muted};margin-bottom:4px">${esc(firstName(d.visit.auditor))}'s top 3</div>` + tops.map((s, i) => `<div style="font:15px/1.5 ${SANS};margin:3px 0"><b style="color:${B.wine}">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
   }
   if (said) h += block(head(enrico ? "In Enrico's words" : "In " + firstName(d.visit.auditor) + "'s words") + said);
+  // Feedback on the audit form itself (shared link only): kept apart from the visit, never scored.
+  if (!enrico && t.formfb && en(t.formfb, "it", "en")) h += block(head("Feedback on the audit form") + para(en(t.formfb, "it", "en")));
 
   // What went well: every 5 / 5 and every "keep" photo flag
   const wells: string[] = [];
@@ -598,7 +615,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    if (action === "load") return json(await loadAll(v, admin, Number(b.pv) || 1));
+    if (action === "load") return json(await loadAll(v, admin, Number(b.pv) || 1, Number(b.qset) || 1));
 
     // Enrico cannot change anything once the report has gone to Amin.
     if (!admin && v.status === "sent") return json({ error: v.auditor === ENRICO ? "Questo audit è già stato inviato. Grazie!" : "This audit has already been sent. Thank you!" }, 409);
@@ -656,8 +673,10 @@ Deno.serve(async (req) => {
 
     if (action === "text") {
       const key = String(b.key || "");
-      // Enrico: overall, improvements, top 3. A guest: the best moment, one thing to fix, anything else.
-      if (!["overall", "improve", "p1", "p2", "p3", "best", "fixone", "other"].includes(key)) return json({ error: "bad key" }, 400);
+      // Enrico: overall, improvements, top 3. A guest: the best moment, one thing to fix, anything else,
+      // and (optional) feedback on the audit form itself, for the people who look after it.
+      if (!["overall", "improve", "p1", "p2", "p3", "best", "fixone", "other", "formfb", "seat"].includes(key)) return json({ error: "bad key" }, 400);
+      if (key === "seat" && !["bar", "lounge", ""].includes(String(b.it || ""))) return json({ error: "bad seat" }, 400);
       const { data, error } = await sb.from("audit_texts").upsert({ visit_id: v.id, key, it: clean(b.it), updated_at: new Date().toISOString() }, { onConflict: "visit_id,key" }).select().single();
       if (error) throw error;
       await touch();

@@ -1,0 +1,18 @@
+-- Audit question set 2 (22 Oct 2026, Francesco). Applied to the Kitchen DB on 22 Oct 2026.
+-- Shown only to an audit page that sends qset >= 2 (audit-api v12); older pages keep set 1.
+alter table audit_catalog add column if not exists label_bar_en text, add column if not exists label_bar_it text,
+  add column if not exists hint_bar_en text, add column if not exists hint_bar_it text;
+
+update audit_catalog set position = position + 1 where code in ('sc.cigar','sc.service','sc.mood','sc.atmos');
+
+insert into audit_catalog (code, area, position, label_en, label_it, active, kinds, qtype, hint_en, hint_it, a5_en, a3_en, a1_en, a5_it, a3_it, a1_it, label_bar_en, label_bar_it, hint_bar_en, hint_bar_it) values
+('srv.name','servito',1,'The person who served you introduced themselves by name','Chi ti ha servito si è presentato per nome',true,'{restaurant,scala}','standard','Waiter or bartender. Write their name in the note if you remember it.','Cameriere o barman. Scrivi il nome nella nota se lo ricordi.',null,null,null,null,null,null,null,null,null,null),
+('srv.person','servito',2,'Their personality','La sua personalità',true,'{restaurant,scala}','quality',null,null,'Warm and natural, made you feel welcome, read the mood','Polite but flat, just taking orders','Cold, rushed or absent','Caloroso e naturale, ti ha fatto sentire il benvenuto, ha capito il momento','Educato ma piatto, prendeva solo gli ordini','Freddo, frettoloso o assente',null,null,null,null),
+('srv.knowledge','servito',3,'Their knowledge of the food and drinks','La sua conoscenza di cibo e drink',true,'{restaurant,scala}','quality',null,null,'Answered without checking, told the story of a dish or drink, suggested something with a reason','Knew the basics, read it off the menu','Had to go and ask, or guessed','Ha risposto senza controllare, ha raccontato un piatto o un drink, ha consigliato con un perché','Conosceva le basi, leggeva dal menu','Ha dovuto chiedere, o ha tirato a indovinare',null,null,null,null),
+('srv.manager','servito',4,'A manager came to your table','Un manager è passato al tuo tavolo',true,'{restaurant,scala}','standard','Introduced themselves and checked everything was right.','Si è presentato e ha chiesto se andava tutto bene.',null,null,null,null,null,null,'A manager came to see you at the counter','Un manager è passato a salutarti al bancone',null,null),
+('sc.cigarsel','scala',9,'The cigar selection (skip if you didn''t look)','La selezione di sigari (salta se non l''hai vista)',true,'{scala}','quality',null,null,'A real choice of sizes and strengths, well kept, prices clear','A few cigars, little choice','Nothing worth having, or none available','Una vera scelta di formati e intensità, ben conservati, prezzi chiari','Pochi sigari, poca scelta','Niente di interessante, o non disponibile',null,null,null,null);
+
+-- Bar counter wording (Scala, guest sat at the counter)
+update audit_catalog set label_bar_en='The bartender came to you within 1 minute of sitting at the counter', label_bar_it='Il barman è venuto da te entro 1 minuto al bancone' where code='arr.ack';
+update audit_catalog set label_bar_en='The counter in front of you was set for what you ordered, and kept clear', label_bar_it='Il bancone davanti a te preparato per l''ordine e tenuto in ordine', hint_bar_en='Coaster, napkin, a plate for bites; empties taken away.', hint_bar_it='Sottobicchiere, tovagliolo, piattino; il vuoto portato via.' where code='sc.table';
+update audit_catalog set label_bar_en='Payment was handled at the counter, discreetly', label_bar_it='Pagamento al bancone, con discrezione', hint_bar_en='Bill in a folder, card machine brought to you.', hint_bar_it='Conto in cartellina, POS portato a te.' where code='con.discreet';
