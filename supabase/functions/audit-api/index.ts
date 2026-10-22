@@ -153,6 +153,53 @@ async function translateAll(texts: string[], sys: string) {
   return out;
 }
 
+// ── dictation clean-up ────────────────────────────────────────────────────────────────
+// Phone speech-to-text writes the sounds, not the meaning ("a Bittu sorati" for "a bit too salty",
+// Francesco 22 Oct 2026). After Stop, the dictated words go here with what they are about and the
+// menu names, and come back as a clean sentence in the same language. Nothing is added: the page
+// keeps what was said and offers it back ("What you said"), and every pair is logged.
+const TEXT_ABOUT: Record<string, string> = {
+  overall: "the visit overall", improve: "suggested improvements", p1: "a top priority", p2: "a top priority", p3: "a top priority",
+  best: "the best moment of the visit", fixone: "one thing to fix", other: "anything else about the visit",
+  formfb: "feedback on the audit form itself (its questions or the app), not on the restaurant",
+};
+const tidySystem = (lang: string, about: string, visit: string, menu: string[]) => `You clean up phone dictation for an audit of Roberto's, an Italian restaurant with Scala, its bar & lounge, in Dubai.
+The speaker dictated a note about ${about}. Visit: ${visit}.
+
+Speech-to-text writes the sounds it heard, so words come out wrong. Your job:
+- Fix misheard words only where the context makes the intended words clear (for example, about a dish, "a Bittu sorati" means "a bit too salty"). Use the menu names below only to correct a name that was misheard; never replace, complete or lengthen a name the speaker said correctly ("burrata" stays "burrata").
+- Remove fillers, false starts, repeated words and anything said to the phone rather than about the visit ("okay let's see", "testing 1 2 3", "do you understand").
+- Keep the speaker's meaning, opinion and strength exactly. Never add facts, details, praise or criticism they did not say. Never answer, explain or comment.
+- If a part cannot be understood with confidence, keep those words as they were.
+- Change as little as possible: keep the speaker's own words, word order and connectors (but, because, ma, perché); add punctuation and capitals. Write in ${lang}, in the speaker's own voice.
+- If nothing is left after removing what was said to the phone, return an empty text.
+
+Return ONLY JSON: {"text": "..."}
+
+Menu names: ${menu.join(" · ") || "(none)"}`;
+
+// The menu for the tidy prompt, kept for 10 minutes: three lookups on every Stop added ~1 s.
+let MENU_CACHE: { at: number; list: Row[] } | null = null;
+async function menuCached() {
+  if (!MENU_CACHE || Date.now() - MENU_CACHE.at > 600000) MENU_CACHE = { at: Date.now(), list: await dishList() };
+  return MENU_CACHE.list;
+}
+
+async function tidyCall(model: string, raw: string, sys: string) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: 1000, system: sys, messages: [{ role: "user", content: raw }] }),
+  });
+  if (!r.ok) throw new Error("tidy " + r.status + " " + (await r.text()).slice(0, 200));
+  const d = await r.json();
+  const txt = (d.content || []).map((c: Row) => c.text || "").join("").trim();
+  const m = txt.match(/\{[\s\S]*\}/);
+  const o = JSON.parse(m ? m[0] : txt);
+  if (typeof o.text !== "string") throw new Error("tidy: no text");
+  return o.text.trim();
+}
+
 // Every note whose English was made from different Italian (or never made) is translated now.
 async function translatePending(visitId: string, auditor: string) {
   const jobs: { table: string; match: Row; it: string; enCol: string; srcCol: string }[] = [];
@@ -669,6 +716,42 @@ Deno.serve(async (req) => {
       if (res.error) throw res.error;
       await touch();
       return json({ row: res.data });
+    }
+
+    if (action === "tidy") {
+      const raw = clean(b.text, 2000);
+      if (!raw) return json({ text: "" });
+      if (!ANTHROPIC_API_KEY) return json({ text: raw, same: true });
+      const kind = kindOf(v.kind), tgt = String(b.target || ""), ref = String(b.ref || "");
+      // The three lookups run side by side: one after another they doubled the wait after Stop (~5 s).
+      const [ctx, st, dl] = await Promise.all([
+        tgt === "score" ? sb.from("audit_catalog").select("area,label_en,hint_en").eq("code", ref).maybeSingle()
+          : tgt === "dish" || tgt === "flag" ? sb.from(tgt === "dish" ? "audit_dishes" : "audit_flags").select("dish_name").eq("id", ref).eq("visit_id", v.id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        sb.from("audit_texts").select("it").eq("visit_id", v.id).eq("key", "seat").maybeSingle(),
+        menuCached(),
+      ]);
+      const c = ctx.data as Row | null;
+      let about = "a point of the visit";
+      if (tgt === "score" && c) about = `the question "${c.label_en}"${c.hint_en ? " (" + c.hint_en + ")" : ""}, in the section "${areaEn(kind, c.area)}"`;
+      else if (tgt === "dish" || tgt === "flag") about = c && c.dish_name ? `the dish "${c.dish_name}"` : tgt === "flag" ? "something in a photo" : "a dish";
+      else if (tgt === "text") about = TEXT_ABOUT[ref] || about;
+      const visit = KIND_EN[kind] + (st.data && st.data.it === "bar" ? ", sitting at the bar counter" : st.data && st.data.it === "lounge" ? ", at a lounge table" : "");
+      const where = kind === "scala" ? "scala" : "ristorante";
+      const menu = dl.filter((m: Row) => kind === "venue" || m.where === where).map((m: Row) => m.name).slice(0, 300);
+      const sys = tidySystem(b.lang === "it" ? "Italian" : "English", about, visit, menu);
+      let out: string, model = "claude-haiku-5-5";
+      const t0 = Date.now();
+      try { out = await tidyCall(model, raw, sys); }
+      catch (_e) { model = "claude-sonnet-5-5"; out = await tidyCall(model, raw, sys); }
+      // A clean-up is never longer than what was said, beyond punctuation: anything longer is refused.
+      if (out.length > raw.length * 1.3 + 20) out = raw;
+      // The log is written after the reply goes out, so the guest never waits for it.
+      const log = sb.from("audit_tidy_log").insert({ visit_id: v.id, target: tgt, ref, lang: b.lang === "it" ? "it" : "en", raw, tidy: out, model, ms: Date.now() - t0 }).then(() => {});
+      // deno-lint-ignore no-explicit-any
+      const ER = (globalThis as any).EdgeRuntime;
+      if (ER && ER.waitUntil) ER.waitUntil(log); else await log;
+      return json({ text: out, ms: Date.now() - t0 });
     }
 
     if (action === "text") {
