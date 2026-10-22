@@ -47,7 +47,13 @@ const NEW_AREAS = ["prenota", "bagno", "congedo"];
 const AREAS = AREA_ORDER.venue;
 const AREA_EN: Record<string, string> = { prenota: "Booking", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
 // For a guest the kitchen section is the food on the plate.
-const areaEn = (kind: string, a: string) => (a === "cucina" && kind !== "venue" ? "Food" : AREA_EN[a] || a);
+// A guest's sections are named for a guest: the kitchen is the food on the plate, the restaurant is
+// what happens at the table, Scala is the bar & lounge itself.
+const areaEn = (kind: string, a: string) =>
+  kind !== "venue" && a === "cucina" ? "The food" : kind === "restaurant" && a === "ristorante" ? "At the table" : kind === "scala" && a === "scala" ? "At Scala" : AREA_EN[a] || a;
+// A standard is answered Yes (score 5) or No (score 0); a quality score is 1-5. Either way the % is score / 5,
+// and "answered" means a score is there at all — a No is 0, so never test a score for truth.
+const has = (s: Row) => s && !s.na && s.score != null;
 const kindOf = (k: unknown) => (KINDS.includes(String(k)) ? String(k) : "venue");
 const ENRICO = "Chef Enrico Bartolini";
 const firstName = (n: string) => String(n || "").replace(/^Chef\s+/i, "").trim().split(/\s+/)[0] || "the auditor";
@@ -91,7 +97,7 @@ function pcts(scores: Row[], catalog: Row[]) {
   const sum: Record<string, number> = {}, n: Record<string, number> = {};
   let S = 0, N = 0;
   for (const s of scores) {
-    if (s.na || !s.score) continue;
+    if (!has(s)) continue;
     const a = area[s.code]; if (!a) continue;
     sum[a] = (sum[a] || 0) + s.score; n[a] = (n[a] || 0) + 1; S += s.score; N++;
   }
@@ -223,7 +229,7 @@ async function loadAll(v: Row, admin: boolean, pv = 2) {
   const p = pcts(sc.data || [], cat.data || []);
   return {
     role: admin ? "admin" : "enrico", kind: kindOf(v.kind), areas: AREA_ORDER[kindOf(v.kind)], area_en: Object.fromEntries(AREA_ORDER[kindOf(v.kind)].map((a) => [a, areaEn(kindOf(v.kind), a)])),
-    visit: { id: v.id, title: v.title, kind: kindOf(v.kind), visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
+    visit: { id: v.id, title: v.title, kind: kindOf(v.kind), sender_name: v.sender_name, visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
     catalog: cat.data || [], scores: sc.data || [], dishes: di.data || [], flags: fl.data || [], texts: tx.data || [],
     previous: prev, menu: dishes, urls, pct: p, recipients: admin ? { to: AMIN, cc: FRANCESCO } : null,
   };
@@ -279,79 +285,133 @@ const en = (r: Row, itCol = "note_it", enCol = "note_en") => r[enCol] || r[itCol
 // Trend against the last visit, like for like: only items scored (not N/A) in BOTH visits.
 function like(scores: Row[], prevScores: Row[], catalog: Row[], area?: string) {
   const old: Record<string, number> = {};
-  for (const p of prevScores || []) if (p.score && !p.na) old[p.code] = p.score;
+  for (const p of prevScores || []) if (has(p)) old[p.code] = p.score;
   const inArea = new Set(catalog.filter((c) => !area || c.area === area).map((c) => c.code));
   let a = 0, b = 0, n = 0;
-  for (const s of scores) if (inArea.has(s.code) && s.score && !s.na && old[s.code]) { a += s.score; b += old[s.code]; n++; }
+  for (const s of scores) if (inArea.has(s.code) && has(s) && old[s.code] != null) { a += s.score; b += old[s.code]; n++; }
   if (!n) return null;
   const now = Math.round((a / (5 * n)) * 100), then = Math.round((b / (5 * n)) * 100);
   return { diff: now - then, n };
 }
 const signed = (x: number) => (x > 0 ? "+" : "") + x;
 
+// The report (22 Oct 2026, redesigned to the mock-up Francesco approved): one big score, a bar per
+// section against the 85% target (Roberto's 3.0), what needs attention, what went well, the dishes,
+// then every answer. The same HTML is the email Amin gets and the report in the FOH Audits module.
+// Email clients ignore web fonts, so the type falls back to Georgia / Arial there.
+const TARGET = 85;
+const LOGO = "https://robertos-leadership.github.io/robertos-foh/robertos-logo-email.png";
+const B = { wine: "#450207", ink: "#3A332C", muted: "#6E5A4C", line: "#D8C4AC", soft: "#EFE4D6", paper: "#FBF7F1", ok: "#2F6B2F", okbar: "#4C8A3F", low: "#B23A00", lowbar: "#FA4700" };
+const DISPLAY = "Forum,Georgia,'Times New Roman',serif", SANS = "Outfit,Arial,Helvetica,sans-serif";
+const KIND_TITLE: Record<string, string> = { venue: "Chef's audit · Whole venue", restaurant: "Guest audit · The restaurant", scala: "Guest audit · Scala, bar & lounge" };
+
+function answerText(c: Row, s: Row) {
+  if (!s || (s.score == null && !s.na)) return "—";
+  if (s.na) return "Didn't see";
+  if (c.qtype === "standard") return s.score > 0 ? "Yes" : "No";
+  return s.score + " / 5";
+}
+
 function emailHtml(d: Row, urls: Record<string, string>) {
+  const kind = kindOf(d.visit.kind), enrico = d.visit.auditor === ENRICO;
   const cat: Record<string, Row> = {}; for (const c of d.catalog) cat[c.code] = c;
-  const t: Record<string, Row> = {}; for (const x of d.texts) t[x.key] = x;
-  const prev = d.previous;
-  const pa = d.pct.area, pp = prev ? prev.area_pct : {};
-  const urgent = d.scores.filter((s: Row) => s.verdict === "urgent").length + d.dishes.filter((x: Row) => x.verdict === "remove").length;
-  const tofix = d.scores.filter((s: Row) => s.verdict === "fix").length + d.dishes.filter((x: Row) => x.verdict === "fix").length + d.flags.filter((f: Row) => f.kind === "attention").length;
-  const diff = (a: number | null, b: number | null) => (a == null || b == null) ? "—" : (a - b > 0 ? "+" : "") + (a - b);
-  const tile = (n: string, l: string, col = C.ink) => `<td style="padding:4px"><div style="border:1px solid ${C.line};background:#fff;border-radius:6px;padding:12px"><div style="font:700 24px Arial,sans-serif;color:${col}">${esc(n)}</div><div style="font:12px Arial,sans-serif;color:${C.muted}">${esc(l)}</div></div></td>`;
-  const para = (s: string) => `<div style="font:15px/1.55 Arial,sans-serif;color:${C.ink};white-space:pre-line">${esc(s)}</div>`;
-
-  let h = `<!doctype html><html><body style="margin:0;background:${C.paper}"><div style="max-width:680px;margin:0 auto;padding:24px 18px;font-family:Arial,sans-serif;color:${C.ink}">`;
-  h += `<div style="background:${C.vino};color:#f5ede0;border-radius:8px;padding:24px 22px"><div style="font:700 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#e1d3c2">Roberto's DIFC · Audit</div>`;
-  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">${esc(KIND_EN[kindOf(d.visit.kind)])} · ${esc(fmtDate(d.visit.visit_date))}${d.visit.visit_time ? " · " + esc(d.visit.visit_time) : ""}</div></div>`;
-  h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${(() => { const l = prev ? like(d.scores, prev.scores, d.catalog) : null; return tile(l ? signed(l.diff) : "—", "vs " + (prev?.title || "last visit") + (l ? ` · same ${l.n} items` : ""), l && l.diff < 0 ? C.err : C.ok); })()}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
-  if (t.overall && en(t.overall, "it", "en")) h += lbl("Overall visit") + para(en(t.overall, "it", "en")) + pics(t.overall.photos, urls);
-  if (t.improve && en(t.improve, "it", "en")) h += lbl("Suggested improvements") + para(en(t.improve, "it", "en")) + pics(t.improve.photos, urls);
-  const tops = ["p1", "p2", "p3"].map((k) => t[k] ? en(t[k], "it", "en") : "").filter(Boolean);
-  if (tops.length) h += lbl(firstName(d.visit.auditor) + "'s top 3") + tops.map((s, i) => `<div style="font:15px/1.5 Arial,sans-serif;margin:4px 0"><b style="color:${C.terra};font:20px Georgia,serif">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
-
-  h += lbl("Scores by area") + `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font:14px Arial,sans-serif"><tr style="color:${C.muted};font-size:12px"><td style="padding:6px 0;border-bottom:1px solid ${C.line}">Area</td><td style="border-bottom:1px solid ${C.line}">${esc(d.visit.title)}</td><td style="border-bottom:1px solid ${C.line}">${esc(prev?.title || "Last visit")}</td><td style="border-bottom:1px solid ${C.line}">Trend</td></tr>`;
-  for (const a of AREA_ORDER[kindOf(d.visit.kind)]) {
-    const n = pa[a] ?? null, o = pp[a] ?? null, l = prev ? like(d.scores, prev.scores, d.catalog, a) : null;
-    h += `<tr><td style="padding:8px 0;border-bottom:1px solid ${C.line};font:16px Georgia,serif;color:${C.vino}">${esc(areaEn(kindOf(d.visit.kind), a))}</td><td style="border-bottom:1px solid ${C.line}">${n == null ? "not scored" : n + "%"}</td><td style="border-bottom:1px solid ${C.line}">${o == null ? "not scored" : o + "%"}</td><td style="border-bottom:1px solid ${C.line}">${l ? `${signed(l.diff)} <span style="color:${C.muted};font-size:12px">(${l.n})</span>` : "—"}</td></tr>`;
-  }
-  h += `</table>`;
-
-  // Action plan: urgent first, then to fix — items, dishes, photo flags.
-  type A = { lvl: number; v: string; where: string; what: string; note: string; owner: string; due: string; photos: string[] };
-  const acts: A[] = [];
-  for (const s of d.scores) if (s.verdict === "urgent" || s.verdict === "fix") { const c = cat[s.code] || {}; acts.push({ lvl: s.verdict === "urgent" ? 0 : 1, v: s.verdict, where: areaEn(kindOf(d.visit.kind), c.area), what: c.label_en || s.code, note: en(s), owner: s.owner || "", due: dueTxt(s.due), photos: s.photos }); }
-  for (const x of d.dishes) if (x.verdict === "fix" || x.verdict === "remove") acts.push({ lvl: x.verdict === "remove" ? 0 : 1, v: x.verdict, where: "Dish", what: x.dish_name, note: en(x), owner: x.owner || "", due: dueTxt(x.due), photos: x.photos });
-  for (const f of d.flags) if (f.kind === "attention") acts.push({ lvl: 1, v: "attention", where: AREA_EN[f.area] || "", what: f.dish_name || "Photo note", note: en(f), owner: f.owner || "", due: dueTxt(f.due), photos: f.photos });
-  acts.sort((a, b) => a.lvl - b.lvl);
-  if (acts.length) {
-    h += lbl("Action plan");
-    for (const a of acts) h += `<div style="border:1px solid ${C.line};background:#fff;border-radius:6px;padding:12px 14px;margin:0 0 8px"><div style="font:16px Georgia,serif;color:${C.vino}">${esc(a.what)} &nbsp;${badge(a.v)}</div><div style="font:12px Arial,sans-serif;color:${C.muted};margin-top:2px">${esc(a.where)}${a.owner ? " · " + esc(a.owner) : ""}${a.due ? " · by " + esc(a.due) : ""}</div>${a.note ? `<div style="font:14px/1.5 Arial,sans-serif;margin-top:6px;white-space:pre-line">${esc(a.note)}</div>` : ""}${pics(a.photos, urls)}</div>`;
-  }
-
-  if (d.dishes.length) {
-    h += lbl("Dishes tasted");
-    for (const x of d.dishes) h += `<div style="border-bottom:1px solid ${C.line};padding:10px 0"><div style="font:16px Georgia,serif;color:${C.vino}">${esc(x.dish_name)} ${x.score ? `<span style="font:700 14px Arial,sans-serif;color:${C.ink}">· ${x.score}/5</span>` : ""} ${badge(x.verdict)}</div>${en(x) ? `<div style="font:14px/1.5 Arial,sans-serif;margin-top:4px;white-space:pre-line">${esc(en(x))}</div>` : ""}${pics(x.photos, urls)}</div>`;
-  }
-  const keeps = d.flags.filter((f: Row) => f.kind === "keep");
-  if (keeps.length) {
-    h += lbl("What " + firstName(d.visit.auditor) + " liked");
-    for (const f of keeps) h += `<div style="border-bottom:1px solid ${C.line};padding:10px 0"><div style="font:12px Arial,sans-serif;color:${C.muted}">${esc(AREA_EN[f.area] || "")}${f.dish_name ? " · " + esc(f.dish_name) : ""}</div>${en(f) ? `<div style="font:14px/1.5 Arial,sans-serif;margin-top:4px">${esc(en(f))}</div>` : ""}${pics(f.photos, urls)}</div>`;
-  }
-
-  h += lbl("Every item");
   const byCode: Record<string, Row> = {}; for (const s of d.scores) byCode[s.code] = s;
-  for (const a of AREA_ORDER[kindOf(d.visit.kind)]) {
-    const items = d.catalog.filter((c: Row) => c.area === a);
-    h += `<div style="font:18px Georgia,serif;color:${C.vino};margin:14px 0 4px">${esc(areaEn(kindOf(d.visit.kind), a))}${pa[a] != null ? ` <span style="font:13px Arial,sans-serif;color:${C.muted}">${pa[a]}%</span>` : ""}</div>`;
-    for (const c of items) {
+  const t: Record<string, Row> = {}; for (const x of d.texts) t[x.key] = x;
+  const areas = AREA_ORDER[kind].filter((a) => d.catalog.some((c: Row) => c.area === a));
+  const pa = d.pct.area;
+  let answered = 0, notSeen = 0;
+  for (const c of d.catalog) { const s = byCode[c.code]; if (s && s.na) notSeen++; else if (has(s)) answered++; }
+  const para = (s: string) => `<div style="font:15px/1.55 ${SANS};color:${B.ink};white-space:pre-line">${esc(s)}</div>`;
+  const head = (s: string) => `<div style="font:600 13px ${SANS};color:${B.wine};margin:0 0 10px">${esc(s)}</div>`;
+  const block = (inner: string) => `<div style="padding:20px 24px;border-bottom:1px solid ${B.line}">${inner}</div>`;
+  const card = (inner: string) => `<div style="background:#ffffff;border:1px solid ${B.line};border-radius:12px;padding:12px 14px;margin:0 0 10px">${inner}</div>`;
+  const whenTxt = [fmtDate(d.visit.visit_date), d.visit.visit_time].filter(Boolean).join(", ");
+  const by = enrico ? "" : (d.visit.sender_name ? " · sent by " + d.visit.sender_name : "");
+
+  let h = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<link href="https://fonts.googleapis.com/css2?family=Forum&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet"></head>` +
+    `<body style="margin:0;background:${B.paper}"><div style="max-width:640px;margin:0 auto;background:${B.paper};font-family:${SANS};color:${B.ink}">`;
+
+  // Header: logo, who, when, the score
+  h += `<div style="padding:26px 24px 22px;border-bottom:1px solid ${B.line}">` +
+    `<img src="${LOGO}" alt="Roberto's" width="190" style="display:block;width:190px;height:auto;border:0;margin:0 0 18px">` +
+    `<div style="font:500 12px ${SANS};letter-spacing:1.6px;text-transform:uppercase;color:${B.muted}">${esc(KIND_TITLE[kind])}</div>` +
+    `<div style="font:400 34px/1.1 ${DISPLAY};color:${B.wine};margin:4px 0 4px">${esc(d.visit.auditor)}</div>` +
+    `<div style="font:14px ${SANS};color:${B.muted}">${esc(whenTxt)}${esc(by)}</div>` +
+    `<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:16px"><tr>` +
+    `<td style="font:400 64px/0.9 ${DISPLAY};color:${d.pct.overall != null && d.pct.overall >= TARGET ? B.ok : B.wine};padding-right:16px;vertical-align:bottom">${d.pct.overall ?? "—"}${d.pct.overall != null ? "%" : ""}</td>` +
+    `<td style="font:14px/1.5 ${SANS};color:${B.muted};vertical-align:bottom;padding-bottom:4px">${answered} of ${d.catalog.length} answered<br>${notSeen} not seen · target ${TARGET}%</td></tr></table></div>`;
+
+  // By section
+  let rows = "";
+  for (const a of areas) {
+    const v = pa[a] ?? null, good = v != null && v >= TARGET;
+    rows += `<tr><td style="padding:6px 10px 6px 0;font:14px ${SANS};color:${B.ink};white-space:nowrap">${esc(areaEn(kind, a))}</td>` +
+      `<td style="padding:6px 0;width:100%"><div style="height:8px;border-radius:4px;background:${B.soft}">${v == null ? "" : `<div style="width:${Math.max(2, v)}%;height:8px;border-radius:4px;background:${good ? B.okbar : B.lowbar}"></div>`}</div></td>` +
+      `<td style="padding:6px 0 6px 10px;font:600 14px ${SANS};text-align:right;white-space:nowrap;color:${v == null ? B.muted : good ? B.ok : B.low}">${v == null ? "not seen" : v + "%"}</td></tr>`;
+  }
+  h += block(head("By section") + `<table role="presentation" width="100%" cellspacing="0" cellpadding="0">${rows}</table>` +
+    `<div style="font:12.5px ${SANS};color:${B.muted};margin-top:8px">Green at ${TARGET}% and above, orange below.</div>`);
+
+  // Needs attention: a No, a quality score of 1-2, a dish of 1-2, Enrico's to fix / urgent, a photo flag
+  type A = { lvl: number; what: string; where: string; ans: string; note: string; photos: string[]; owner: string; due: string };
+  const acts: A[] = [];
+  for (const c of d.catalog) {
+    const s = byCode[c.code]; if (!s) continue;
+    const low = has(s) && (c.qtype === "standard" ? s.score === 0 : s.score <= 2);
+    if (low || s.verdict === "fix" || s.verdict === "urgent")
+      acts.push({ lvl: s.verdict === "urgent" ? 0 : 1, what: c.label_en, where: areaEn(kind, c.area), ans: s.verdict === "urgent" ? "Urgent" : answerText(c, s), note: en(s), photos: s.photos || [], owner: s.owner || "", due: dueTxt(s.due) });
+  }
+  for (const x of d.dishes) if ((x.score != null && x.score <= 2) || x.verdict === "fix" || x.verdict === "remove")
+    acts.push({ lvl: x.verdict === "remove" ? 0 : 1, what: x.dish_name, where: "Dish", ans: x.verdict === "remove" ? "Take off" : (x.score != null ? x.score + " / 5" : "To fix"), note: en(x), photos: x.photos || [], owner: x.owner || "", due: dueTxt(x.due) });
+  for (const f of d.flags) if (f.kind === "attention")
+    acts.push({ lvl: 1, what: f.dish_name || "Photo note", where: areaEn(kind, f.area) || "", ans: "Flag", note: en(f), photos: f.photos || [], owner: f.owner || "", due: dueTxt(f.due) });
+  acts.sort((a, b) => a.lvl - b.lvl);
+  h += block(head("Needs attention · " + acts.length) + (acts.length ? acts.map((a) => card(
+    `<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td style="font:400 18px ${DISPLAY};color:${B.wine}">${esc(a.what)}</td>` +
+    `<td style="font:600 13px ${SANS};color:${B.low};text-align:right;white-space:nowrap;vertical-align:top">${esc(a.ans)}</td></tr></table>` +
+    `<div style="font:12.5px ${SANS};color:${B.muted};margin-top:2px">${esc(a.where)}${a.owner ? " · " + esc(a.owner) : ""}${a.due ? " · by " + esc(a.due) : ""}</div>` +
+    (a.note ? `<div style="font:14px/1.45 ${SANS};margin-top:6px;white-space:pre-line">${esc(a.note)}</div>` : "") + pics(a.photos, urls))).join("")
+    : `<div style="font:14px ${SANS};color:${B.muted}">Nothing below standard.</div>`));
+
+  // In their words
+  const words: [string, string][] = enrico
+    ? [["Overall visit", "overall"], ["Suggested improvements", "improve"]]
+    : [["The best moment", "best"], ["One thing to fix", "fixone"], ["Anything else", "other"]];
+  let said = "";
+  for (const [label, k] of words) if (t[k] && en(t[k], "it", "en")) said += `<div style="margin:0 0 14px"><div style="font:500 12px ${SANS};color:${B.muted};margin-bottom:4px">${esc(label)}</div>${para(en(t[k], "it", "en"))}${pics(t[k].photos, urls)}</div>`;
+  if (enrico) {
+    const tops = ["p1", "p2", "p3"].map((k) => t[k] ? en(t[k], "it", "en") : "").filter(Boolean);
+    if (tops.length) said += `<div style="font:500 12px ${SANS};color:${B.muted};margin-bottom:4px">${esc(firstName(d.visit.auditor))}'s top 3</div>` + tops.map((s, i) => `<div style="font:15px/1.5 ${SANS};margin:3px 0"><b style="color:${B.wine}">${i + 1}</b>&nbsp; ${esc(s)}</div>`).join("");
+  }
+  if (said) h += block(head(enrico ? "In Enrico's words" : "In " + firstName(d.visit.auditor) + "'s words") + said);
+
+  // What went well: every 5 / 5 and every "keep" photo flag
+  const wells: string[] = [];
+  for (const c of d.catalog) { const s = byCode[c.code]; if (has(s) && c.qtype !== "standard" && s.score === 5) wells.push(c.label_en + (en(s) ? " — " + en(s) : "")); }
+  for (const f of d.flags) if (f.kind === "keep") wells.push((f.dish_name || "Photo") + (en(f) ? " — " + en(f) : ""));
+  if (wells.length) h += block(head("What went well") + wells.map((w) => `<div style="font:14px/1.5 ${SANS};margin:0 0 6px">${esc(w)}</div>`).join(""));
+
+  // Dishes
+  if (d.dishes.length) h += block(head("Dishes tasted · " + d.dishes.length) + d.dishes.map((x: Row) =>
+    `<div style="padding:9px 0;border-bottom:1px solid ${B.soft}"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td style="font:14px ${SANS}">${esc(x.dish_name)}</td>` +
+    `<td style="font:600 14px ${SANS};text-align:right;white-space:nowrap">${x.score != null ? x.score + " / 5" : "—"}</td></tr></table>` +
+    (en(x) ? `<div style="font:13.5px/1.45 ${SANS};color:${B.muted};margin-top:3px;white-space:pre-line">${esc(en(x))}</div>` : "") + pics(x.photos, urls) + `</div>`).join(""));
+
+  // Every answer
+  let all = "";
+  for (const a of areas) {
+    all += `<div style="font:400 19px ${DISPLAY};color:${B.wine};margin:16px 0 4px">${esc(areaEn(kind, a))}${pa[a] != null ? ` <span style="font:13px ${SANS};color:${B.muted}">${pa[a]}%</span>` : ""}</div>`;
+    for (const c of d.catalog.filter((x: Row) => x.area === a).sort((x: Row, y: Row) => x.position - y.position)) {
       const s = byCode[c.code] || {};
-      const sc = s.na ? "N/A" : (s.score ? s.score + "/5" : "—");
-      h += `<div style="border-bottom:1px solid ${C.line};padding:8px 0;font:14px Arial,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td>${esc(c.label_en)} ${badge(s.verdict)}</td><td align="right" style="font-weight:700;white-space:nowrap">${sc}</td></tr></table>${en(s) ? `<div style="color:${C.muted};font-size:13px;line-height:1.5;margin-top:3px;white-space:pre-line">${esc(en(s))}</div>` : ""}${pics(s.photos, urls)}</div>`;
+      all += `<div style="padding:8px 0;border-bottom:1px solid ${B.soft}"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>` +
+        `<td style="font:14px ${SANS};color:${B.ink}">${esc(c.label_en)}</td><td style="font:600 14px ${SANS};text-align:right;white-space:nowrap;padding-left:10px">${esc(answerText(c, s))}</td></tr></table>` +
+        (en(s) ? `<div style="font:13px/1.45 ${SANS};color:${B.muted};margin-top:3px;white-space:pre-line">${esc(en(s))}</div>` : "") + pics(s.photos, urls) + `</div>`;
     }
   }
-  h += `<div style="font:12px/1.5 Arial,sans-serif;color:${C.muted};margin-top:26px">Scores 1–5. Percentages count only the items ${esc(firstName(d.visit.auditor))} scored; N/A is left out. ${prev ? "Trends against " + esc(prev.title) + " compare only the items scored in both visits (how many in brackets)." : ""} Notes translated to English where needed; the original is kept in the FOH app.</div>`;
-  h += `</div></body></html>`;
-  return h;
+  h += `<div style="padding:20px 24px">${head("Every answer")}${all}` +
+    `<div style="font:12px/1.5 ${SANS};color:${B.muted};margin-top:22px">A standard counts 100% for Yes and 0% for No; a quality score of 1 to 5 counts 20% to 100%. "Didn't see" is left out. Notes are shown in English; the original is kept in the FOH app.</div></div>`;
+  return h + `</div></body></html>`;
 }
 
 async function sendMail(to: Row[], cc: Row[], subject: string, html: string) {
@@ -419,7 +479,7 @@ async function fohCall(b: Row, action: string) {
     const done: Record<string, number> = {};
     for (let i = 0; i < ids.length; i += 200) {
       const { data: sc } = await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids.slice(i, i + 200));
-      for (const s of sc || []) if (s.score || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
+      for (const s of sc || []) if (s.score != null || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
     }
     // How many questions each kind has (the "x of N" on each row).
     const { data: cat } = await sb.from("audit_catalog").select("kinds").eq("active", true);
@@ -527,7 +587,7 @@ Deno.serve(async (req) => {
     const ids = (list || []).map((x) => x.id);
     const { data: sc } = ids.length ? await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids) : { data: [] as Row[] };
     const done: Record<string, number> = {};
-    for (const s of sc || []) if (s.score || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
+    for (const s of sc || []) if (s.score != null || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
     const { count: total } = await sb.from("audit_catalog").select("code", { count: "exact", head: true }).eq("active", true);
     return json({ role: "invite_admin", title: v.title, invite_token: v.enrico_token, total: total || 0,
       audits: (list || []).map((x) => ({ ...x, done: done[x.id] || 0 })) });
@@ -542,10 +602,12 @@ Deno.serve(async (req) => {
 
     if (action === "score") {
       const code = String(b.code || "");
-      const { data: c } = await sb.from("audit_catalog").select("code").eq("code", code).contains("kinds", [kindOf(v.kind)]).maybeSingle();
+      const { data: c } = await sb.from("audit_catalog").select("code,qtype").eq("code", code).contains("kinds", [kindOf(v.kind)]).maybeSingle();
       if (!c) return json({ error: "Unknown item" }, 400);
       const f: Row = { visit_id: v.id, code, updated_at: new Date().toISOString() };
-      if ("score" in b) f.score = b.score == null ? null : Math.max(1, Math.min(5, Math.round(Number(b.score))));
+      if ("score" in b) f.score = b.score == null ? null
+        : c.qtype === "standard" && Number(b.pv) >= 3 ? (Number(b.score) > 0 ? 5 : 0)   // Yes = 5, No = 0
+        : Math.max(1, Math.min(5, Math.round(Number(b.score))));
       if ("na" in b) { f.na = !!b.na; if (f.na) f.score = null; }
       if ("score" in b && f.score != null) f.na = false;
       if ("verdict" in b) f.verdict = VERDICT_SCORE.includes(b.verdict) ? b.verdict : null;
@@ -590,7 +652,8 @@ Deno.serve(async (req) => {
 
     if (action === "text") {
       const key = String(b.key || "");
-      if (!["overall", "improve", "p1", "p2", "p3"].includes(key)) return json({ error: "bad key" }, 400);
+      // Enrico: overall, improvements, top 3. A guest: the best moment, one thing to fix, anything else.
+      if (!["overall", "improve", "p1", "p2", "p3", "best", "fixone", "other"].includes(key)) return json({ error: "bad key" }, 400);
       const { data, error } = await sb.from("audit_texts").upsert({ visit_id: v.id, key, it: clean(b.it), updated_at: new Date().toISOString() }, { onConflict: "visit_id,key" }).select().single();
       if (error) throw error;
       await touch();
