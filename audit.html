@@ -149,6 +149,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .item .h{display:flex;justify-content:space-between;gap:8px;font-size:14px}
 @media (max-width:420px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:30px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.when{display:flex;gap:10px;margin-top:12px}.when label{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}.when input{width:100%;box-sizing:border-box}
 </style>
 </head>
 <body>
@@ -185,10 +186,12 @@ var AREAS = ['arrivo', 'cucina', 'ristorante', 'vino', 'scala'];
 var ORDER = ['arrivo', 'cucina', 'piatti', 'ristorante', 'vino', 'scala'];
 
 function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch(e){ return null; } }
-var LANG = ls('auditLang') || (ADMIN ? 'en' : 'it');
+// Italian first for Enrico; English first for anyone a shared link reaches (staff or a guest). The IT/EN switch stays.
+var LANG = ls('auditLang') || (ADMIN || (TOK && TOK.n) ? 'en' : 'it');
 var ENRICO = 'Chef Enrico Bartolini';
 function isEnrico(){ return !D || !D.visit || D.visit.auditor === ENRICO; }
 function who(){ return String((D && D.visit && D.visit.auditor) || ENRICO).replace(/^Chef\s+/i, '').trim().split(/\s+/)[0]; }
+function dubaiNow(){ var d = new Date(Date.now() + 4 * 3600 * 1000).toISOString(); return { date: d.slice(0, 10), time: d.slice(11, 16) }; }   // Dubai is UTC+4, no DST
 function dubaiTime(iso){ try { return new Date(iso).toLocaleString(LANG === 'en' ? 'en-GB' : 'it-IT', { timeZone: 'Asia/Dubai', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch(e){ return ''; } }
 
 var T = {
@@ -212,7 +215,8 @@ var T = {
     noMic:'Su questo telefono usa il microfono della tastiera per dettare.', micBlocked:'Permetti il microfono a Safari per dettare.',
     uploading:'Carico…', photoFail:'Foto non caricata. Riprova.', removeDish:'Togli questo piatto dalla lista', liked:'tenere', att:'attenzione', notes:'note',
     anchorAll:'1 = scarso · 3 = accettabile · 5 = eccellente', started:'iniziato', allNa:'Non visto — tutto N/A', undoNa:'Togli i N/A',
-    startTitle:'Audit', startSub:'Scrivi il tuo nome per iniziare. Data e ora si salvano da sole.', yourName:'Il tuo nome', begin:'Inizia', cont:'Continua il tuo audit', newOne:'oppure inizia un nuovo audit'
+    startTitle:'Audit', startSub:'Scrivi il tuo nome e quando sei venuto.', yourName:'Il tuo nome', visitDate:'Data della visita', visitTime:'Ora', badDate:'Controlla la data della visita',
+    sendTeam:'Invia al team di direzione', sentTeamTitle:'Grazie', sentTeamLine:"Il team di direzione di Roberto's vede già il tuo audit. Puoi ancora aggiungere o correggere qualcosa: si salva da solo.", begin:'Inizia', cont:'Continua il tuo audit', newOne:'oppure inizia un nuovo audit'
   },
   en: {
     hello:'Hello Enrico', visit:'Visit', autosave:'type or speak, it saves by itself', sections:'Sections',
@@ -234,7 +238,8 @@ var T = {
     noMic:'On this phone use the keyboard microphone to dictate.', micBlocked:'Allow the microphone for Safari to dictate.',
     uploading:'Uploading…', photoFail:'Photo not uploaded. Try again.', removeDish:'Remove this dish from the list', liked:'keep', att:'attention', notes:'notes',
     anchorAll:'1 = poor · 3 = acceptable · 5 = excellent', started:'started', allNa:'Not experienced — all N/A', undoNa:'Clear the N/As',
-    startTitle:'Audit', startSub:'Type your name to start. The date and time are saved for you.', yourName:'Your name', begin:'Start', cont:'Continue your audit', newOne:'or start a new audit'
+    startTitle:'Audit', startSub:'Type your name and when you visited.', yourName:'Your name', visitDate:'Date of your visit', visitTime:'Time', badDate:'Check the date of your visit',
+    sendTeam:"Send to Roberto's management team", sentTeamTitle:'Thank you', sentTeamLine:"Roberto's management team can already see your audit. You can still add or correct anything: it saves by itself.", begin:'Start', cont:'Continue your audit', newOne:'or start a new audit'
   }
 };
 function t(k){ return (T[LANG] && T[LANG][k]) || T.it[k] || k; }
@@ -426,7 +431,7 @@ function vHome(){
   var total = D.catalog.length, done = D.scores.filter(function(r){ return r.score || r.na; }).length;
   var pct = total ? Math.round(done / total * 100) : 0;
   var hello = isEnrico() ? t('hello') : (LANG === 'en' ? 'Hello ' : 'Ciao ') + esc(who());
-  var when = isEnrico() ? esc(fmtDate(D.visit.visit_date, LANG)) : t('started') + ' ' + esc(dubaiTime(D.visit.created_at));
+  var when = isEnrico() || D.visit.visit_time ? esc(fmtDate(D.visit.visit_date, LANG)) + (D.visit.visit_time ? ' · ' + esc(D.visit.visit_time) : '') : t('started') + ' ' + esc(dubaiTime(D.visit.created_at));
   var h = topBar(adminTabs() + '<h1>' + hello + '</h1><div class="sub">' + t('visit') + ' ' + when + ' · ' + t('autosave') + '</div>' +
     '<div class="bar"><div class="track"><div class="fill" style="width:' + pct + '%"></div></div><b>' + done + ' / ' + total + '</b></div>');
   h += '<div class="body">' + closedBanner() + '<div class="lbl">' + t('sections') + '</div>';
@@ -582,12 +587,13 @@ function vFinal(){
     h += noteBlock({ id: 'n-t-' + k, target: 'text', ref: k, row: r, it: r._local != null ? r._local : r.it, en: r.en, small: true, nopics: true, ph: t('prio') + ' ' + (i + 1), label: t('prio') + ' ' + (i + 1) });
   });
   h += '</div>';
-  if (!ADMIN) h += '<div class="foot"><button class="big vino" data-act="submit" id="subbtn">' + t('send') + '</button></div>';
+  if (!ADMIN) h += '<div class="foot"><button class="big vino" data-act="submit" id="subbtn">' + (isEnrico() ? t('send') : t('sendTeam')) + '</button></div>';
   return h;
 }
 
 function vThanks(){
-  return topBar('<h1>' + t('sentTitle') + '</h1><div class="sub">' + t('sentLine') + '</div>') +
+  var title = isEnrico() ? t('sentTitle') : t('sentTeamTitle') + ', ' + esc(who()) + '.';
+  return topBar('<h1>' + title + '</h1><div class="sub">' + (isEnrico() ? t('sentLine') : t('sentTeamLine')) + '</div>') +
     '<div class="body"><button class="sec" data-act="go" data-to=\'{"v":"home"}\'><span class="grow"><span class="t">' + t('sections') + '</span></span></button></div>';
 }
 
@@ -598,15 +604,20 @@ function vStart(){
   var h = topBar('<h1>' + t('startTitle') + '</h1><div class="sub">' + t('startSub') + '</div>') + '<div class="body">';
   if (m && m.k) h += '<button class="sec now" data-act="resume"><span class="dot go">›</span><span class="grow"><span class="t">' + t('cont') + '</span><span class="s">' + esc(m.name) + ' · ' + t('started') + ' ' + esc(dubaiTime(m.at)) + '</span></span></button><div class="muted" style="padding:2px">' + t('newOne') + '</div>';
   h += '<div class="card pick"><label class="lbl" for="aname" style="margin:0">' + t('yourName') + '</label>' +
-       '<input id="aname" autocomplete="name" autocapitalize="words" maxlength="60" value="' + esc(S.name || '') + '"></div></div>';
+       '<input id="aname" autocomplete="name" autocapitalize="words" maxlength="60" value="' + esc(S.name || '') + '">' +
+       '<div class="when"><label><span class="lbl">' + t('visitDate') + '</span><input id="adate" type="date" max="' + dubaiNow().date + '" value="' + esc(S.vdate || dubaiNow().date) + '"></label>' +
+       '<label><span class="lbl">' + t('visitTime') + '</span><input id="atime" type="time" value="' + esc(S.vtime || dubaiNow().time) + '"></label></div></div></div>';
   h += '<div class="foot"><button class="big vino" data-act="begin" id="beginbtn">' + t('begin') + '</button></div>';
   return h;
 }
 function begin(b){
   var el = document.getElementById('aname'), name = el ? el.value.trim() : '';
   if (name.length < 2) { if (el) el.focus(); toast(t('yourName'), true); return; }
+  var dd = (document.getElementById('adate') || {}).value || '', tt = (document.getElementById('atime') || {}).value || '';
+  S.name = name; S.vdate = dd; S.vtime = tt;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dd) || dd > dubaiNow().date || !/^\d{2}:\d{2}$/.test(tt)) { toast(t('badDate'), true); return; }
   b.disabled = true; b.textContent = t('saving');
-  api('start', { name: name }).then(function(r){
+  api('start', { name: name, visit_date: dd, visit_time: tt }).then(function(r){
     ls('auditMine:' + TOK.n, JSON.stringify({ k: r.k, name: name, at: new Date().toISOString() }));
     location.replace(location.pathname + '?k=' + encodeURIComponent(r.k));
   }, function(er){ b.disabled = false; b.textContent = t('begin'); toast(er.message, true); });
@@ -861,7 +872,7 @@ function pickDish(mode, id, name){
   queue('flag:' + f.id + ':d', 'flag', { id: f.id, dish_name: name, recipe_id: id }); render();
 }
 function submit(b){
-  if (!b._sure) { b._sure = true; b.textContent = t('sendSure'); setTimeout(function(){ if (b.isConnected) { b._sure = false; b.textContent = t('send'); } }, 5000); return; }
+  if (!b._sure) { b._sure = true; b.textContent = t('sendSure'); setTimeout(function(){ if (b.isConnected) { b._sure = false; b.textContent = isEnrico() ? t('send') : t('sendTeam'); } }, 5000); return; }
   b.disabled = true; b.textContent = t('saving');
   waitSaved().then(function(){ return api('submit', { page: location.origin + location.pathname }); }).then(function(){ D.visit.status = D.visit.status === 'test' ? 'test' : 'submitted'; go({ v: 'thanks' }); }, function(er){ b.disabled = false; b._sure = false; b.textContent = t('send'); toast(er.message, true); });
 }

@@ -9,6 +9,14 @@
 //                      at ?k= like Enrico. The invite is itself an audit_visits row, status 'invite';
 //                      its admin_token (?a=) shows Francesco the list of every audit started from it.
 //                      A visit started from an invite carries source_note 'invite:<invite id>'.
+//   { foh: <FOH login token> }  The FOH Audits module (22 Oct 2026). The FOH login is checked
+//                      against the FOH project, and its app_users.modules decide what it may do:
+//                      'audit_send' = their OWN invite link (sender_email on the invite row), to share
+//                      with anyone; 'audit_read' = send, plus the list of every audit and each report.
+//                      FOH Admins get both. A sender can replace their link: the old one stops working.
+// Whoever opens an invite types their name and the date and time of their visit (they may be a
+// guest the Chairman sent). Their "send" goes to Roberto's management team: no email, it appears
+// in the FOH Audits module. Only Enrico's own visit still mails Francesco (his report goes to Amin).
 // Enrico writes in Italian. Every note is translated to English by Claude with a chef's glossary
 // (Italian kitchen terms kept, explained once). The Italian is never overwritten.
 //
@@ -49,8 +57,14 @@ const VERDICT_SCORE = ["ok", "fix", "urgent"];
 const VERDICT_DISH = ["keep", "fix", "remove"];
 const FLAG_AREAS = ["piatto", "cucina", "ristorante", "scala"];
 const isDate = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const isTime = (s: unknown) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+// Statuses a reader sees in the FOH list (never the invites themselves or test visits).
+const LISTED = ["open", "submitted", "sent", "archived"];
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+const FOH_URL = "https://paoaivwtkzujmrgrfjuq.supabase.co";
+const FOH_KEY = Deno.env.get("FOH_SERVICE_KEY") ?? "";
+const foh = FOH_KEY ? createClient(FOH_URL, FOH_KEY, { auth: { persistSession: false } }) : null;
 
 type Row = Record<string, any>;
 
@@ -184,7 +198,7 @@ async function loadAll(v: Row, admin: boolean) {
   const p = pcts(sc.data || [], cat.data || []);
   return {
     role: admin ? "admin" : "enrico",
-    visit: { id: v.id, title: v.title, visit_date: v.visit_date, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
+    visit: { id: v.id, title: v.title, visit_date: v.visit_date, visit_time: v.visit_time, auditor: v.auditor, created_at: v.created_at, status: v.status, submitted_at: v.submitted_at, sent_at: v.sent_at, sent_to: v.sent_to, enrico_token: admin ? v.enrico_token : undefined },
     catalog: cat.data || [], scores: sc.data || [], dishes: di.data || [], flags: fl.data || [], texts: tx.data || [],
     previous: prev, menu: dishes, urls, pct: p, recipients: admin ? { to: AMIN, cc: FRANCESCO } : null,
   };
@@ -263,7 +277,7 @@ function emailHtml(d: Row, urls: Record<string, string>) {
 
   let h = `<!doctype html><html><body style="margin:0;background:${C.paper}"><div style="max-width:680px;margin:0 auto;padding:24px 18px;font-family:Arial,sans-serif;color:${C.ink}">`;
   h += `<div style="background:${C.vino};color:#f5ede0;border-radius:8px;padding:24px 22px"><div style="font:700 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#e1d3c2">Roberto's DIFC · Audit</div>`;
-  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}</div></div>`;
+  h += `<div style="font:30px/1.15 Georgia,'Times New Roman',serif;margin-top:8px">${esc(d.visit.auditor)}</div><div style="font:14px Arial,sans-serif;color:#e1d3c2;margin-top:6px">Visit of ${esc(fmtDate(d.visit.visit_date))}${d.visit.visit_time ? " · " + esc(d.visit.visit_time) : ""}</div></div>`;
   h += `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>${tile((d.pct.overall ?? "—") + "%", "Overall")}${(() => { const l = prev ? like(d.scores, prev.scores, d.catalog) : null; return tile(l ? signed(l.diff) : "—", "vs " + (prev?.title || "last visit") + (l ? ` · same ${l.n} items` : ""), l && l.diff < 0 ? C.err : C.ok); })()}${tile(String(urgent), "Urgent", C.err)}${tile(String(tofix), "To fix", C.below)}</tr></table>`;
   if (t.overall && en(t.overall, "it", "en")) h += lbl("Overall visit") + para(en(t.overall, "it", "en")) + pics(t.overall.photos, urls);
   if (t.improve && en(t.improve, "it", "en")) h += lbl("Suggested improvements") + para(en(t.improve, "it", "en")) + pics(t.improve.photos, urls);
@@ -327,6 +341,78 @@ async function sendMail(to: Row[], cc: Row[], subject: string, html: string) {
   return body;
 }
 
+// ── FOH Audits module ─────────────────────────────────────────────────────────────────
+// Who is asking, from their FOH login. The ticks live in FOH app_users.modules; nothing here
+// trusts the page. 'audit_read' includes sending.
+async function fohWho(jwt: string) {
+  if (!foh) throw new Error("The FOH link is not set up (FOH_SERVICE_KEY)");
+  const { data, error } = await foh.auth.getUser(jwt);
+  const email = String(data?.user?.email || "").toLowerCase();
+  if (error || !email) return null;
+  const { data: u } = await foh.from("app_users").select("name,modules,is_admin").eq("email", email).maybeSingle();
+  const mods: string[] = (u && u.modules) || [];
+  const read = !!(u && u.is_admin) || mods.includes("audit_read");
+  return { email, name: (u && u.name) || email.split("@")[0], read, send: read || mods.includes("audit_send") };
+}
+
+// The sender's own invite: made the first time they open the module.
+async function senderLink(who: { email: string; name: string }, fresh: boolean) {
+  const { data: cur } = await sb.from("audit_visits").select("id,enrico_token").eq("status", "invite").eq("sender_email", who.email)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (cur && !fresh) return cur.enrico_token;
+  if (cur) await sb.from("audit_visits").update({ status: "invite_off", updated_at: new Date().toISOString() }).eq("id", cur.id);
+  const { data: nv, error } = await sb.from("audit_visits").insert({
+    title: "Audit link · " + who.name, auditor: "Shared link", status: "invite",
+    enrico_token: newToken(), admin_token: newToken(), sender_email: who.email, sender_name: who.name,
+  }).select("enrico_token").single();
+  if (error) throw error;
+  return nv.enrico_token;
+}
+
+async function fohCall(b: Row, action: string) {
+  const who = await fohWho(String(b.foh));
+  if (!who) return json({ error: "Please sign in to the FOH app again." }, 401);
+  if (!who.send) return json({ error: "No access to Audits. Ask an Admin." }, 403);
+
+  if (action === "me" || action === "new_link") {
+    const token = await senderLink(who, action === "new_link");
+    return json({ name: who.name, send: who.send, read: who.read, link: pageFor(b.page) + "?n=" + token });
+  }
+  if (!who.read) return json({ error: "Not allowed" }, 403);
+
+  if (action === "list") {
+    const { data: inv } = await sb.from("audit_visits").select("id,sender_name").in("status", ["invite", "invite_off"]);
+    const by: Record<string, string> = {}; for (const i of inv || []) by["invite:" + i.id] = i.sender_name || "Shared link";
+    const { data: list, error } = await sb.from("audit_visits")
+      .select("id,title,auditor,visit_date,visit_time,created_at,updated_at,status,overall_pct,submitted_at,source_note,sender_name")
+      .in("status", LISTED).order("created_at", { ascending: false }).limit(500);
+    if (error) throw error;
+    const ids = (list || []).map((x) => x.id);
+    const done: Record<string, number> = {};
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data: sc } = await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids.slice(i, i + 200));
+      for (const s of sc || []) if (s.score || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
+    }
+    const { count: total } = await sb.from("audit_catalog").select("code", { count: "exact", head: true }).eq("active", true);
+    return json({ total: total || 0, audits: (list || []).map((x) => ({
+      id: x.id, auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time, created_at: x.created_at, updated_at: x.updated_at,
+      status: x.status, overall_pct: x.overall_pct, submitted_at: x.submitted_at, done: done[x.id] || 0,
+      sent_by: x.auditor === ENRICO ? "Chef Bartolini's own link" : (x.sender_name || by[x.source_note || ""] || "Shared link"),
+    })) });
+  }
+
+  if (action === "report") {
+    const { data: v } = await sb.from("audit_visits").select("*").eq("id", String(b.id || "")).in("status", LISTED).maybeSingle();
+    if (!v) return json({ error: "Not found" }, 404);
+    await translatePending(v.id, v.auditor).catch((e) => console.error(e));   // English for the reader; the Italian stays
+    const d = await loadAll(v, true);
+    const all: string[] = [];
+    for (const r of [...d.scores, ...d.dishes, ...d.flags, ...d.texts]) for (const p of r.photos || []) all.push(p);
+    return json({ html: emailHtml(d, await signAll(all, 60 * 60 * 24)), pct: d.pct });
+  }
+  return json({ error: "Unknown action" }, 400);
+}
+
 // ── handler ───────────────────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -337,11 +423,18 @@ Deno.serve(async (req) => {
   const action = String(b.action || "");
   if (readOnly && action !== "load") return json({ error: "read-only call" }, 400);
 
+  // ── the FOH Audits module ──
+  if (typeof b.foh === "string") {
+    try { return await fohCall(b, action); }
+    catch (e) { console.error(e); return json({ error: String((e as Error)?.message || e) }, 500); }
+  }
+
   // ── the shared link ──
   if (typeof b.n === "string") {
     if (b.n.length < 20) return json({ error: "Link not valid" }, 403);
-    const { data: inv } = await sb.from("audit_visits").select("id,title,status").eq("enrico_token", b.n).eq("status", "invite").maybeSingle();
+    const { data: inv } = await sb.from("audit_visits").select("id,title,status,sender_name,sender_email").eq("enrico_token", b.n).in("status", ["invite", "invite_off"]).maybeSingle();
     if (!inv) return json({ error: "Link not valid" }, 403);
+    if (inv.status === "invite_off") return json({ error: "This link has been replaced. Ask for a new one." }, 403);
     if (action === "load") return json({ role: "invite", title: inv.title });
     if (action !== "start") return json({ error: "Not allowed" }, 403);
     const name = clean(b.name, 60);
@@ -349,11 +442,21 @@ Deno.serve(async (req) => {
     // A shared link can be forwarded: cap how many audits it can start in a day.
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const { count } = await sb.from("audit_visits").select("id", { count: "exact", head: true }).eq("source_note", "invite:" + inv.id).gte("created_at", since);
-    if ((count || 0) >= 40) return json({ error: "Too many audits started from this link today. Ask Francesco." }, 429);
+    if ((count || 0) >= 40) return json({ error: "Too many audits started from this link today. Ask the person who sent it." }, 429);
+    // The date and time of the visit are typed (the auditor may be a guest writing it up later);
+    // an older page that sends neither gets "now", as before. No future date, nothing over 90 days old.
     const now = dubaiNow();
+    let date = now.date, time = now.time;
+    if (b.visit_date != null || b.visit_time != null) {
+      if (!isDate(b.visit_date) || !isTime(b.visit_time)) return json({ error: "Date and time of the visit needed" }, 400);
+      const oldest = new Date(Date.now() + 4 * 3600 * 1000 - 90 * 86400 * 1000).toISOString().slice(0, 10);
+      if (b.visit_date > now.date || b.visit_date < oldest) return json({ error: "Check the date of the visit" }, 400);
+      date = b.visit_date; time = b.visit_time;
+    }
     const { data: nv, error } = await sb.from("audit_visits").insert({
-      title: `${name} · ${now.date.split("-").reverse().join("/")} ${now.time}`, auditor: name, visit_date: now.date,
+      title: `${name} · ${date.split("-").reverse().join("/")} ${time}`, auditor: name, visit_date: date, visit_time: time,
       status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id,
+      sender_name: inv.sender_name, sender_email: inv.sender_email,
     }).select("enrico_token").single();
     if (error) return json({ error: error.message }, 500);
     return json({ k: nv.enrico_token });
@@ -472,7 +575,9 @@ Deno.serve(async (req) => {
       const { data: cat } = await sb.from("audit_catalog").select("code,area");
       const p = pcts(sc || [], cat || []);
       await sb.from("audit_visits").update({ status: v.status === "sent" || v.status === "test" ? v.status : "submitted", submitted_at: new Date().toISOString(), overall_pct: p.overall, area_pct: p.area, updated_at: new Date().toISOString() }).eq("id", v.id);
-      // Tell Francesco it is ready. This mail goes only to him, so it carries his report link.
+      // Anyone else's audit goes to Roberto's management team: it is in the FOH Audits module now, no mail.
+      if (v.auditor !== ENRICO) return json({ ok: true, translated: n, pct: p });
+      // Enrico: tell Francesco it is ready. This mail goes only to him, so it carries his report link.
       const link = pageFor(b.page) + "?a=" + v.admin_token;
       try {
         await sendMail([FRANCESCO], [], (v.status === "test" ? "[TEST] " : "") + `${v.auditor} has finished the audit`,
