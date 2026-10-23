@@ -241,6 +241,20 @@ async function signAll(paths: string[], secs: number) {
   return out;
 }
 
+// The catalog changes rarely: one fetch serves every save for a minute (a new question can take up to 60 s to be accepted).
+let CAT_CACHE: { at: number; rows: Row[] } | null = null;
+async function catRow(code: string, kind: string) {
+  for (let pass = 0; pass < 2; pass++) {
+    if (!CAT_CACHE || pass === 1 || Date.now() - CAT_CACHE.at > 60000) {
+      const { data } = await sb.from("audit_catalog").select("code,qtype,kinds");
+      CAT_CACHE = { at: Date.now(), rows: data || [] };
+    }
+    const r = CAT_CACHE.rows.find((x: Row) => x.code === code && (x.kinds || []).includes(kind));
+    if (r) return r;
+  }
+  return null;
+}
+
 async function dishList() {
   const { data: subs } = await sb.from("menus").select("id,parent_id").in("parent_id", MENUS).eq("archived", false);
   const scala = new Set([SCALA_MENU, ...(subs || []).filter((m) => m.parent_id === SCALA_MENU).map((m) => m.id)]);
@@ -697,10 +711,14 @@ Deno.serve(async (req) => {
     // Enrico cannot change anything once the report has gone to Amin.
     if (!admin && v.status === "sent") return json({ error: v.auditor === ENRICO ? "Questo audit è già stato inviato. Grazie!" : "This audit has already been sent. Thank you!" }, 409);
     const touch = () => sb.from("audit_visits").update({ updated_at: new Date().toISOString() }).eq("id", v.id);
+    // The "updated" mark is written after the reply has gone out: a save was making four database calls one after
+    // another (~2-3 s from Dubai to the Sydney database); the guest only needs the answer written (23 Oct 2026).
+    // deno-lint-ignore no-explicit-any
+    const touchSoon = () => { const t = touch().then(() => {}, () => {}); const ER = (globalThis as any).EdgeRuntime; if (ER && ER.waitUntil) ER.waitUntil(t); };
 
     if (action === "score") {
       const code = String(b.code || "");
-      const { data: c } = await sb.from("audit_catalog").select("code,qtype").eq("code", code).contains("kinds", [kindOf(v.kind)]).maybeSingle();
+      const c = await catRow(code, kindOf(v.kind));
       if (!c) return json({ error: "Unknown item" }, 400);
       const f: Row = { visit_id: v.id, code, updated_at: new Date().toISOString() };
       if ("score" in b) f.score = b.score == null ? null
@@ -712,7 +730,7 @@ Deno.serve(async (req) => {
       if ("note_it" in b) f.note_it = clean(b.note_it);
       const { data, error } = await sb.from("audit_scores").upsert(f, { onConflict: "visit_id,code" }).select().single();
       if (error) throw error;
-      await touch();
+      touchSoon();
       return json({ row: data });
     }
 
@@ -728,7 +746,7 @@ Deno.serve(async (req) => {
       if (b.id) res = await sb.from("audit_dishes").update(f).eq("id", b.id).eq("visit_id", v.id).select().single();
       else { if (!f.dish_name) return json({ error: "Dish name needed" }, 400); res = await sb.from("audit_dishes").insert({ ...f, visit_id: v.id }).select().single(); }
       if (res.error) throw res.error;
-      await touch();
+      touchSoon();
       return json({ row: res.data });
     }
 
@@ -744,7 +762,7 @@ Deno.serve(async (req) => {
       if (b.id) res = await sb.from("audit_flags").update(f).eq("id", b.id).eq("visit_id", v.id).select().single();
       else res = await sb.from("audit_flags").insert({ area: "piatto", kind: "attention", ...f, visit_id: v.id }).select().single();
       if (res.error) throw res.error;
-      await touch();
+      touchSoon();
       return json({ row: res.data });
     }
 
@@ -792,7 +810,7 @@ Deno.serve(async (req) => {
       if (key === "seat" && !["bar", "lounge", ""].includes(String(b.it || ""))) return json({ error: "bad seat" }, 400);
       const { data, error } = await sb.from("audit_texts").upsert({ visit_id: v.id, key, it: clean(b.it), updated_at: new Date().toISOString() }, { onConflict: "visit_id,key" }).select().single();
       if (error) throw error;
-      await touch();
+      touchSoon();
       return json({ row: data });
     }
 
@@ -809,7 +827,7 @@ Deno.serve(async (req) => {
       const fresh = await getRow(t);
       const data = await setRow(t, { photos: [...((fresh && fresh.photos) || []), path] });
       const urls = await signAll([path], 60 * 60 * 24);
-      await touch();
+      touchSoon();
       return json({ row: data, path, url: urls[path] });
     }
 
