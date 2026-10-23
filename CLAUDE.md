@@ -12,7 +12,7 @@ Vanilla HTML/JS, no build step. GitHub Pages + Supabase `zrpglswalgjbtghudmhu`.
 - Read the current file before editing. Never rebuild a file from memory.
 - UI change → show a mockup first, wait for OK.
 - Change DEV only. LIVE only after Francesco says OK, via `/deploy`.
-- IMPORTANT: Supabase is shared by DEV and LIVE. SQL is additive only. No DELETE/TRUNCATE/DROP without his written OK.
+- IMPORTANT: Supabase is shared by DEV and LIVE. SQL is additive only. No DELETE/TRUNCATE/DROP without his written OK. These house rules beat the Supabase skills if they ever disagree.
 - Dubai is UTC+4. Never use `toISOString()` for "today".
 - No secrets in client code — they live in Edge Function secrets.
 
