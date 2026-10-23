@@ -256,11 +256,15 @@ async function catRow(code: string, kind: string) {
 }
 
 async function dishList() {
-  const { data: subs } = await sb.from("menus").select("id,parent_id").in("parent_id", MENUS).eq("archived", false);
+  const { data: subs } = await sb.from("menus").select("id,parent_id,name").in("parent_id", MENUS).eq("archived", false);
   const scala = new Set([SCALA_MENU, ...(subs || []).filter((m) => m.parent_id === SCALA_MENU).map((m) => m.id)]);
   const ids = [...MENUS, ...(subs || []).map((m) => m.id)];
   const { data: rm } = await sb.from("recipe_menus").select("recipe_id,menu_id").in("menu_id", ids);
-  const rids = [...new Set((rm || []).map((r) => r.recipe_id))];
+  // A recipe the kitchen filed under a "Condiments and extras" section is not a dish a guest orders
+  // (Almond Pizzicotti, the coffee biscuit, showed under Dessert — Antonio, 23 Oct 2026).
+  const extraMenus = new Set((subs || []).filter((m) => /condiment|extra/i.test(m.name || "")).map((m) => m.id));
+  const extras = new Set((rm || []).filter((r) => extraMenus.has(r.menu_id)).map((r) => r.recipe_id));
+  const rids = [...new Set((rm || []).map((r) => r.recipe_id))].filter((id) => !extras.has(id));
   if (!rids.length) return [];
   const { data: rec } = await sb.from("recipes").select("id,name,archived,section").in("id", rids);
   const place: Record<string, string> = {};
