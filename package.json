@@ -1,0 +1,19 @@
+{
+  "name": "robertos-kitchen",
+  "private": true,
+  "description": "Dev tooling only. The app itself has no build step and does not use this file.",
+  "config": {
+    "devUrl": "https://robertos-kitchen.github.io/robertos-kitchen/",
+    "liveUrl": "https://guarracinofamily.github.io/robertos-kitchen/"
+  },
+  "scripts": {
+    "smoke": "node tests/smoke.mjs",
+    "smoke:live": "node tests/smoke.mjs https://guarracinofamily.github.io/robertos-kitchen/",
+    "bump": "node scripts/bump.mjs",
+    "precheck": "node scripts/precheck.mjs",
+    "setup": "npm install && npx playwright install chromium"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
