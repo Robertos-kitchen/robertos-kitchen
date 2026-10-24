@@ -556,7 +556,15 @@ async function fohCall(b: Row, action: string) {
 
   if (action === "me" || action === "new_link") {
     const token = await senderLink(who, action === "new_link");
-    return json({ name: who.name, send: who.send, read: who.read, admin: who.admin, link: pageFor(b.page) + "?n=" + token });
+    // Chef Bartolini's own link (24 Oct 2026, Francesco: "has to be a different link"): Admins only, since
+    // it opens his audit as him. The latest visit of his that is not a test and not removed.
+    let bartolini = null;
+    if (who.admin) {
+      const { data: bv } = await sb.from("audit_visits").select("enrico_token,visit_date,status").eq("auditor", ENRICO)
+        .in("status", ["open", "submitted", "sent"]).is("removed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (bv) bartolini = { link: pageFor(b.page) + "?k=" + bv.enrico_token, visit_date: bv.visit_date, status: bv.status };
+    }
+    return json({ name: who.name, send: who.send, read: who.read, admin: who.admin, link: pageFor(b.page) + "?n=" + token, bartolini });
   }
   if (!who.read) return json({ error: "Not allowed" }, 403);
 
@@ -566,7 +574,7 @@ async function fohCall(b: Row, action: string) {
     const { data: inv } = await sb.from("audit_visits").select("id,sender_name").in("status", ["invite", "invite_off"]);
     const by: Record<string, string> = {}; for (const i of inv || []) by["invite:" + i.id] = i.sender_name || "Shared link";
     let q = sb.from("audit_visits")
-      .select("id,title,kind,auditor,visit_date,visit_time,created_at,updated_at,status,overall_pct,submitted_at,source_note,sender_name,removed_at,removed_by,removed_reason");
+      .select("id,title,kind,qset,auditor,visit_date,visit_time,created_at,updated_at,status,overall_pct,submitted_at,source_note,sender_name,removed_at,removed_by,removed_reason");
     q = action === "removed" ? q.in("status", [...LISTED, "archived"]).not("removed_at", "is", null) : q.in("status", LISTED).is("removed_at", null);
     const { data: list, error } = await q.order("created_at", { ascending: false }).limit(500);
     if (error) throw error;
@@ -576,14 +584,17 @@ async function fohCall(b: Row, action: string) {
       const { data: sc } = await sb.from("audit_scores").select("visit_id,score,na").in("visit_id", ids.slice(i, i + 200));
       for (const s of sc || []) if (s.score != null || s.na) done[s.visit_id] = (done[s.visit_id] || 0) + 1;
     }
-    // How many questions each kind has (the "x of N" on each row).
-    const { data: cat } = await sb.from("audit_catalog").select("kinds").eq("active", true);
+    // How many questions each kind has in each question set (the "x of N" on each row). It used to count
+    // every active row of the kind, whatever the set, so the new set-4 rows inflated every N (24 Oct 2026).
+    const { data: cat } = await sb.from("audit_catalog").select("kinds,since_qset,until_qset").eq("active", true);
+    const totalOf = (k: string, qs: number) => (cat || []).filter((c) => (c.kinds || []).includes(k) &&
+      (Number(c.since_qset) || 1) <= qs && (!c.until_qset || qs < Number(c.until_qset))).length;
     const totals: Record<string, number> = {};
-    for (const k of KINDS) totals[k] = (cat || []).filter((c) => (c.kinds || []).includes(k)).length;
+    for (const k of KINDS) totals[k] = totalOf(k, 4);
     return json({ totals, kinds: KIND_EN, audits: (list || []).map((x) => ({
       id: x.id, title: x.title, kind: kindOf(x.kind), auditor: x.auditor, visit_date: x.visit_date, visit_time: x.visit_time,
       created_at: x.created_at, updated_at: x.updated_at, status: x.status, overall_pct: x.overall_pct, submitted_at: x.submitted_at,
-      done: done[x.id] || 0, total: totals[kindOf(x.kind)] || 0,
+      done: done[x.id] || 0, total: totalOf(kindOf(x.kind), Number(x.qset) || 2),
       sent_by: x.auditor === ENRICO ? "Chef Bartolini's own link" : (x.sender_name || by[x.source_note || ""] || "Shared link"),
       removed_at: x.removed_at, removed_by: x.removed_by, removed_reason: x.removed_reason,
     })) });
