@@ -49,13 +49,16 @@ const NEW_AREAS = ["prenota", "bagno", "congedo"];
 // a question shows when since_qset <= set and (until_qset is empty or set < until_qset). Set 2 = "Who served you",
 // bar-counter wording, cigar selection. Set 3 = SOP timings, split double questions, how long the food took,
 // dessert / coffee offered, name used, and dish scores counted in the food %. A page older than set 2 sees set 1.
+// Set 4 (24 Oct 2026, agreed one by one): table ready within 5 min moves to Arrival, Scala drinks list split,
+// first visit 2 min in both, washroom per room, Scala bill time + availability, allergies at the table, check-back.
 const AREAS = AREA_ORDER.venue;
 const AREA_EN: Record<string, string> = { prenota: "Booking", servito: "Who served you", arrivo: "Arrival & welcome", cucina: "Kitchen", ristorante: "Restaurant", vino: "Wine", scala: "Scala", bagno: "Washroom", congedo: "Bill & goodbye", piatto: "Dish" };
 // For a guest the kitchen section is the food on the plate.
 // A guest's sections are named for a guest: the kitchen is the food on the plate, the restaurant is
 // what happens at the table, Scala is the bar & lounge itself.
 const areaEn = (kind: string, a: string) =>
-  kind !== "venue" && a === "cucina" ? "The food" : kind === "restaurant" && a === "ristorante" ? "At the table" : kind === "scala" && a === "scala" ? "At Scala" : AREA_EN[a] || a;
+  kind !== "venue" && a === "cucina" ? "The food" : kind === "restaurant" && a === "ristorante" ? "At the table" : kind === "scala" && a === "scala" ? "At Scala" :
+  kind === "restaurant" && a === "bagno" ? "Restaurant washroom" : kind === "scala" && a === "bagno" ? "Scala washroom" : AREA_EN[a] || a;
 // A standard is answered Yes (score 5) or No (score 0); a quality score is 1-5. Either way the % is score / 5,
 // and "answered" means a score is there at all — a No is 0, so never test a score for truth.
 const has = (s: Row) => s && !s.na && s.score != null;
@@ -684,7 +687,7 @@ Deno.serve(async (req) => {
     }
     const { data: nv, error } = await sb.from("audit_visits").insert({
       title: `${name} · ${date.split("-").reverse().join("/")} ${time}`, auditor: name, visit_date: date, visit_time: time, kind,
-      status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id, qset: Number(b.qset) >= 3 ? 3 : 2,
+      status: "open", enrico_token: newToken(), admin_token: newToken(), source_note: "invite:" + inv.id, qset: Number(b.qset) >= 4 ? 4 : Number(b.qset) >= 3 ? 3 : 2,
       sender_name: inv.sender_name, sender_email: inv.sender_email,
     }).select("enrico_token").single();
     if (error) return json({ error: error.message }, 500);
