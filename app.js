@@ -69,7 +69,7 @@ const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
 // report (written 2–4am). Version updates now come solely from the ETag guard in
 // index.html, which IS guarded by busy()/__closingActive/__schedEditing and runs
 // at any hour. Do NOT re-add a hardcoded-version reload here.
-const APP_VERSION = 1792584690;
+const APP_VERSION = 1792989980;
 
 // True while someone is mid-task, so the timer below never force-refreshes over
 // live work: a focused field, editing the schedule, or writing the closing report
@@ -3715,6 +3715,7 @@ var kplDraftSec = {};   // staffId -> overridden station_key (a move you haven't
 var kplDraftOrd = {};   // staffId -> order number within its section (a reorder you haven't published yet)
 var kplNewStaff = [];   // brand-new people you added: {id:'new-<n>', name, designation, station_key, _new:true}
 var kplNewSeq   = 0;
+var kplDraftSecFrom = {}; // staffId -> Monday a draft move starts (Tell us 743aafac, Antonio 26 Oct) - the weeks before keep the old section
 function kplAllPeople(){ return kplStaff.concat(kplNewStaff); }              // everyone shown on the board
 function kplEffSec(s){ return (kplMode==='draft' && kplDraftSec[s.id]) ? kplDraftSec[s.id] : s.station_key; }  // section after any draft move
 function kplEffOrd(s){ return (kplDraftOrd[s.id]!=null) ? kplDraftOrd[s.id] : (s.sort_order!=null ? s.sort_order : 9999); }
@@ -3844,7 +3845,7 @@ function schedPlanPersist(){
   schedPlanSeedMissingBases();   // every planned cell records the live value it sits on
   try{
     localStorage.setItem(SCHED_PLAN_LS, JSON.stringify({
-      entries: kplDraft, secMoves: kplDraftSec, order: kplDraftOrd,
+      entries: kplDraft, secMoves: kplDraftSec, secFrom: kplDraftSecFrom, order: kplDraftOrd,
       newStaff: kplNewStaff, newSeq: kplNewSeq, base: kplDraftBase,
       secRename: kplSecRename, secNew: kplSecNew, secOrder: kplSecOrder, updatedAt: new Date().toISOString()
     }));
@@ -3865,7 +3866,7 @@ var krtUndoPending = false;
 var krtNextLabel = null;    // optional friendly label for the next checkpoint
 function krtStateSnap(){
   return JSON.stringify({
-    d:kplDraft||{}, sec:kplDraftSec||{}, ord:kplDraftOrd||{},
+    d:kplDraft||{}, sec:kplDraftSec||{}, sf:kplDraftSecFrom||{}, ord:kplDraftOrd||{},
     ns:kplNewStaff||[], nseq:kplNewSeq||0,
     sr:kplSecRename||{}, sn:kplSecNew||[], so:kplSecOrder||[]
   });
@@ -3889,7 +3890,7 @@ function krtUndoLast(){
   if(!krtUndoStack.length) return;
   var u = krtUndoStack.pop();
   var s; try{ s=JSON.parse(u.state); }catch(e){ return; }
-  kplDraft=s.d||{}; kplDraftSec=s.sec||{}; kplDraftOrd=s.ord||{};
+  kplDraft=s.d||{}; kplDraftSec=s.sec||{}; kplDraftSecFrom=s.sf||{}; kplDraftOrd=s.ord||{};
   kplNewStaff=s.ns||[]; kplNewSeq=s.nseq||0;
   kplSecRename=s.sr||{}; kplSecNew=s.sn||[]; kplSecOrder=s.so||[];
   krtUndoBase = u.state;                 // baseline is now the restored state
@@ -4053,6 +4054,7 @@ function schedPlanCapture(){
     if(so !== lso && so != null) order[s.id] = s.sort_order;
   });
   kplNewStaff = newStaff; kplDraftSec = secMoves; kplDraftOrd = order;
+  Object.keys(kplDraftSecFrom).forEach(function(id){ if(!secMoves[id]) delete kplDraftSecFrom[id]; });   // moved back = no move
   // roster diffs, windowed to the loaded span
   var winStart = addDays(schedWeekStart, -7);
   var winDays  = schedPlanWeeksCount()*7 + 14;
@@ -4086,6 +4088,7 @@ function schedPlanEnter(){
   kplDraft    = (saved && saved.entries)  || {};
   kplDraftBase = (saved && saved.base)    || {};
   kplDraftSec = (saved && saved.secMoves) || {};
+  kplDraftSecFrom = (saved && saved.secFrom) || {};
   kplDraftOrd = (saved && saved.order)    || {};
   kplNewStaff = (saved && saved.newStaff) || [];
   kplNewSeq   = (saved && saved.newSeq)   || 0;
@@ -4353,7 +4356,7 @@ function krtCloseModal(ev){ if(ev && ev.target && !ev.target.classList.contains(
 
 // ── One-tap planning helpers (write LIVE, always after a clear confirm — Francesco's choice) ──
 function krtWeekDates(weekStart){ var a=[]; for(var d=0;d<7;d++) a.push(formatDate(addDays(weekStart,d))); return a; }
-function krtSectionPeople(stKey){ return schedStaff.filter(function(s){ return s.station_key===stKey; })
+function krtSectionPeople(stKey, weekStart){ var wk=formatDate(weekStart||schedWeekStart); return schedStaff.filter(function(s){ return schedSecAt(s, wk)===stKey; })
   .sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order)) || (a.name||'').localeCompare(b.name||''); }); }
 function krtRosterPayload(sid, ds, status, s1, e1, s2, e2){
   var working = status==='working';
@@ -4366,7 +4369,7 @@ function krtRosterPayload(sid, ds, status, s1, e1, s2, e2){
 function krtBuildFillTeams(weekStart){
   var dates=krtWeekDates(weekStart), payloads=[];
   STATIONS_SCH.forEach(function(st){
-    krtSectionPeople(st.key).forEach(function(s, idx){
+    krtSectionPeople(st.key, weekStart).forEach(function(s, idx){
       dates.forEach(function(ds){
         if(idx===0) payloads.push(krtRosterPayload(s.id, ds, 'working','10:00','15:00','19:00','00:00'));  // lunch split
         else        payloads.push(krtRosterPayload(s.id, ds, 'working','15:00','03:00', null, null));       // dinner
@@ -4386,7 +4389,7 @@ function krtBuildDaysOff(weekStart){
   var quiet=[0,1,2,6];                       // Mon, Tue, Wed, Sun (indexes) — never Thu(3)/Fri(4)/Sat(5)
   var gi=0;
   STATIONS_SCH.forEach(function(st){
-    krtSectionPeople(st.key).forEach(function(s){
+    krtSectionPeople(st.key, weekStart).forEach(function(s){
       var statusOn=function(di){ var r=schedRoster[schedRosterKey(s.id,dates[di])]; return (r&&r.status)||'working'; };
       var have=0; for(var d=0; d<7; d++){ if(DAYOFF.indexOf(statusOn(d))>=0) have++; }
       var need=KRT_DAYSOFF_TARGET - have;
@@ -4408,7 +4411,7 @@ function krtBuildWeekOff(){
   var payloads=[];
   var groups=[], known={};
   STATIONS_SCH.forEach(function(st){ known[st.key]=1; groups.push(krtSectionPeople(st.key)); });
-  var others=schedStaff.filter(function(s){ return !known[s.station_key]; })
+  var others=schedStaff.filter(function(s){ return !known[schedSecAt(s, formatDate(schedWeekStart))]; })
     .sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order)); });
   if(others.length) groups.push(others);
   groups.forEach(function(people, si){
@@ -4668,7 +4671,7 @@ function kplPullFromLive(){
     kplDraft[k] = { status:r.status||'working', shift_start:r.shift_start||null, shift_end:r.shift_end||null,
                     shift_start2:r.shift_start2||null, shift_end2:r.shift_end2||null, notes:r.notes||null };
   });
-  kplDraftSec = {}; kplDraftOrd = {}; kplNewStaff = []; kplNewSeq = 0;
+  kplDraftSec = {}; kplDraftSecFrom = {}; kplDraftOrd = {}; kplNewStaff = []; kplNewSeq = 0;
 }
 function kplEnterDraft(fresh){
   var saved = kplReadDraft();
@@ -5736,7 +5739,7 @@ async function kplDoPublish(){
     else { var lv=kplLive[k]; if(lv && lv.status){ payloads.push(kplRosterRow(s.id,ds,lv)); } }
   }); }); }
   var lbl = weeks.length ? ('W'+(weeks[0]+1)+(weeks.length>1?'–W'+(weeks[weeks.length-1]+1):'')) : 'section changes';
-  var extra=[]; if(moves.length) extra.push(moves.length+' moved to a different section'); if(reorders.length) extra.push(reorders.length+' reordered'); if(newPeople.length) extra.push(newPeople.length+' new '+(newPeople.length===1?'person':'people')+' added');
+  var extra=[]; if(moves.length) extra.push(moves.length+' moved to a different section ('+moves.map(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); return (s?s.name:'?')+' \u2192 '+(schedSecLabel(kplDraftSec[id])||kplDraftSec[id])+' from '+schedFmtDay(kplDraftSecFrom[id]||formatDate(getMonday(minD ? new Date(minD+'T12:00:00') : schedWeekStart))); }).join('; ')+')'); if(reorders.length) extra.push(reorders.length+' reordered'); if(newPeople.length) extra.push(newPeople.length+' new '+(newPeople.length===1?'person':'people')+' added');
   if(newSecs.length) extra.push(newSecs.length+' new section'+(newSecs.length>1?'s':'')+' ('+newSecs.map(function(s){return s.label;}).join(', ')+')');
   if(secRenames.length) extra.push(secRenames.length+' section'+(secRenames.length>1?'s':'')+' renamed');
   if(secDiff.deletes.length) extra.push(secDiff.deletes.length+' section'+(secDiff.deletes.length>1?'s':'')+' deleted');
@@ -5753,6 +5756,8 @@ async function kplDoPublish(){
     if(dates.length){ var snapRes = await sb.from('roster').select('*').gte('work_date',minD).lte('work_date',maxD).in('staff_id', existingIds).limit(8000); if(snapRes.error) throw snapRes.error; snapRows = snapRes.data||[]; }
     // remember prior sections + order of changed people, and prior section labels (for undo)
     var priorSections={}; moves.forEach(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); priorSections[id]=s?s.station_key:null; });
+    var priorHist={};   // section history of each moved person, so Undo puts their earlier weeks back exactly
+    for(var ph=0; ph<moves.length; ph++){ var phr=await sb.from('staff_section_history').select('station_key,from_date').eq('staff_id',moves[ph]).order('from_date'); if(phr.error) throw phr.error; priorHist[moves[ph]]=(phr.data||[]).map(function(x){ return { station_key:x.station_key, from_date:String(x.from_date).substring(0,10) }; }); }
     var priorOrders={}; reorders.forEach(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); priorOrders[id]=s?s.sort_order:null; });
     // 2) sections FIRST (so people can sit in new ones). Snapshot the whole table for undo,
     //    then add / rename / delete / reorder.
@@ -5780,11 +5785,11 @@ async function kplDoPublish(){
       dates.forEach(function(ds){ var e=kplDraft[kplKey(np.id,ds)]; if(e && e.status){ payloads.push(kplRosterRow(res.data.id,ds,e)); } });
     }
     // 4) persist the undo snapshot
-    localStorage.setItem(KPL_SNAP_LS, JSON.stringify({ label:lbl, minD:minD, maxD:maxD, staffIds:existingIds, rows:snapRows, priorSections:priorSections, priorOrders:priorOrders, insertedIds:insertedIds, secRows:secSnapRows, insertedSecKeys:insertedSecKeys, at:new Date().toISOString() }));
+    localStorage.setItem(KPL_SNAP_LS, JSON.stringify({ label:lbl, minD:minD, maxD:maxD, staffIds:existingIds, rows:snapRows, priorSections:priorSections, priorHist:priorHist, priorOrders:priorOrders, insertedIds:insertedIds, secRows:secSnapRows, insertedSecKeys:insertedSecKeys, at:new Date().toISOString() }));
     // 5) apply section moves + reorders (team-list change)
     var movesFrom = formatDate(getMonday(minD ? new Date(minD+'T12:00:00') : schedWeekStart));
     var movesLater = {};   // a move dated before someone's next recorded move leaves their current section alone
-    for(var mh=0;mh<moves.length;mh++){ try{ var mrec = await schedRecordSectionMove(moves[mh], priorSections[moves[mh]], kplDraftSec[moves[mh]], movesFrom); if(!mrec.latest) movesLater[moves[mh]] = 1; }catch(he){ console.error('Section history', he); kToast('Moved — but the earlier weeks could not be kept in their old section. Tell Francesco.', true); } }
+    for(var mh=0;mh<moves.length;mh++){ try{ var mrec = await schedRecordSectionMove(moves[mh], priorSections[moves[mh]], kplDraftSec[moves[mh]], kplDraftSecFrom[moves[mh]] || movesFrom); if(!mrec.latest) movesLater[moves[mh]] = 1; }catch(he){ console.error('Section history', he); kToast('Moved — but the earlier weeks could not be kept in their old section. Tell Francesco.', true); } }
     for(var m=0;m<moves.length;m++){ var mid=moves[m]; if(movesLater[mid]) continue; var mr=await sb.from('staff').update({ station_key:kplDraftSec[mid] }).eq('id',mid); if(mr.error) throw mr.error; }
     for(var q=0;q<reorders.length;q++){ var rid=reorders[q]; var rr=await sb.from('staff').update({ sort_order:kplDraftOrd[rid] }).eq('id',rid); if(rr.error) throw rr.error; }
     // 6) replace the roster rows in range, then insert the plan
@@ -5794,7 +5799,7 @@ async function kplDoPublish(){
       if(payloads.length){ var ins = await sb.from('roster').upsert(payloads,{onConflict:'staff_id,work_date'}); if(ins.error) throw ins.error; }
     }
     // applied — clear the draft team + section changes so they don't re-apply
-    kplDraftSec={}; kplDraftOrd={}; kplNewStaff=[]; kplSecRename={}; kplSecNew=[]; schedPlanSaveDraft();
+    kplDraftSec={}; kplDraftSecFrom={}; kplDraftOrd={}; kplNewStaff=[]; kplSecRename={}; kplSecNew=[]; schedPlanSaveDraft();
     if(statusEl){ statusEl.style.color='#0f766e'; statusEl.textContent='✓ Brought live'+(weeks.length?(' '+payloads.length+' shift-days'):'')+(extra.length?' + '+extra.join(' + '):'')+'. The live schedule is updated'+(weeks.length?(' for '+minD+' → '+maxD):'')+'.'; }
     if(goBtn){ goBtn.textContent='✓ Live'; }
     await schedPlanAfterWrite();
@@ -5819,6 +5824,11 @@ async function kplRevert(){
     // restore prior sections + order
     var ps = snap.priorSections||{};
     for(var id in ps){ if(ps.hasOwnProperty(id)){ var r=await sb.from('staff').update({ station_key:ps[id] }).eq('id',id); if(r.error) throw r.error; } }
+    var phs = snap.priorHist||{};
+    for(var hid in phs){ if(phs.hasOwnProperty(hid)){
+      var hd=await sb.from('staff_section_history').delete().eq('staff_id',hid); if(hd.error) throw hd.error;
+      if(phs[hid].length){ var hi=await sb.from('staff_section_history').insert(phs[hid].map(function(x){ return { staff_id:hid, station_key:x.station_key, from_date:x.from_date }; })); if(hi.error) throw hi.error; }
+    } }
     var po = snap.priorOrders||{};
     for(var oid in po){ if(po.hasOwnProperty(oid)){ var r2=await sb.from('staff').update({ sort_order:po[oid] }).eq('id',oid); if(r2.error) throw r2.error; } }
     // restore sections to exactly the snapshot (undoes rename / reorder / delete),
@@ -6123,10 +6133,11 @@ function schedMultiWeekTableHtml(weekStart, numWeeks) {
 
   for (var si = 0; si < STATIONS_SCH.length; si++) {
     var st = STATIONS_SCH[si];
-    var allStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    // by the section each WEEK has them in (Tell us 743aafac) — not where they sit today
+    var allStaff = schedStaff.filter(function(s){ return weeks.some(function(ws){ return schedSecAt(s, formatDate(ws)) === st.key; }); });
     html += '<tr class="sch-station-hdr"><td colspan="' + COLS + '">' + st.label + '</td></tr>';
     for (var xi = 0; xi < allStaff.length; xi++) {
-      var staff = allStaff[xi], sid = staff.id, mpid = 'smpM' + sid.replace(/-/g,'');
+      var staff = allStaff[xi], sid = staff.id, mpid = 'smpM' + sid.replace(/-/g,'') + '_' + si;
       var wHours = 0, wDays = 0;
       var upBtn = xi > 0 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',-1)" title="Move up">&#9650;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9650;</span>';
       var dnBtn = xi < allStaff.length - 1 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',1)" title="Move down">&#9660;</span>' : '<span class="sch-ord-btn sch-ord-off">&#9660;</span>';
@@ -6139,17 +6150,20 @@ function schedMultiWeekTableHtml(weekStart, numWeeks) {
           (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</span>' +
           '<span class="sch-multi-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit role">' + staff.designation + ' <span style="opacity:.3;font-size:9px">✎</span></span>' +
         '</span></td>';
-      weeks.forEach(function(ws){ for (var d = 0; d < 7; d++){
-        var cell = schedDayCellHtml(staff, sid, formatDate(addDays(ws, d)), today);
+      weeks.forEach(function(ws){ var wkSec = schedSecAt(staff, formatDate(ws)); for (var d = 0; d < 7; d++){
+        var cell = (wkSec === st.key) ? schedDayCellHtml(staff, sid, formatDate(addDays(ws, d)), today)
+          : { html: '<td class="sch-cell sch-cell-elsewhere" title="In ' + schedSecLabel(wkSec) + ' this week">' + (d === 0 ? '<div class="sch-elsewhere-tag">in ' + schedSecLabel(wkSec) + '</div>' : '') + '</td>', hours: 0, days: 0 };
         html += (d === 0) ? cell.html.replace('class="sch-cell', 'class="sch-cell sch-weekstart') : cell.html;
         wHours += cell.hours; wDays += cell.days;
       }});
       html += '<td class="sch-td-hours">' + (wHours > 0 ? (Math.round(wHours * 10) / 10) + 'h' : '—') + '</td>';
       html += '<td class="sch-td-days">' + (wDays > 0 ? wDays : '—') + '</td>';
-      var stOpts = ''; for (var oi = 0; oi < STATIONS_SCH.length; oi++){ stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' + (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' + STATIONS_SCH[oi].label + '</option>'; }
+      var stOpts = ''; for (var oi = 0; oi < STATIONS_SCH.length; oi++){ stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' + (STATIONS_SCH[oi].key === st.key ? ' selected' : '') + '>' + STATIONS_SCH[oi].label + '</option>'; }
+      var fromOpts = weeks.map(function(ws){ return '<option value="' + formatDate(ws) + '">from ' + ws.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + '</option>'; }).join('');
       html += '<td class="sch-td-move"><button class="sch-move-btn" onclick="schedShowMove(\'' + mpid + '\')">&#8596; Move</button>' +
         '<div class="sch-move-panel" id="' + mpid + '"><span class="sch-move-label">Move to</span>' +
         '<select class="dish-move-select" id="' + mpid + 'sel">' + stOpts + '</select>' +
+        '<select class="dish-move-select" id="' + mpid + 'from" title="The weeks before keep their section">' + fromOpts + '</select>' +
         '<button class="dish-move-yes" onclick="schedMoveStation(\'' + sid + '\',\'' + mpid + '\')">Move</button>' +
         '<button class="dish-move-no" onclick="schedHideMove(\'' + mpid + '\')">Cancel</button></div></td>';
       html += '</tr>';
@@ -6176,7 +6190,7 @@ function renderSchedDay() {
   var sections = '';
   STATIONS_SCH.forEach(function(st) {
     var working = schedStaff.filter(function(s) {
-      if (s.station_key !== st.key) return false;
+      if (schedSecAt(s, today) !== st.key) return false;
       var row = schedRoster[schedRosterKey(s.id, today)];
       return !row || row.status === 'working';
     });
@@ -6785,13 +6799,32 @@ function schedSecHistFromRows(r) {
 }
 function schedSecAt(s, ds) {
   if (!s) return '';
-  var h = schedSecHist[s.id];
-  if (!h || !h.length) return s.station_key;
+  // Roster tool (Tell us 743aafac, Antonio 26 Oct): a move not yet live starts the week it was made
+  // in. It used to have no date, so the plan showed that person in the new section in every week.
+  var from = schedPlanMode && kplDraftSecFrom[s.id];
+  if (from) {
+    var live = null;
+    for (var li = 0; li < kplStaff.length; li++) { if (kplStaff[li].id === s.id) { live = kplStaff[li]; break; } }
+    if (live && live.station_key !== s.station_key) {
+      var r = schedSecHistApply(schedSecHist[s.id], live.station_key, s.station_key, from);
+      return schedSecIn(r.list, r.latest ? s.station_key : live.station_key, ds);
+    }
+  }
+  return schedSecIn(schedSecHist[s.id], s.station_key, ds);
+}
+// h = that person's history, cur = the section "now" (staff.station_key).
+function schedSecIn(h, cur, ds) {
+  if (!h || !h.length) return cur;
   var hit = 0;
   for (var i = 0; i < h.length; i++) { if (h[i].from_date <= ds) hit = i; }
   while (hit > 0 && h[hit].station_key === SCHED_OFF) hit--;   // off the rota: keep the section they last sat in
-  for (var j = hit + 1; j < h.length; j++) { if (h[j].station_key !== SCHED_OFF) return h[hit].station_key === SCHED_OFF ? s.station_key : h[hit].station_key; }
-  return s.station_key;
+  for (var j = hit + 1; j < h.length; j++) { if (h[j].station_key !== SCHED_OFF) return h[hit].station_key === SCHED_OFF ? cur : h[hit].station_key; }
+  return cur;
+}
+// The week a move starts: the "from" picker in the several-weeks grid, else the week on screen.
+function schedMoveFromDs(mpid) {
+  var f = document.getElementById(mpid + 'from');
+  return (f && f.value) || formatDate(schedWeekStart);
 }
 // On the rota from a date, off it from a date (Antonio, Tell us a52b3fc2, 19 Oct 2026): adding someone
 // used to put them in every past week, and removing them took them out of every past week, because
@@ -6878,18 +6911,27 @@ async function schedMoveStation(staffId, mpid) {
   var sel = document.getElementById(mpid + 'sel');
   if (!sel) return;
   var targetStation = sel.value;
+  var fromDs = schedMoveFromDs(mpid);
   schedHideMove(mpid);
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
   if (!staff) return;
   if (schedPlanMode) {
-    // Roster tool: a draft move — Bring live records the week it starts
-    if (targetStation === staff.station_key) return;
-    staff.station_key = targetStation;
+    // Roster tool: a draft move from week fromDs — the weeks before keep their section; Bring live records that week
+    if (targetStation === schedSecAt(staff, fromDs)) return;
+    var live = kplStaff.find(function(x){ return x.id === staffId; });
+    var was = kplDraftSecFrom[staffId];
+    if (live && targetStation === live.station_key && schedSecIn(schedSecHist[staffId], live.station_key, fromDs) === targetStation) {
+      staff.station_key = live.station_key; delete kplDraftSecFrom[staffId];      // back where live has them = no move
+    } else {
+      if (live && was && was !== fromDs && staff.station_key !== live.station_key && staff.station_key !== targetStation)
+        kToast(staff.name + ': one planned section change per person — the move from ' + schedFmtDay(was) + ' is replaced by this one. Bring live the first to plan both.', true);
+      staff.station_key = targetStation;
+      if (live) kplDraftSecFrom[staffId] = fromDs;
+    }
     renderSchedWeek();
     return;
   }
   // The move starts the week on screen; the weeks before it keep the section they were rostered in.
-  var fromDs = formatDate(schedWeekStart);
   var oldKey = staff.station_key;
   if (targetStation === schedSecAt(staff, fromDs)) return;
   var local = schedSecHistApply(schedSecHist[staffId], oldKey, targetStation, fromDs);
