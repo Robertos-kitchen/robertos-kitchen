@@ -14,6 +14,7 @@
   var CARD = {
     'learning.html': ['#root',            'Kitchen · Learning',       'Learning',       'Questions on our dishes and our kitchen. Sign in with your employee ID to start.'],
     'tasting.html':  ['#root',            'Recipes · Tasting',        'Tasting',        'Score the dishes waiting for the à la carte. Chef Francesco approves, and the dish moves onto the menu.'],
+    'rnd.html':      ['#root',            'Recipes · R&D',            'R&D',            'A card per new dish: trials, quantities and changes, then the final recipe.'],
     'closing-view':  ['#closing-view .cr-wrap', 'Kitchen · Closing report', 'Closing Report', 'Tonight’s service, revenue, complaints and 86s, sent to the chefs by email.']
     // NOT the Team survey: its heading changes language with the reader and carries the hidden admin
     // tap-corner that opens the results — hiding it would remove that.
@@ -25,7 +26,7 @@
     '.kf-t{font-family:"Cormorant Garamond",Georgia,serif;font-size:30px;line-height:1.15;margin-top:8px;font-weight:500}' +
     '.kf-s{font-size:13.5px;color:rgba(255,255,255,.9);margin-top:8px;max-width:600px;line-height:1.5}' +
     '@media (max-width:700px){.kf-hero{padding:20px 16px 16px}.kf-t{font-size:26px}}';
-  if (page === 'learning.html' || page === 'tasting.html') css += '#root>.kf-hero{margin-bottom:0}';   // these pages space items with a grid gap already
+  if (page === 'learning.html' || page === 'tasting.html' || page === 'rnd.html') css += '#root>.kf-hero{margin-bottom:0}';   // these pages space items with a grid gap already
   if (page === 'training.html') {
     // Training's own header carries the signed-in name and "Not you?": it becomes the card, same width.
     css += '#root .bar{border-radius:8px;padding:26px 22px 22px;position:relative;overflow:hidden;margin-top:16px}' +

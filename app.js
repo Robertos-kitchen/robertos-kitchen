@@ -69,7 +69,7 @@ const KITCHEN_PROXY_SECRET = '8c8223b1916d98aefb0d95018ac5e8e9fc11de64dec1ffc5';
 // report (written 2–4am). Version updates now come solely from the ETag guard in
 // index.html, which IS guarded by busy()/__closingActive/__schedEditing and runs
 // at any hour. Do NOT re-add a hardcoded-version reload here.
-const APP_VERSION = 1792989980;
+const APP_VERSION = 1792990460;
 
 // True while someone is mid-task, so the timer below never force-refreshes over
 // live work: a focused field, editing the schedule, or writing the closing report
@@ -1925,7 +1925,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','rnd-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2852,6 +2852,12 @@ var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
    name:'Create new recipes',
    meta:'Chef code. Ingredients off the stock take, method, allergens, photo — and the half the floor reads.'},
+  // 26 Oct 2026 (Tell us 0b3353c1, Chef Antonio): a card per new dish for its trials,
+  // quantities and changes, tidied into a final recipe at the end. Apart from the Recipe
+  // book on purpose: nothing on it reaches a menu or the till (rnd.html + rnd-schema.sql).
+  {code:'R&amp;D', view:'rnd-view', page:'rnd.html?embed=1',
+   name:'R&D',
+   meta:'A card per new dish: every trial with exact quantities, every change, by hand with the pen. Tidied into the final recipe at the end, with its real food cost.'},
   {code:'TASTE', view:'tasting-view', page:'tasting.html?embed=1',
    name:'Tasting',
    meta:'Score the dishes waiting for the à la carte. Chef Francesco approves, and the dish moves onto the menu.'},
@@ -3083,7 +3089,7 @@ setInterval(function(){ var h=document.getElementById('home-view'); if(h&&h.styl
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','rnd-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -3105,7 +3111,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','crockerycount-view','interviews-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','tasting-view','rnd-view','bizlunch-view','learning-view','training-view','maintenance-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';

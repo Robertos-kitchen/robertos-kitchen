@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>R&amp;D — Roberto's Kitchen</title>
+<!-- Before any code below can call fetch(): on the DEV host this blocks every write. -->
+<script src="dev-guard.js?v=1789747927"></script>
+<script src="k-dialog.js?v=1792584690"></script>
+<script src="recipe-lock.js?v=1791884338"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=DM+Sans:wght@400;500;700&display=swap');
+/* The Kitchen app's own tokens and the Recipes paper — the same as tasting.html. */
+:root{
+  --sabbia:#e1d3c2;--sabbia-light:#ede5d8;--sabbia-dark:#cfc0ad;
+  --vino:#410207;--vino-mid:#5e0a10;--terra:#c0481f;--oliva:#4b5128;
+  --ink:#2a1a10;--cream:#f5ede0;--paper:#fbf7f1;--door:#f4ede2;--muted:#6b5b50;
+  --ok:#2f5d1e;--ok-bg:#e4ecd9;--below:#7a4200;--below-bg:#f6e6cc;--err:#8f1d12;
+  --display:'Bodoni Moda',Didot,'Times New Roman',serif;
+  --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px}
+body{background:linear-gradient(90deg,rgba(196,168,133,.28) 1px,transparent 1px) 0 0/80px 100%,
+  radial-gradient(circle at 86% 0,rgba(217,118,63,.12),transparent 520px),var(--paper);min-height:100vh}
+button{font-family:inherit;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--terra);outline-offset:2px}
+/* Tablet first, and a finger or a pen: every control is at least 48px, every field 16px+
+   so iOS never zooms, and the gaps are wide enough that a pen cannot land on two things. */
+.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 60px;display:grid;gap:18px}
+.crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.back{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);
+  border:1px solid var(--sabbia-dark);border-radius:4px;padding:10px 14px;cursor:pointer;min-height:48px}
+.crumb h2{font-family:var(--display);font-weight:400;color:var(--vino);font-size:28px;margin:0;line-height:1.15;overflow-wrap:anywhere}
+.who{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--door);border:1px solid rgba(66,1,7,.13);border-radius:8px;padding:10px 12px}
+.who .lbl{font-weight:700;color:var(--vino);margin-right:4px}
+.who.ask{border:2px solid var(--terra)}
+.chip{border:1px solid var(--sabbia-dark);background:#fff;border-radius:24px;padding:10px 16px;font-size:15px;cursor:pointer;min-height:48px}
+.chip.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.other{display:flex;gap:6px;align-items:center}
+.other input{border:1px solid var(--sabbia-dark);border-radius:24px;padding:10px 14px;font:inherit;font-size:16px;width:190px;max-width:100%;min-height:48px}
+.sec-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.sec-h h3{font-family:var(--display);font-weight:400;color:var(--vino);font-size:24px;margin:0}
+.sec-h small{color:var(--muted);font-size:13px}
+.list{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:760px){.list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.row{display:grid;gap:6px;background:#fff;border:1px solid rgba(66,1,7,.12);border-radius:10px;padding:16px;text-align:left;cursor:pointer;width:100%;min-height:96px}
+.row:hover{border-color:var(--terra)}
+.rname{font-family:var(--display);font-size:22px;color:var(--vino);line-height:1.2;overflow-wrap:anywhere}
+.rsub{font-size:13px;color:var(--muted);line-height:1.45}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;border-radius:3px;padding:4px 8px;vertical-align:middle}
+.p-dev{background:var(--below-bg);color:var(--below)}
+.p-final{background:var(--ok-bg);color:var(--ok)}
+.p-trial{background:var(--vino);color:var(--cream)}
+.p-change{background:#e6dcf0;color:#3f2a5e}
+.p-note{background:var(--sabbia-light);color:var(--muted)}
+.empty{background:#fff;border:1px dashed var(--sabbia-dark);border-radius:8px;padding:18px;color:var(--muted);line-height:1.6}
+.card{background:#fff;border:1px solid rgba(66,1,7,.12);border-radius:10px;padding:16px;display:grid;gap:12px;align-content:start}
+.card h4{margin:0;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--vino)}
+.fld{display:grid;gap:6px;font-weight:500;font-size:14px}
+.fld input,.fld textarea{padding:12px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:17px;min-height:50px;background:#fff;color:var(--ink);width:100%}
+textarea{width:100%;min-height:110px;border:1px solid var(--sabbia-dark);border-radius:6px;padding:12px;font:inherit;font-size:17px;line-height:1.5;background:#fff;resize:vertical}
+.btn{border:none;border-radius:6px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;background:var(--vino);color:var(--cream);min-height:50px}
+.btn.ghost{background:#fff;color:var(--vino);border:1px solid var(--sabbia-dark)}
+.btn.go{background:var(--ok);color:#fff}
+.btn.big{min-height:60px;font-size:16px;padding:14px 22px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.add3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.add3 .btn{min-height:64px;font-size:16px}
+.msg{font-size:14px;font-weight:500}
+.msg.ok{color:var(--ok)} .msg.bad{color:var(--err)}
+.hint{font-size:13px;color:var(--muted);line-height:1.5}
+.fail{background:#fbe9e6;border:1px solid #e3b4ab;color:var(--err);border-radius:8px;padding:12px 14px;line-height:1.5}
+.search{width:100%;padding:12px 14px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:17px;min-height:50px;background:#fff}
+.seg{display:flex;gap:0;border:1px solid var(--sabbia-dark);border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
+.seg button{border:none;background:#fff;padding:12px 20px;font-size:15px;font-weight:500;cursor:pointer;min-height:50px}
+.seg button.on{background:var(--vino);color:var(--cream)}
+/* ── ingredient lines ── */
+.lines{display:grid;gap:8px}
+.ln{display:grid;grid-template-columns:minmax(0,1fr) 96px 86px 92px 50px;gap:8px;align-items:start;position:relative}
+.ln input,.ln select{padding:10px;border:1px solid var(--sabbia-dark);border-radius:6px;font:inherit;font-size:17px;min-height:50px;background:#fff;color:var(--ink);width:100%}
+.ln .qty{text-align:right;font-variant-numeric:tabular-nums}
+.ln .cost{min-height:50px;display:flex;align-items:center;justify-content:flex-end;font-variant-numeric:tabular-nums;font-size:15px;color:var(--ink);white-space:nowrap}
+.ln .cost.none{color:var(--muted);font-size:12px;white-space:normal;text-align:right;line-height:1.2}
+.ln .x{min-height:50px;border:1px solid var(--sabbia-dark);background:#fff;border-radius:6px;font-size:18px;cursor:pointer;color:var(--vino)}
+.ln-src{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.35;overflow-wrap:anywhere}
+.ln-src.no{color:var(--below)}
+.sugg{position:absolute;z-index:20;left:0;right:0;top:52px;background:#fff;border:1px solid var(--vino);border-radius:6px;box-shadow:0 10px 26px -8px rgba(40,10,10,.35);display:grid;max-height:330px;overflow:auto}
+.sugg:empty{display:none}
+.sugg button{text-align:left;background:#fff;border:none;border-bottom:1px solid var(--sabbia-light);padding:12px;cursor:pointer;min-height:50px;font-size:15px}
+.sugg button:hover,.sugg button:focus{background:var(--sabbia-light)}
+.sugg small{color:var(--muted);margin-left:6px}
+.sugg .free{color:var(--below)}
+.lnhead{display:grid;grid-template-columns:minmax(0,1fr) 96px 86px 92px 50px;gap:8px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
+.lnhead span:nth-child(2),.lnhead span:nth-child(4){text-align:right}
+@media (max-width:620px){
+  .ln,.lnhead{grid-template-columns:minmax(0,1fr) 80px 74px 46px}
+  .ln .cost{grid-column:1/-1;justify-content:flex-start;min-height:0}
+  .lnhead span:nth-child(4){display:none}
+  .add3{grid-template-columns:minmax(0,1fr)}
+}
+.total{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;border-top:2px solid var(--sabbia-light);padding-top:10px;font-size:15px}
+.total b{font-size:20px;font-variant-numeric:tabular-nums}
+.total .warn{color:var(--below);font-size:13px;flex-basis:100%}
+/* ── the pen pad ── */
+.pad{display:grid;gap:8px}
+.pad canvas{width:100%;height:320px;background:#fff;border:1px solid var(--vino);border-radius:8px;touch-action:none;display:block;cursor:crosshair;
+  background-image:linear-gradient(rgba(66,1,7,.07) 1px,transparent 1px);background-size:100% 40px}
+.sketch{max-width:100%;border:1px solid var(--sabbia-dark);border-radius:8px;background:#fff;display:block}
+/* ── the diary ── */
+.ent{background:#fff;border:1px solid rgba(66,1,7,.12);border-left:5px solid var(--vino);border-radius:8px;padding:14px 16px;display:grid;gap:10px}
+.ent.k-change{border-left-color:#6b4c96}
+.ent.k-note{border-left-color:var(--sabbia-dark)}
+.ent-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ent-top .when{color:var(--muted);font-size:13px}
+.ent .body{white-space:pre-wrap;line-height:1.55;font-size:15.5px;overflow-wrap:anywhere}
+table.lt{width:100%;border-collapse:collapse;font-size:15px}
+table.lt td{padding:7px 4px;border-bottom:1px solid var(--sabbia-light);vertical-align:top}
+table.lt td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.lt td.c{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted)}
+table.lt tr.tot td{border-bottom:none;font-weight:700;color:var(--ink)}
+.idea{white-space:pre-wrap;line-height:1.55;color:var(--ink);overflow-wrap:anywhere}
+.method{white-space:pre-wrap;line-height:1.65;font-size:16px;overflow-wrap:anywhere}
+[hidden]{display:none!important}
+@media print{
+  body{background:#fff}
+  .noprint,.who,.crumb .back,.seg,#devbadge{display:none!important}
+  .card{border:none;padding:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"><div class="hint">Loading R&amp;D…</div></div>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   R&D — Chef Antonio's idea through Tell us, 25 Oct 2026 (inbox 0b3353c1).
+
+   "Una scheda per ogni nuovo piatto, con il suo nome, dove annotare ingredienti,
+   quantità, prove e modifiche mentre lavoriamo, per poi riordinare tutto in una
+   ricetta precisa alla fine." Separate from the catalogue, for development only.
+
+   · One card per dish (rnd_dishes). Its diary (rnd_entries) is a trial — ingredients
+     and exact quantities — a change, or a note. Each can carry handwriting or a
+     drawing from the pen pad. Newest on top; nothing is rewritten, so the dish's
+     development reads back in order.
+   · At the end the card gets its FINAL RECIPE: lines, how many portions, method.
+     It stays on this card. Nothing here writes to recipes, menus or the Recipe book.
+   · Food cost is never typed and never stored. A line picked from the list is priced
+     from fmc_articles / the chefs' own ingredients with the SAME rules as Create new
+     recipes (basePrice / parseUnit / qtyInBase below are copied from
+     recipe-create.html). A line with no article, no quantity or no price carries no
+     cost, and then the total says "at least" — never a smaller number.
+   · Writing asks for a name (the same remembered rcpWho as Tasting and the recipe
+     screens). Removing a whole card asks for the chef code (recipe-lock.js).
+   ════════════════════════════════════════════════════════════════════════════ */
+var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+var VENUE = 'robertos-difc';
+
+/* Who is writing — the same remembered name as Tasting (rcpWho, 12 hours). */
+var WHOLS = 'rcpWho', WHOFOR = 12*60*60*1000;
+var NAMES = ['Francesco', 'Andrea Falcone', 'Antonio Stellacci', 'Danilo Valla'];
+var WHO = (function(){
+  try { var v = JSON.parse(localStorage.getItem(WHOLS) || 'null');
+        if (v && v.name && v.at && (Date.now() - v.at) < WHOFOR) return { emp_id:v.emp_id||null, name:v.name };
+  } catch(e){}
+  return null;
+})();
+var STAFF = null;
+function rememberWho(name){
+  var s = (STAFF || []).filter(function(p){ return (p.name||'').trim().toLowerCase() === name.toLowerCase(); })[0];
+  WHO = { emp_id: s && s.emp_id ? String(s.emp_id) : null, name: name };
+  try { localStorage.setItem(WHOLS, JSON.stringify({ emp_id:WHO.emp_id, name:WHO.name, at:Date.now() })); } catch(e){}
+}
+
+var S = { screen:'list', id:null, tab:'diary', q:'', otherOpen:false,
+          nd:null,        /* the new-dish form: {name, idea} */
+          ed:null,        /* the entry being written: {kind, body, lines, pad} */
+          fd:null,        /* the final recipe being written: {lines, portions, method} */
+          info:null,      /* editing the card's name / idea */
+          flash:null };
+var D = { dishes:[], entries:{}, loaded:false, err:null };
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function $(id){ return document.getElementById(id); }
+function nowIso(){ return new Date().toISOString(); }   /* a timestamp, never "today" */
+
+function api(path, opts){
+  opts = opts || {};
+  var h = { apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json' };
+  if (opts.prefer) h.Prefer = opts.prefer;
+  return fetch(SB_URL + '/rest/v1/' + path, { method:opts.method||'GET', headers:h,
+      body: opts.body ? JSON.stringify(opts.body) : undefined, cache:'no-store' })
+    .then(function(r){
+      return r.text().then(function(t){
+        var j = null; try { j = t ? JSON.parse(t) : null; } catch(e){}
+        if (!r.ok) {
+          var m = (j && (j.message || j.error)) || ('HTTP ' + r.status);
+          var e = new Error(m); e.status = r.status; throw e;
+        }
+        return j;
+      });
+    });
+}
+function say(err){
+  var m = String(err && err.message || err);
+  if (/read-only/i.test(m)) return m;
+  if (/rnd_dishes_name_check|check constraint.*name/i.test(m)) return 'Give the dish a name of 2 to 80 letters.';
+  if (/relation .*rnd_.* does not exist|PGRST205|rnd_\w+' in the schema cache/i.test(m)) return 'The R&D tables are not in the database yet, so nothing can be kept.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'No connection. Nothing was saved. Try again when the signal is back.';
+  return 'It did not save: ' + m;
+}
+function when(ts){
+  try { return new Date(ts).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Dubai' }); }
+  catch(e){ return ''; }
+}
+function day(ts){
+  try { return new Date(ts).toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'Asia/Dubai' }); }
+  catch(e){ return ''; }
+}
+
+/* ═════════ the price list — the same two tables as Create new recipes ═════════ */
+var ING = [], INGMAP = {}, ING_ERR = null, INGREADY = false;
+/* recipe-create.html fromArticle() — base-unit price first, so basePrice() never divides a pack */
+function fromArticle(a){
+  var units = [];
+  if (a.base_unit && a.price_per_base_unit != null)
+    units.push({ unit:a.base_unit, price:a.price_per_base_unit });
+  if (a.store_unit && a.price != null && a.store_unit !== a.base_unit)
+    units.push({ unit:a.store_unit, price:a.price });
+  return { code:a.code, name:a.name, group:a.item_group || 'Other',
+           unit:a.store_unit || a.unit || '',
+           price:(a.price != null ? a.price : a.price_per_base_unit),
+           units:units };
+}
+/* recipe-create.html fromMineRow() — an ingredient a chef added with his own price */
+function fromMineRow(r){
+  var p = Number(r.price) || 0;
+  return { code:r.code, name:r.name, group:r.group_name || 'Added by a chef',
+           unit:r.unit, price:p, units:[{ unit:r.unit, price:p }], mine:true };
+}
+function loadArticles(){
+  var got = [], PAGE = 1000;     /* PostgREST caps a page at 1000 whatever `limit` says */
+  function page(from){
+    return api('fmc_articles?select=code,name,item_group,unit,base_unit,store_unit,price,price_per_base_unit'
+             + '&order=code&limit=' + PAGE + '&offset=' + from)
+      .then(function(list){ list = list || []; got = got.concat(list);
+        return list.length === PAGE ? page(from + PAGE) : got; });
+  }
+  return page(0).then(function(list){
+    if (!list.length) throw new Error('the article list came back empty');
+    ING = list.map(fromArticle);
+    return api('ingredients?venue_id=eq.' + VENUE + '&archived=is.false&select=*&order=created_at').catch(function(){ return []; });
+  }).then(function(mine){
+    var have = {};
+    ING.forEach(function(i){ have[String(i.code).toLowerCase()] = 1; });
+    (mine || []).forEach(function(r){ if (!have[String(r.code).toLowerCase()]) ING.push(fromMineRow(r)); });
+    ING.sort(function(a,b){ return a.name.localeCompare(b.name); });
+    INGMAP = {}; ING.forEach(function(i){ INGMAP[i.code] = i; });
+    INGREADY = true; ING_ERR = null;
+  }).catch(function(e){ ING_ERR = e.message; INGREADY = false; });
+}
+
+/* ── units: copied from recipe-create.html (TOBASE, parseUnit, basePrice, unitsFor, qtyInBase) ── */
+var TOBASE = { kg:['kg',1], gm:['kg',0.001], g:['kg',0.001], grm:['kg',0.001], gram:['kg',0.001], kilogram:['kg',1],
+               ltr:['L',1], l:['L',1], litre:['L',1], liter:['L',1], ml:['L',0.001],
+               cl:['L',0.01], gallon:['L',3.78541],
+               pcs:['pcs',1], pc:['pcs',1], each:['pcs',1] };
+function parseUnit(u){
+  u = String(u||'').trim();
+  var m = u.match(/(\d+(?:\.\d+)?)\s*[A-Za-z]*\s*x\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)/);
+  if (m){
+    var t = TOBASE[m[3].toLowerCase()];
+    if (t) return { base:t[0], qty: parseFloat(m[1]) * parseFloat(m[2]) * t[1] };
+  }
+  var w = u.replace(/^.*\//,'').replace(/[^A-Za-z]/g,'').toLowerCase();
+  var t2 = TOBASE[w];
+  if (t2) return { base:t2[0], qty:t2[1] };
+  return { base:null, qty:0 };                     /* unreadable — never guess a cost */
+}
+function basePrice(it){
+  if (!it) return null;
+  var us = it.units || [];
+  for (var i=0;i<us.length;i++){
+    var p = parseUnit(us[i].unit);
+    if (p.qty === 1 && p.base) return { v:us[i].price, base:p.base };
+  }
+  var pk = parseUnit(it.unit);
+  if (it.price == null) return null;               /* no price is not a price of nothing */
+  return pk.qty ? { v: it.price/pk.qty, base:pk.base } : null;
+}
+function baseOf(it){ var b = it ? basePrice(it) : null; return b ? b.base : (it ? parseUnit(it.unit).base : null); }
+var FREE_UNITS = ['g','kg','ml','L','pcs'];
+function unitsFor(it){
+  var b = baseOf(it);
+  return b==='kg' ? ['g','kg'] : b==='L' ? ['ml','L'] : b==='pcs' ? ['pcs'] : FREE_UNITS;
+}
+function qtyInBase(q,u){ var t = TOBASE[String(u).toLowerCase()]; return t ? q*t[1] : q; }
+
+function itemOfLine(l){ return l && l.code ? INGMAP[l.code] || null : null; }
+/* What one line costs, or null when it cannot be known. */
+function lineCost(l){
+  var it = itemOfLine(l); if (!it) return null;
+  var q = Number(l.qty); if (!(q > 0)) return null;
+  var bp = basePrice(it); if (!bp) return null;
+  var u = l.unit || unitsFor(it)[0];
+  if (unitsFor(it).indexOf(u) < 0) return null;    /* grams of something sold by the litre */
+  return qtyInBase(q, u) * bp.v;
+}
+function realLines(lines){ return (lines||[]).filter(function(l){ return String(l.name||'').trim() || l.code; }); }
+function totals(lines){
+  var t = 0, known = 0, missing = 0;
+  realLines(lines).forEach(function(l){
+    var c = lineCost(l);
+    if (c == null) missing++; else { t += c; known++; }
+  });
+  return { total:t, known:known, missing:missing, n:known + missing };
+}
+function fmt(n){ return (Math.round(n * 100) / 100).toFixed(2); }
+function fmtQty(q){ var n = Number(q); return isFinite(n) ? String(Math.round(n * 1000) / 1000) : esc(q); }
+function whyNoCost(l){
+  if (!INGREADY) return 'Price list did not load';
+  var it = itemOfLine(l);
+  if (!it) return 'Not on the price list';
+  if (!(Number(l.qty) > 0)) return 'No quantity';
+  if (!basePrice(it)) return 'No price in FMC';
+  return 'Unit does not match';
+}
+/* The food cost sentence. Never a smaller number than the truth. */
+function costLine(lines, portions){
+  var t = totals(lines);
+  if (!t.n) return { html:'<span>Food cost</span><b>—</b>', warn:'' };
+  if (!INGREADY) return { html:'<span>Food cost</span><b>unknown</b>',
+                          warn:'The price list did not load' + (ING_ERR ? ' (' + esc(ING_ERR) + ')' : '') + ', so nothing is costed. Reload to try again.' };
+  if (!t.known) return { html:'<span>Food cost</span><b>unknown</b>',
+                         warn:'No line is priced yet: pick each ingredient from the list and give it a quantity.' };
+  var each = (portions > 0) ? ' &middot; ' + (t.missing ? 'at least ' : '') + fmt(t.total / portions) + ' AED a portion' : '';
+  return { html:'<span>Food cost' + (t.missing ? ' — at least' : '') + '</span><b>' + fmt(t.total) + ' AED' + each + '</b>',
+           warn: t.missing ? t.missing + ' of ' + t.n + ' lines carry no cost, so the real cost is higher.' : '' };
+}
+
+/* the list search: every word typed must start a word of the name */
+function words(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9àèéìòù]+/g,' ').trim().split(' ').filter(Boolean); }
+function search(q){
+  var w = words(q); if (!w.length || !INGREADY) return [];
+  var out = [];
+  for (var i=0; i<ING.length && out.length<8; i++){
+    var nw = words(ING[i].name);
+    if (w.every(function(x){ return nw.some(function(y){ return y.indexOf(x) === 0; }); })) out.push(ING[i]);
+  }
+  return out;
+}
+
+/* ═════════ data ═════════ */
+function load(){
+  return api('rnd_dishes?venue_id=eq.' + VENUE + '&archived=is.false&select=*&order=updated_at.desc')
+    .then(function(ds){
+      D.dishes = ds || [];
+      if (!D.dishes.length) { D.entries = {}; return []; }
+      return api('rnd_entries?archived=is.false&select=*&order=created_at.desc&dish_id=in.(' +
+                 D.dishes.map(function(d){ return d.id; }).join(',') + ')');
+    })
+    .then(function(es){
+      D.entries = {};
+      (es || []).forEach(function(e){ (D.entries[e.dish_id] = D.entries[e.dish_id] || []).push(e); });
+      D.loaded = true; D.err = null;
+    })
+    .catch(function(e){ D.err = e; D.loaded = true; });
+}
+function loadStaff(){
+  if (STAFF) return Promise.resolve(STAFF);
+  return api('staff?select=name,emp_id&active=is.true').then(function(r){ STAFF = r || []; return STAFF; })
+    .catch(function(){ STAFF = []; return STAFF; });
+}
+function dish(id){ return D.dishes.filter(function(d){ return d.id === id; })[0] || null; }
+function entriesOf(id){ return D.entries[id] || []; }
+/* trial numbers run in the order they were written, oldest = Trial 1 */
+function trialNo(e){
+  var ts = entriesOf(e.dish_id).filter(function(x){ return x.kind === 'trial'; }).slice().reverse();
+  return ts.indexOf(e) + 1;
+}
+function latestTrial(id){ return entriesOf(id).filter(function(x){ return x.kind === 'trial' && realLines(x.lines).length; })[0] || null; }
+function cleanLines(lines){
+  return realLines(lines).map(function(l){
+    var o = { name:String(l.name||'').trim(), qty:(l.qty === '' || l.qty == null || !isFinite(Number(l.qty))) ? null : Number(l.qty), unit:l.unit || '' };
+    if (l.code) o.code = l.code;
+    return o;
+  });
+}
+function copyLines(lines){ return cleanLines(lines).map(function(l){ return { name:l.name, code:l.code, qty:l.qty, unit:l.unit }; }); }
+function blankLine(){ return { name:'', code:null, qty:null, unit:'g' }; }
+function padLines(lines){ lines = lines || []; if (!lines.length || String(lines[lines.length-1].name||'').trim() || lines[lines.length-1].code) lines.push(blankLine()); return lines; }
+
+/* ═════════ rendering ═════════ */
+function whoHtml(){
+  var need = !(WHO && WHO.name);
+  var known = WHO && NAMES.indexOf(WHO.name) < 0 ? [WHO.name] : [];
+  return '<div class="who noprint' + (need ? ' ask' : '') + '"><span class="lbl">' + (need ? 'Who is writing? Tap your name' : 'Writing as') + '</span>' +
+    NAMES.concat(known).map(function(n){
+      return '<button class="chip' + (WHO && WHO.name === n ? ' on' : '') + '" data-who="' + esc(n) + '">' + esc(n) + '</button>';
+    }).join('') +
+    (S.otherOpen
+      ? '<span class="other"><input id="othername" list="staffnames" placeholder="Your name" autocomplete="off"><button class="chip" data-act="other-ok">OK</button></span>' +
+        '<datalist id="staffnames">' + (STAFF||[]).map(function(p){ return '<option value="' + esc(p.name) + '">'; }).join('') + '</datalist>'
+      : '<button class="chip" data-act="other">Someone else</button>') +
+  '</div>';
+}
+function flashHtml(){
+  if (!S.flash) return '';
+  return '<div class="' + (S.flash.bad ? 'fail' : 'card') + '" role="status"><div>' + S.flash.html + '</div></div>';
+}
+function render(){
+  var root = $('root');
+  if (!D.loaded) { root.innerHTML = '<div class="hint">Loading R&amp;D…</div>'; return; }
+  var h = '';
+  if (S.screen === 'list') h = listHtml();
+  else if (S.screen === 'new') h = newHtml();
+  else if (S.screen === 'dish') h = dishHtml();
+  root.innerHTML = h;
+  if (S.screen === 'dish' && S.ed && S.ed.padOpen) mountPad();
+}
+
+function listHtml(){
+  var q = S.q.trim().toLowerCase();
+  var ds = D.dishes.filter(function(d){ return !q || d.name.toLowerCase().indexOf(q) > -1 || String(d.idea||'').toLowerCase().indexOf(q) > -1; });
+  var dev = ds.filter(function(d){ return d.status !== 'final'; }), fin = ds.filter(function(d){ return d.status === 'final'; });
+  function row(d){
+    var es = entriesOf(d.id), tr = es.filter(function(e){ return e.kind === 'trial'; }).length;
+    var last = es[0];
+    return '<button class="row" data-open="' + d.id + '">' +
+      '<span><span class="pill ' + (d.status === 'final' ? 'p-final">Final recipe' : 'p-dev">In development') + '</span></span>' +
+      '<span class="rname">' + esc(d.name) + '</span>' +
+      '<span class="rsub">' + tr + ' trial' + (tr === 1 ? '' : 's') + ' &middot; ' + es.length + ' entr' + (es.length === 1 ? 'y' : 'ies') +
+        ' &middot; ' + (last ? 'last ' + esc(day(last.created_at)) + ' by ' + esc(last.created_by) : 'started ' + esc(day(d.created_at)) + ' by ' + esc(d.created_by)) + '</span>' +
+    '</button>';
+  }
+  return whoHtml() + flashHtml() +
+    (D.err ? '<div class="fail">' + esc(say(D.err)) + '</div>' : '') +
+    '<div class="sec-h"><h3>Dishes in development</h3>' +
+      '<button class="btn big" data-act="new">+ New dish</button></div>' +
+    '<p class="hint" style="margin:-8px 0 0">One card per new dish: write every trial with its exact quantities, every change and why, by hand with the pen if you like. When it is right, tidy it into the final recipe. Separate from the Recipe book — nothing here goes on a menu or to the till.</p>' +
+    (D.dishes.length > 5 ? '<input class="search" id="q" type="search" placeholder="Find a dish" value="' + esc(S.q) + '">' : '') +
+    (dev.length ? '<div class="list">' + dev.map(row).join('') + '</div>'
+                : '<div class="empty">' + (q ? 'No dish in development matches that.' : 'No dish in development yet. Tap <b>+ New dish</b> to start one.') + '</div>') +
+    (fin.length ? '<div class="sec-h"><h3>Final recipes</h3><small>' + fin.length + '</small></div><div class="list">' + fin.map(row).join('') + '</div>' : '');
+}
+
+function newHtml(){
+  var n = S.nd || { name:'', idea:'' };
+  return '<div class="crumb"><button class="back" data-act="list">&lsaquo; R&amp;D</button><h2>New dish</h2></div>' +
+    whoHtml() + flashHtml() +
+    '<div class="card">' +
+      '<label class="fld">Name of the dish<input id="nd-name" maxlength="80" autocomplete="off" value="' + esc(n.name) + '" placeholder="e.g. Risotto al limone e gamberi"></label>' +
+      '<label class="fld">The idea <span class="hint">— what it should be, where it goes (optional)</span><textarea id="nd-idea" placeholder="e.g. a lighter risotto for the summer à la carte">' + esc(n.idea) + '</textarea></label>' +
+      '<div class="btns"><button class="btn big" data-act="nd-save"' + (WHO ? '' : ' disabled') + '>Start the card</button>' +
+        '<button class="btn ghost" data-act="list">Cancel</button>' + (WHO ? '' : '<span class="hint">Tap your name at the top first.</span>') + '</div>' +
+    '</div>';
+}
+
+function dishHtml(){
+  var d = dish(S.id);
+  if (!d) return '<div class="crumb"><button class="back" data-act="list">&lsaquo; R&amp;D</button></div><div class="empty">This card has been removed.</div>';
+  var info = S.info
+    ? '<div class="card noprint">' +
+        '<label class="fld">Name of the dish<input id="in-name" maxlength="80" value="' + esc(S.info.name) + '"></label>' +
+        '<label class="fld">The idea<textarea id="in-idea">' + esc(S.info.idea) + '</textarea></label>' +
+        '<div class="btns"><button class="btn" data-act="info-save"' + (WHO ? '' : ' disabled') + '>Save</button><button class="btn ghost" data-act="info-cancel">Cancel</button>' +
+        '<span style="flex:1"></span><button class="btn ghost" data-act="dish-archive">Remove this card…</button></div>' +
+      '</div>'
+    : (d.idea ? '<div class="idea">' + esc(d.idea) + '</div>' : '');
+  return '<div class="crumb"><button class="back" data-act="list">&lsaquo; R&amp;D</button>' +
+      '<h2>' + esc(d.name) + '</h2>' +
+      '<span class="pill ' + (d.status === 'final' ? 'p-final">Final recipe' : 'p-dev">In development') + '</span>' +
+      (S.info ? '' : '<button class="back noprint" data-act="info">Edit name</button>') + '</div>' +
+    '<div class="hint">Started ' + esc(day(d.created_at)) + ' by ' + esc(d.created_by) + '</div>' +
+    info + whoHtml() + flashHtml() +
+    '<div class="seg noprint" role="tablist">' +
+      '<button role="tab" class="' + (S.tab === 'diary' ? 'on' : '') + '" data-tab="diary">Trials &amp; notes (' + entriesOf(d.id).length + ')</button>' +
+      '<button role="tab" class="' + (S.tab === 'final' ? 'on' : '') + '" data-tab="final">Final recipe</button>' +
+    '</div>' +
+    (S.tab === 'diary' ? diaryHtml(d) : finalHtml(d));
+}
+
+/* ── the editable ingredient lines (an entry's or the final recipe's) ── */
+function lineRowHtml(p, i, l){
+  var it = itemOfLine(l), us = it ? unitsFor(it) : FREE_UNITS;
+  if (l.unit && us.indexOf(l.unit) < 0 && !it) us = us.concat([l.unit]);
+  var c = lineCost(l), real = String(l.name||'').trim() || l.code;
+  var src = !real ? '' : it
+    ? (it.mine ? 'Added by a chef' : 'FMC ' + esc(it.code)) + (basePrice(it) ? ' &middot; ' + fmt(basePrice(it).v) + ' AED/' + esc(basePrice(it).base) : ' &middot; no price')
+    : (INGREADY ? 'Not picked from the list — no cost' : '');
+  return '<div class="ln" data-p="' + p + '" data-i="' + i + '">' +
+    '<div><input class="ing" value="' + esc(l.name) + '" placeholder="Ingredient" autocomplete="off" aria-label="Ingredient ' + (i+1) + '">' +
+      '<div class="sugg"></div><div class="ln-src' + (real && !it ? ' no' : '') + '">' + src + '</div></div>' +
+    '<input class="qty" inputmode="decimal" value="' + (l.qty == null ? '' : esc(l.qty)) + '" placeholder="Qty" aria-label="Quantity ' + (i+1) + '">' +
+    '<select class="unit" aria-label="Unit ' + (i+1) + '">' + us.map(function(u){ return '<option' + (u === (l.unit || us[0]) ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select>' +
+    '<span class="cost' + (c == null ? ' none' : '') + '">' + (c == null ? (real ? esc(whyNoCost(l)) : '') : fmt(c) + ' AED') + '</span>' +
+    '<button class="x" data-act="ln-x" aria-label="Remove line ' + (i+1) + '">&#x2715;</button>' +
+  '</div>';
+}
+function linesEditorHtml(p, lines, portions){
+  var cl = costLine(lines, portions);
+  return '<div class="lnhead"><span>Ingredient</span><span>Qty</span><span>Unit</span><span>Cost</span><span></span></div>' +
+    '<div class="lines" id="lines-' + p + '">' + lines.map(function(l, i){ return lineRowHtml(p, i, l); }).join('') + '</div>' +
+    '<div class="btns"><button class="btn ghost" data-act="ln-add" data-p="' + p + '">+ Add a line</button></div>' +
+    '<div class="total" id="tot-' + p + '">' + cl.html + (cl.warn ? '<span class="warn">' + cl.warn + '</span>' : '') + '</div>';
+}
+function linesTableHtml(lines, portions){
+  var ls = cleanLines(lines); if (!ls.length) return '';
+  var cl = costLine(ls, portions);
+  return '<table class="lt">' + ls.map(function(l){
+      var c = lineCost(l);
+      return '<tr><td>' + esc(l.name) + '</td><td class="n">' + (l.qty == null ? '—' : fmtQty(l.qty) + ' ' + esc(l.unit)) + '</td>' +
+             '<td class="c">' + (c == null ? esc(whyNoCost(l)) : fmt(c) + ' AED') + '</td></tr>';
+    }).join('') +
+    '</table><div class="total">' + cl.html + (cl.warn ? '<span class="warn">' + cl.warn + '</span>' : '') + '</div>';
+}
+
+var KIND = { trial:'Trial', change:'Change', note:'Note' };
+var KIND_HINT = {
+  trial:'Every ingredient with its exact quantity, and how it went.',
+  change:'What you changed from the last trial, and why.',
+  note:'Anything else — a supplier, a technique, a thought.'
+};
+function diaryHtml(d){
+  var es = entriesOf(d.id);
+  var ed = S.ed;
+  var editor = ed
+    ? '<div class="card noprint" id="editor"><h4>New ' + KIND[ed.kind].toLowerCase() + (ed.kind === 'trial' ? ' — Trial ' + (es.filter(function(e){ return e.kind === 'trial'; }).length + 1) : '') + '</h4>' +
+        '<div class="hint">' + KIND_HINT[ed.kind] + '</div>' +
+        ((ed.kind !== 'note' || realLines(ed.lines).length) ? linesEditorHtml('e', ed.lines) : '<div class="btns"><button class="btn ghost" data-act="ln-add" data-p="e">+ Add ingredients</button></div>') +
+        '<label class="fld">' + (ed.kind === 'trial' ? 'How it went' : ed.kind === 'change' ? 'What changed and why' : 'The note') +
+          '<textarea id="ed-body" placeholder="Type, or write with the pen straight into this box">' + esc(ed.body) + '</textarea></label>' +
+        (ed.padOpen
+          ? '<div class="pad"><div class="sec-h"><strong>Write or draw with the pen</strong><span class="btns">' +
+              '<button class="btn ghost" data-act="pad-undo">Undo stroke</button><button class="btn ghost" data-act="pad-clear">Clear</button>' +
+              '<button class="btn ghost" data-act="pad-close">Take the drawing out</button></span></div>' +
+              '<canvas id="pad" aria-label="Drawing pad"></canvas><div class="hint">Once the pen has touched the pad, a hand resting on it is ignored.</div></div>'
+          : '<div class="btns"><button class="btn ghost" data-act="pad-open">&#x270E; Write or draw with the pen</button></div>') +
+        '<div class="btns"><button class="btn big" data-act="ed-save"' + (WHO ? '' : ' disabled') + '>Save the ' + KIND[ed.kind].toLowerCase() + '</button>' +
+          '<button class="btn ghost" data-act="ed-cancel">Cancel</button>' + (WHO ? '' : '<span class="hint">Tap your name at the top first.</span>') + '<span class="msg" id="edmsg"></span></div>' +
+      '</div>'
+    : '<div class="add3 noprint">' +
+        '<button class="btn" data-act="ed-new" data-kind="trial">+ Trial</button>' +
+        '<button class="btn" data-act="ed-new" data-kind="change">+ Change</button>' +
+        '<button class="btn ghost" data-act="ed-new" data-kind="note">+ Note</button>' +
+      '</div>';
+  return editor +
+    (es.length ? es.map(entryHtml).join('')
+               : '<div class="empty">Nothing written yet. Start with <b>+ Trial</b>: the ingredients and exact quantities of the first go.</div>');
+}
+function entryHtml(e){
+  var label = e.kind === 'trial' ? 'Trial ' + trialNo(e) : KIND[e.kind];
+  var hasLines = cleanLines(e.lines).length;
+  return '<div class="ent k-' + e.kind + '">' +
+    '<div class="ent-top"><span class="pill p-' + e.kind + '">' + label + '</span>' +
+      '<span class="when">' + esc(when(e.created_at)) + ' &middot; ' + esc(e.created_by) + '</span></div>' +
+    linesTableHtml(e.lines) +
+    (e.body ? '<div class="body">' + esc(e.body) + '</div>' : '') +
+    (e.sketch ? '<img class="sketch" src="' + esc(e.sketch) + '" alt="Handwriting or drawing by ' + esc(e.created_by) + '">' : '') +
+    '<div class="btns noprint">' +
+      (hasLines ? '<button class="btn ghost" data-act="from-entry" data-id="' + e.id + '">Next trial from this</button>' +
+                  '<button class="btn ghost" data-act="final-from" data-id="' + e.id + '">Use for the final recipe</button>' : '') +
+      '<span style="flex:1"></span><button class="btn ghost" data-act="ent-x" data-id="' + e.id + '">Remove</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function finalHtml(d){
+  var fd = S.fd;
+  if (fd) {
+    return '<div class="card" id="final-ed"><h4>Final recipe — ' + esc(d.name) + '</h4>' +
+      '<div class="hint">The tidy version: every ingredient picked from the list with its exact quantity, so the food cost is real.</div>' +
+      linesEditorHtml('f', fd.lines, Number(fd.portions)) +
+      '<label class="fld" style="max-width:260px">How many portions it makes<input id="fd-portions" inputmode="decimal" value="' + esc(fd.portions == null ? '' : fd.portions) + '" placeholder="e.g. 4"></label>' +
+      '<label class="fld">Method<textarea id="fd-method" style="min-height:200px" placeholder="Step by step">' + esc(fd.method) + '</textarea></label>' +
+      '<div class="btns"><button class="btn go big" data-act="fd-save"' + (WHO ? '' : ' disabled') + '>Save the final recipe</button>' +
+        '<button class="btn ghost" data-act="fd-cancel">Cancel</button>' + (WHO ? '' : '<span class="hint">Tap your name at the top first.</span>') + '<span class="msg" id="fdmsg"></span></div>' +
+    '</div>';
+  }
+  var lt = latestTrial(d.id);
+  if (d.status !== 'final' && !cleanLines(d.final_lines).length) {
+    return '<div class="card"><h4>Final recipe</h4>' +
+      '<p class="hint" style="margin:0">When the dish is right, write it here as a precise recipe. It starts from a trial, so nothing is typed twice.</p>' +
+      '<div class="btns">' +
+        (lt ? '<button class="btn big" data-act="final-from" data-id="' + lt.id + '">Start from Trial ' + trialNo(lt) + ' (the latest)</button>' : '') +
+        '<button class="btn ghost big" data-act="final-empty">Start empty</button></div></div>';
+  }
+  var p = Number(d.final_portions) || 0;
+  return '<div class="card"><div class="sec-h"><h4>Final recipe' + (p ? ' — makes ' + fmtQty(p) + ' portion' + (p === 1 ? '' : 's') : '') + '</h4>' +
+      '<span class="btns noprint"><button class="btn ghost" data-act="final-edit">Edit</button><button class="btn ghost" data-act="print">Print</button>' +
+      (d.status === 'final' ? '<button class="btn ghost" data-act="reopen">Back to development</button>' : '') + '</span></div>' +
+    (d.finalised_at ? '<div class="hint">Written ' + esc(when(d.finalised_at)) + ' by ' + esc(d.finalised_by) + '</div>' : '') +
+    (linesTableHtml(d.final_lines, p) || '<div class="hint">No ingredients written.</div>') +
+    (d.final_method ? '<div><h4 style="margin-bottom:6px">Method</h4><div class="method">' + esc(d.final_method) + '</div></div>' : '') +
+  '</div>';
+}
+
+/* ═════════ the pen pad ═════════
+   Pointer events, so a finger, a mouse, an Apple Pencil and an S Pen all draw. A pen's
+   pressure sets the width. Once a pen has touched the pad, touch is ignored on it — the
+   heel of the hand resting on a tablet must not draw. Kept as strokes so Undo is one
+   stroke, and saved as a PNG on the entry. */
+var PAD = null;
+function mountPad(){
+  var cv = $('pad'); if (!cv) return;
+  var ed = S.ed; ed.strokes = ed.strokes || [];
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  var ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  PAD = { cv:cv, ctx:ctx, w:w, h:h, cur:null };
+  redrawPad();
+  cv.addEventListener('pointerdown', function(e){
+    if (e.pointerType === 'pen') ed.penSeen = true;
+    if (e.pointerType === 'touch' && ed.penSeen) return;
+    e.preventDefault();
+    try { cv.setPointerCapture(e.pointerId); } catch(x){}
+    PAD.cur = { id:e.pointerId, pts:[pt(e)] };
+    ed.strokes.push(PAD.cur);
+  });
+  cv.addEventListener('pointermove', function(e){
+    if (!PAD.cur || PAD.cur.id !== e.pointerId) return;
+    e.preventDefault();
+    var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    (evs.length ? evs : [e]).forEach(function(x){ PAD.cur.pts.push(pt(x)); });
+    drawStroke(PAD.cur, PAD.cur.pts.length - evs.length - 1);
+  });
+  function end(e){ if (PAD.cur && PAD.cur.id === e.pointerId) { if (PAD.cur.pts.length === 1) drawStroke(PAD.cur, 0); PAD.cur = null; } }
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+}
+function pt(e){
+  var r = PAD.cv.getBoundingClientRect();
+  /* a mouse or a finger reports 0 or 0.5; only a pen gives a real pressure */
+  var p = e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5;
+  return [e.clientX - r.left, e.clientY - r.top, p];
+}
+function drawStroke(s, from){
+  var c = PAD.ctx, pts = s.pts;
+  c.strokeStyle = '#2a1a10'; c.lineCap = 'round'; c.lineJoin = 'round';
+  if (pts.length === 1) { c.beginPath(); c.fillStyle = '#2a1a10'; c.arc(pts[0][0], pts[0][1], 1.6, 0, 7); c.fill(); return; }
+  for (var i = Math.max(1, from); i < pts.length; i++) {
+    c.beginPath(); c.lineWidth = 1 + pts[i][2] * 3.2;
+    c.moveTo(pts[i-1][0], pts[i-1][1]); c.lineTo(pts[i][0], pts[i][1]); c.stroke();
+  }
+}
+function redrawPad(){
+  if (!PAD) return;
+  PAD.ctx.clearRect(0, 0, PAD.w, PAD.h);
+  (S.ed.strokes || []).forEach(function(s){ drawStroke(s, 1); });
+}
+/* white behind the ink, so the picture reads the same anywhere it is shown */
+function padPng(){
+  if (!PAD || !(S.ed.strokes || []).length) return null;
+  var o = document.createElement('canvas'); o.width = PAD.cv.width; o.height = PAD.cv.height;
+  var c = o.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, o.width, o.height); c.drawImage(PAD.cv, 0, 0);
+  return o.toDataURL('image/png');
+}
+
+/* ═════════ reading the fields back into state ═════════ */
+function linesOf(p){ return p === 'e' ? (S.ed && S.ed.lines) : (S.fd && S.fd.lines); }
+function grab(){
+  if (S.nd) { if ($('nd-name')) S.nd.name = $('nd-name').value; if ($('nd-idea')) S.nd.idea = $('nd-idea').value; }
+  if (S.info) { if ($('in-name')) S.info.name = $('in-name').value; if ($('in-idea')) S.info.idea = $('in-idea').value; }
+  if (S.ed && $('ed-body')) S.ed.body = $('ed-body').value;
+  if (S.fd) { if ($('fd-method')) S.fd.method = $('fd-method').value; if ($('fd-portions')) S.fd.portions = $('fd-portions').value; }
+}
+function rerender(){ grab(); render(); }
+/* one line redrawn in place — the rest of the sheet, and the field being typed in, are left alone */
+function redrawLine(p, i, focusSel){
+  var el = document.querySelector('.ln[data-p="' + p + '"][data-i="' + i + '"]'); if (!el) return;
+  var tmp = document.createElement('div'); tmp.innerHTML = lineRowHtml(p, i, linesOf(p)[i]);
+  el.parentNode.replaceChild(tmp.firstChild, el);
+  if (focusSel) { var f = document.querySelector('.ln[data-p="' + p + '"][data-i="' + i + '"] ' + focusSel); if (f) { f.focus(); try { f.select(); } catch(x){} } }
+  redrawTotal(p);
+}
+function redrawCost(p, i){
+  var l = linesOf(p)[i], el = document.querySelector('.ln[data-p="' + p + '"][data-i="' + i + '"] .cost'); if (!el) return;
+  var c = lineCost(l), real = String(l.name||'').trim() || l.code;
+  el.className = 'cost' + (c == null ? ' none' : '');
+  el.textContent = c == null ? (real ? whyNoCost(l) : '') : fmt(c) + ' AED';
+  redrawTotal(p);
+}
+function redrawTotal(p){
+  var t = $('tot-' + p); if (!t) return;
+  var cl = costLine(linesOf(p), p === 'f' && S.fd ? Number(S.fd.portions) : 0);
+  t.innerHTML = cl.html + (cl.warn ? '<span class="warn">' + cl.warn + '</span>' : '');
+}
+function appendLine(p){
+  var ls = linesOf(p), wrap = $('lines-' + p);
+  ls.push(blankLine());
+  if (!wrap) { rerender(); return; }
+  var tmp = document.createElement('div'); tmp.innerHTML = lineRowHtml(p, ls.length - 1, ls[ls.length - 1]);
+  wrap.appendChild(tmp.firstChild);
+}
+
+/* ═════════ events ═════════ */
+document.addEventListener('input', function(e){
+  var t = e.target;
+  if (t.id === 'q') { S.q = t.value; var pos = t.selectionStart; render(); var q = $('q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch(x){} } return; }
+  if (t.id === 'fd-portions' && S.fd) { S.fd.portions = t.value; redrawTotal('f'); return; }
+  var ln = t.closest && t.closest('.ln'); if (!ln) return;
+  var p = ln.dataset.p, i = +ln.dataset.i, l = linesOf(p)[i]; if (!l) return;
+  if (t.classList.contains('ing')) {
+    l.name = t.value;
+    if (l.code) { l.code = null; var src = ln.querySelector('.ln-src'); if (src) { src.textContent = ''; } }
+    var box = ln.querySelector('.sugg'), hits = search(t.value);
+    box.innerHTML = t.value.trim()
+      ? hits.map(function(it){
+          var bp = basePrice(it);
+          return '<button type="button" data-pick="' + esc(it.code) + '">' + esc(it.name) + '<small>' + (bp ? fmt(bp.v) + ' AED/' + esc(bp.base) : 'no price') + '</small></button>';
+        }).join('') + '<button type="button" class="free" data-pick="">Keep “' + esc(t.value.trim()) + '” as typed — no cost</button>'
+      : '';
+    redrawCost(p, i);
+    if (i === linesOf(p).length - 1 && t.value.trim()) appendLine(p);
+  } else if (t.classList.contains('qty')) {
+    var v = t.value.replace(',', '.').trim();
+    l.qty = v === '' ? null : v;
+    redrawCost(p, i);
+  }
+});
+document.addEventListener('change', function(e){
+  var t = e.target, ln = t.closest && t.closest('.ln');
+  if (ln && t.classList.contains('unit')) { var l = linesOf(ln.dataset.p)[+ln.dataset.i]; l.unit = t.value; redrawCost(ln.dataset.p, +ln.dataset.i); }
+});
+/* the suggestion list closes when the field is left (after a pick has had its tap) */
+document.addEventListener('focusout', function(e){
+  var ln = e.target.closest && e.target.closest('.ln');
+  if (!ln || !e.target.classList.contains('ing')) return;
+  setTimeout(function(){ if (!ln.contains(document.activeElement)) { var b = ln.querySelector('.sugg'); if (b) b.innerHTML = ''; } }, 250);
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Enter' && e.target.id === 'othername') { e.preventDefault(); var b = document.querySelector('[data-act="other-ok"]'); if (b) b.click(); }
+});
+
+document.addEventListener('click', function(e){
+  var t = e.target.closest ? e.target.closest('button') : null; if (!t) return;
+  if (t.dataset.who) { grab(); rememberWho(t.dataset.who); S.otherOpen = false; render(); return; }
+  if (t.dataset.pick != null) {
+    var ln = t.closest('.ln'), p = ln.dataset.p, i = +ln.dataset.i, l = linesOf(p)[i];
+    if (t.dataset.pick) {
+      var it = INGMAP[t.dataset.pick];
+      l.code = it.code; l.name = it.name;
+      var us = unitsFor(it); if (us.indexOf(l.unit) < 0) l.unit = us[0];
+    } else { l.code = null; }
+    redrawLine(p, i, '.qty');
+    return;
+  }
+  if (t.dataset.open) { S.screen = 'dish'; S.id = t.dataset.open; S.tab = 'diary'; S.ed = null; S.fd = null; S.info = null; S.flash = null; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.tab) { grab(); S.tab = t.dataset.tab; render(); return; }
+  var a = t.dataset.act; if (!a) return;
+  ACT[a] && ACT[a](t);
+});
+
+var ACT = {
+  other: function(){ grab(); S.otherOpen = true; render(); var o = $('othername'); if (o) o.focus(); },
+  'other-ok': function(){ var v = ($('othername') || {}).value || ''; v = v.trim(); if (v.length < 2) return; grab(); rememberWho(v); S.otherOpen = false; render(); },
+  list: function(){ grab(); S.screen = 'list'; S.nd = null; S.ed = null; S.fd = null; S.info = null; S.flash = null; render(); window.scrollTo(0,0); },
+  'new': function(){ S.screen = 'new'; S.nd = { name:'', idea:'' }; S.flash = null; render(); var n = $('nd-name'); if (n) n.focus(); },
+  'nd-save': function(btn){
+    grab(); var n = S.nd, name = n.name.trim();
+    if (name.length < 2) { S.flash = { bad:true, html:'Give the dish a name first.' }; render(); return; }
+    var dup = D.dishes.filter(function(d){ return d.name.trim().toLowerCase() === name.toLowerCase(); })[0];
+    if (dup) { S.flash = { bad:true, html:'There is already a card called <b>' + esc(dup.name) + '</b>. Open that one, or give this one another name.' }; render(); return; }
+    btn.disabled = true;
+    api('rnd_dishes', { method:'POST', prefer:'return=representation',
+        body:{ venue_id:VENUE, name:name, idea:n.idea.trim() || null, created_by:WHO.name, updated_by:WHO.name } })
+      .then(function(rows){ var r = rows && rows[0]; if (!r) throw new Error('the card did not come back'); return load().then(function(){ return r; }); })
+      .then(function(r){ S.nd = null; S.screen = 'dish'; S.id = r.id; S.tab = 'diary'; S.ed = { kind:'trial', body:'', lines:padLines([]) };
+                         S.flash = { html:'Card started. Write the first trial below.' }; render();
+                         var f = document.querySelector('.ln[data-p="e"] .ing'); if (f) f.focus(); })
+      .catch(function(ex){ btn.disabled = false; S.flash = { bad:true, html:esc(say(ex)) }; render(); });
+  },
+  info: function(){ var d = dish(S.id); grab(); S.info = { name:d.name, idea:d.idea || '' }; render(); },
+  'info-cancel': function(){ S.info = null; render(); },
+  'info-save': function(btn){
+    grab(); var name = S.info.name.trim(); if (name.length < 2) return;
+    btn.disabled = true;
+    patchDish({ name:name, idea:S.info.idea.trim() || null })
+      .then(function(){ S.info = null; S.flash = null; render(); })
+      .catch(function(ex){ btn.disabled = false; S.flash = { bad:true, html:esc(say(ex)) }; render(); });
+  },
+  'dish-archive': function(){
+    var d = dish(S.id);
+    var go = function(){
+      kAsk({ title:'Remove “' + d.name + '”?', body:'The card and its ' + entriesOf(d.id).length + ' entries leave R&D. They are kept in the database, so it can be brought back.', ok:'Remove the card', danger:true })
+        .then(function(ok){ if (!ok) return;
+          return patchDish({ archived:true, archived_by:(WHO && WHO.name) || RecipeLock.who && RecipeLock.who() || 'Chef', archived_at:nowIso() })
+            .then(function(){ S.screen = 'list'; S.info = null; S.flash = { html:'<b>' + esc(d.name) + '</b> was removed from R&amp;D.' }; render(); }); })
+        .catch(function(ex){ S.flash = { bad:true, html:esc(say(ex)) }; render(); });
+    };
+    if (window.RecipeLock && !RecipeLock.isOpen()) RecipeLock.ask('Removing a whole R&D card?').then(function(ok){ if (ok) go(); });
+    else go();
+  },
+  'ed-new': function(btn){
+    grab(); var kind = btn.dataset.kind, lines = [];
+    if (kind === 'change') { var lt = latestTrial(S.id); if (lt) lines = copyLines(lt.lines); }
+    S.ed = { kind:kind, body:'', lines:kind === 'note' ? [] : padLines(lines), padOpen:false };
+    render();
+    var f = document.querySelector(kind === 'note' ? '#ed-body' : '.ln[data-p="e"] .ing'); if (f) f.focus();
+  },
+  'from-entry': function(btn){
+    grab(); var e = findEntry(btn.dataset.id);
+    S.tab = 'diary'; S.ed = { kind:'trial', body:'', lines:padLines(copyLines(e.lines)), padOpen:false };
+    S.flash = { html:'The lines of ' + (e.kind === 'trial' ? 'Trial ' + trialNo(e) : 'that entry') + ' are copied in. Change what is different this time.' };
+    render(); var ed = $('editor'); if (ed) ed.scrollIntoView({ block:'start' });
+  },
+  'ed-cancel': function(){ S.ed = null; PAD = null; render(); },
+  'ln-add': function(btn){ var p = btn.dataset.p; grab(); if (p === 'e' && !S.ed.lines.length) { S.ed.lines = [blankLine()]; render(); } else appendLine(p);
+    var rows = document.querySelectorAll('.ln[data-p="' + p + '"] .ing'); if (rows.length) rows[rows.length - 1].focus(); },
+  'ln-x': function(btn){
+    var ln = btn.closest('.ln'), p = ln.dataset.p, ls = linesOf(p);
+    ls.splice(+ln.dataset.i, 1); if (p !== 'e' || S.ed.kind !== 'note' || ls.length) padLines(ls);
+    rerender();
+  },
+  'pad-open': function(){ grab(); S.ed.padOpen = true; S.ed.strokes = []; render(); var c = $('pad'); if (c) c.scrollIntoView({ block:'center' }); },
+  'pad-close': function(){ grab(); S.ed.padOpen = false; S.ed.strokes = []; PAD = null; render(); },
+  'pad-clear': function(){ S.ed.strokes = []; redrawPad(); },
+  'pad-undo': function(){ (S.ed.strokes || []).pop(); redrawPad(); },
+  'ed-save': function(btn){
+    grab(); var ed = S.ed, lines = cleanLines(ed.lines), body = ed.body.trim(), sketch = ed.padOpen ? padPng() : null;
+    if (!lines.length && !body && !sketch) { $('edmsg').className = 'msg bad'; $('edmsg').textContent = 'Nothing written yet.'; return; }
+    if (ed.kind === 'trial' && !lines.length) { $('edmsg').className = 'msg bad'; $('edmsg').textContent = 'A trial needs its ingredients and quantities.'; return; }
+    if (sketch && sketch.length > 2500000) { $('edmsg').className = 'msg bad'; $('edmsg').textContent = 'The drawing is too big to keep. Clear part of it and try again.'; return; }
+    btn.disabled = true; $('edmsg').className = 'msg'; $('edmsg').textContent = 'Saving…';
+    var kind = ed.kind;
+    api('rnd_entries', { method:'POST', prefer:'return=representation',
+        body:{ dish_id:S.id, kind:kind, body:body || null, lines:lines, sketch:sketch, created_by:WHO.name } })
+      .then(function(rows){ if (!rows || !rows[0]) throw new Error('the entry did not come back');
+        return patchDish({}).then(load); })
+      .then(function(){ S.ed = null; PAD = null; S.flash = { html:KIND[kind] + ' saved.' }; render(); })
+      .catch(function(ex){ btn.disabled = false; $('edmsg').className = 'msg bad'; $('edmsg').textContent = say(ex); });
+  },
+  'ent-x': function(btn){
+    var e = findEntry(btn.dataset.id);
+    kAsk({ title:'Remove this ' + (e.kind === 'trial' ? 'trial' : KIND[e.kind].toLowerCase()) + '?', body:'Written ' + when(e.created_at) + ' by ' + e.created_by + '. It leaves the card but is kept in the database.', ok:'Remove', danger:true })
+      .then(function(ok){ if (!ok) return;
+        return api('rnd_entries?id=eq.' + e.id, { method:'PATCH', prefer:'return=minimal',
+            body:{ archived:true, archived_by:(WHO && WHO.name) || 'unknown', archived_at:nowIso() } })
+          .then(load).then(function(){ S.flash = { html:'Removed.' }; render(); }); })
+      .catch(function(ex){ S.flash = { bad:true, html:esc(say(ex)) }; render(); });
+  },
+  'final-from': function(btn){
+    grab(); var e = findEntry(btn.dataset.id), d = dish(S.id);
+    S.tab = 'final';
+    S.fd = { lines:padLines(copyLines(e.lines)), portions:d.final_portions == null ? '' : d.final_portions, method:d.final_method || '' };
+    render(); window.scrollTo(0,0);
+  },
+  'final-empty': function(){ var d = dish(S.id); S.fd = { lines:padLines([]), portions:'', method:d.final_method || '' }; render(); },
+  'final-edit': function(){ var d = dish(S.id); S.fd = { lines:padLines(copyLines(d.final_lines)), portions:d.final_portions == null ? '' : d.final_portions, method:d.final_method || '' }; render(); },
+  'fd-cancel': function(){ S.fd = null; render(); },
+  'fd-save': function(btn){
+    grab(); var fd = S.fd, lines = cleanLines(fd.lines), por = String(fd.portions).replace(',', '.').trim();
+    var pn = por === '' ? null : Number(por);
+    if (!lines.length) { $('fdmsg').className = 'msg bad'; $('fdmsg').textContent = 'The recipe needs its ingredients.'; return; }
+    if (pn != null && !(pn > 0)) { $('fdmsg').className = 'msg bad'; $('fdmsg').textContent = 'Portions must be a number above 0.'; return; }
+    btn.disabled = true; $('fdmsg').className = 'msg'; $('fdmsg').textContent = 'Saving…';
+    patchDish({ status:'final', final_lines:lines, final_portions:pn, final_method:fd.method.trim() || null, finalised_by:WHO.name, finalised_at:nowIso() })
+      .then(function(){ S.fd = null; S.flash = { html:'Final recipe saved. The card is now under <b>Final recipes</b> in R&amp;D.' }; render(); window.scrollTo(0,0); })
+      .catch(function(ex){ btn.disabled = false; $('fdmsg').className = 'msg bad'; $('fdmsg').textContent = say(ex); });
+  },
+  reopen: function(){
+    if (!WHO) { S.flash = { bad:true, html:'Tap your name at the top first.' }; render(); return; }
+    patchDish({ status:'developing' }).then(function(){ S.flash = { html:'Back in development. The final recipe is kept; edit it whenever it is right again.' }; render(); })
+      .catch(function(ex){ S.flash = { bad:true, html:esc(say(ex)) }; render(); });
+  },
+  print: function(){ window.print(); }
+};
+function findEntry(id){ var all = entriesOf(S.id); return all.filter(function(e){ return e.id === id; })[0]; }
+/* every write to the card stamps who and when, so the list shows who touched it last */
+function patchDish(fields){
+  fields.updated_at = nowIso(); fields.updated_by = (WHO && WHO.name) || fields.updated_by || null;
+  return api('rnd_dishes?id=eq.' + S.id, { method:'PATCH', prefer:'return=representation', body:fields })
+    .then(function(rows){
+      if (!rows || !rows.length) throw new Error('the card is no longer there');
+      var i = D.dishes.findIndex(function(d){ return d.id === S.id; }); if (i > -1) D.dishes[i] = rows[0];
+      return rows[0];
+    });
+}
+
+/* Another tablet writing on the same dish: look again every 15 seconds, but never while
+   something is being written here — a redraw must not take a half-written trial away. */
+function busy(){
+  var a = document.activeElement;
+  return !!(S.ed || S.fd || S.nd || S.info || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)));
+}
+setInterval(function(){ if (!document.hidden && D.loaded && !busy()) load().then(render); }, 15000);
+window.__rcpFreshen = function(){ if (!busy()) load().then(render); };
+
+loadStaff();
+Promise.all([load(), loadArticles()]).then(render);
+</script>
+<script src="k-frame.js?v=1792990460"></script>
+</body>
+</html>
