@@ -759,7 +759,7 @@ function scStat(p, d){
     if (s.passed_at && t.expires_months) { var u = new Date(s.passed_at); u.setMonth(u.getMonth() + t.expires_months); exp = u < new Date(); }
     var ok = !!s.passed_at && !exp;
     if (ok) out.passed++;
-    var fast = s.best === 5 && s.lim && s.secs != null && s.secs < s.lim * 0.4;
+    var fast = s.best === (s.outof || 5) && s.lim && s.secs != null && s.secs < s.lim * 0.4;
     out.rows.push({ t:t, s:s, ok:ok, exp:exp, fast:fast });
     if (exp && out.tags.indexOf('expired') < 0) out.tags.push('expired');
     if (fast && out.tags.indexOf('fast') < 0) out.tags.push('fast');
@@ -784,7 +784,7 @@ function scPerson(p, d, isF, st, open){
       h += '<div class="sc-r"><span>' + esc(r.t.title) + '<br><small>' +
         (s.secs != null ? dur(s.secs) + (s.lim ? ' of ' + dur(s.lim) : '') + ' · ' : '') + s.tries + ' tr' + (s.tries === 1 ? 'y' : 'ies') +
         (s.late ? ' · <span style="color:var(--err)">' + s.late + ' out of time</span>' : '') + '</small></span>' +
-        '<span class="sc-s">' + (s.best == null ? '—' : s.best + '/5') + (r.ok ? ' ✓' : '') +
+        '<span class="sc-s">' + (s.best == null ? '—' : s.best + '/' + (s.outof || 5)) + (r.ok ? ' ✓' : '') +
         (r.exp ? ' <span class="sc-tag bad">expired</span>' : '') + (r.fast ? ' <span class="sc-tag">very fast</span>' : '') + '</span></div>';
     });
     if (st.notStarted.length) h += '<div class="sc-none">Not started: ' + st.notStarted.map(function(t){ return esc(t.title); }).join(', ') + '.</div>';
