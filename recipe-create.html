@@ -2356,7 +2356,8 @@ var MSEC = [
    sheet. Better to say so while he is typing than to find it in the binder. */
 var CUTLERY = ['Starter fork','Starter knife','Main fork','Main knife','Molluscs fork',
   'Steak knife','Big spoon','Starter spoon','Small spoon',
-  'Dessert spoon','Dessert fork','Dessert knife'];
+  'Dessert spoon','Dessert fork','Dessert knife','Finger food / no cutlery'];
+var FINGER = 'Finger food / no cutlery';   /* excludes every fork, knife and spoon: the dish is eaten by hand */
 
 /* --------- the crockery shelf ---------
    Andrea, 12 Sep 2026: "I think we should have a list of photo of our crockery to choose
@@ -2558,6 +2559,9 @@ function normMethod(m){
        write and is dropped rather than printed on a waiter's page */
     if (Array.isArray(m.cutlery)) out.cutlery = m.cutlery.filter(function(c){
       return CUTLERY.indexOf(c) > -1; });
+    /* finger food is the whole answer: a dish eaten by hand sets no cutlery, so a stray fork
+       beside it would print a contradiction on the waiter's page */
+    if (out.cutlery.indexOf(FINGER) > -1) out.cutlery = [FINGER];
     /* `crock` is the crockery PICKED off the shelf - ids into the crockery table, kept
        so the card can show the photograph. `crockery` above is still the words, and it
        is still what prints: twenty-five recipes were written before this shelf existed
@@ -11787,7 +11791,7 @@ function budget(s, v){
 function cutInner(){
   var set = (S.method && S.method.cutlery) || [];
   return '<label class="ml">Mise en place — what to set</label>' +
-    '<div class="mhint" style="margin:0 0 8px">What this dish is eaten with.</div>' +
+    '<div class="mhint" style="margin:0 0 8px">What this dish is eaten with. Eaten by hand? Tick Finger food / no cutlery.</div>' +
     '<div class="achips">' + CUTLERY.map(function(c){
       return '<button class="ach'+(set.indexOf(c)>-1?' on':'')+'" data-cut="'+esc(c)+'">'+esc(c)+'</button>';
     }).join('') + '</div>';
@@ -13497,7 +13501,9 @@ document.addEventListener('click', function(e){
     if (!S.method) S.method = emptyMethod();
     if (!Array.isArray(S.method.cutlery)) S.method.cutlery = [];
     var c = cut.dataset.cut, ci = S.method.cutlery.indexOf(c);
-    if (ci > -1) S.method.cutlery.splice(ci,1); else S.method.cutlery.push(c);
+    if (ci > -1) S.method.cutlery.splice(ci,1);
+    else if (c === FINGER) S.method.cutlery = [FINGER];
+    else { S.method.cutlery = S.method.cutlery.filter(function(x){ return x !== FINGER; }); S.method.cutlery.push(c); }
     drawCut(); return;
   }
 
