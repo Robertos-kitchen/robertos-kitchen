@@ -879,7 +879,7 @@ document.addEventListener('click', function(ev){
   if (b.dataset.sv) { S.sview = b.dataset.sv; draw(); return; }
   if (b.dataset.viewer) {
     var on = b.checked;
-    post('learn_set_viewer', { p_code:S.chef.code, p_staff:b.dataset.viewer, p_on:on })
+    post('learn_set_viewer', { p_code:S.chef.code || S.chef.emp, p_staff:b.dataset.viewer, p_on:on })
       .then(function(){ S.cmsg = '✓ Saved.'; return loadScores(); })
       .catch(function(e){ S.cmsg = say(e); draw(); });
     return;
