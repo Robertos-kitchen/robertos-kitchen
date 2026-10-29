@@ -3844,6 +3844,18 @@ function dishAllergens(r){
    somebody to find the box themselves is half a job — and the box for a menu price is
    inside the costing, which is shut, so "find it yourself" meant opening a panel he had
    no reason to know was the right one. `sec` is a key in JUMPAT below. */
+/* a menu is a canapé one when its own name, or the name of the menu it is a section of, starts
+   "canap" — "canape" > "Canapes Portici 170 aed". Put-away menus and the "Archive…" shelf do not
+   count as a place the dish is sold. */
+function onlyOnCanapeMenus(id){
+  var live = ((S.rmenus && S.rmenus[id]) || []).map(function(mid){
+    return SAVEDMENUS.filter(function(x){ return x.id === mid; })[0];
+  }).filter(function(m){ return m && !m.archived && !/^archive/i.test(String(m.name)); });
+  return live.length > 0 && live.every(function(m){
+    var p = m.parent_id && SAVEDMENUS.filter(function(x){ return x.id === m.parent_id; })[0];
+    return /^canap/i.test(String(m.name)) || !!(p && /^canap/i.test(String(p.name)));
+  });
+}
 function allIssuesOf(r){
   if (!S.tally) return [];                      /* the count did not load — claim nothing */
   var t = S.tally[r.id], out = [];
@@ -3889,7 +3901,15 @@ function allIssuesOf(r){
       out.push({ key:'pass', sec:'pass', s:'nobody has said how long it can stand on the pass' });
     if (r.makes_qty == null)  out.push({ key:'portions', sec:'makes',   s:'doesn’t say how many portions' });
     if (!r.section)           out.push({ key:'section', sec:'section', s:'no section — Aung’s form needs one' });
-    if (r.menu_price == null) out.push({ key:'price', sec:'price',   s:'no menu price' });
+    /* The canapé menus are sold by the tier (Portici, Cortile, Salotto — the price is in the
+       section's name), never by the plate, so a canapé has no price of its own to be missing.
+       What is held against the tier's price is the full menu cost. Chef Andrea, 29 Oct 2026:
+       "the items inside the menu there are not prices ... do not mention in the following
+       report". Only when EVERY live menu the dish is on is a canapé one: a dish that is also
+       on the a la carte still has a plate price to give. */
+    if (r.menu_price == null){
+      if (!onlyOnCanapeMenus(r.id)) out.push({ key:'price', sec:'price',   s:'no menu price' });
+    }
     else {
       /* The printed card and the recipe each carry a price, and until now nothing ever
          held them against each other — menu_items was BUILT promising this check ("when
