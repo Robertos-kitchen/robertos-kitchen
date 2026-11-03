@@ -4309,7 +4309,7 @@ async function krtLoadRange(numWeeks){
   var to   = formatDate(addDays(schedWeekStart, numWeeks*7+6));
   var res = await Promise.all([
     sb.from('staff').select('*').order('sort_order'),
-    sb.from('roster').select('*').gte('work_date',from).lte('work_date',to).limit(8000),
+    kFetchAllPaged(function(){ return sb.from('roster').select('*').gte('work_date',from).lte('work_date',to).order('id'); }),
     sb.from('sched_events').select('*').gte('event_date',from).lte('event_date',to).limit(3000),
     sb.from('staff_section_history').select('staff_id,station_key,from_date').order('from_date').limit(5000)
   ]);
@@ -4647,7 +4647,7 @@ async function kplLoad(){
   try{
     var res = await Promise.all([
       sb.from('staff').select('*').eq('active', true).order('sort_order'),
-      sb.from('roster').select('*').gte('work_date', fromISO).lte('work_date', toISO).limit(8000)
+      kFetchAllPaged(function(){ return sb.from('roster').select('*').gte('work_date', fromISO).lte('work_date', toISO).order('id'); })
     ]);
     kplStaff = (res[0].data||[]).filter(function(s){ return s.in_schedule!==false; });
     kplLive = {};
@@ -5759,7 +5759,7 @@ async function kplDoPublish(){
   try{
     // 1) snapshot current live rows in range (for revert)
     var snapRows=[];
-    if(dates.length){ var snapRes = await sb.from('roster').select('*').gte('work_date',minD).lte('work_date',maxD).in('staff_id', existingIds).limit(8000); if(snapRes.error) throw snapRes.error; snapRows = snapRes.data||[]; }
+    if(dates.length){ var snapRes = await kFetchAllPaged(function(){ return sb.from('roster').select('*').gte('work_date',minD).lte('work_date',maxD).in('staff_id', existingIds).order('id'); }); if(snapRes.error) throw snapRes.error; snapRows = snapRes.data||[]; }
     // remember prior sections + order of changed people, and prior section labels (for undo)
     var priorSections={}; moves.forEach(function(id){ var s=kplStaff.find(function(x){return x.id===id;}); priorSections[id]=s?s.station_key:null; });
     var priorHist={};   // section history of each moved person, so Undo puts their earlier weeks back exactly
