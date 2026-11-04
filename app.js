@@ -3211,6 +3211,7 @@ const STATUS_META = {
   em:      { label: 'EM',  bg: 'em' },
   tr:      { label: 'TR',  bg: 'tr' },
   cdo:     { label: 'CDO', bg: 'cdo' },
+  rdo:     { label: 'RDO', bg: 'rdo' },
   cat:     { label: 'CAT', bg: 'cat' },
 };
 
@@ -3698,13 +3699,13 @@ var kplEnt        = {};       // staffId -> {off,al,ph} entitlement targets over
 var kplWkClip     = null;     // copied week index for copy→paste
 var kplMoreOpen   = false;    // is the "More" tool group expanded
 
-var KPL_STATUSES  = ['working','off','wo','al','ph','tr','em','sl','cdo'];
+var KPL_STATUSES  = ['working','off','wo','al','ph','tr','em','sl','cdo','rdo'];
 // Colours taken straight from the chefs' Excel legend so the tool speaks their colour language.
 // off=red, WO=grey, holiday(al)=pink, PH=green, training=blue, emergency=purple, sick=orange, cancel-day-off=yellow.
-var KPL_COLOR     = { off:'#d21f1f', wo:'#8a7d70', al:'#d63aa0', ph:'#1f9d4d', tr:'#0070C0', em:'#7030A0', sl:'#c05a1e', cdo:'#c9a400', cat:'#c2410c' };
+var KPL_COLOR     = { off:'#d21f1f', wo:'#8a7d70', al:'#d63aa0', ph:'#1f9d4d', tr:'#0070C0', em:'#7030A0', sl:'#c05a1e', cdo:'#c9a400', rdo:'#0e7490', cat:'#c2410c' };
 // Plain-English names a diploma chef reads in 2 seconds (Valentina Rule 5 — no jargon).
 // The short code (OFF/WO/AL…) still shows small so it ties to the printed roster.
-var KPL_FRIENDLY  = { working:'Working', off:'Day off', wo:'Weekly off', al:'Holiday', ph:'Public holiday', tr:'Training', em:'Emergency', sl:'Sick', cdo:'Cancel day off', cat:'Catering' };
+var KPL_FRIENDLY  = { working:'Working', off:'Day off', wo:'Weekly off', al:'Holiday', ph:'Public holiday', tr:'Training', em:'Emergency', sl:'Sick', cdo:'Cancel day off', rdo:'Recovery day off', cat:'Catering' };
 function kplFriendly(st){ return KPL_FRIENDLY[st] || (STATUS_META[st]?(STATUS_META[st].label||st.toUpperCase()):st.toUpperCase()); }
 function kplCode(st){ return st==='working'?'':((STATUS_META[st]&&STATUS_META[st].label)||st.toUpperCase()); }
 var KPL_DEF_START = '14:00', KPL_DEF_END = '00:00';
@@ -4391,7 +4392,7 @@ function krtBuildFillTeams(weekStart){
 var KRT_DAYSOFF_TARGET = 2;   // max weekly days off per person
 function krtBuildDaysOff(weekStart){
   var dates=krtWeekDates(weekStart), payloads=[];
-  var DAYOFF=['off','wo'];                   // ONLY genuine days off count toward the 2 — annual leave / PH are separate, not counted
+  var DAYOFF=['off','wo','rdo'];                   // ONLY genuine days off count toward the 2 — annual leave / PH are separate, not counted
   var quiet=[0,1,2,6];                       // Mon, Tue, Wed, Sun (indexes) — never Thu(3)/Fri(4)/Sat(5)
   var gi=0;
   STATIONS_SCH.forEach(function(st){
@@ -4985,7 +4986,7 @@ function kplRenderLegend(){
      .map(function(s){ return lg(s.label, SEC_COLOR[s.key]||'#8a7d70'); }).join('');
   var away = lg('Day off',KPL_COLOR.off)+lg('Weekly off',KPL_COLOR.wo)+lg('Holiday',KPL_COLOR.al)
      +lg('Training',KPL_COLOR.tr)+lg('Emergency',KPL_COLOR.em)+lg('Public holiday',KPL_COLOR.ph)
-     +lg('Sick',KPL_COLOR.sl)+lg('Cancel day off',KPL_COLOR.cdo);
+     +lg('Sick',KPL_COLOR.sl)+lg('Cancel day off',KPL_COLOR.cdo)+lg('Recovery day off',KPL_COLOR.rdo);
   leg.className='kpl-legendbar';
   leg.innerHTML = '<span class="ttl">Sections</span>'+secs
     + '<span class="ttl" style="margin-left:6px">Away</span>'+away
@@ -5019,8 +5020,8 @@ function kplCellHtml(s, ds, dayW, detail, isWk, isWe, today, tot){
   } else {
     var col = KPL_COLOR[e.status]||'#8a7d70';
     var txt = e.status==='cdo' ? '#7a6400' : col;
-    if(e.status!=='off') tot.days++;
-    if(e.status==='off'||e.status==='wo') tot.off++;
+    if(e.status!=='off'&&e.status!=='rdo') tot.days++;
+    if(e.status==='off'||e.status==='wo'||e.status==='rdo') tot.off++;
     if(e.status==='al') tot.al++;
     if(e.status==='ph') tot.ph++;
     var label = detail ? kplFriendly(e.status) : (kplCode(e.status)||'&bull;');
@@ -5652,7 +5653,7 @@ function kplPersonTotals(sid){
   var t={days:0,work:0,off:0,hrs:0,al:0,ph:0};
   for(var w=0; w<kplNumWeeks; w++) for(var d=0; d<7; d++){ var e=kplEntry(sid,kplDateISO(w,d)); if(!e||!e.status) continue;
     if(e.status==='working'){ if(e.shift_start&&e.shift_end){ t.days++; t.work++; t.hrs+=calcHours(formatTime(e.shift_start),formatTime(e.shift_end),formatTime(e.shift_start2),formatTime(e.shift_end2)); } }
-    else { if(e.status!=='off') t.days++; if(e.status==='off'||e.status==='wo') t.off++; if(e.status==='al') t.al++; if(e.status==='ph') t.ph++; }
+    else { if(e.status!=='off'&&e.status!=='rdo') t.days++; if(e.status==='off'||e.status==='wo'||e.status==='rdo') t.off++; if(e.status==='al') t.al++; if(e.status==='ph') t.ph++; }
   }
   return t;
 }
@@ -5971,7 +5972,7 @@ function schedDayCellHtml(staff, sid, ds2, today) {
     }
   } else {
     var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
-    if (rrow.status !== 'off') wDays++;
+    if (rrow.status !== 'off' && rrow.status !== 'rdo') wDays++;
     inner = '<div class="sch-shift ' + meta.bg + '">' + meta.label + '</div>';
   }
   var coverKey = rrow && rrow.station_override;
@@ -6306,7 +6307,7 @@ function schedOpenPresetEditor(list){
   list = list || schedShiftPresets;
   var host=document.getElementById('sch-preset-editor');
   if(!host){ host=document.createElement('div'); host.id='sch-preset-editor'; document.body.appendChild(host); }
-  var STATS=[['working','Working'],['off','Day off'],['wo','Week off'],['sl','Sick leave'],['al','Annual leave'],['ph','Public holiday'],['em','Emergency'],['tr','Training'],['cat','Catering']];
+  var STATS=[['working','Working'],['off','Day off'],['wo','Week off'],['sl','Sick leave'],['al','Annual leave'],['ph','Public holiday'],['em','Emergency'],['tr','Training'],['cat','Catering'],['cdo','Cancel day off'],['rdo','Recovery day off']];
   function hOpts(sel){ var o=''; for(var h=0;h<24;h++){ var hh=(h<10?'0':'')+h; o+='<option value="'+hh+'"'+(hh===sel?' selected':'')+'>'+hh+'</option>'; } return o; }
   function mOpts(sel){ return ['00','15','30','45'].map(function(m){ return '<option value="'+m+'"'+(m===sel?' selected':'')+'>'+m+'</option>'; }).join(''); }
   function pt(t,part){ if(!t) return part==='h'?'14':'00'; var p=String(t).split(':'); return part==='h'?(p[0]||'14'):(p[1]||'00'); }
@@ -7364,7 +7365,7 @@ function schedPrint() {
           html += '<td' + (isToday ? ' class="pt-today"' : '') + '>' + cell + '</td>';
         } else {
           var meta = STATUS_META[row.status] || { label: row.status.toUpperCase() };
-          if (row.status !== 'off') wd++;
+          if (row.status !== 'off' && row.status !== 'rdo') wd++;
           html += '<td class="pt-off pt-leave">' + meta.label + '</td>';
         }
       });
@@ -7629,7 +7630,7 @@ async function schedSendToHR(_downloadOnly) {
             } else { rowData.push(''); cellStatuses.push('empty'); }
           } else {
             var meta = STATUS_META[entry.status]||{label:entry.status.toUpperCase()};
-            if (entry.status !== 'off') wDays++;
+            if (entry.status !== 'off' && entry.status !== 'rdo') wDays++;
             rowData.push(meta.label);
             cellStatuses.push(entry.status);
           }
