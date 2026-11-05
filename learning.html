@@ -256,6 +256,32 @@ function passState(t){
   if (!t.pages && t.questions < 5) return { cls:'p-none', txt:'Coming soon' };
   return { cls:'p-none', txt:'Not taken' };
 }
+function fmtDay(at){ return new Date(at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }); }
+function mins(s){ return s == null ? '' : Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+/* Every finished test, newest first (Chef Andrea, 5 Nov 2026: "see how many times they did the test and what was their score all the time"). */
+function bestOf(list){
+  return list.filter(function(a){ return !a.late && a.total; }).sort(function(a, b){ return b.score / b.total - a.score / a.total; })[0];
+}
+function triesLine(id){
+  var l = (S.mix || []).filter(function(a){ return a.focus === id; });
+  if (!l.length) return '';
+  var b = bestOf(l);
+  return '<span class="tsum">Taken ' + l.length + (l.length === 1 ? ' time' : ' times') + (b ? ' · best ' + b.score + '/' + b.total : '') + '</span>';
+}
+function historyRows(list){
+  return list.map(function(a){
+    return '<div class="gap"><span>' + fmtDay(a.at) + ' · ' + esc(a.focus_title || 'Mixed test') + (a.secs != null ? ' <small>' + mins(a.secs) + '</small>' : '') + '</span>' +
+      '<b style="color:' + (a.passed ? 'var(--ok)' : 'var(--err)') + '">' + (a.late ? 'late' : a.score + '/' + a.total) + ' ' + (a.passed ? 'passed' : 'not passed') + '</b></div>';
+  }).join('');
+}
+function historyHtml(){
+  var mix = S.mix || [];
+  if (!mix.length) return '<div class="me">You have not taken a test yet.</div>';
+  var b = bestOf(mix), passed = mix.filter(function(a){ return a.passed; }).length;
+  return '<div class="me" style="font-size:14.5px">Taken <b>' + mix.length + '</b> ' + (mix.length === 1 ? 'time' : 'times') + ' · passed <b>' + passed + '</b>' +
+    (b ? ' · best <b>' + b.score + '/' + b.total + '</b>' : '') + ' · last <b>' + (mix[0].late ? 'late' : mix[0].score + '/' + mix[0].total) + '</b> on ' + fmtDay(mix[0].at) + '</div>' +
+    '<details><summary>All my tests (' + mix.length + ')</summary>' + historyRows(mix) + '</details>';
+}
 function drawHome(){
   if (!S.me) {
     return '<h2>Learning</h2>' +
@@ -263,28 +289,27 @@ function drawHome(){
       '<input id="emp" inputmode="numeric" autocomplete="off" enterkeyhint="go" value="' + esc(S.tryEmp || '') + '">' +
       '<button class="btn" data-busy id="go" type="submit">Start</button>' +
       (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
-      '<details><summary>What is this?</summary><p>Short pages to read, then one test: 20 questions from 5 topics picked at random. ' +
+      '<details><summary>What is this?</summary><p>Short pages to read, then a test on what you read: 10 questions on that topic and 20 general knowledge. ' +
       'Everything here has been checked by Chef Danilo, Chef Antonio or Chef Andrea and approved by Chef Francesco. ' +
       'Your employee ID is how the app knows your level and keeps your score.</p></details></form>' +
       '<button class="link" id="chef">Chef’s corner — check and approve questions</button>';
   }
-  var open = (S.topics || []), mix = S.mix || [], last = mix[0], best = mix.filter(function(a){ return a.passed; })[0];
+  var open = (S.topics || []);
   var ready = open.filter(function(t){ return t.questions_all >= 4; }).length;
   return '<div class="top"><h2>Learning</h2><div class="me"><b>' + esc(S.me.name) + '</b> · ' + esc(LEVEL[S.me.level] || '') +
     ' <button class="link" id="out">Not you?</button></div></div>' +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
-    '<div class="card"><h3>The test</h3><div class="me" style="font-size:14.5px">20 questions from 5 topics picked at random. Some have more than one right answer, ' +
-      'some ask you to put steps in order or to match pairs. Timed. 16 right answers pass.</div>' +
-      (best ? '<div class="msg ok">Passed on ' + new Date(best.at).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) + ' with ' + best.score + '/' + best.total + '.</div>'
-            : last ? '<div class="msg bad">Last try: ' + last.score + '/' + last.total + ', not passed yet.</div>' : '') +
-      (ready ? '<button class="btn go" data-busy id="start">' + (best ? 'Take another test' : 'Start the test') + '</button>'
+    '<div class="card"><h3>Your tests</h3>' + historyHtml() + '</div>' +
+    '<div class="card"><h3>The test</h3><div class="me" style="font-size:14.5px">Read a topic, then take its test at the end of the page: 10 questions on that topic and 20 general knowledge. ' +
+      'Timed. 24 right answers out of 30 pass.</div>' +
+      (ready ? '<details><summary>A mixed test instead</summary><div class="me" style="margin:8px 0">20 questions from 5 topics picked at random.</div><button class="btn" data-busy id="start">Start a mixed test</button></details>'
              : '<div class="empty">The test opens once the topics have checked and approved questions.</div>') + '</div>' +
     '<h3>Read first</h3><div class="topics">' + open.map(function(t, i){
       var reads = t.pages > 0;
       return '<button class="topic" data-topic="' + esc(t.id) + '"' + (reads ? '' : ' disabled') + '>' +
         '<span class="num">' + (i + 1) + '</span><span class="tname">' + esc(t.title) + '</span>' +
         '<span class="pill ' + (reads ? 'p-none' : 'p-none') + '">' + (reads ? t.pages + (t.pages === 1 ? ' page' : ' pages') : t.questions_all ? 'Questions only' : 'Coming soon') + '</span>' +
-        '<span class="tsum">' + esc(t.summary) + '</span></button>';
+        '<span class="tsum">' + esc(t.summary) + '</span>' + triesLine(t.id) + '</button>';
     }).join('') + '</div>' +
     (S.me.viewer ? '<button class="link" id="myscores">Team scores</button>' : '') +
     '<button class="link" id="chef">Chef’s corner — check and approve questions</button>';
@@ -296,9 +321,15 @@ function openTopic(id){
   get('learn_pages_for', { p_emp:S.emp, p_topic:id }).then(function(p){ S.pages = p || []; })
     .catch(function(e){ S.err = say(e); }).then(draw);
 }
+function topicHistory(id){
+  var l = (S.mix || []).filter(function(a){ return a.focus === id; });
+  if (!l.length) return '<div class="me">You have not taken this test yet.</div>';
+  return '<div class="card"><h3>Your tests on this topic</h3><div class="me">Taken <b>' + l.length + '</b> ' + (l.length === 1 ? 'time' : 'times') + '</div>' + historyRows(l) + '</div>';
+}
 function drawTopic(){
   var t = S.topic, p = S.pages[S.pi], last = S.pi >= S.pages.length - 1;
-  var testLine = '<div class="acts"><button class="btn ghost" id="home">‹ All topics</button><button class="btn go" data-busy id="start">Take the test</button></div>';
+  var testLine = '<div class="acts"><button class="btn ghost" id="home">‹ All topics</button><button class="btn go" data-busy id="starttopic">Take the test on this topic</button></div>' +
+    '<div class="me">10 questions on ' + esc(t.title) + ' and 20 general knowledge. 24 right out of 30 pass.</div>' + topicHistory(t.id);
   return '<button class="back" id="home">‹ Topics</button><h2>' + esc(t.title) + '</h2>' +
     (S.err ? '<div class="msg bad" role="alert">' + esc(S.err) + '</div>' : '') +
     (p ? '<div class="page">' + (p.photo ? '<img src="' + esc(p.photo) + '" alt="">' : '') +
@@ -309,9 +340,9 @@ function drawTopic(){
       : (S.pages.length === 0 && t.pages === 0 ? '' : '<div class="me">Loading…</div>')) +
     ((last || !S.pages.length) ? testLine : '');
 }
-function startTest(){
+function startTest(topic){
   setBusy(true); S.err = '';
-  post('learn_start_mix', { p_emp:S.emp }).then(function(r){
+  post(topic ? 'learn_start_topic' : 'learn_start_mix', topic ? { p_emp:S.emp, p_topic:topic } : { p_emp:S.emp }).then(function(r){
     S.test = r; S.qi = 0; S.view = 'test';
     S.picks = r.questions.map(function(q){
       if (q.type === 'multi') return [];
@@ -350,7 +381,7 @@ function drawTest(){
     }).join('');
   }
   var can = answered(q, pick);
-  return '<h2>The test</h2>' +
+  return '<h2>' + (S.test.focus ? esc(S.test.title) + ' — test' : 'The test') + '</h2>' +
     '<div class="bar" aria-hidden="true"><i style="width:' + Math.round(100 * S.qi / n) + '%"></i></div>' +
     '<div class="qcard"><div class="dots">Question ' + (S.qi + 1) + ' of ' + n + ' · ' + esc(q.topic) + clockHtml() + '</div>' +
     '<div class="qtext">' + esc(q.q) + '</div>' + (hint ? '<div class="hint">' + hint + '</div>' : '') + body +
@@ -425,7 +456,8 @@ function drawResult(){
       (r.late ? 'Time ran out before this was handed in, so it does not count. You can take it again: the questions change.'
         : (S.test.timeUp ? 'Time was up, so it was handed in for you. Questions not answered count as wrong. ' : '') +
           (r.passed ? 'Passed.' : 'Not passed this time — ' + r.pass + ' right answers are needed. You can take it again: the questions change.')) + '</div></div>' +
-    '<div class="card"><h3>By topic</h3>' + Object.keys(r.per_topic || {}).map(function(k){ var x = r.per_topic[k];
+    '<div class="card"><h3>Your tests</h3>' + historyHtml() + '</div>' +
+    '<div class="card"><h3>' + (S.test.focus ? 'This test' : 'By topic') + '</h3>' + Object.keys(r.per_topic || {}).map(function(k){ var x = r.per_topic[k];
       return '<div class="gap"><span>' + esc(k) + '</span><b style="color:' + (x.right < x.of ? 'var(--err)' : 'var(--ok)') + '">' + x.right + '/' + x.of + '</b></div>'; }).join('') + '</div>' +
     (wrong.length ? '<h3>What to learn from this</h3>' + wrong.map(function(x){
       return '<div class="res"><div class="q">' + esc(x.q) + '</div>' +
@@ -436,7 +468,7 @@ function drawResult(){
     (right.length ? '<details><summary>' + right.length + ' you got right</summary>' + right.map(function(x){
       return '<div class="res right"><div class="q">' + esc(x.q) + '</div><div class="ans pline">' + shotsHtml(x.shot) + '<span>' + esc(x.answer) + '</span></div></div>';
     }).join('') + '</details>' : '') +
-    '<div class="acts"><button class="btn" data-busy id="again">Take another test</button><button class="btn ghost" id="home">Back to Learning</button></div>';
+    '<div class="acts"><button class="btn" data-busy id="again">' + (S.test.focus ? 'Take this test again' : 'Take another test') + '</button><button class="btn ghost" id="home">Back to Learning</button></div>';
 }
 
 /* ── Chef's corner: check (Danilo, Antonio, Andrea), approve (Francesco), write, recipes, scores ── */
@@ -856,7 +888,9 @@ document.addEventListener('click', function(ev){
   if (b.dataset.topic) return openTopic(b.dataset.topic);
   if (id === 'next') { S.pi++; draw(); window.scrollTo(0,0); return; }
   if (id === 'prev') { S.pi--; draw(); window.scrollTo(0,0); return; }
-  if (id === 'start' || id === 'again') return startTest();
+  if (id === 'start') return startTest();
+  if (id === 'starttopic') return startTest(S.topic && S.topic.id);
+  if (id === 'again') return startTest(S.test && S.test.focus);
   if (b.dataset.pick != null) { S.picks[S.qi] = S.test.questions[S.qi].choices[+b.dataset.pick]; draw(); return; }
   if (b.dataset.multi != null) { var c = S.test.questions[S.qi].choices[+b.dataset.multi], pk = S.picks[S.qi], at = pk.indexOf(c); if (at >= 0) pk.splice(at, 1); else pk.push(c); draw(); return; }
   if (id === 'qnext') { S.qi++; draw(); window.scrollTo(0,0); return; }
