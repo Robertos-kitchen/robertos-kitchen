@@ -1369,7 +1369,13 @@ var mlTopScroller = null, mlTopBoundTo = null;
 function mlScrollTopSync(){
   var b = document.getElementById('ml-top');
   if(!b || !mlTopScroller) return;
-  b.style.display = mlScrollTop(mlTopScroller) > 200 ? 'flex' : 'none';
+  // ONE arrow, never two. The app already has a global ↑ (#scroll-top-btn in
+  // index.html) that scrolls the document, bottom-right. This list's own ↑ sits
+  // at the end of the list and, when the page is scrolled to the bottom, lands
+  // on top of that one (Antonio, Send feedback b3f7c6f6: "two little arrows
+  // that overlap"). So this one only appears when the scroller is NOT the
+  // document - the one case the global button cannot move.
+  b.style.display = (!mlIsDocScroller(mlTopScroller) && mlScrollTop(mlTopScroller) > 200) ? 'flex' : 'none';
 }
 function mlBindScrollTop(sc){
   mlTopScroller = sc;
