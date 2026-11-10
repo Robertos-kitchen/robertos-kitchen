@@ -7,6 +7,9 @@ var teamSubmissions = [];
 var teamMode = 'list';
 var teamScrollY = 0;
 var teamLang = 'en';        // current display language
+var teamForm = 'new';       // 'return' | 'new' — which Round 2 form this person gets
+var teamCurrentQs = null;   // the questions on screen for this person
+function teamQs(){ return teamCurrentQs || TEAM_QUESTIONS; }
 
 // kitchen-guard — the server-side gate for team_survey/team_survey_summary.
 // Those tables are service-role-only at the database now; every read/write
@@ -63,7 +66,65 @@ function teamApplyAdminScope(){
     var t = teamTs(r.submitted_at);
     if (t < from || t >= to) return false;
     return teamAdminGroup !== 'new' || teamIsNewJoiner(r.staff_id, r.staff_name);
+  }).map(function(r){ return teamWithEarlierTraits(r, from); });
+}
+// A short-form answer has no character questions. Fill them from the same person's latest
+// earlier answer so the four scores mean the same as in June (not a false 50).
+// The filled keys are listed in r._carried and the report says so.
+function teamWithEarlierTraits(r, from){
+  var a = r.answers || {};
+  if (a._form !== 'return') return r;
+  var nm = String(r.staff_name||'').trim().toLowerCase(), prev = null;
+  teamAllSubmissions.forEach(function(o){
+    var t = teamTs(o.submitted_at);
+    if (t >= from) return;
+    if (!((r.staff_id && o.staff_id === r.staff_id) || (nm && String(o.staff_name||'').trim().toLowerCase() === nm))) return;
+    if (!prev || t > teamTs(prev.submitted_at)) prev = o;
   });
+  if (!prev) return r;
+  var pa = prev.answers || {}, merged = Object.assign({}, a), carried = [];
+  TEAM_QUESTIONS.forEach(function(q){
+    if (TEAM_FORM_RETURN.indexOf(q.id) !== -1) return;
+    if (merged[q.id] === undefined && pa[q.id] !== undefined){ merged[q.id] = pa[q.id]; carried.push(q.id); }
+  });
+  var out = Object.assign({}, r); out.answers = merged; out._carried = carried;
+  out._carriedFrom = String(prev.submitted_at||'').slice(0,10);
+  return out;
+}
+// Counts for the Round 2 questions + June-vs-now on the questions both rounds asked.
+function teamExtraCounts(rows, id){
+  var c = {}, n = 0;
+  rows.forEach(function(r){ var v=(r.answers||{})[id]; if(v===undefined||v===null||v==='')return; n++; (Array.isArray(v)?v:[v]).forEach(function(k){ c[k]=(c[k]||0)+1; }); });
+  return { c:c, n:n };
+}
+function teamLatestPer(rows){
+  var latest = {}; rows.forEach(function(r){ var k=r.staff_id||r.staff_name; if(!latest[k]||teamTs(r.submitted_at)>teamTs(latest[k].submitted_at))latest[k]=r; });
+  return Object.keys(latest).map(function(k){ return latest[k]; });
+}
+function teamGoingHTML(subs){
+  var h = '', en = TEAM_I18N.en.q;
+  function line(id, rows){
+    var x = teamExtraCounts(rows, id); if (!x.n) return '';
+    var q = teamQById(id), parts = (q.opts||[]).map(function(o){ return (en[id].o[o.k]||o.k)+' <b>'+(x.c[o.k]||0)+'</b>'; });
+    return '<div class="ta-said"><b>'+en[id].q+'</b><br>'+parts.join(' &middot; ')+' <span style="opacity:.6">('+x.n+' answered)</span></div>';
+  }
+  var going = ['better_overall','better_plan','better_staff'].map(function(id){ return line(id, subs); }).join('');
+  var settle = ['onboard_first_week','onboard_who_ask','onboard_promise','recommend'].map(function(id){ return line(id, subs); }).join('');
+  if (going) h += '<div class="team-station">Is it getting better? (answered in June too)</div><div class="ta-section-card">'+going+'</div>';
+  if (settle) h += '<div class="team-station">Settling in (new joiners)</div><div class="ta-section-card">'+settle+'</div>';
+  // June vs now, same question, everyone who answered each round (not only the same people)
+  if (teamAdminRoundIdx > 0 && teamAdminGroup === 'all' && subs.length){
+    var pf = teamRoundFrom(teamAdminRoundIdx-1), pt = teamRoundFrom(teamAdminRoundIdx);
+    var prev = teamLatestPer(teamAllSubmissions.filter(function(r){ var t=teamTs(r.submitted_at); return t>=pf && t<pt; }));
+    var cmp = ['team_mood','energy','next_year','drains'].map(function(id){
+      var a = teamExtraCounts(prev, id), b = teamExtraCounts(subs, id); if (!b.n) return '';
+      var q = teamQById(id);
+      var rows = (q.opts||[]).map(function(o){ var pa=a.c[o.k]||0, pb=b.c[o.k]||0; if(!pa&&!pb)return ''; return '<div style="display:flex;justify-content:space-between;gap:8px"><span>'+(en[id].o[o.k]||o.k)+'</span><span style="white-space:nowrap">'+pa+' of '+a.n+' &rarr; <b>'+pb+' of '+b.n+'</b></span></div>'; }).join('');
+      return '<div class="ta-said"><b>'+en[id].q+'</b>'+rows+'</div>';
+    }).join('');
+    if (cmp) h += '<div class="team-station">'+TEAM_ROUNDS[teamAdminRoundIdx-1].label+' &rarr; '+TEAM_ROUNDS[teamAdminRoundIdx].label+'</div><div class="ta-section-card">'+cmp+'</div>';
+  }
+  return h;
 }
 // The staff the scoped report counts against (for "x of y completed").
 function teamScopeStaff(){
@@ -343,6 +404,76 @@ var TEAM_I18N = {
 
 };
 
+// ── Round 2 (Nov 2026): two forms instead of one repeat ──
+// Asked by Antonio (Send feedback 98b95fcf): see how the new joiners feel, and how it is going.
+// RETURNING (answered an earlier round): 3 "has it got better?" questions + the 8 that move
+//   over time. Character questions are NOT asked again — they do not change in months;
+//   the report reuses that person's earlier answers for them (see teamApplyAdminScope).
+// NEW JOINER (never answered): 4 settling-in questions + the full set (they have no profile yet).
+// The extra questions carry NO score: they are shown as counts, so the four scores stay
+// comparable with June.
+var TEAM_EXTRA_QUESTIONS = [
+  { id:'better_overall', type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'better_plan',    type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'better_staff',   type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'onboard_first_week', type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'onboard_who_ask',    type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'onboard_promise',    type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] },
+  { id:'recommend',          type:'single', opts:[{k:'a'},{k:'b'},{k:'c'}] }
+];
+var TEAM_FORM_RETURN = ['better_overall','better_plan','better_staff','motivate','drains','team_mood','energy','pressure','next_year','stay','change_one','anything'];
+var TEAM_FORM_NEW = ['onboard_first_week','onboard_who_ask','onboard_promise','recommend'].concat(TEAM_QUESTIONS.map(function(q){ return q.id; }));
+function teamQById(id){
+  var all = TEAM_QUESTIONS.concat(TEAM_EXTRA_QUESTIONS);
+  for (var i=0;i<all.length;i++){ if (all[i].id===id) return all[i]; }
+  return null;
+}
+function teamFormQs(form){ return (form==='return'?TEAM_FORM_RETURN:TEAM_FORM_NEW).map(teamQById).filter(Boolean); }
+(function(){
+  var B = { en:['Better','The same','Worse'], it:['Meglio','Uguale','Peggio'],
+            hi:['पहले से बेहतर','पहले जैसा','पहले से बुरा'], ne:['पहिलेभन्दा राम्रो','पहिलेजस्तै','पहिलेभन्दा नराम्रो'],
+            tl:['Mas maganda','Pareho lang','Mas pangit'] };
+  function b(l){ return {a:B[l][0],b:B[l][1],c:B[l][2]}; }
+  var ADD = {
+    en:{ better_overall:{ q:'Compared to three months ago, working here is…', o:b('en') },
+         better_plan:{ q:'Since the summer, the plan changing during the shift is…', o:b('en') },
+         better_staff:{ q:'Since the summer, having enough people for the work is…', o:b('en') },
+         onboard_first_week:{ q:'In your first week, did someone show you your station and how we work?', o:{a:'Yes, someone showed me',b:'Partly',c:'No, I learned alone'} },
+         onboard_who_ask:{ q:'When you have a problem at work, do you know who to ask?', o:{a:'Yes, always',b:'Most of the time',c:'Not really'} },
+         onboard_promise:{ q:'Is the job what you were told at the interview?', o:{a:'Yes',b:'Mostly',c:'No'} },
+         recommend:{ q:'Would you tell a friend to come and work here?', o:{a:'Yes',b:'Maybe',c:'No'} } },
+    it:{ better_overall:{ q:'Rispetto a tre mesi fa, lavorare qui è…', o:b('it') },
+         better_plan:{ q:'Da quest\u2019estate, il piano che cambia durante il turno è…', o:b('it') },
+         better_staff:{ q:'Da quest\u2019estate, avere abbastanza persone per il lavoro è…', o:b('it') },
+         onboard_first_week:{ q:'Nella tua prima settimana, qualcuno ti ha mostrato la tua partita e come lavoriamo?', o:{a:'Sì, qualcuno me l\u2019ha mostrato',b:'In parte',c:'No, ho imparato da solo'} },
+         onboard_who_ask:{ q:'Quando hai un problema al lavoro, sai a chi chiedere?', o:{a:'Sì, sempre',b:'Quasi sempre',c:'Non proprio'} },
+         onboard_promise:{ q:'Il lavoro è quello che ti hanno detto al colloquio?', o:{a:'Sì',b:'Più o meno',c:'No'} },
+         recommend:{ q:'Diresti a un amico di venire a lavorare qui?', o:{a:'Sì',b:'Forse',c:'No'} } },
+    hi:{ better_overall:{ q:'तीन महीने पहले की तुलना में, यहाँ काम करना…', o:b('hi') },
+         better_plan:{ q:'गर्मियों के बाद से, शिफ्ट के दौरान प्लान का बदलना…', o:b('hi') },
+         better_staff:{ q:'गर्मियों के बाद से, काम के लिए पूरे लोग होना…', o:b('hi') },
+         onboard_first_week:{ q:'आपके पहले हफ्ते में, क्या किसी ने आपको आपका स्टेशन और हमारे काम करने का तरीका दिखाया?', o:{a:'हाँ, किसी ने दिखाया',b:'थोड़ा-बहुत',c:'नहीं, मैंने खुद सीखा'} },
+         onboard_who_ask:{ q:'जब काम पर कोई समस्या होती है, क्या आप जानते हैं किससे पूछना है?', o:{a:'हाँ, हमेशा',b:'ज़्यादातर',c:'ज़्यादा नहीं'} },
+         onboard_promise:{ q:'क्या यह काम वैसा ही है जैसा इंटरव्यू में बताया गया था?', o:{a:'हाँ',b:'ज़्यादातर',c:'नहीं'} },
+         recommend:{ q:'क्या आप किसी दोस्त को यहाँ काम करने आने के लिए कहेंगे?', o:{a:'हाँ',b:'शायद',c:'नहीं'} } },
+    ne:{ better_overall:{ q:'तीन महिना अघिको तुलनामा, यहाँ काम गर्नु…', o:b('ne') },
+         better_plan:{ q:'गर्मी यामदेखि, सिफ्टको बीचमा योजना बदलिने कुरा…', o:b('ne') },
+         better_staff:{ q:'गर्मी यामदेखि, कामका लागि पुग्ने मानिस हुनु…', o:b('ne') },
+         onboard_first_week:{ q:'तपाईंको पहिलो हप्तामा, कसैले तपाईंलाई तपाईंको स्टेसन र हामी कसरी काम गर्छौं भनेर देखायो?', o:{a:'हो, कसैले देखायो',b:'केही हदसम्म',c:'अहँ, मैले आफैं सिकें'} },
+         onboard_who_ask:{ q:'काममा समस्या हुँदा, कसलाई सोध्ने भनेर तपाईंलाई थाहा छ?', o:{a:'हो, सधैं',b:'धेरैजसो',c:'खासै छैन'} },
+         onboard_promise:{ q:'के यो काम अन्तर्वार्तामा भनिएजस्तै छ?', o:{a:'हो',b:'धेरैजसो',c:'होइन'} },
+         recommend:{ q:'के तपाईं साथीलाई यहाँ काम गर्न आउन भन्नुहुन्छ?', o:{a:'हो',b:'सायद',c:'होइन'} } },
+    tl:{ better_overall:{ q:'Kumpara noong tatlong buwan na ang nakaraan, ang pagtatrabaho dito ay…', o:b('tl') },
+         better_plan:{ q:'Mula noong tag-init, ang pagbabago ng plano habang nasa shift ay…', o:b('tl') },
+         better_staff:{ q:'Mula noong tag-init, ang pagkakaroon ng sapat na tao para sa trabaho ay…', o:b('tl') },
+         onboard_first_week:{ q:'Sa unang linggo mo, may nagpakita ba sa iyo ng iyong station at kung paano kami magtrabaho?', o:{a:'Oo, may nagpakita sa akin',b:'Medyo',c:'Hindi, mag-isa akong natuto'} },
+         onboard_who_ask:{ q:'Kapag may problema ka sa trabaho, alam mo ba kung kanino magtatanong?', o:{a:'Oo, palagi',b:'Kadalasan',c:'Hindi masyado'} },
+         onboard_promise:{ q:'Ang trabaho ba ay katulad ng sinabi sa iyo sa interview?', o:{a:'Oo',b:'Halos',c:'Hindi'} },
+         recommend:{ q:'Sasabihan mo ba ang isang kaibigan na pumunta at magtrabaho dito?', o:{a:'Oo',b:'Siguro',c:'Hindi'} } }
+  };
+  Object.keys(ADD).forEach(function(l){ Object.keys(ADD[l]).forEach(function(id){ TEAM_I18N[l].q[id] = ADD[l][id]; }); });
+})();
+
 // i18n helpers
 function T(){ return (TEAM_I18N[teamLang]||TEAM_I18N.en); }
 function Tui(k){ var t=T().ui; return (t&&t[k]!=null)?t[k]:(TEAM_I18N.en.ui[k]||k); }
@@ -364,15 +495,22 @@ async function openTeam() {
 
 // Lightweight: which staff have submitted this round (names only)
 var teamDoneNames = {};
+var teamEarlierNames = {};   // answered a round before this one -> gets the short form
 var teamCompletionLoaded = false;
 async function teamLoadCompletion(){
   try {
     // Current round only (see TEAM_ROUND.start) — and capped: the table keeps
     // every round forever, an unfiltered load would eventually hit the
     // 1000-row response cap and mark people "not done" at random.
-    var res = await kguard({ op:'survey_completion', since: TEAM_ROUND.start + 'T00:00:00Z' });
-    teamDoneNames = {};
-    (res.rows||[]).forEach(function(r){ teamDoneNames[r.staff_id||r.staff_name]=true; });
+    // From the FIRST round: rows on/after this round's start = done now; earlier rows =
+    // answered before (decides the short form). Names and dates only.
+    var res = await kguard({ op:'survey_completion', since: TEAM_ROUNDS[0].start + 'T00:00:00Z' });
+    var cut = teamRoundFrom(TEAM_ROUNDS.length-1);
+    teamDoneNames = {}; teamEarlierNames = {};
+    (res.rows||[]).forEach(function(r){
+      if (teamTs(r.submitted_at) >= cut) teamDoneNames[r.staff_id||r.staff_name]=true;
+      else { if (r.staff_id) teamEarlierNames[r.staff_id]=true; if (r.staff_name) teamEarlierNames['n:'+String(r.staff_name).trim().toLowerCase()]=true; }
+    });
     teamCompletionLoaded = true;
   } catch(e){ teamCompletionLoaded = false; }
 }
@@ -506,6 +644,11 @@ async function teamStart(staffId) {
     if (!ok) return;
   }
   teamCurrent = person;
+  // Short form for anyone who answered an earlier round; full form + settling-in for new joiners.
+  // If the list could not load, ask the full form (more questions, never fewer).
+  var earlier = teamCompletionLoaded && ((!person._virtual && teamEarlierNames[person.id]) || teamEarlierNames['n:'+String(person.name||'').trim().toLowerCase()]);
+  teamForm = earlier ? 'return' : 'new';
+  teamCurrentQs = teamFormQs(teamForm);
   teamAnswers = {}; teamMode = 'survey'; teamScrollY = 0;
   teamRender();
   var v = document.getElementById('team-view'); if (v) v.scrollTop = 0;
@@ -516,9 +659,10 @@ function teamSurveyHTML() {
   html += '<button class="team-back" onclick="teamBackToList()">&#8592; '+Tui('notMe')+'</button>';
   html += '<div class="team-title">' + (teamCurrent?teamCurrent.name:'') + '</div>';
   html += '<div class="team-sub">' + (teamCurrent?(teamCurrent.designation||''):'') + '</div></div>';
-  TEAM_QUESTIONS.forEach(function(qq, idx) {
+  var qs = teamQs();
+  qs.forEach(function(qq, idx) {
     var qt = Tq(qq.id);
-    html += '<div class="team-q" id="tq-' + qq.id + '"><div class="team-q-num">' + (idx+1) + ' / ' + TEAM_QUESTIONS.length + '</div>';
+    html += '<div class="team-q" id="tq-' + qq.id + '"><div class="team-q-num">' + (idx+1) + ' / ' + qs.length + '</div>';
     html += '<div class="team-q-text">' + qt.q + '</div>';
     if (qq.type==='single' || qq.type==='multi') {
       html += '<div class="team-opts">';
@@ -551,17 +695,17 @@ function teamScale(qid,n){ teamAnswers[qid]=n; teamRender(); teamRestoreScroll()
 function teamTextInput(qid,val){ teamAnswers[qid]=val; teamUpdateProgress(); }
 function teamRestoreScroll(){ var v=document.getElementById('team-view'); if(v)v.scrollTop=teamScrollY; teamUpdateProgress(); }
 function teamUpdateProgress(){
-  var required = TEAM_QUESTIONS.filter(function(q){return !q.optional;});
+  var required = teamQs().filter(function(q){return !q.optional;});
   var done = required.filter(function(q){ var v=teamAnswers[q.id]; if(Array.isArray(v))return v.length>0; if(q.type==='text')return v&&v.trim().length>0; return v!==undefined&&v!==null&&v!==''; }).length;
   var p=document.getElementById('team-progress'); if(p)p.textContent=done+' '+Tui('of')+' '+required.length+' '+Tui('answered');
   var btn=document.getElementById('team-submit-btn');
   if(btn){ if(done>=required.length){btn.classList.add('ready');btn.textContent=Tui('send');} else {btn.classList.remove('ready');btn.textContent=Tui('answerAll');} }
 }
 document.addEventListener('scroll', function(e){ if(teamMode==='survey'&&e.target&&e.target.id==='team-view')teamScrollY=e.target.scrollTop; }, true);
-function teamBackToList(){ teamMode='list'; teamCurrent=null; teamAnswers={}; teamRender(); }
+function teamBackToList(){ teamMode='list'; teamCurrent=null; teamCurrentQs=null; teamAnswers={}; teamRender(); }
 
 async function teamSubmit() {
-  var required = TEAM_QUESTIONS.filter(function(q){return !q.optional;});
+  var required = teamQs().filter(function(q){return !q.optional;});
   var missing = required.filter(function(q){ var v=teamAnswers[q.id]; if(Array.isArray(v))return v.length===0; if(q.type==='text')return !v||!v.trim().length; return v===undefined||v===null||v===''; });
   if(missing.length){
     var first = missing[0];
@@ -570,7 +714,7 @@ async function teamSubmit() {
     return;
   }
   var btn=document.getElementById('team-submit-btn'); if(btn){btn.disabled=true;btn.textContent=Tui('sending');}
-  var row = { staff_id:(teamCurrent._virtual?null:teamCurrent.id), staff_name:teamCurrent.name, designation:teamCurrent.designation||null, station_key:teamCurrent.station_key||null, answers:teamAnswers, lang:teamLang, submitted_at:new Date().toISOString() };
+  var row = { staff_id:(teamCurrent._virtual?null:teamCurrent.id), staff_name:teamCurrent.name, designation:teamCurrent.designation||null, station_key:teamCurrent.station_key||null, answers:Object.assign({ _form:teamForm }, teamAnswers), lang:teamLang, submitted_at:new Date().toISOString() };
   try { await kguard({ op:'survey_submit', row: row }); teamMode='thanks'; teamRender(); }
   catch(e){ if(btn){btn.disabled=false;btn.textContent=Tui('send');} alert('Could not send — please try again.\n'+(e.message||'')); }
 }
@@ -873,6 +1017,8 @@ function teamAdminHTML(){
     });
   }
 
+  html+=teamGoingHTML(subs);
+
   // ── completion ──
   if(teamAdminAnon){
     html+='<div class="team-station">Completion</div><div class="team-admin-status"><div class="team-status-row is-done"><span>'+completed+' of '+total+' completed</span><span>'+(total?Math.round(completed/total*100):0)+'%</span></div></div>';
@@ -914,6 +1060,9 @@ function teamAdminHTML(){
       if(Array.isArray(a.drains)&&a.drains.length) html+='<div class="ta-said"><b>Drained by:</b> '+a.drains.map(function(k){return TEAM_I18N.en.q.drains.o[k]||k;}).join(', ')+'</div>';
       if(a.change_one&&a.change_one.trim())html+='<div class="ta-said"><b>Would change:</b> '+teamEnText(a.change_one.trim())+'</div>';
       if(a.anything&&a.anything.trim())html+='<div class="ta-said"><b>Also said:</b> '+teamEnText(a.anything.trim())+'</div>';
+      var extra=TEAM_EXTRA_QUESTIONS.filter(function(q){ return a[q.id]; }).map(function(q){ return TEAM_I18N.en.q[q.id].q.replace(/[\u2026?]+$/,'')+': <b>'+(TEAM_I18N.en.q[q.id].o[a[q.id]]||a[q.id])+'</b>'; });
+      if(extra.length) html+='<div class="ta-said">'+extra.join('<br>')+'</div>';
+      if(r._carried&&r._carried.length) html+='<div class="ta-said" style="opacity:.65">Short form: the character questions were not asked again — their scores use the answers from '+teamFmtDate(r._carriedFrom)+'.</div>';
       html+='</div>';
     });
   });
@@ -1029,6 +1178,14 @@ function teamAiBriefing(includeNames){
   subs.forEach(function(r){ var s=teamScoreOne(r.answers||{}); teamFlags(s,r.answers||{}).forEach(function(f){ var key=f.k+' ('+f.level+')'; tally[key]=(tally[key]||0)+1; }); });
   lines.push('\nFLAGS'+(teamAiArea==='all'?' ACROSS TEAM':' IN THIS AREA')+':');
   Object.keys(tally).forEach(function(k){ lines.push('- '+k+': '+tally[k]); });
+
+  // Round 2 questions: counts only
+  var r2=[];
+  TEAM_EXTRA_QUESTIONS.forEach(function(q){
+    var x=teamExtraCounts(subs,q.id); if(!x.n)return;
+    r2.push('- '+TEAM_I18N.en.q[q.id].q+' '+q.opts.map(function(o){ return TEAM_I18N.en.q[q.id].o[o.k]+' '+(x.c[o.k]||0); }).join(', ')+' ('+x.n+' answered)');
+  });
+  if(r2.length){ lines.push('\nROUND 2 QUESTIONS (counts; a short-form person was not asked the character questions again, their scores reuse earlier answers):'); r2.forEach(function(l){ lines.push(l); }); }
 
   // what they'd change (always include, anonymised unless names on)
   lines.push('\nWHAT THEY WOULD CHANGE (their own words):');
