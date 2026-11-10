@@ -21,17 +21,80 @@ async function kguard(body){
   return d;
 }
 
-// ── Survey round config (quarterly cycle) ──
-// Update these each round. teamDeadline = when Danilo must have the team finished.
-// `start` scopes the one-per-cycle gate: only submissions ON/AFTER this date
-// count as "done this round". Without it, everyone who did Round 1 would be
-// locked out of Round 2 forever ("you have already completed this survey").
-var TEAM_ROUND = {
-  label: 'Round 1 · June 2026',
-  start: '2026-06-01',        // submissions before this belong to a previous round
-  deadline: '2026-06-20',     // team must complete by this date
-  nextTest: '2026-09-30'      // next quarterly test
-};
+// ── Survey rounds (quarterly cycle) ──
+// One entry per round, oldest first. The LAST entry is the round the team fills now.
+// `start` scopes the one-per-round gate: only submissions ON/AFTER it count as
+// "done this round" — so everyone who did Round 1 can do Round 2. A submission
+// belongs to the round whose start it is on/after and the next round's start is
+// not. Admin view keeps every earlier round readable (round chips) — never delete one.
+var TEAM_ROUNDS = [
+  { label:'Round 1 · June 2026',     start:'2026-06-01', deadline:'2026-06-20', nextTest:'2026-09-30' },
+  // Round 2 opened 10 Nov 2026 — Antonio (Send feedback 98b95fcf): the people who
+  // joined since June have never taken it, and it is time to see how it is going.
+  { label:'Round 2 · November 2026', start:'2026-11-10', deadline:'2026-11-30', nextTest:'2027-02-28' }
+];
+var TEAM_ROUND = TEAM_ROUNDS[TEAM_ROUNDS.length-1];
+
+// Admin view scope: which round, and everyone or only the new joiners.
+// teamAllSubmissions = every row the server returned (all rounds);
+// teamSubmissions    = the rows in scope — every report reads only this.
+var teamAllSubmissions = [];
+var teamAdminRoundIdx = TEAM_ROUNDS.length-1;
+var teamAdminGroup = 'all';           // 'all' | 'new'
+function teamAdminRound(){ return TEAM_ROUNDS[teamAdminRoundIdx] || TEAM_ROUND; }
+function teamTs(iso){ var t = Date.parse(iso); return isNaN(t) ? 0 : t; }
+function teamRoundFrom(i){ return Date.parse(TEAM_ROUNDS[i].start + 'T00:00:00Z'); }
+function teamRoundTo(i){ return TEAM_ROUNDS[i+1] ? Date.parse(TEAM_ROUNDS[i+1].start + 'T00:00:00Z') : Infinity; }
+// New joiner in round i = nobody with this staff id OR this name answered any earlier round.
+// (Name too: a re-added person gets a new staff id but did answer before.)
+function teamAnsweredBefore(id, name, i){
+  if (i <= 0) return false;
+  var from = teamRoundFrom(i);
+  var nm = String(name||'').trim().toLowerCase();
+  return teamAllSubmissions.some(function(o){
+    if (teamTs(o.submitted_at) >= from) return false;
+    return (id && o.staff_id === id) || (nm && String(o.staff_name||'').trim().toLowerCase() === nm);
+  });
+}
+function teamIsNewJoiner(id, name){ return teamAdminRoundIdx > 0 && !teamAnsweredBefore(id, name, teamAdminRoundIdx); }
+function teamApplyAdminScope(){
+  var i = teamAdminRoundIdx, from = teamRoundFrom(i), to = teamRoundTo(i);
+  teamSubmissions = teamAllSubmissions.filter(function(r){
+    var t = teamTs(r.submitted_at);
+    if (t < from || t >= to) return false;
+    return teamAdminGroup !== 'new' || teamIsNewJoiner(r.staff_id, r.staff_name);
+  });
+}
+// The staff the scoped report counts against (for "x of y completed").
+function teamScopeStaff(){
+  if (teamAdminGroup !== 'new') return teamStaff;
+  return teamStaff.filter(function(s){ return teamIsNewJoiner(s._virtual ? null : s.id, s.name); });
+}
+async function teamSetAdminRound(i){
+  teamAdminRoundIdx = i;
+  if (i === 0) teamAdminGroup = 'all';          // nobody is "new" in the first round
+  teamApplyAdminScope(); teamAiHistory = []; teamSummaryDraft = null;
+  await teamLoadSummary();
+  teamRender();
+}
+async function teamSetAdminGroup(g){ teamAdminGroup = g; teamApplyAdminScope(); teamAiHistory = []; teamSummaryDraft = null; await teamLoadSummary(); teamRender(); }
+// A saved AI summary belongs to one round and one group.
+function teamSummaryKey(){ return teamAdminRound().label + (teamAdminGroup==='new' ? ' · new joiners' : ''); }
+function teamAdminScopeHTML(){
+  var h = '<div class="team-langbar"><div class="team-langs">';
+  for (var i = TEAM_ROUNDS.length-1; i >= 0; i--){
+    h += '<button class="team-lang'+(i===teamAdminRoundIdx?' active':'')+'" onclick="teamSetAdminRound('+i+')">'+TEAM_ROUNDS[i].label+'</button>';
+  }
+  h += '</div>';
+  if (teamAdminRoundIdx > 0){
+    var nNew = teamStaff.filter(function(s){ return teamIsNewJoiner(s._virtual ? null : s.id, s.name); }).length;
+    h += '<div class="team-langs" style="margin-top:8px">'
+      + '<button class="team-lang'+(teamAdminGroup==='all'?' active':'')+'" onclick="teamSetAdminGroup(\'all\')">Everyone</button>'
+      + '<button class="team-lang'+(teamAdminGroup==='new'?' active':'')+'" onclick="teamSetAdminGroup(\'new\')">New joiners ('+nNew+')</button></div>'
+      + '<div class="team-sub" style="margin-top:6px">New joiner = on the team now, and did not answer any earlier round.</div>';
+  }
+  return h + '</div>';
+}
 
 var TEAM_STATION_LABEL = {
   'management':'Management','pass':'Management','raw_bar':'Crudo','pasta':'Pasta',
@@ -591,11 +654,13 @@ function teamFlags(s,answers){
 
 async function teamOpenAdmin(){
   teamMode='admin';
-  try { var res=await kguard({ op:'survey_results', code:teamAdminCode }); teamSubmissions=res.rows||[]; }
+  try { var res=await kguard({ op:'survey_results', code:teamAdminCode }); teamAllSubmissions=res.rows||[]; }
   catch(e){
-    teamSubmissions=[];
+    teamAllSubmissions=[];
     if(/passcode/i.test(String(e && e.message || ''))){ alert('Incorrect passcode.'); teamAdminCode=null; teamMode='list'; teamRender(); return; }
   }
+  teamAdminRoundIdx = TEAM_ROUNDS.length-1; teamAdminGroup = 'all';
+  teamApplyAdminScope();
   await teamLoadSummary();
   teamRender();
   // translate non-English free-text in the background, then re-render
@@ -723,19 +788,21 @@ function teamAdminHTML(){
   teamSubmissions.forEach(function(r){ var key=r.staff_id||r.staff_name; if(!latest[key])latest[key]=r; });
   var subs=Object.keys(latest).map(function(k){return latest[k];});
   teamBuildAnonMap(subs);
-  var total=teamStaff.length;
+  var scopeStaff=teamScopeStaff(), aRound=teamAdminRound();
+  var total=scopeStaff.length;
   var completedIds={}; subs.forEach(function(r){ completedIds[r.staff_id||r.staff_name]=true; });
-  var completed=teamStaff.filter(function(s){return completedIds[s.id]||completedIds[s.name];}).length;
+  var completed=scopeStaff.filter(function(s){return completedIds[s.id]||completedIds[s.name];}).length;
   function avg(arr){ return arr.length?Math.round(arr.reduce(function(x,y){return x+y;},0)/arr.length):null; }
 
   var html='<div class="team-wrap"><div class="team-head"><button class="team-back" onclick="openTeam()">&#8592; Back</button>';
   html+='<div class="team-title">Team Report'+(teamAdminAnon?' <span class="ta-mode anon">Anonymous</span>':' <span class="ta-mode named">Named</span>')+'</div>';
-  html+='<div class="team-sub">'+TEAM_ROUND.label+'. Honest signals, not verdicts — strong flags are reliable, soft ones are conversations to have.</div></div>';
+  html+='<div class="team-sub">'+aRound.label+(teamAdminGroup==='new'?' · new joiners only':'')+'. Honest signals, not verdicts — strong flags are reliable, soft ones are conversations to have.</div></div>';
+  html+=teamAdminScopeHTML();
   // completion banner
   var pct = total ? Math.round(completed/total*100) : 0;
   html+='<div class="ta-completion"><div class="tps-top"><span class="tps-pct">'+pct+'%</span><span class="tps-count">'+completed+' / '+total+' completed</span></div>';
   html+='<div class="tps-bar"><span class="tps-fill" style="width:'+pct+'%"></span></div>';
-  html+='<div class="tps-dates"><span>Deadline '+teamFmtDate(TEAM_ROUND.deadline)+'</span><span>Next test '+teamFmtDate(TEAM_ROUND.nextTest)+'</span></div></div>';
+  html+='<div class="tps-dates"><span>Deadline '+teamFmtDate(aRound.deadline)+'</span><span>Next test '+teamFmtDate(aRound.nextTest)+'</span></div></div>';
   html+='<button class="cd-open-btn" onclick="openTeamChairman()">&#128202; Open Dashboard (presentation mode)</button>';
 
   if(subs.length){ html += teamAiPanelHTML(); }
@@ -812,7 +879,7 @@ function teamAdminHTML(){
   } else {
     html+='<div class="team-station">Completion</div><div class="team-admin-status">';
     TEAM_SECTIONS.forEach(function(sec){
-      var inSec=teamStaff.filter(function(s){ return teamSectionFor(s.station_key).key===sec.key; });
+      var inSec=scopeStaff.filter(function(s){ return teamSectionFor(s.station_key).key===sec.key; });
       if(!inSec.length)return;
       inSec.forEach(function(s){ var ok=completedIds[s.id]||completedIds[s.name]; html+='<div class="team-status-row '+(ok?'is-done':'is-pending')+'"><span>'+s.name+' <em style="opacity:.5;font-style:normal;font-size:11px">'+sec.label+'</em></span><span>'+(ok?'✓ done':'waiting')+'</span></div>'; });
     });
@@ -942,7 +1009,7 @@ function teamAiBriefing(includeNames){
   // team + section aggregates
   subs.forEach(function(r){ var s=teamScoreOne(r.answers||{}); ['reliability','integrity','loyalty','engagement'].forEach(function(d){ if(s[d]!==null)agg[d].push(s[d]); }); });
   function avg(a){ return a.length?Math.round(a.reduce(function(x,y){return x+y;},0)/a.length):null; }
-  lines.push((teamAiArea==='all'?'TEAM SIZE: ':'AREA SIZE: ')+subs.length+' responses'+(teamAiArea==='all'?' of '+teamStaff.length+' staff':'')+'.');
+  lines.push((teamAiArea==='all'?'TEAM SIZE: ':'AREA SIZE: ')+subs.length+' responses'+(teamAiArea==='all'?' of '+teamScopeStaff().length+' staff':'')+' — '+teamAdminRound().label+(teamAdminGroup==='new'?', new joiners only':'')+'.');
   lines.push('AVERAGES (0-100): Reliability '+avg(agg.reliability)+', Integrity '+avg(agg.integrity)+', Loyalty '+avg(agg.loyalty)+', Engagement '+avg(agg.engagement)+'.');
 
   // by section (only when looking at whole team)
@@ -1142,7 +1209,7 @@ function teamChairStats(){
   var latest={};
   teamSubmissions.forEach(function(r){ var k=r.staff_id||r.staff_name; if(!latest[k])latest[k]=r; });
   var subs=Object.keys(latest).map(function(k){return latest[k];});
-  var total=teamStaff.length;
+  var total=teamScopeStaff().length;
   function avg(a){ return a.length?Math.round(a.reduce(function(x,y){return x+y;},0)/a.length):null; }
 
   var dims=['reliability','integrity','loyalty','engagement'];
@@ -1225,7 +1292,7 @@ function teamChairmanHTML(){
 
   // ── title block ──
   h+='<div class="cd-page">';
-  h+='<div class="cd-titlebar"><div><div class="cd-brand">Roberto\'s DIFC</div><div class="cd-title">Team Health Report</div><div class="cd-sub">'+TEAM_ROUND.label+' · Confidential · Anonymous aggregate</div></div>';
+  h+='<div class="cd-titlebar"><div><div class="cd-brand">Roberto\'s DIFC</div><div class="cd-title">Team Health Report</div><div class="cd-sub">'+teamAdminRound().label+(teamAdminGroup==='new'?' · New joiners':'')+' · Confidential · Anonymous aggregate</div></div>';
   h+='<div class="cd-resp"><div class="cd-resp-pct">'+st.pct+'%</div><div class="cd-resp-lbl">'+st.responded+' of '+st.total+' responded</div></div></div>';
 
   if(lowSample){
@@ -1345,8 +1412,10 @@ var teamSummaryBusy = false;
 
 async function teamLoadSummary(){
   try {
+    teamSummary = null;
     var res = await kguard({ op:'summary_get', code:teamAdminCode });
-    if(res.rows && res.rows.length){ teamSummary = res.rows[0].summary; }
+    // the server returns the latest summary of ANY round — never show June's as November's
+    if(res.rows && res.rows.length && (res.rows[0].round||'') === teamSummaryKey()){ teamSummary = res.rows[0].summary; }
   } catch(e){ /* table may not exist yet; summary stays null */ }
 }
 
@@ -1381,7 +1450,7 @@ async function teamApproveSummary(){
   teamSummaryDraft = null;
   // persist (best-effort; if table missing it still shows this session)
   try{
-    await kguard({ op:'summary_save', code:teamAdminCode, summary:text, round:TEAM_ROUND.label });
+    await kguard({ op:'summary_save', code:teamAdminCode, summary:text, round:teamSummaryKey() });
   }catch(e){ /* not fatal */ }
   teamRender();
   teamAiToast('Summary saved to Dashboard');
