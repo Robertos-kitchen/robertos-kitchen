@@ -1,0 +1,30 @@
+name: cosec-probe
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/cosec-probe.yml'
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe (no login sent)
+        run: |
+          {
+            echo "time: $(date -u +%FT%TZ)"
+            echo "runner_ip: $(curl -s -m 10 https://api.ipify.org)"
+            for i in 1 2 3; do
+              echo "try$i: $(curl -s -m 20 -o /dev/null -w 'http=%{http_code} t=%{time_total}s' 'http://skelmore.fortiddns.com:8000/cosec/api.svc/v2/attendance-daily?action=get;date-range=01012026-01012026;' || echo 'NO-RESPONSE (timeout/blocked)')"
+            done
+          } > probe-result.txt
+          cat probe-result.txt
+      - name: Save result
+        run: |
+          git config user.name probe
+          git config user.email probe@users.noreply.github.com
+          git add probe-result.txt
+          git commit -m "probe result" || true
+          git push || true
