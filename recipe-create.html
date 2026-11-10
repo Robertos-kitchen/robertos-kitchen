@@ -1009,9 +1009,9 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
 .bxc{font:inherit;font-size:13.5px;background:#fff;border:1px solid var(--sabbia-dark);border-radius:99px;
   padding:9px 15px;color:var(--vino);cursor:pointer;min-height:40px}
 .bxc.on{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:600}
-.bxp #bxgo{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:4px;
+.bxp #bxgo,.bxp #mxgo{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:4px;
   padding:11px 22px;font-size:14px;font-weight:600;min-height:44px}
-.bxp #bxgo:disabled{opacity:.6}
+.bxp #bxgo:disabled,.bxp #mxgo:disabled{opacity:.6}
 .bxn{margin-top:10px;font-size:13px;color:var(--vino)}
 .bxn.bad{color:#9b1c1c;font-weight:600}
 /* the dish he already has open, offered before the two doors that take it off the screen */
@@ -6385,6 +6385,248 @@ function bxDownload(){
   }).then(function(){ BX.busy = false; if (S.step === 'saved') render(); });
 }
 
+/* ── every main recipe, for Aung to load into FMC — 10 Nov 2026 ──────────────────
+   The batches went to him on 9 Oct as one file ("All batches for FMC"). He asked for
+   the main recipes the same way, so this is the same file for the dishes: the whole
+   book or the sections he picks, Ready and Not ready on separate sheets, every
+   ingredient once.
+
+   A dish is written with its OWN lines only. A batch inside it is one line, named
+   exactly as the batches file names it (RS- + kitchen name), because in FMC that
+   batch is already its own article — opening it up here would load its ingredients
+   twice. The "Batches used" sheet says which of them are ready in that file.
+
+   The dish name stays plain: the RS- prefix was agreed for batches only (9 Oct).
+   Not ready is exactly what batchCost() refuses to cost — the same walk the Micros
+   request uses — so a dish here and on a Micros request can never disagree. */
+var MX = { open:false, picks:{}, busy:false, msg:'', bad:false };
+
+function mxPanel(){
+  var any = Object.keys(MX.picks).length;
+  return '<div class="bxp"><b>All main recipes for FMC</b> — one Excel file, one row per ingredient, ' +
+      'ready to filter. A batch in a dish is one line, named as in the batches file. ' +
+      'Pick one or more sections, or All.' +
+    '<div class="bxs"><button class="bxc' + (any ? '' : ' on') + '" data-mxsec="">All</button>' +
+      bxSections().map(function(s){
+        return '<button class="bxc' + (MX.picks[s] ? ' on' : '') + '" data-mxsec="' + esc(s) + '">' +
+               esc(s) + '</button>';
+      }).join('') + '</div>' +
+    '<button class="newr" id="mxgo"' + (MX.busy ? ' disabled' : '') + '>' +
+      (MX.busy ? 'Making it…' : 'Download') + '</button>' +
+    (MX.msg ? '<div class="bxn' + (MX.bad ? ' bad' : '') + '">' + esc(MX.msg) + '</div>' : '') +
+  '</div>';
+}
+
+function mxWorkbook(ExcelJS, dishes){
+  var B = MICBRAND, picks = Object.keys(MX.picks).sort();
+  var scope = picks.length ? picks.join(', ') : 'all sections';
+  var take = dishes.filter(function(d){ return !picks.length || MX.picks[d.section]; })
+    .sort(function(a, b){ return String(a.section).localeCompare(String(b.section)) ||
+                                 String(a.name).localeCompare(String(b.name)); });
+  function bName(id){ return BXPREFIX + (BATCH[id] ? BATCH[id].name : 'batch'); }
+
+  var ready = [], notReady = [];
+  take.forEach(function(d){
+    var c = batchCost(d.id);
+    (c.problem ? notReady : ready).push({ d:d, c:c });
+  });
+
+  var wb = new ExcelJS.Workbook();
+  wb.creator = "Roberto's DIFC — Kitchen App";
+
+  /* ── sheet 1: the ready dishes, laid out like the batches file ── */
+  var cols = [
+    { t:'Dish', w:32 }, { t:'Section', w:14 }, { t:'Portions', w:9, n:true },
+    { t:'Cost per portion', w:12, n:true },
+    { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:36 }, { t:'Type', w:12 },
+    { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
+    { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:44 }
+  ];
+  var ws = micFlatSheet(wb, 'Recipes', 'Main recipes ready for FMC — ' + scope,
+    ready.length + ' dishes, each one once. The total is the first row of each dish and the rows ' +
+    'under it are what is in it. Dish name and section are on every row, so any line filtered or ' +
+    'copied on its own still says whose it is. A batch is one line, named as in the batches file. ' +
+    'Not finished ones are on "Not ready".', cols, B);
+  var R = 5;
+  ready.forEach(function(x){
+    var d = x.d, m = MAINS[d.id], lines = m.lines || [];
+    var headRow = R; R++;
+    var first = R;
+    lines.forEach(function(l, i){
+      var f = micLineFacts(l), row = ws.getRow(R);
+      row.getCell(1).value  = d.name;
+      row.getCell(2).value  = d.section;
+      row.getCell(3).value  = m.makesQty;
+      row.getCell(5).value  = i + 1;
+      row.getCell(6).value  = l.child_recipe_id ? bName(l.child_recipe_id) : f.name;
+      row.getCell(7).value  = l.child_recipe_id ? 'BATCH' : 'ingredient';
+      row.getCell(8).value  = f.code || '';
+      row.getCell(9).value  = f.qty;
+      row.getCell(10).value = f.unit || '';
+      row.getCell(11).value = f.unitPrice;
+      row.getCell(12).value = f.base || '';
+      row.getCell(13).value = f.cost;
+      row.getCell(14).value = l.trim_on ? (l.yield_pct == null ? 100 : l.yield_pct) : null;
+      row.getCell(15).value = l.trim_on ? (l.waste_pct || 0) : null;
+      row.getCell(16).value = f.note || '';
+      [11, 13].forEach(function(cc){ row.getCell(cc).numFmt = MICMONEY; });
+      for (var k = 1; k <= cols.length; k++)
+        row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+      if (row.getCell(16).value) row.getCell(16).font =
+        { name:'Calibri', size:10, italic:true, color:{argb:B.vinoMid} };
+      if (l.child_recipe_id && BATCH[l.child_recipe_id])
+        micLinkCell(row.getCell(6), row.getCell(6).value, l.child_recipe_id,
+                    { name:'Calibri', size:11, color:{argb:B.ink} });
+      R++;
+    });
+    var h = ws.getRow(headRow);
+    h.getCell(1).value = d.name;
+    h.getCell(2).value = d.section;
+    h.getCell(3).value = m.makesQty;
+    h.getCell(4).value = x.c.per;
+    h.getCell(4).numFmt = MICMONEY;
+    h.getCell(6).value = d.name.toUpperCase();
+    h.getCell(7).value = 'DISH TOTAL';
+    h.getCell(13).value = { formula:'SUM(M' + first + ':M' + (R - 1) + ')' };
+    h.getCell(13).numFmt = MICMONEY;
+    h.getCell(16).value = 'What it costs to make ' + m.makesQty + ' portion' +
+      (m.makesQty === 1 ? '' : 's') + ' · ' + fmt(x.c.per) + ' per portion · the ' +
+      lines.length + ' row' + (lines.length === 1 ? '' : 's') + ' below are what is in it';
+    for (var k2 = 1; k2 <= cols.length; k2++){
+      h.getCell(k2).fill = { type:'pattern', pattern:'solid', fgColor:{argb:B.sabbiaLight} };
+      h.getCell(k2).font = { name:'Calibri', size:11, bold:k2 === 6 || k2 === 7 || k2 === 13,
+                             color:{argb:B.vino} };
+    }
+    h.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
+    micLinkCell(h.getCell(1), d.name, d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    R += 1;
+  });
+  if (!ready.length){
+    ws.getCell('A5').value = 'No dish in ' + scope + ' is ready yet — see "Not ready".';
+    ws.getCell('A5').font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+  }
+
+  /* ── sheet 2: not ready, and why ── */
+  var ncols = [
+    { t:'Dish', w:32 }, { t:'Section', w:14 }, { t:'Portions', w:9, n:true },
+    { t:'Lines written', w:9, n:true }, { t:'Why it is not ready', w:70 }
+  ];
+  var wn = micFlatSheet(wb, 'Not ready', 'Not ready yet — ' + scope,
+    notReady.length + ' dishes a chef has not finished. Do not load these into FMC yet: each one ' +
+    'says what is missing. They move to "Recipes" by themselves once the chef finishes them.',
+    ncols, B);
+  notReady.forEach(function(x, i){
+    var m = MAINS[x.d.id], row = wn.getRow(5 + i);
+    micLinkCell(row.getCell(1), x.d.name, x.d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    row.getCell(2).value = x.d.section;
+    row.getCell(3).value = m.makesQty == null ? null : m.makesQty;
+    row.getCell(4).value = (m.lines || []).length;
+    row.getCell(5).value = x.c.problem;
+    for (var k = 2; k <= ncols.length; k++)
+      row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+  });
+  if (!notReady.length){
+    wn.getCell('A5').value = 'Every dish in ' + scope + ' is ready.';
+    wn.getCell('A5').font = { name:'Calibri', size:11, italic:true, color:{argb:B.vinoMid} };
+  }
+
+  /* ── sheet 3: the batches these dishes use directly — they must be in FMC first ── */
+  var bat = {}, bOrder = [];
+  take.forEach(function(d){
+    (MAINS[d.id].lines || []).forEach(function(l){
+      if (!l.child_recipe_id) return;
+      if (!bat[l.child_recipe_id]){ bat[l.child_recipe_id] = {}; bOrder.push(l.child_recipe_id); }
+      bat[l.child_recipe_id][d.name] = 1;
+    });
+  });
+  var bcols = [
+    { t:'Batch (FMC name)', w:34 }, { t:'Ready in the batches file', w:12 },
+    { t:'Cost per unit', w:11, n:true }, { t:'Unit', w:8 },
+    { t:'In how many dishes', w:10, n:true }, { t:'Dishes', w:60 }, { t:'Note', w:50 }
+  ];
+  var wbat = micFlatSheet(wb, 'Batches used', 'Batches inside these dishes — ' + scope,
+    bOrder.length + ' batches, each one once. Each must be in FMC before the dishes using it. ' +
+    '"No" means it is on the "Not ready" sheet of the batches file.', bcols, B);
+  bOrder.sort(function(a, b){ return bName(a).localeCompare(bName(b)); }).forEach(function(id, i){
+    var b = BATCH[id], c = b ? batchCost(id) : { problem:'this batch is not in the recipe book' };
+    if (b && b.archived) c = { problem:'it was removed from the recipe book' };
+    var row = wbat.getRow(5 + i), names = Object.keys(bat[id]).sort();
+    if (b) micLinkCell(row.getCell(1), bName(id), id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    else row.getCell(1).value = bName(id);
+    row.getCell(2).value = c.problem ? 'No' : 'Yes';
+    row.getCell(3).value = c.problem ? null : c.per;
+    row.getCell(3).numFmt = MICMONEY;
+    row.getCell(4).value = b ? (b.makesUnit || '') : '';
+    row.getCell(5).value = names.length;
+    row.getCell(6).value = names.join(', ');
+    row.getCell(7).value = c.problem || '';
+    for (var k = 2; k <= bcols.length; k++)
+      row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+  });
+
+  /* ── sheet 4: every ingredient the dishes use directly, once ── */
+  var ing = {}, order = [];
+  take.forEach(function(d){
+    (MAINS[d.id].lines || []).forEach(function(l){
+      if (!l.stock_code) return;
+      if (!ing[l.stock_code]){ ing[l.stock_code] = { l:l, in:{} }; order.push(l.stock_code); }
+      ing[l.stock_code].in[d.name] = 1;
+    });
+  });
+  var icols = [
+    { t:'Stock code', w:12 }, { t:'Ingredient', w:40 }, { t:'Unit price', w:11, n:true },
+    { t:'per', w:6 }, { t:'In how many dishes', w:10, n:true }, { t:'Dishes', w:60 },
+    { t:'Note', w:44 }
+  ];
+  var wi = micFlatSheet(wb, 'Ingredients', 'Ingredients in these dishes — ' + scope,
+    order.length + ' ingredients, each one once (not counting what is inside the batches). ' +
+    'A note means it needs looking at before the dishes using it can go into FMC.', icols, B);
+  order.map(function(code){ return { code:code, f:micLineFacts(ing[code].l), x:ing[code] }; })
+    .sort(function(a, b){ return String(a.f.name).localeCompare(String(b.f.name)); })
+    .forEach(function(o, i){
+      var it = ING.filter(function(z){ return z.code === o.code; })[0];
+      var row = wi.getRow(5 + i), names = Object.keys(o.x.in).sort();
+      row.getCell(1).value = o.code;
+      row.getCell(2).value = o.f.name;
+      row.getCell(3).value = o.f.unitPrice;
+      row.getCell(3).numFmt = MICMONEY;
+      row.getCell(4).value = o.f.base || '';
+      row.getCell(5).value = names.length;
+      row.getCell(6).value = names.join(', ');
+      row.getCell(7).value = o.f.note ||
+        (it && it.mine ? 'added in the app by a chef — not an FMC article' + (it.price === 0 ? ', no price' : '')
+         : it && it.price === 0 ? 'no price in the FMC catalogue' : '');
+      for (var k = 1; k <= icols.length; k++)
+        row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
+    });
+  return { wb:wb, ready:ready.length, notReady:notReady.length, batches:bOrder.length,
+           ing:order.length, scope:scope };
+}
+
+function mxDownload(){
+  if (MX.busy) return;
+  MX.busy = true; MX.msg = ''; MX.bad = false; render();
+  var out;
+  Promise.all([lazy('lib/exceljs.min.js', 'ExcelJS'), bxLoad()]).then(function(r){
+    out = mxWorkbook(r[0], r[1]);
+    return out.wb.xlsx.writeBuffer();
+  }).then(function(buf){
+    var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
+      ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
+    var blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = stamp + '-Main recipes for FMC - ' + (out.scope === 'all sections' ? 'All' : out.scope) + '.xlsx';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    MX.msg = 'Made ✓ — ' + out.ready + ' ready, ' + out.notReady + ' not ready, ' +
+             out.batches + ' batches, ' + out.ing + ' ingredients. It is in your downloads.';
+  }).catch(function(e){
+    MX.bad = true; MX.msg = 'Could not make it — ' + plain(e.message);
+  }).then(function(){ MX.busy = false; if (S.step === 'saved') render(); });
+}
+
 /* ── print ──
    Not the spreadsheet: a page. The same form, in the same colours, on paper — for
    walking it into a meeting or signing it. Excel's own print of an 18-column sheet
@@ -8386,6 +8628,7 @@ function render(){
             '<button class="newr" id="tomenus">Menus</button>' +
             (MENUS.length ? '<button class="newr" id="tomicros">Micros requests</button>' : '') +
             '<button class="newr" id="tobx">All batches for FMC</button>' +
+            '<button class="newr" id="tomx">All main recipes for FMC</button>' +
             /* the count is on the button, so he can see from here whether it is worth
                opening — a door labelled "Needs finishing" with nothing behind it is noise */
             (function(){
@@ -8399,6 +8642,7 @@ function render(){
                        : '<button class="newr" id="totodo">Nothing needs finishing ✓</button>';
             })() +
             (BX.open ? bxPanel() : '') +
+            (MX.open ? mxPanel() : '') +
             body
       ) + '</div>';
     /* the month being named survives a redraw of the list behind it, and Enter makes it */
@@ -13935,7 +14179,16 @@ document.addEventListener('click', function(e){
   }
   if (e.target.id === 'tomenus'){ openMenus(); return; }
   /* ── all batches for FMC (Aung) ── */
-  if (e.target.id === 'tobx'){ BX.open = !BX.open; BX.msg = ''; render(); return; }
+  if (e.target.id === 'tobx'){ BX.open = !BX.open; BX.msg = ''; if (BX.open) MX.open = false; render(); return; }
+  /* ── all main recipes for FMC (Aung, 10 Nov) ── */
+  if (e.target.id === 'tomx'){ MX.open = !MX.open; MX.msg = ''; if (MX.open) BX.open = false; render(); return; }
+  var mxs = e.target.closest('[data-mxsec]');
+  if (mxs){
+    var mxk = mxs.getAttribute('data-mxsec');
+    if (!mxk) MX.picks = {}; else if (MX.picks[mxk]) delete MX.picks[mxk]; else MX.picks[mxk] = 1;
+    MX.msg = ''; render(); return;
+  }
+  if (e.target.id === 'mxgo'){ mxDownload(); return; }
   var bxs = e.target.closest('[data-bxsec]');
   if (bxs){
     var bxk = bxs.getAttribute('data-bxsec');
