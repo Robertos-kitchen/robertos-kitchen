@@ -303,7 +303,7 @@ dialog#fhDlg::backdrop{background:#0006}
 
 <header>
   <h1>Marrakech Kitchen Planner</h1>
-<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 81 · 12 Nov · windows in bearing walls in 3D</div>
+<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 82 · 12 Nov · boutique window heights from the elevation</div>
   <div class="tabs" role="group" aria-label="Kitchen and version">
     <button id="vDown" aria-pressed="true">Downstairs · concept</button>
     <button id="vUp" aria-pressed="false">Upstairs · concept</button>
@@ -4883,12 +4883,12 @@ body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
    frame, and the wall above. The plan gives no heights, so each window starts with assumed heights that the
    team can set (kept on this device and in the team doc plans/winh). They take no part in the checks. */
 (function(){
-  const W={"down":[[-41339,-40839,25905,26382,"Window 27_2"],[-41339,-40839,28382,28860,"Window 27_2"],[-41254,-40839,22993,24983,"Window 27_9"],[-39510,-38010,27932,28432,"Window 27_10"]],"up":[[-53974,-53669,-27289,-24865,"Window 27_8"],[-53593,-53390,-31825,-29025,"Window 27_7"],[-52395,-49677,-27944,-27540,"Horizontal Multi-Sash Window 27"],[-48973,-48769,-31877,-29077,"Window 27_6"],[-45285,-44985,-24943,-22304,"Window 27_3"]]},svg=document.getElementById('sheet'),sc=document.getElementById('scene');
+  const W={"down":[[-41339,-40839,25905,26382,"Window 27_2"],[-41339,-40839,28382,28860,"Window 27_2"],[-41254,-40839,22993,24983,"Window 27_9"],[-39510,-38010,27932,28432,"Window 27_10"]],"up":[[-53974,-53669,-27289,-24865,"Window 27_8"],[-53593,-53390,-31825,-29025,"Window 27_7",[1.0,3.3]],[-52395,-49677,-27944,-27540,"Horizontal Multi-Sash Window 27"],[-48973,-48769,-31877,-29077,"Window 27_6",[1.0,3.3]],[-45285,-44985,-24943,-22304,"Window 27_3"]]},svg=document.getElementById('sheet'),sc=document.getElementById('scene');
   if(!svg||!sc||document.getElementById('uxWinG'))return;
   const $=id=>document.getElementById(id),DEF=[0.9,2.1],LSK='mkp.winh.'+(window.KD_PROJECT||'');
   let HT={};try{HT=JSON.parse(localStorage.getItem(LSK)||'{}')||{}}catch(e){}
   const key=(v,w)=>v+':'+w[0]+','+w[2];
-  const hOf=(v,w)=>{const h=HT[key(v,w)];return h&&h[1]>h[0]?h:[DEF[0],DEF[1],0]};
+  const hOf=(v,w)=>{const h=HT[key(v,w)];return h&&h[1]>h[0]?h:w[5]?[w[5][0],w[5][1],2]:[DEF[0],DEF[1],0]};
   const g=document.createElementNS('http://www.w3.org/2000/svg','g');g.id='uxWinG';g.setAttribute('pointer-events','none');sc.after(g);
   const here=()=>(typeof mode!=='undefined'&&(mode==='plan'||mode==='orig'))?(W[state.view]||[]):[];
   function draw(){
@@ -4949,7 +4949,7 @@ body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
     d.innerHTML='<form method="dialog" id="uxWinF"><h3>Window in a bearing wall</h3><p class="muted" style="font-size:12.5px;margin:0 0 10px">'+(len/1000).toFixed(2)+' m wide, in a wall '+Math.round(th/10)+' cm thick. The architect’s plan gives no heights for it. Set them here so 3D and the walk-through show the wall under the window, the glass and the wall above.</p>'+
       '<div class="trow"><label for="uxWs">Bottom of the window, metres above the floor</label><input id="uxWs" type="number" min="0" max="3" step="0.05" value="'+h[0]+'" style="width:90px"></div>'+
       '<div class="trow"><label for="uxWh">Top of the window, metres above the floor</label><input id="uxWh" type="number" min="0.3" max="4" step="0.05" value="'+h[1]+'" style="width:90px"></div>'+
-      '<div class="trow"><label for="uxWc">Confirmed: measured on site or given by the architect</label><input id="uxWc" type="checkbox"'+(h[2]?' checked':'')+'></div>'+
+      '<div class="trow"><label for="uxWc">Confirmed: measured on site or given by the architect</label><input id="uxWc" type="checkbox"'+(h[2]===1?' checked':'')+'></div>'+
       '<div id="uxWm" style="font-size:12.5px;color:var(--bad);min-height:1.2em;margin-top:6px"></div>'+
       '<div class="acts"><button type="button" class="btn" id="uxWn">Cancel</button><button type="submit" class="btn pri">Save heights</button></div></form>';
     $('uxWn').onclick=()=>d.close();
@@ -4962,7 +4962,7 @@ body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
   }
   function say(v,w){
     const st=$('stSel');if(!st)return;const len=Math.max(w[1]-w[0],w[3]-w[2]),th=Math.min(w[1]-w[0],w[3]-w[2]),h=hOf(v,w);
-    st.textContent='Window in an existing bearing wall ('+(len/1000).toFixed(2)+' m wide, wall '+Math.round(th/10)+' cm thick, from the architect’s drawing). The wall stays: it cannot be removed or moved here. In 3D the window runs from '+h[0].toFixed(2)+' m to '+h[1].toFixed(2)+' m above the floor ('+(h[2]?'confirmed':'assumed, not on the drawing')+'). ';
+    st.textContent='Window in an existing bearing wall ('+(len/1000).toFixed(2)+' m wide, wall '+Math.round(th/10)+' cm thick, from the architect’s drawing). The wall stays: it cannot be removed or moved here. In 3D the window runs from '+h[0].toFixed(2)+' m to '+h[1].toFixed(2)+' m above the floor ('+(h[2]===1?'confirmed':h[2]===2?'read from the architect’s elevation, to be confirmed':'assumed, not on the drawing')+'). ';
     const b=document.createElement('button');b.className='btn sm';b.id='uxWinSet';b.textContent='Set heights';b.onclick=()=>dlg(v,w);st.appendChild(b);
   }
   /* a plain click on one of them says what it is */
