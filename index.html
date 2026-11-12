@@ -1422,6 +1422,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
     <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
     <button class="home-tile compact" type="button" onclick="openLearning()"><span class="home-code">LRN</span><span><span class="home-name">Learning</span><span class="home-meta">Read a short page, take a 5-question test &mdash; sign in with your employee ID</span></span></button>
     <button class="home-tile compact" type="button" onclick="openMaintenance()"><span class="maint-badge corner" hidden></span><span class="home-code">MNT</span><span><span class="home-name">Maintenance</span><span class="home-meta" id="maint-meta">Report a problem &middot; job cards &middot; maintenance calendar</span></span></button>
+    <button class="home-tile compact" type="button" onclick="openKitchenDesign()"><span class="home-code">DSN</span><span><span class="home-name">Kitchen Design</span><span class="home-meta">Plans, checks, 3D walk-through and photo renders &mdash; one project per kitchen</span></span></button>
   </div>
   </div>
   <div class="home-section mgmt" id="mgmt-section">
@@ -1581,6 +1582,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   function openArticleCatalogue(){ lazyLoad('article-catalogue.js?v=1792584690').then(function(){ openArticleCatalogue(); }).catch(function(){ alert('Could not load the Article Catalogue. Check the connection and try again.'); }); }
   function openFmcMatch(){ lazyLoad('fmc-match.js?v=1792584690').then(function(){ openFmcMatch(); }).catch(function(){ alert('Could not load Match to FMC. Check the connection and try again.'); }); }
   function openCalendar(){ lazyLoad('calendar.js?v=1792584690').then(function(){ openCalendar(); }).catch(function(){ alert('Could not load the Calendar. Check the connection and try again.'); }); }
+  function openKitchenDesign(){ location.href = 'kitchen-design.html'; }
   // Menu Development Plan is PARKED, 15 Aug 2026 — the team never adopted it and Danilo
   // called it a mess. Only the door is gone: menu-plan.js, its five .sql files, the
   // menuplan-view container below and every menu_plan_* table are untouched, so bringing
@@ -1603,7 +1605,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <script src="floorplan.js?v=1792584690"></script>
 <!-- the house frame for My Tasks, the Closing report and the Team survey + the footer fix (7 Oct 2026) -->
 <script src="k-frame.js?v=1792990460"></script>
-<script src="app.js?v=1794290594"></script>
+<script src="app.js?v=1794464394"></script>
 <!-- Find: one box on the home screen for what is already in the app (12 Oct 2026, inbox 873e8292) -->
 <script src="find.js?v=1792584690"></script>
 
