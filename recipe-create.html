@@ -1013,6 +1013,8 @@ table.sheet tr.main:not(.sel):hover td.w .nm{text-decoration:underline;text-deco
   padding:11px 22px;font-size:14px;font-weight:600;min-height:44px}
 .bxp #bxgo:disabled,.bxp #mxgo:disabled{opacity:.6}
 .bxn{margin-top:10px;font-size:13px;color:var(--vino)}
+.bxl{font-size:13px;font-weight:600;margin-top:2px}
+.bxl + .bxs{margin-top:7px}
 .bxn.bad{color:#9b1c1c;font-weight:600}
 /* the dish he already has open, offered before the two doors that take it off the screen */
 .holdon{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:3px solid var(--oro);
@@ -6399,7 +6401,7 @@ function bxDownload(){
    The dish name stays plain: the RS- prefix was agreed for batches only (9 Oct).
    Not ready is exactly what batchCost() refuses to cost — the same walk the Micros
    request uses — so a dish here and on a Micros request can never disagree. */
-var MX = { open:false, picks:{}, busy:false, msg:'', bad:false };
+var MX = { open:false, picks:{}, busy:false, msg:'', bad:false, nameBy:'menu' };
 
 function mxPanel(){
   var any = Object.keys(MX.picks).length;
@@ -6411,18 +6413,68 @@ function mxPanel(){
         return '<button class="bxc' + (MX.picks[s] ? ' on' : '') + '" data-mxsec="' + esc(s) + '">' +
                esc(s) + '</button>';
       }).join('') + '</div>' +
+    '<div class="bxl">Name each dish by</div>' +
+    '<div class="bxs">' +
+      '<button class="bxc' + (MX.nameBy === 'micros' ? '' : ' on') + '" data-mxname="menu">Menu name</button>' +
+      '<button class="bxc' + (MX.nameBy === 'micros' ? ' on' : '') + '" data-mxname="micros">Name in Micros</button>' +
+    '</div>' +
     '<button class="newr" id="mxgo"' + (MX.busy ? ' disabled' : '') + '>' +
       (MX.busy ? 'Making it…' : 'Download') + '</button>' +
     (MX.msg ? '<div class="bxn' + (MX.bad ? ' bad' : '') + '">' + esc(MX.msg) + '</div>' : '') +
   '</div>';
 }
 
-function mxWorkbook(ExcelJS, dishes){
+/* ── menu name or Micros name — Aung, 12 Nov 2026 ───────────────────────────────
+   He works from this file two ways: against the menu, and against the till. So the
+   same file comes out named either way, and whichever name is not leading sits in
+   the last column — a row is never without the other one.
+
+   The Micros name is never made up here. It is the "Name in Micros" a SENT Micros
+   request carried for that dish (the latest one wins), or the name kept on the recipe
+   with Aung's item code, which wins over both. A dish that has never been on a
+   request has no Micros name: it keeps its menu name, its row says so, and the count
+   is on the screen — micShort() could guess one, and a guessed till name in a file
+   he loads from is worse than a missing one. */
+function mxNames(){
+  return Promise.all([
+    sb('recipes?kind=eq.main&archived=is.false&pos_name=not.is.null&select=id,pos_name'),
+    sbAll('micros_request_items?till_name=not.is.null' +
+          '&select=id,recipe_id,till_name,req:micros_requests(sent_at)&order=id')
+  ]).then(function(res){
+    var out = {}, when = {};
+    (res[1]||[]).forEach(function(it){
+      var t = String(it.till_name||'').trim();
+      var w = it.req && it.req.sent_at ? Date.parse(it.req.sent_at) : NaN;
+      if (!it.recipe_id || !t || isNaN(w)) return;
+      if (out[it.recipe_id] == null || w >= when[it.recipe_id]){
+        out[it.recipe_id] = t; when[it.recipe_id] = w;
+      }
+    });
+    (res[0]||[]).forEach(function(r){
+      var t = String(r.pos_name||'').trim(); if (t) out[r.id] = t;
+    });
+    return out;
+  });
+}
+
+function mxWorkbook(ExcelJS, dishes, names){
   var B = MICBRAND, picks = Object.keys(MX.picks).sort();
   var scope = picks.length ? picks.join(', ') : 'all sections';
+  names = names || {};
+  var byMic = MX.nameBy === 'micros';
+  function mic(d){ return names[d.id] || ''; }
+  function shown(d){ return byMic ? (mic(d) || d.name) : d.name; }
+  function other(d){ return byMic ? d.name : mic(d); }
+  var otherCol = { t: byMic ? 'Menu name' : 'Name in Micros', w:28 };
   var take = dishes.filter(function(d){ return !picks.length || MX.picks[d.section]; })
     .sort(function(a, b){ return String(a.section).localeCompare(String(b.section)) ||
-                                 String(a.name).localeCompare(String(b.name)); });
+                                 String(shown(a)).localeCompare(String(shown(b))); });
+  var noMic = take.filter(function(d){ return !mic(d); }).length;
+  var micSay = byMic
+    ? ' Dishes are named as in Micros — the name on our last request to Aung, the menu name is ' +
+      'in the last column.' + (noMic ? ' ' + noMic + ' of the ' + take.length + ' have no Micros ' +
+      'name yet: they keep their menu name and the row says so.' : '')
+    : '';
   function bName(id){ return BXPREFIX + (BATCH[id] ? BATCH[id].name : 'batch'); }
 
   var ready = [], notReady = [];
@@ -6436,18 +6488,20 @@ function mxWorkbook(ExcelJS, dishes){
 
   /* ── sheet 1: the ready dishes, laid out like the batches file ── */
   var cols = [
-    { t:'Dish', w:32 }, { t:'Section', w:14 }, { t:'Portions', w:9, n:true },
+    { t: byMic ? 'Dish (name in Micros)' : 'Dish', w:32 }, { t:'Section', w:14 },
+    { t:'Portions', w:9, n:true },
     { t:'Cost per portion', w:12, n:true },
     { t:'#', w:5, n:true }, { t:'Ingredient / batch', w:36 }, { t:'Type', w:12 },
     { t:'Stock code', w:12 }, { t:'Qty', w:9, n:true }, { t:'Unit', w:8 },
     { t:'Unit price', w:11, n:true }, { t:'per', w:6 }, { t:'Line cost', w:11, n:true },
-    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:44 }
+    { t:'Yield %', w:8, n:true }, { t:'Waste %', w:8, n:true }, { t:'Note', w:44 },
+    otherCol
   ];
   var ws = micFlatSheet(wb, 'Recipes', 'Main recipes ready for FMC — ' + scope,
     ready.length + ' dishes, each one once. The total is the first row of each dish and the rows ' +
     'under it are what is in it. Dish name and section are on every row, so any line filtered or ' +
     'copied on its own still says whose it is. A batch is one line, named as in the batches file. ' +
-    'Not finished ones are on "Not ready".', cols, B);
+    'Not finished ones are on "Not ready".' + micSay, cols, B);
   var R = 5;
   ready.forEach(function(x){
     var d = x.d, m = MAINS[d.id], lines = m.lines || [];
@@ -6455,9 +6509,10 @@ function mxWorkbook(ExcelJS, dishes){
     var first = R;
     lines.forEach(function(l, i){
       var f = micLineFacts(l), row = ws.getRow(R);
-      row.getCell(1).value  = d.name;
+      row.getCell(1).value  = shown(d);
       row.getCell(2).value  = d.section;
       row.getCell(3).value  = m.makesQty;
+      row.getCell(17).value = other(d);
       row.getCell(5).value  = i + 1;
       row.getCell(6).value  = l.child_recipe_id ? bName(l.child_recipe_id) : f.name;
       row.getCell(7).value  = l.child_recipe_id ? 'BATCH' : 'ingredient';
@@ -6481,16 +6536,18 @@ function mxWorkbook(ExcelJS, dishes){
       R++;
     });
     var h = ws.getRow(headRow);
-    h.getCell(1).value = d.name;
+    h.getCell(1).value = shown(d);
     h.getCell(2).value = d.section;
     h.getCell(3).value = m.makesQty;
     h.getCell(4).value = x.c.per;
     h.getCell(4).numFmt = MICMONEY;
-    h.getCell(6).value = d.name.toUpperCase();
+    h.getCell(17).value = other(d);
+    h.getCell(6).value = shown(d).toUpperCase();
     h.getCell(7).value = 'DISH TOTAL';
     h.getCell(13).value = { formula:'SUM(M' + first + ':M' + (R - 1) + ')' };
     h.getCell(13).numFmt = MICMONEY;
-    h.getCell(16).value = 'What it costs to make ' + m.makesQty + ' portion' +
+    h.getCell(16).value = (byMic && !mic(d) ? 'NO MICROS NAME YET, menu name shown · ' : '') +
+      'What it costs to make ' + m.makesQty + ' portion' +
       (m.makesQty === 1 ? '' : 's') + ' · ' + fmt(x.c.per) + ' per portion · the ' +
       lines.length + ' row' + (lines.length === 1 ? '' : 's') + ' below are what is in it';
     for (var k2 = 1; k2 <= cols.length; k2++){
@@ -6499,7 +6556,7 @@ function mxWorkbook(ExcelJS, dishes){
                              color:{argb:B.vino} };
     }
     h.getCell(16).font = { name:'Calibri', size:10, italic:true, color:{argb:B.vino} };
-    micLinkCell(h.getCell(1), d.name, d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    micLinkCell(h.getCell(1), shown(d), d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
     R += 1;
   });
   if (!ready.length){
@@ -6509,8 +6566,9 @@ function mxWorkbook(ExcelJS, dishes){
 
   /* ── sheet 2: not ready, and why ── */
   var ncols = [
-    { t:'Dish', w:32 }, { t:'Section', w:14 }, { t:'Portions', w:9, n:true },
-    { t:'Lines written', w:9, n:true }, { t:'Why it is not ready', w:70 }
+    { t: byMic ? 'Dish (name in Micros)' : 'Dish', w:32 }, { t:'Section', w:14 },
+    { t:'Portions', w:9, n:true },
+    { t:'Lines written', w:9, n:true }, { t:'Why it is not ready', w:70 }, otherCol
   ];
   var wn = micFlatSheet(wb, 'Not ready', 'Not ready yet — ' + scope,
     notReady.length + ' dishes a chef has not finished. Do not load these into FMC yet: each one ' +
@@ -6518,11 +6576,12 @@ function mxWorkbook(ExcelJS, dishes){
     ncols, B);
   notReady.forEach(function(x, i){
     var m = MAINS[x.d.id], row = wn.getRow(5 + i);
-    micLinkCell(row.getCell(1), x.d.name, x.d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
+    micLinkCell(row.getCell(1), shown(x.d), x.d.id, { name:'Calibri', size:11, color:{argb:B.vino} });
     row.getCell(2).value = x.d.section;
     row.getCell(3).value = m.makesQty == null ? null : m.makesQty;
     row.getCell(4).value = (m.lines || []).length;
-    row.getCell(5).value = x.c.problem;
+    row.getCell(5).value = (byMic && !mic(x.d) ? 'NO MICROS NAME YET, menu name shown · ' : '') + x.c.problem;
+    row.getCell(6).value = other(x.d);
     for (var k = 2; k <= ncols.length; k++)
       row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
   });
@@ -6537,7 +6596,7 @@ function mxWorkbook(ExcelJS, dishes){
     (MAINS[d.id].lines || []).forEach(function(l){
       if (!l.child_recipe_id) return;
       if (!bat[l.child_recipe_id]){ bat[l.child_recipe_id] = {}; bOrder.push(l.child_recipe_id); }
-      bat[l.child_recipe_id][d.name] = 1;
+      bat[l.child_recipe_id][shown(d)] = 1;
     });
   });
   var bcols = [
@@ -6571,7 +6630,7 @@ function mxWorkbook(ExcelJS, dishes){
     (MAINS[d.id].lines || []).forEach(function(l){
       if (!l.stock_code) return;
       if (!ing[l.stock_code]){ ing[l.stock_code] = { l:l, in:{} }; order.push(l.stock_code); }
-      ing[l.stock_code].in[d.name] = 1;
+      ing[l.stock_code].in[shown(d)] = 1;
     });
   });
   var icols = [
@@ -6601,15 +6660,15 @@ function mxWorkbook(ExcelJS, dishes){
         row.getCell(k).font = { name:'Calibri', size:11, color:{argb:B.ink} };
     });
   return { wb:wb, ready:ready.length, notReady:notReady.length, batches:bOrder.length,
-           ing:order.length, scope:scope };
+           ing:order.length, scope:scope, byMic:byMic, noMic:noMic, dishes:take.length };
 }
 
 function mxDownload(){
   if (MX.busy) return;
   MX.busy = true; MX.msg = ''; MX.bad = false; render();
   var out;
-  Promise.all([lazy('lib/exceljs.min.js', 'ExcelJS'), bxLoad()]).then(function(r){
-    out = mxWorkbook(r[0], r[1]);
+  Promise.all([lazy('lib/exceljs.min.js', 'ExcelJS'), bxLoad(), mxNames()]).then(function(r){
+    out = mxWorkbook(r[0], r[1], r[2]);
     return out.wb.xlsx.writeBuffer();
   }).then(function(buf){
     var d = new Date(), stamp = String(d.getFullYear()).slice(2) +
@@ -6617,11 +6676,15 @@ function mxDownload(){
     var blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = stamp + '-Main recipes for FMC - ' + (out.scope === 'all sections' ? 'All' : out.scope) + '.xlsx';
+    a.download = stamp + '-Main recipes for FMC - ' + (out.scope === 'all sections' ? 'All' : out.scope) +
+                 (out.byMic ? ' - Micros names' : '') + '.xlsx';
     document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     MX.msg = 'Made ✓ — ' + out.ready + ' ready, ' + out.notReady + ' not ready, ' +
-             out.batches + ' batches, ' + out.ing + ' ingredients. It is in your downloads.';
+             out.batches + ' batches, ' + out.ing + ' ingredients. ' +
+             (out.byMic ? 'Named as in Micros' + (out.noMic ? ' — ' + out.noMic + ' of ' + out.dishes +
+                ' dishes have no Micros name yet and keep their menu name' : '') + '. ' : '') +
+             'It is in your downloads.';
   }).catch(function(e){
     MX.bad = true; MX.msg = 'Could not make it — ' + plain(e.message);
   }).then(function(){ MX.busy = false; if (S.step === 'saved') render(); });
@@ -14188,6 +14251,9 @@ document.addEventListener('click', function(e){
     if (!mxk) MX.picks = {}; else if (MX.picks[mxk]) delete MX.picks[mxk]; else MX.picks[mxk] = 1;
     MX.msg = ''; render(); return;
   }
+  var mxn = e.target.closest('[data-mxname]');
+  if (mxn){ MX.nameBy = mxn.getAttribute('data-mxname') === 'micros' ? 'micros' : 'menu';
+            MX.msg = ''; render(); return; }
   if (e.target.id === 'mxgo'){ mxDownload(); return; }
   var bxs = e.target.closest('[data-bxsec]');
   if (bxs){
