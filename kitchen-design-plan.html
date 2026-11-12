@@ -512,7 +512,7 @@ const CONCEPT={
 };
 
 /* ---------- State ---------- */
-const KEY='mkp.v2';
+const KEY='mkp.v2.'+(window.KD_PROJECT||'');const KD_FRESH=(()=>{try{return !localStorage.getItem(KEY)}catch(e){return true}})();
 let state={view:'down',base:{down:'concept',up:'concept'},layouts:{},brief:"Italian, Roberto's style: pizza, fresh pasta, grill, desserts. About 100 covers per service.",stageOn:{}};
 let seq=1, sel=null, proposal=null, undoStack=[], vb=null, drag=null, pan=null, cat='all', pane='checks', claudeAPI=null, dl=null, askState={busy:false,text:'',err:'',result:null,ctl:null};
 function uid(){return 'i'+(seq++)}
@@ -2733,8 +2733,8 @@ bankStatus();
 
 /* ---------- Shared team plan: one saved plan, with versions, in the shared database ---------- */
 let teamInit=false, teamDb=null, teamUser=null, teamMe=null, teamDoc=null, teamBase=0, teamBackup=null, teamArm=0, teamCanWrite=true, teamNames={}, teamLoaded=false;
-try{teamBase=+localStorage.getItem('mkp.teamrev')||0}catch(e){}
-function teamSetBase(n){teamBase=n;try{localStorage.setItem('mkp.teamrev',String(n))}catch(e){}}
+try{teamBase=+localStorage.getItem('mkp.teamrev.'+(window.KD_PROJECT||''))||0}catch(e){}
+function teamSetBase(n){teamBase=n;try{localStorage.setItem('mkp.teamrev.'+(window.KD_PROJECT||''),String(n))}catch(e){}}
 const fmtT=ms=>{try{return new Date(ms).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}catch(e){return ''}};
 async function teamWho(id){
   if(!id) return 'someone';
@@ -2811,7 +2811,7 @@ el('teamSave').onclick=teamSave; el('teamLoad').onclick=()=>{if(teamDb)teamOpen(
   try{teamDb.collection('requests').onSnapshot(s=>{reqRows=s.docs.map(d=>Object.assign({_id:d.id},d.data())).filter(r=>r&&r.text).sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,30);if(pane==='req')reqRenderList()},e=>{})}catch(e){}
   teamStatus();
   const timer=setTimeout(()=>teamStatus('Team plan not reached yet, check the connection','err'),10000);
-  try{teamDb.doc('plans/main').onSnapshot(s=>{clearTimeout(timer);teamLoaded=true;teamDoc=s.exists?s.data():null;teamStatus()},e=>{clearTimeout(timer);teamDb=null;teamStatus('Team plan unavailable ('+(e&&e.code||'error')+')','err')})}catch(e){clearTimeout(timer);teamDb=null;teamStatus()}
+  try{teamDb.doc('plans/main').onSnapshot(s=>{clearTimeout(timer);teamLoaded=true;teamDoc=s.exists?s.data():null;teamStatus();if(KD_FRESH&&teamDoc&&!window.__kdFirst){window.__kdFirst=1;try{teamApply(teamDoc)}catch(e){console.error(e)}}},e=>{clearTimeout(timer);teamDb=null;teamStatus('Team plan unavailable ('+(e&&e.code||'error')+')','err')})}catch(e){clearTimeout(timer);teamDb=null;teamStatus()}
 })();
 teamStatus();
 
