@@ -37,8 +37,8 @@
       o.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#efe7db;display:flex;align-items:center;justify-content:center;padding:16px;font-family:"DM Sans",-apple-system,"Segoe UI",Roboto,sans-serif;color:#2a1a10';
       o.innerHTML = '<div style="background:#fffaf2;border:1px solid #dccdb9;border-radius:14px;max-width:380px;width:100%;padding:22px 20px;box-shadow:0 8px 30px rgba(65,2,7,.12)">' +
         '<div style="font:600 26px Georgia,serif;color:#410207;margin:0 0 6px">Kitchen Design</div>' +
-        '<p style="margin:0 0 14px;color:#5f4c3d;font-size:15px">This area is private. Enter your code to open it.</p>' +
-        '<input id="kdCode" type="text" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your code" ' +
+        '<p style="margin:0 0 14px;color:#5f4c3d;font-size:15px">This area is private. Enter your employee ID or code to open it.</p>' +
+        '<input id="kdCode" type="text" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your employee ID or code" ' +
         'style="width:100%;min-height:48px;padding:8px 12px;font-size:20px;letter-spacing:.2em;border:1px solid #dccdb9;border-radius:10px;-webkit-text-security:disc">' +
         '<div id="kdGateMsg" style="min-height:22px;margin:8px 0;font-size:14px;color:#8f1d12"></div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap"><button id="kdGo" style="min-height:46px;padding:0 20px;border-radius:10px;border:1px solid #410207;background:#410207;color:#f5ede0;font-weight:600;font-size:16px;cursor:pointer">Open</button>' +
@@ -58,7 +58,7 @@
         go.disabled = true; document.getElementById('kdGateMsg').textContent = 'Checking…';
         check(c).then(function (who) {
           go.disabled = false;
-          if (!who) { document.getElementById('kdGateMsg').textContent = 'That code is not recognised.'; inp.value = ''; inp.focus(); return; }
+          if (!who) { document.getElementById('kdGateMsg').textContent = 'That ID or code is not recognised.'; inp.value = ''; inp.focus(); return; }
           CODE = c; WHO = who;
           try { sessionStorage.setItem('kd_code', c); localStorage.setItem('kd_name', who); if (!localStorage.getItem('mk_ovname')) localStorage.setItem('mk_ovname', who); } catch (e) {}
           o.remove(); waiting = null; ok(c);
