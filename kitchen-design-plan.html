@@ -289,12 +289,18 @@ dialog#fhDlg::backdrop{background:#0006}
   #fhSvgWrap{height:60vh}
   #fh3View{height:56vh}
 }
+/* extra floors: an uploaded drawing shows through the room fills */
+#fhSvg.flup rect[data-bg]{fill-opacity:0}
+#fhSvg.flup polygon[data-room]{fill-opacity:.45}
+#flSel{font:inherit;font-size:12.5px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink);max-width:180px}
+#flHint{position:absolute;left:10px;top:10px;right:10px;z-index:6;gap:8px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--accent);border-radius:9px;padding:8px 10px;font-size:13px;box-shadow:0 4px 12px #0002}
+#flHint span{flex:1 1 220px}
 
 </style>
 
 <header>
   <h1>Marrakech Kitchen Planner</h1>
-<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 77 · 12 Nov · calmer layout + full view</div>
+<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 78 · 12 Nov · add a floor from a drawing</div>
   <div class="tabs" role="group" aria-label="Kitchen and version">
     <button id="vDown" aria-pressed="true">Downstairs · concept</button>
     <button id="vUp" aria-pressed="false">Upstairs · concept</button>
@@ -3835,12 +3841,12 @@ async function fTeamSave(){
   try{const f=await teamDb.doc('fohplans/main').get();remote=f.exists?f.data():null}catch(e){fTeamSt('Could not reach the team design ('+(e&&e.code||'error')+').','err');return}
   const rrev=remote?remote.rev||0:0;
   if(rrev>fTeamBase&&fTeamArm!==rrev){fTeamArm=rrev;fTeamSt('Team design v'+rrev+' was saved by someone else at '+fmtT(remote.at)+' and you have not loaded it. Press Save to team again to replace it (it stays in the history), or Load team design first.','new');return}
-  fTeamArm=0;const rev=rrev+1,pl={v:1,rev,by:teamMe||'',at:Date.now(),json:JSON.stringify({items:foh.items,fin:foh.fin,hgt:foh.hgt,name:foh.name,notes:foh.notes,seq:foh.seq})};
-  try{await teamDb.doc('fohplans/main').set(pl);await teamDb.collection('fohhist').doc('h'+String(rev).padStart(5,'0')+'_'+Date.now().toString(36)).set(pl);fTeamBase=rev;try{localStorage.setItem(('mkp.foh.rev.'+(window.KD_PROJECT||'')),String(rev))}catch(e){}fTeamDoc=pl;fTeamSt('Saved as team design v'+rev+'.')}
+  fTeamArm=0;const rev=rrev+1,pl={v:1,rev,by:teamMe||'',at:Date.now(),json:JSON.stringify(Object.assign({hgt:foh.hgt,name:foh.name,notes:foh.notes,seq:foh.seq},flPack()))};
+  try{await flTeamPush();await teamDb.doc('fohplans/main').set(pl);await teamDb.collection('fohhist').doc('h'+String(rev).padStart(5,'0')+'_'+Date.now().toString(36)).set(pl);fTeamBase=rev;try{localStorage.setItem(('mkp.foh.rev.'+(window.KD_PROJECT||'')),String(rev))}catch(e){}fTeamDoc=pl;fTeamSt('Saved as team design v'+rev+'.')}
   catch(e){fTeamSt('Could not save ('+(e&&e.code||'error')+'). Your work is still on this device.','err')}
 }
 function fTeamLoad(quiet){
-  if(!fTeamDoc)return;try{const o=JSON.parse(fTeamDoc.json);if(!Array.isArray(o.items))return;if(!quiet)fSnap();foh.items=o.items.filter(i=>FURN[i.type]);foh.fin=o.fin||{};foh.hgt=o.hgt||{};foh.name=o.name||'';foh.notes=o.notes||'';foh.seq=Math.max(foh.seq,o.seq||1);foh.seeded=1;fTeamBase=fTeamDoc.rev;try{localStorage.setItem(('mkp.foh.rev.'+(window.KD_PROJECT||'')),String(fTeamBase))}catch(e){}fSel=null;fRoom=null;fTgt=null;fDefsKey='';fRender();fTeamSt()}catch(e){fTeamSt('That saved design could not be read.','err')}
+  if(!fTeamDoc)return;try{const o=JSON.parse(fTeamDoc.json);if(!Array.isArray(o.items))return;if(!quiet)fSnap();foh.items=o.items.filter(i=>FURN[i.type]);foh.fin=o.fin||{};foh.hgt=o.hgt||{};foh.name=o.name||'';foh.notes=o.notes||'';foh.seq=Math.max(foh.seq,o.seq||1);foh.seeded=1;flUnpack(o);fTeamBase=fTeamDoc.rev;try{localStorage.setItem(('mkp.foh.rev.'+(window.KD_PROJECT||'')),String(fTeamBase))}catch(e){}fSel=null;fRoom=null;fTgt=null;fDefsKey='';fRender();fTeamSt()}catch(e){fTeamSt('That saved design could not be read.','err')}
 }
 (function fTeamBoot(n){
   if(!teamInit){if(n<80)setTimeout(()=>fTeamBoot(n+1),250);return}
@@ -4278,6 +4284,266 @@ function f3PtStart(){
   },60);
 }
 
+/* ----- Extra floors: upload a drawing (SVG, PDF, DXF or a picture), set its scale, draw rooms, design on it -----
+   The ground floor stays as it is. Every other floor is a drawing the team uploads.
+   foh.items and foh.fin always hold the floor on screen; the other floors wait in foh.park.
+   The heavy drawing itself is kept out of foh: in the browser's database here, and in team docs fohfloors/<id>. */
+const FL_G={bounds:FOHG.bounds.slice(),d:FOHG.d,walls:FOHG.walls,texts:FOHG.texts},FL_ROOMS=FOH_ROOMS.slice(),FL_FIX=FOH_FIX.slice();
+const FL_C=[Math.round((FL_G.bounds[0]+FL_G.bounds[1])/2),Math.round((FL_G.bounds[2]+FL_G.bounds[3])/2)],FL_CH=350000,FL_MAX=650000;
+let flMode=null,flDownAt=null;
+if(!Array.isArray(foh.floors))foh.floors=[];
+if(!foh.park||typeof foh.park!=='object')foh.park={};
+if(!foh.cur)foh.cur='g';
+if(foh.cur!=='g'&&!foh.floors.some(f=>f.id===foh.cur)){const g=foh.park.g;foh.cur='g';if(g){foh.items=g.items||[];foh.fin=g.fin||{};delete foh.park.g}}
+
+/* the drawings, by floor id */
+const FLDB={m:{},p:null,
+  open(){return this.p||(this.p=new Promise(r=>{try{const q=indexedDB.open('mkp-foh-floors',1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)}catch(e){r(null)}}))},
+  async get(id){if(this.m[id])return this.m[id];const d=await this.open();if(!d)return null;return new Promise(r=>{try{const q=d.transaction('s').objectStore('s').get(id);q.onsuccess=()=>{if(q.result)this.m[id]=q.result;r(q.result||null)};q.onerror=()=>r(null)}catch(e){r(null)}})},
+  async put(id,v){this.m[id]=v;const d=await this.open();if(!d)return;try{d.transaction('s','readwrite').objectStore('s').put(v,id)}catch(e){}},
+  async del(id){delete this.m[id];const d=await this.open();if(!d)return;try{d.transaction('s','readwrite').objectStore('s').delete(id)}catch(e){}}
+};
+
+const flFloor=()=>foh.floors.find(f=>f.id===foh.cur)||null;
+const flSc=(v,c,k)=>Math.round(c+(v-c)*k);
+function flB(f){const b=f.b0,k=f.k||1;return [flSc(b[0],FL_C[0],k),flSc(b[1],FL_C[0],k),flSc(b[2],FL_C[1],k),flSc(b[3],FL_C[1],k)]}
+function flRooms(f){if(f.rooms&&f.rooms.length)return f.rooms;const b=flB(f);return [{id:f.id+'_all',name:f.name,auto:1,poly:[[b[0],b[2]],[b[1],b[2]],[b[1],b[3]],[b[0],b[3]]]}]}
+function flGeom(){
+  const f=flFloor();
+  if(!f){FOHG.bounds=FL_G.bounds.slice();FOHG.d=FL_G.d;FOHG.walls=FL_G.walls;FOHG.texts=FL_G.texts;FOH_ROOMS.splice(0,FOH_ROOMS.length,...FL_ROOMS);FOH_FIX.splice(0,FOH_FIX.length,...FL_FIX);return}
+  const b=flB(f),m=1500;FOHG.bounds=[b[0]-m,b[1]+m,b[2]-m,b[3]+m];FOHG.d='';FOHG.walls=[];FOHG.texts=[];
+  FOH_ROOMS.splice(0,FOH_ROOMS.length,...flRooms(f));FOH_FIX.splice(0,FOH_FIX.length);
+}
+function flGo(id){
+  if(id===foh.cur)return;if(id!=='g'&&!foh.floors.some(f=>f.id===id))return;
+  flStop();foh.park[foh.cur]={items:foh.items,fin:foh.fin};const p=foh.park[id]||{items:[],fin:{}};delete foh.park[id];
+  foh.items=p.items||[];foh.fin=p.fin||{};foh.cur=id;flGeom();fUndo=[];fSel=null;fRoom=null;fTgt=null;fDefsKey='';
+  const r3=el('fh3Room');if(r3)r3.innerHTML='<option value="">Whole floor</option>'+FOH_ROOMS.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('');
+  flUi();flDrawUnder();fRender();if(fView==='plan')fFit();
+}
+
+/* the drawing sits under the plan; it is only redrawn when the floor, its scale or the drawing changes */
+function flDrawUnder(){
+  const g=el('flUnderG');if(!g)return;const f=flFloor(),svg=el('fhSvg');svg.classList.toggle('flup',!!f);
+  if(!f){g.innerHTML='';return}
+  const B=FOHG.bounds,b=flB(f),s=FLDB.m[f.id];
+  let h='<rect x="'+B[0]+'" y="'+(-B[3])+'" width="'+(B[1]-B[0])+'" height="'+(B[3]-B[2])+'" fill="var(--sheet)"/>';
+  if(!s){h+='<text class="fhrn" x="'+(b[0]+b[1])/2+'" y="'+(-(b[2]+b[3])/2)+'" text-anchor="middle" fill="var(--muted)">'+(f.miss?'The drawing of this floor is not on this device. Load the team design, or upload it again under Floor options.':'Loading the drawing…')+'</text>';g.innerHTML=h;if(!f.miss)flNeed(f.id);return}
+  if(el('fhDraw').checked){
+    if(f.kind==='path')h+='<g transform="scale(1,-1)"><g transform="translate('+FL_C[0]+' '+FL_C[1]+') scale('+(f.k||1)+') translate('+(-FL_C[0])+' '+(-FL_C[1])+')"><path d="'+s+'" fill="none" stroke="var(--wall-keep)" stroke-width="1" vector-effect="non-scaling-stroke"/></g></g>';
+    else h+='<rect x="'+b[0]+'" y="'+(-b[3])+'" width="'+(b[1]-b[0])+'" height="'+(b[3]-b[2])+'" fill="#fff"/><image href="'+s+'" x="'+b[0]+'" y="'+(-b[3])+'" width="'+(b[1]-b[0])+'" height="'+(b[3]-b[2])+'" preserveAspectRatio="none"/>';
+  }
+  g.innerHTML=h;
+}
+async function flNeed(id){
+  let s=await FLDB.get(id);
+  if(!s&&teamDb){try{s=await flTeamPull(id)}catch(e){}}
+  const f=foh.floors.find(x=>x.id===id);if(!f)return;
+  if(!s)f.miss=1;else delete f.miss;
+  if(foh.cur===id)flDrawUnder();
+}
+
+/* team: the drawing goes up in pieces, once per floor */
+async function flTeamPush(){
+  for(const f of foh.floors){
+    if(f.up)continue;const s=await FLDB.get(f.id);if(!s)continue;const n=Math.ceil(s.length/FL_CH);
+    for(let i=0;i<n;i++)await teamDb.doc('fohfloors/'+f.id+'_'+i).set({s:s.slice(i*FL_CH,(i+1)*FL_CH)});
+    await teamDb.doc('fohfloors/'+f.id).set({id:f.id,kind:f.kind,n,len:s.length,at:Date.now()});f.up=1;
+  }
+  fSave();
+}
+async function flTeamPull(id){
+  const h=await teamDb.doc('fohfloors/'+id).get();if(!h.exists)return null;const n=h.data().n||0;let s='';
+  for(let i=0;i<n;i++){const d=await teamDb.doc('fohfloors/'+id+'_'+i).get();if(!d.exists)return null;s+=d.data().s||''}
+  if(!s||(h.data().len&&h.data().len!==s.length))return null;await FLDB.put(id,s);return s;
+}
+function flPack(){
+  const park=Object.assign({},foh.park);park[foh.cur]={items:foh.items,fin:foh.fin};const g=park.g||{items:[],fin:{}};delete park.g;
+  return {items:g.items,fin:g.fin,park,floors:foh.floors.map(f=>{const c=Object.assign({},f);delete c.up;delete c.miss;return c})};
+}
+function flUnpack(o){
+  flStop();foh.floors=Array.isArray(o.floors)?o.floors.filter(f=>f&&f.id&&Array.isArray(f.b0)).map(f=>Object.assign({},f,{up:1})):[];foh.park={};
+  for(const k in (o.park||{}))if(foh.floors.some(f=>f.id===k))foh.park[k]={items:((o.park[k]||{}).items||[]).filter(i=>FURN[i.type]),fin:(o.park[k]||{}).fin||{}};
+  foh.cur='g';fUndo=[];flGeom();flUi();flDrawUnder();
+}
+
+/* ----- reading a file ----- */
+function flLoadImg(url){return new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>no(new Error('The file could not be read as a picture.'));i.src=url})}
+function flJpeg(src,w,h){
+  let W=Math.min(2600,w),q=.82,out='';const cv=document.createElement('canvas');
+  for(let n=0;n<12;n++){cv.width=Math.round(W);cv.height=Math.round(W*h/w);const c=cv.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,cv.width,cv.height);c.drawImage(src,0,0,cv.width,cv.height);out=cv.toDataURL('image/jpeg',q);if(out.length<=FL_MAX)break;if(q>.55)q-=.09;else W*=.85}
+  return out;
+}
+function flRead(file,how){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>no(new Error('The file could not be read.'));how==='text'?r.readAsText(file):how==='buf'?r.readAsArrayBuffer(file):r.readAsDataURL(file)})}
+function flScript(u){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=u;s.onload=ok;s.onerror=()=>no(new Error('The PDF reader could not be loaded. Check the connection, or upload a picture or an SVG instead.'));document.head.appendChild(s)})}
+async function flFile(file,page){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  if(ext==='dwg')throw new Error('A DWG file cannot be read in a browser. In AutoCAD use Save As and choose DXF, or print the floor to PDF, then upload that file.');
+  if(ext==='dxf'){const o=flDxf(await flRead(file,'text'));return o}
+  if(ext==='pdf'){
+    if(!window.pdfjsLib){await flScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
+    const doc=await window.pdfjsLib.getDocument({data:await flRead(file,'buf')}).promise;if(page>doc.numPages)throw new Error('This PDF has '+doc.numPages+' page'+(doc.numPages>1?'s':'')+'. Choose a page from 1 to '+doc.numPages+'.');
+    const pg=await doc.getPage(page||1),v0=pg.getViewport({scale:1}),vp=pg.getViewport({scale:Math.min(4,2600/v0.width)}),cv=document.createElement('canvas');cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);
+    await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;return {kind:'img',src:flJpeg(cv,cv.width,cv.height),w:cv.width,h:cv.height};
+  }
+  if(ext==='svg'){
+    const t=await flRead(file,'text'),url='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(t))),im=await flLoadImg(url);let w=im.naturalWidth,h=im.naturalHeight;
+    if(!w||!h){const m=/viewBox\s*=\s*["']\s*[-\d.e]+[\s,]+[-\d.e]+[\s,]+([\d.e]+)[\s,]+([\d.e]+)/i.exec(t);w=m?+m[1]:1000;h=m?+m[2]:700}
+    return {kind:'img',src:url.length<=FL_MAX?url:flJpeg(im,Math.max(w,1800),Math.max(w,1800)*h/w),w,h};
+  }
+  if(['png','jpg','jpeg','webp','gif','bmp'].includes(ext)){const im=await flLoadImg(await flRead(file,'url'));return {kind:'img',src:flJpeg(im,im.naturalWidth,im.naturalHeight),w:im.naturalWidth,h:im.naturalHeight}}
+  throw new Error('This kind of file is not supported. Use SVG, PDF, DXF, PNG or JPG.');
+}
+/* DXF: lines, polylines, circles, arcs, ellipses, splines (as straight runs) and blocks. Hatches, text and dimensions are left out. */
+function flDxf(txt){
+  const L=txt.split(/\r\n|\r|\n/),R=[];let r=null;
+  for(let i=0;i+1<L.length;i+=2){const c=parseInt(L[i],10),v=L[i+1].trim();if(c===0){r={t:v.toUpperCase(),g:[]};R.push(r)}else if(r)r.g.push([c,v])}
+  if(R.length<3)throw new Error('This does not look like a text DXF file. In AutoCAD choose Save As, AutoCAD DXF (not binary).');
+  const num=(e,c,d)=>{const x=e.g.find(q=>q[0]===c);const v=x?parseFloat(x[1]):NaN;return isFinite(v)?v:d},str=(e,c)=>{const x=e.g.find(q=>q[0]===c);return x?x[1]:''};
+  let sec='',blk=null,pl=null,units=0;const blocks={},top=[];
+  for(const e of R){
+    if(e.t==='SECTION'){sec=str(e,2).toUpperCase();if(sec==='HEADER'){const g=e.g;for(let j=0;j+1<g.length;j++)if(g[j][0]===9&&g[j][1].toUpperCase()==='$INSUNITS')units=parseInt(g[j+1][1],10)||0}continue}
+    if(e.t==='ENDSEC'){sec='';continue}
+    if(sec==='BLOCKS'){if(e.t==='BLOCK'){blk={n:str(e,2),bx:num(e,10,0),by:num(e,20,0),e:[]};pl=null;continue}if(e.t==='ENDBLK'){if(blk)blocks[blk.n]=blk;blk=null;pl=null;continue}}
+    else if(sec!=='ENTITIES')continue;
+    const out=sec==='BLOCKS'?(blk?blk.e:null):top;if(!out)continue;
+    if(e.t==='VERTEX'){if(pl)pl.pts.push([num(e,10,0),num(e,20,0)]);continue}
+    if(e.t==='SEQEND'){pl=null;continue}
+    pl=null;if(num(e,67,0)===1)continue;
+    if(e.t==='POLYLINE'){pl={k:'pl',pts:[],cl:(num(e,70,0)&1)===1};out.push(pl)}
+    else if(e.t==='LINE')out.push({k:'pl',pts:[[num(e,10,0),num(e,20,0)],[num(e,11,0),num(e,21,0)]]});
+    else if(e.t==='LWPOLYLINE'||e.t==='SPLINE'){const xs=e.g.filter(q=>q[0]===10),ys=e.g.filter(q=>q[0]===20),pts=[];for(let j=0;j<Math.min(xs.length,ys.length);j++)pts.push([parseFloat(xs[j][1]),parseFloat(ys[j][1])]);out.push({k:'pl',pts,cl:(num(e,70,0)&1)===1})}
+    else if(e.t==='CIRCLE'||e.t==='ARC'){const cx=num(e,10,0),cy=num(e,20,0),rad=num(e,40,0);let a0=e.t==='ARC'?num(e,50,0):0,a1=e.t==='ARC'?num(e,51,360):360;if(a1<=a0)a1+=360;const n=Math.max(6,Math.ceil((a1-a0)/10)),pts=[];for(let j=0;j<=n;j++){const a=(a0+(a1-a0)*j/n)*Math.PI/180;pts.push([cx+rad*Math.cos(a),cy+rad*Math.sin(a)])}out.push({k:'pl',pts})}
+    else if(e.t==='ELLIPSE'){const cx=num(e,10,0),cy=num(e,20,0),mx=num(e,11,0),my=num(e,21,0),q=num(e,40,1);let t0=num(e,41,0),t1=num(e,42,Math.PI*2);if(t1<=t0)t1+=Math.PI*2;const n=Math.max(8,Math.ceil((t1-t0)/.17)),pts=[];for(let j=0;j<=n;j++){const t=t0+(t1-t0)*j/n;pts.push([cx+mx*Math.cos(t)-my*q*Math.sin(t),cy+my*Math.cos(t)+mx*q*Math.sin(t)])}out.push({k:'pl',pts})}
+    else if(e.t==='INSERT')out.push({k:'in',n:str(e,2),x:num(e,10,0),y:num(e,20,0),sx:num(e,41,1),sy:num(e,42,1),rot:num(e,50,0)});
+  }
+  let polys=[],np=0;
+  const walk=(list,T,dep)=>{for(const o of list){if(np>300000)return;if(o.k==='pl'){const q=o.pts.map(p=>T(p[0],p[1])).filter(p=>isFinite(p[0])&&isFinite(p[1]));if(q.length<2)continue;if(o.cl)q.push(q[0]);polys.push(q);np+=q.length}else if(dep<5){const b=blocks[o.n];if(!b)continue;const a=o.rot*Math.PI/180,c=Math.cos(a),s=Math.sin(a);walk(b.e,(x,y)=>{const X=(x-b.bx)*o.sx,Y=(y-b.by)*o.sy;return T(o.x+X*c-Y*s,o.y+X*s+Y*c)},dep+1)}}};
+  walk(top,(x,y)=>[x,y],0);
+  if(!polys.length)throw new Error('No lines were found in this DXF. Check that the floor is drawn in model space, then save as DXF again.');
+  /* leave out stray objects far from the building, so they do not shrink the plan */
+  const xs=[],ys=[];for(const q of polys)for(const p of q){xs.push(p[0]);ys.push(p[1])}xs.sort((a,b)=>a-b);ys.sort((a,b)=>a-b);
+  const at=(a,f)=>a[Math.min(a.length-1,Math.max(0,Math.round(f*(a.length-1))))];let x0=at(xs,.1),x1=at(xs,.9),y0=at(ys,.1),y1=at(ys,.9);const px=(x1-x0)*2+1e-9,py=(y1-y0)*2+1e-9;x0-=px;x1+=px;y0-=py;y1+=py;
+  polys=polys.filter(q=>q.some(p=>p[0]>=x0&&p[0]<=x1&&p[1]>=y0&&p[1]<=y1));
+  x0=y0=1e300;x1=y1=-1e300;for(const q of polys)for(const p of q){x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);y0=Math.min(y0,p[1]);y1=Math.max(y1,p[1])}
+  const span=Math.max(x1-x0,y1-y0)||1,known={1:25.4,2:304.8,4:1,5:10,6:1000}[units],u=known||(span<200?1000:span<5000?10:1),mx=(x0+x1)/2,my=(y0+y1)/2;
+  let d='';for(const q of polys){let lx=null,ly=null,first=true;for(const p of q){const X=Math.round(FL_C[0]+(p[0]-mx)*u),Y=Math.round(FL_C[1]+(p[1]-my)*u);if(X===lx&&Y===ly)continue;d+=(first?'M':'L')+X+' '+Y;first=false;lx=X;ly=Y}}
+  const w=(x1-x0)*u,h=(y1-y0)*u;
+  return {kind:'path',src:d,w,h,mm:1,sure:!!known};
+}
+
+/* ----- floors: add, options, scale, rooms ----- */
+function flMsg(t,bad){const m=el('flMsg');if(m){m.textContent=t||'';m.style.color=bad?'var(--bad)':'var(--muted)'}}
+function flAddDlg(replace){
+  const dlg=el('fhDlg'),f=replace?flFloor():null;
+  dlg.innerHTML='<form method="dialog" id="flAddF"><h3>'+(f?'Replace the drawing of '+esc(f.name):'Add a floor')+'</h3><p class="muted" style="margin:0;font-size:12.5px">Upload the drawing of the floor: SVG, PDF, DXF, or a picture (PNG, JPG). A DWG cannot be read in a browser: in AutoCAD use Save As and choose DXF, or print the floor to PDF.</p><div class="fg">'+
+    (f?'':'<label class="full">Floor name<input id="flN" required maxlength="40" value="Upper floor"></label>')+
+    '<label class="full">Drawing file<input id="flF" type="file" accept=".svg,.pdf,.dxf,.png,.jpg,.jpeg,.webp,.dwg"></label>'+
+    '<label>Page, for a PDF<input id="flPg" type="number" min="1" step="1" value="1"></label></div>'+
+    '<div id="flMsg" style="font-size:12.5px;min-height:1.2em;margin-top:8px"></div>'+
+    '<div class="acts"><button type="button" class="btn" id="flNo">Cancel</button><button type="submit" class="btn pri" id="flOk">'+(f?'Replace drawing':'Add floor')+'</button></div></form>';
+  el('flNo').onclick=()=>dlg.close();
+  el('flAddF').onsubmit=async e=>{
+    e.preventDefault();const file=el('flF').files[0];if(!file){flMsg('Choose the drawing file first.',1);return}
+    const name=f?f.name:el('flN').value.trim();if(!name){flMsg('Give the floor a name.',1);return}
+    el('flOk').disabled=true;flMsg('Reading the drawing…');
+    try{
+      const o=await flFile(file,Math.max(1,parseInt(el('flPg').value,10)||1));
+      const W=o.mm?o.w:(o.w>=o.h?20000:20000*o.w/o.h),H=o.mm?o.h:W*o.h/o.w,b0=[Math.round(FL_C[0]-W/2),Math.round(FL_C[0]+W/2),Math.round(FL_C[1]-H/2),Math.round(FL_C[1]+H/2)];
+      let fl=f;
+      if(fl){fl.kind=o.kind;fl.b0=b0;fl.k=1;fl.cal=o.mm&&o.sure?1:0;fl.file=file.name;delete fl.up;delete fl.miss;await FLDB.put(fl.id,o.src);flGeom()}
+      else{fl={id:'u'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36),name,kind:o.kind,b0,k:1,rooms:[],cal:o.mm&&o.sure?1:0,file:file.name};await FLDB.put(fl.id,o.src);foh.floors.push(fl);foh.touched=1;flGo(fl.id)}
+      dlg.close();flUi();flDrawUnder();fRender();fFit();
+      if(fl.cal)fSay('Floor added at '+(W/1000).toFixed(1)+' × '+(H/1000).toFixed(1)+' m, read from the DXF. If that is wrong, open Floor options and set the scale.');
+      else flStart('scale');
+    }catch(err){flMsg((err&&err.message)||'The drawing could not be read.',1);el('flOk').disabled=false}
+  };
+  dlg.showModal();
+}
+function flOptDlg(){
+  const f=flFloor();if(!f)return;const dlg=el('fhDlg'),b=flB(f);
+  dlg.innerHTML='<form method="dialog" id="flOptF"><h3>Floor options</h3><p class="muted" style="margin:0;font-size:12.5px">'+esc(f.file||'Uploaded drawing')+' · shown at '+((b[1]-b[0])/1000).toFixed(1)+' × '+((b[3]-b[2])/1000).toFixed(1)+' m'+(f.cal?'':' · scale not set yet')+'</p><div class="fg">'+
+    '<label class="full">Floor name<input id="flN" maxlength="40" value="'+esc(f.name)+'"></label></div>'+
+    '<div class="sw" style="margin-top:12px"><button type="button" class="btn" id="flSc">Set the scale</button><button type="button" class="btn" id="flRm">Draw a room</button>'+(f.rooms.length?'<button type="button" class="btn" id="flRx">Remove the rooms I drew ('+f.rooms.length+')</button>':'')+'<button type="button" class="btn" id="flRp">Replace the drawing</button></div>'+
+    '<p class="muted" style="font-size:12px;margin:10px 0 0">Set the scale first: click two points whose real distance you know, such as the two ends of a wall. Draw rooms to give each one its own floor and wall finish and its own seat count.</p>'+
+    '<div class="acts"><button type="button" class="btn" id="flDel" style="margin-right:auto;color:var(--bad)">Delete this floor</button><button type="submit" class="btn pri">Done</button></div></form>';
+  el('flOptF').onsubmit=()=>{const n=el('flN').value.trim();if(n&&n!==f.name){f.name=n;foh.touched=1;flGeom();flUi();fRender()}};
+  const shut=()=>{el('flOptF').requestSubmit?el('flOptF').requestSubmit():dlg.close()};
+  el('flSc').onclick=()=>{shut();flStart('scale')};el('flRm').onclick=()=>{shut();flStart('room')};el('flRp').onclick=()=>{dlg.close();flAddDlg(true)};
+  if(el('flRx'))el('flRx').onclick=()=>{fSnap();f.rooms=[];flGeom();dlg.close();fRoom=null;fTgt=null;fRender()};
+  let arm=false;el('flDel').onclick=()=>{if(!arm){arm=true;el('flDel').textContent='Click again to delete the floor and everything on it';setTimeout(()=>{arm=false;if(el('flDel'))el('flDel').textContent='Delete this floor'},3000);return}dlg.close();const id=f.id;flGo('g');foh.floors=foh.floors.filter(x=>x.id!==id);delete foh.park[id];FLDB.del(id);foh.touched=1;flUi();fSave()};
+  dlg.showModal();
+}
+function flStart(m){flMode={k:m,pts:[]};fSel=null;fRoom=null;fTgt=null;fRender();flHint()}
+function flStop(){flMode=null;flHint()}
+function flHint(){
+  const h=el('flHint'),o=el('flOverG');if(!h||!o)return;
+  if(!flMode){h.style.display='none';o.innerHTML='';return}
+  const n=flMode.pts.length,sc=flMode.k==='scale';
+  h.style.display='flex';
+  h.innerHTML='<span>'+(sc?(n===0?'Set the scale: click the first of two points whose real distance you know, for example one end of a wall.':'Now click the second point.'):(n<3?'Draw the room: click each corner in turn ('+n+' so far). Drag to move the plan, wheel to zoom.':'Click the next corner, or press Finish room.'))+'</span>'+(!sc&&n>=3?'<button class="btn sm pri" id="flFin">Finish room</button>':'')+(n?'<button class="btn sm" id="flBack">Undo point</button>':'')+'<button class="btn sm" id="flCan">Cancel</button>';
+  el('flCan').onclick=flStop;if(el('flBack'))el('flBack').onclick=()=>{flMode.pts.pop();flHint()};if(el('flFin'))el('flFin').onclick=flRoomDone;
+  const r=(fVb?fVb.w:20000)/260,P=flMode.pts;let s='';
+  if(P.length>1)s+='<polyline points="'+P.map(p=>p[0]+','+(-p[1])).join(' ')+'" fill="'+(sc?'none':'var(--accent)')+'" fill-opacity=".12" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+  for(const p of P)s+='<circle cx="'+p[0]+'" cy="'+(-p[1])+'" r="'+r+'" fill="var(--accent)" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+  o.innerHTML=s;
+}
+function flClick(x,y){
+  if(!flMode)return;const P=flMode.pts;
+  if(flMode.k==='room'&&P.length>=3&&Math.hypot(x-P[0][0],y-P[0][1])<(fVb?fVb.w:20000)/90){flRoomDone();return}
+  P.push([Math.round(x),Math.round(y)]);
+  if(flMode.k==='scale'&&P.length===2){flScaleDlg();return}
+  flHint();
+}
+function flScaleDlg(){
+  const f=flFloor(),P=flMode.pts,d=Math.hypot(P[1][0]-P[0][0],P[1][1]-P[0][1]),dlg=el('fhDlg');if(!f||d<1){flStop();return}
+  flHint();
+  dlg.innerHTML='<form method="dialog" id="flScF"><h3>Set the scale</h3><p class="muted" style="margin:0;font-size:12.5px">How long is the real distance between the two points you clicked?</p><div class="fg"><label>Distance in metres<input id="flD" type="number" min="0.05" step="0.01" required value="'+(d/1000).toFixed(2)+'"></label></div><div id="flMsg" style="font-size:12.5px;min-height:1.2em;margin-top:8px"></div><div class="acts"><button type="button" class="btn" id="flNo">Cancel</button><button type="submit" class="btn pri">Set scale</button></div></form>';
+  el('flNo').onclick=()=>{dlg.close();flStop()};
+  el('flScF').onsubmit=e=>{
+    e.preventDefault();const m=parseFloat(el('flD').value);if(!(m>0.04)){flMsg('Type the distance in metres, for example 4.2',1);return}
+    const q=m*1000/d;fUndo=[];foh.touched=1;f.k=(f.k||1)*q;f.cal=1;
+    for(const it of foh.items){it.cx=flSc(it.cx,FL_C[0],q);it.cy=flSc(it.cy,FL_C[1],q)}
+    for(const r of f.rooms)r.poly=r.poly.map(p=>[flSc(p[0],FL_C[0],q),flSc(p[1],FL_C[1],q)]);
+    dlg.close();flStop();flGeom();flDrawUnder();fRender();fFit();const b=flB(f);fSay('Scale set. The drawing is now '+((b[1]-b[0])/1000).toFixed(1)+' × '+((b[3]-b[2])/1000).toFixed(1)+' m.');
+  };
+  dlg.showModal();
+}
+function flRoomDone(){
+  const f=flFloor(),P=flMode&&flMode.pts;if(!f||!P||P.length<3){flStop();return}const dlg=el('fhDlg');
+  dlg.innerHTML='<form method="dialog" id="flRmF"><h3>Name the room</h3><div class="fg"><label class="full">Room name<input id="flN" required maxlength="40" value="Room '+(f.rooms.length+1)+'"></label><label class="chk" style="flex-direction:row;align-items:center;gap:6px"><input id="flOut" type="checkbox"> Outdoor (terrace, garden)</label></div><div class="acts"><button type="button" class="btn" id="flNo">Cancel</button><button type="submit" class="btn pri">Add room</button></div></form>';
+  el('flNo').onclick=()=>{dlg.close();flStop()};
+  el('flRmF').onsubmit=e=>{
+    e.preventDefault();const n=el('flN').value.trim()||('Room '+(f.rooms.length+1));fSnap();
+    const r={id:f.id+'_r'+Date.now().toString(36),name:n,poly:P.map(p=>[p[0],p[1]])};if(el('flOut').checked)r.out=1;
+    if(!f.rooms.length&&foh.fin[f.id+'_all']){foh.fin[r.id]=foh.fin[f.id+'_all'];delete foh.fin[f.id+'_all']}
+    f.rooms.push(r);dlg.close();flStop();flGeom();fRoom=r.id;fRender();
+  };
+  dlg.showModal();
+}
+function flUi(){
+  const s=el('flSel');if(!s)return;
+  s.innerHTML='<option value="g">Ground floor</option>'+foh.floors.map(f=>'<option value="'+f.id+'">'+esc(f.name)+'</option>').join('');s.value=foh.cur;
+  el('flOpt').style.display=foh.cur==='g'||fView!=='plan'?'none':'';
+}
+(function flBoot(){
+  const svg=el('fhSvg'),sc=el('fhScene'),NS='http://www.w3.org/2000/svg';
+  const u=document.createElementNS(NS,'g');u.id='flUnderG';u.setAttribute('pointer-events','none');svg.insertBefore(u,sc);
+  const o=document.createElementNS(NS,'g');o.id='flOverG';o.setAttribute('pointer-events','none');svg.appendChild(o);
+  const h=document.createElement('div');h.id='flHint';h.style.display='none';el('fhSvgWrap').appendChild(h);
+  const g=document.createElement('div');g.className='grp';
+  g.innerHTML='<span class="gl">Floor</span><select id="flSel" aria-label="Floor"></select><button class="btn sm fhplanonly" id="flAdd" title="Upload the drawing of another floor: SVG, PDF, DXF or a picture">Add floor</button><button class="btn sm fhplanonly" id="flOpt" title="Scale, rooms, name and drawing of this floor">Floor options</button>';
+  el('fhVPlan').parentNode.after(g);
+  el('flSel').onchange=e=>flGo(e.target.value);el('flAdd').onclick=()=>flAddDlg(false);el('flOpt').onclick=flOptDlg;
+  el('fhDraw').addEventListener('change',flDrawUnder);
+  svg.addEventListener('pointerdown',e=>{flDownAt=[e.clientX,e.clientY]});
+  svg.addEventListener('pointerup',e=>{if(!flMode||!flDownAt)return;const d=Math.hypot(e.clientX-flDownAt[0],e.clientY-flDownAt[1]);flDownAt=null;if(d>5)return;const p=fPt(e);flClick(p[0],-p[1])});
+  window.addEventListener('keydown',e=>{if(flMode&&e.key==='Escape')flStop()},true);
+  const sv=fSetView;fSetView=function(v){if(v!=='plan')flStop();sv(v);flUi()};
+  if(foh.cur!=='g')flGeom();
+  flUi();flDrawUnder();
+})();
+
 </script>
 <style id="uxKitCss">
 /* ----- Calmer layout (ux-kit): one status line, one-row toolbar, menus ----- */
@@ -4492,5 +4758,6 @@ body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
   });
 })();
 </script>
+
 </body>
 </html>
