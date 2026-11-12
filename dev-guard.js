@@ -82,7 +82,8 @@
       var method = ((opts && opts.method) || 'GET').toUpperCase();
       var urlStr = String(url);
       var blocked = (method !== 'GET' && method !== 'HEAD' && urlStr.indexOf('/rest/v1/') !== -1 &&
-                     urlStr.indexOf('/rest/v1/rpc/kitchen_master_check') === -1) ||   // a read: master codes must work on DEV too
+                     urlStr.indexOf('/rest/v1/rpc/kitchen_master_check') === -1 &&   // a read: master codes must work on DEV too
+                     !/\/rest\/v1\/rpc\/kd_(check|projects_list|doc_get|doc_list)(\?|$)/.test(urlStr)) ||   // Kitchen Design READS (the writes stay blocked)
                     isMutatingFunctionCall(urlStr);
       if (blocked) {
         console.warn('[DEV read-only] blocked ' + method + ' ' + urlStr);

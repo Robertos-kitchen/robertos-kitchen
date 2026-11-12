@@ -27,6 +27,11 @@ for a, b in proj.items():
     assert t.count(a) == 1, a
     t = t.replace(a, b)
 
+# front of house mode (Build 75+): its browser copy is per project too
+for a, b in {"'mkp.foh.v1'": "('mkp.foh.v1.'+(window.KD_PROJECT||''))", "'mkp.foh.rev'": "('mkp.foh.rev.'+(window.KD_PROJECT||''))"}.items():
+    if a in t:
+        t = t.replace(a, b)
+
 # the planner is a Claude Artifact page: strip the build stamp wording only
 key = re.search(r"SUPABASE_KEY\s*=\s*'([^']+)'", open('app.js', encoding='latin-1').read()).group(1)
 shim = open('kd-shim.js', encoding='utf8').read().replace('__KD_ANON_KEY__', key)

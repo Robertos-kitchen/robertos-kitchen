@@ -7,6 +7,7 @@
 <title>Kitchen Design · Roberto's Kitchen</title>
 <script src="dev-guard.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="kd-shim.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
 :root{--vino:#410207;--sabbia:#e1d3c2;--ink:#2a1a10;--cream:#f5ede0;--ground:#efe7db;--card:#fffaf2;--line:#dccdb9;--muted:#5f4c3d;--oro:#ba9b02;--err:#8f1d12;--err-bg:#fbe9e6;--ok:#2f5d1e;
@@ -52,8 +53,7 @@ input,select,textarea{width:100%;min-height:44px;padding:8px 10px;border:1px sol
 </div>
 <script>
 (function(){
-  var URL_='https://zrpglswalgjbtghudmhu.supabase.co', KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
-  var sb=window.supabase.createClient(URL_,KEY), $=function(i){return document.getElementById(i)};
+  var $=function(i){return document.getElementById(i)};
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
   var projects=[];
   function fmt(t){try{return new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Dubai'})}catch(e){return ''}}
@@ -66,8 +66,8 @@ input,select,textarea{width:100%;min-height:44px;padding:8px 10px;border:1px sol
     $('npFrom').innerHTML='<option value="">A blank plan</option>'+projects.map(function(p){return '<option value="'+esc(p.id)+'">A copy of: '+esc(p.name)+'</option>'}).join('');
   }
   function load(){
-    sb.from('kd_projects').select('*').eq('archived',false).order('created_at',{ascending:true}).then(function(r){
-      if(r.error){$('list').innerHTML='<p class="msg err">Could not load the projects ('+esc(r.error.message||r.error.code||'error')+'). The database tables may not be set up yet.</p>';return}
+    KD.rpc('kd_projects_list',{}).then(function(r){
+      if(r.error){$('list').innerHTML='<p class="msg err">Could not load the projects ('+esc(r.error.message||r.error.code||'error')+').</p>';return}
       projects=r.data||[];render();
     });
   }
@@ -77,15 +77,15 @@ input,select,textarea{width:100%;min-height:44px;padding:8px 10px;border:1px sol
     var name=$('npName').value.trim(),from=$('npFrom').value,m=$('npMsg');
     if(name.length<2){m.className='msg err';m.textContent='Give the project a name.';return}
     m.className='msg';m.textContent='Creating…';$('npGo').disabled=true;
-    sb.from('kd_projects').insert({name:name,place:$('npPlace').value.trim()||null}).select().then(function(r){
-      if(r.error||!r.data||!r.data[0])throw (r.error||new Error('not created'));
-      var id=r.data[0].id;
+    KD.rpc('kd_project_create',{p_name:name,p_place:$('npPlace').value.trim()}).then(function(r){
+      if(r.error||!r.data)throw (r.error||new Error('not created'));
+      var id=r.data.id;
       if(!from)return id;
-      return sb.from('kd_docs').select('data').eq('project_id',from).eq('coll','plans').eq('doc_id','main').limit(1).then(function(q){
+      return KD.rpc('kd_doc_get',{p_project:from,p_coll:'plans',p_id:'main'}).then(function(q){
         if(q.error)throw q.error;
-        if(!q.data||!q.data[0])return id;
-        var d=Object.assign({},q.data[0].data,{rev:1,at:Date.now()});
-        return sb.from('kd_docs').upsert({project_id:id,coll:'plans',doc_id:'main',data:d,updated_at:new Date().toISOString()},{onConflict:'project_id,coll,doc_id'}).then(function(w){if(w.error)throw w.error;return id});
+        if(!q.data)return id;
+        var d=Object.assign({},q.data.data,{rev:1,at:Date.now()});
+        return KD.rpc('kd_doc_put',{p_project:id,p_coll:'plans',p_id:'main',p_data:d}).then(function(w){if(w.error)throw w.error;return id});
       });
     }).then(function(id){location.href='kitchen-design-plan.html?p='+encodeURIComponent(id)}).catch(function(e){
       $('npGo').disabled=false;m.className='msg err';m.textContent=(window.DEV_READ_ONLY?'Writes are locked on the test site. ':'')+'Could not create the project ('+(e&&e.message||'error')+').';
