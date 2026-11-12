@@ -303,7 +303,7 @@ dialog#fhDlg::backdrop{background:#0006}
 
 <header>
   <h1>Marrakech Kitchen Planner</h1>
-<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 79 · 12 Nov · walls, erase and steps on uploaded floors</div>
+<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 80 · 12 Nov · windows in bearing walls shown</div>
   <div class="tabs" role="group" aria-label="Kitchen and version">
     <button id="vDown" aria-pressed="true">Downstairs · concept</button>
     <button id="vUp" aria-pressed="false">Upstairs · concept</button>
@@ -4875,6 +4875,43 @@ body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
     const empty=()=>insp.classList.toggle('ux-empty',!insp.querySelector('input,select,textarea,button'));
     watch(insp,empty,{childList:true});empty();
   });
+})();
+
+/* Windows the architect placed inside structural bearing walls (read from the permit drawing by mkwin.py).
+   The planner only fills solid walls, so these stretches used to show as a thin line and read as a gap.
+   They are drawn here as wall with a glass line, and a click explains what they are. Nothing else changes:
+   they take no part in the checks, the partitions list or 3D. */
+(function(){
+  const W={"down":[[-41339,-40839,25905,26382,"Window 27_2"],[-41339,-40839,28382,28860,"Window 27_2"],[-41254,-40839,22993,24983,"Window 27_9"],[-39510,-38010,27932,28432,"Window 27_10"]],"up":[[-53974,-53669,-27289,-24865,"Window 27_8"],[-53593,-53390,-31825,-29025,"Window 27_7"],[-52395,-49677,-27944,-27540,"Horizontal Multi-Sash Window 27"],[-48973,-48769,-31877,-29077,"Window 27_6"],[-45285,-44985,-24943,-22304,"Window 27_3"]]},svg=document.getElementById('sheet'),sc=document.getElementById('scene');
+  if(!svg||!sc||document.getElementById('uxWinG'))return;
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');g.id='uxWinG';g.setAttribute('pointer-events','none');sc.after(g);
+  const here=()=>(typeof mode!=='undefined'&&(mode==='plan'||mode==='orig'))?(W[state.view]||[]):[];
+  function draw(){
+    let h='';
+    for(const w of here()){
+      const x0=w[0],x1=w[1],y0=w[2],y1=w[3],hz=(x1-x0)>=(y1-y0),mx=(x0+x1)/2,my=(y0+y1)/2;
+      h+='<rect x="'+x0+'" y="'+(-y1)+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" fill="var(--wall-keep)" fill-opacity=".28" stroke="var(--wall-keep)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+      h+=hz?'<path d="M'+x0+' '+(-my)+'H'+x1+'" stroke="var(--c-cold)" stroke-width="2.5" vector-effect="non-scaling-stroke" fill="none"/>':'<path d="M'+mx+' '+(-y0)+'V'+(-y1)+'" stroke="var(--c-cold)" stroke-width="2.5" vector-effect="non-scaling-stroke" fill="none"/>';
+    }
+    g.innerHTML=h;
+  }
+  if(typeof render==='function'){const r0=render;render=function(){const o=r0.apply(this,arguments);try{draw()}catch(e){}return o}}
+  try{draw()}catch(e){}
+  /* a plain click on one of them says what it is */
+  let at=null;
+  svg.addEventListener('pointerdown',e=>{at=[e.clientX,e.clientY]});
+  svg.addEventListener('pointerup',e=>{
+    if(!at||Math.hypot(e.clientX-at[0],e.clientY-at[1])>5){at=null;return}at=null;
+    let p;try{p=toWorld(e)}catch(x){return}
+    const w=here().find(q=>p.x>=q[0]-40&&p.x<=q[1]+40&&p.y>=q[2]-40&&p.y<=q[3]+40);if(!w)return;
+    setTimeout(()=>{
+      if(typeof sel!=='undefined'&&sel)return;const st=document.getElementById('stSel');if(!st)return;
+      const len=Math.max(w[1]-w[0],w[3]-w[2]),th=Math.min(w[1]-w[0],w[3]-w[2]);
+      st.textContent='Window in an existing bearing wall ('+(len/1000).toFixed(2)+' m wide, wall '+Math.round(th/10)+' cm thick, from the architect’s drawing). The wall stays: it cannot be removed or moved here. To open it up, ask the architect and the structural engineer.';
+    },0);
+  });
+  const leg=document.querySelector('.uxkey .legend')||document.querySelector('.app .stage .legend');
+  if(leg){const s=document.createElement('span');s.innerHTML='<i style="background:var(--wall-keep);opacity:.45;border-color:var(--wall-keep);border-bottom:2px solid var(--c-cold)"></i>Window in an existing bearing wall (stays)';leg.insertBefore(s,leg.children[1]||null)}
 })();
 </script>
 
