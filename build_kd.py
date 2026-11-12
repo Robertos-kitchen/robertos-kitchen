@@ -38,6 +38,8 @@ head = ('<!doctype html>\n<html lang="en" translate="no">\n<head>\n<meta charset
         '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n'
         '<script src="kd-shim.js"></script>\n'
         '<style>*{box-sizing:border-box}html,body{margin:0}</style>\n</head>\n<body>\n')
-out = head + t + '\n</body>\n</html>\n'
+back = ('<a href="kitchen-design.html" style="position:fixed;left:8px;bottom:34px;z-index:60;font:600 11px system-ui,sans-serif;'
+        'padding:3px 9px;border-radius:9px;background:#410207;color:#f5ede0;text-decoration:none">&larr; All projects</a>\n')
+out = head + back + t + '\n</body>\n</html>\n'
 open('kitchen-design-plan.html', 'w', encoding='utf8').write(out)
 print('written', len(out), 'bytes')
