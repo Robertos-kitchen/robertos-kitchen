@@ -294,7 +294,7 @@ dialog#fhDlg::backdrop{background:#0006}
 
 <header>
   <h1>Marrakech Kitchen Planner</h1>
-<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 76 · 12 Nov · front of house walk + photo render</div>
+<div id="buildStamp" style="position:fixed;left:8px;bottom:6px;z-index:50;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;background:#1f6f43;color:#fff;opacity:.92;pointer-events:none">Build 77 · 12 Nov · calmer layout + full view</div>
   <div class="tabs" role="group" aria-label="Kitchen and version">
     <button id="vDown" aria-pressed="true">Downstairs · concept</button>
     <button id="vUp" aria-pressed="false">Upstairs · concept</button>
@@ -4279,6 +4279,218 @@ function f3PtStart(){
 }
 
 </script>
+<style id="uxKitCss">
+/* ----- Calmer layout (ux-kit): one status line, one-row toolbar, menus ----- */
+header .tabs.ux-old{display:none}
+.uxnav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.uxnav[hidden],.uxp[hidden],.uxalert[hidden],#uxEraseOn[hidden]{display:none!important}
+.uxlinks{display:flex;gap:12px;align-items:center}
+.uxlinks button{border:0;background:transparent;color:var(--muted);font-size:12.5px;text-decoration:underline;padding:2px 0;font-weight:400}
+.uxlinks button:hover{color:var(--ink)}
+#guide>p{display:none}
+.goalbar .uxnext{display:flex;align-items:center;gap:8px;margin-left:auto;min-width:0;max-width:100%;color:var(--muted)}
+.goalbar .uxnext b{color:var(--ink);font-weight:600;flex:none}
+.goalbar .uxnext span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:46ch}
+.goalbar .uxnext .gchip{flex:none}
+.uxm{position:relative;display:inline-flex}
+.uxmb{display:inline-flex;align-items:center;gap:5px}
+.uxmb .uxc{width:0;height:0;border:4px solid transparent;border-top-color:currentColor;margin-top:4px;opacity:.6;font-size:0}
+.uxmb[aria-expanded="true"]{border-color:var(--muted)}
+.uxmb.uxwarn::after{content:'';width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.uxp{position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:210px;max-width:min(320px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:5px;box-shadow:0 8px 24px #0002,0 2px 6px #0001;display:flex;flex-direction:column;gap:1px}
+.uxm.uxr .uxp{left:auto;right:0}
+.uxp .btn{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px;font-weight:400;font-size:13px;border-radius:6px}
+.uxp .btn:hover{background:var(--bg)}
+.uxp .btn.pri,.uxp .btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.uxp .tog{padding:6px 10px;font-size:13px;color:var(--ink);border-radius:6px;gap:8px}
+.uxp .tog:hover{background:var(--bg)}
+.uxp .uxsep{height:1px;background:var(--line);margin:4px 2px}
+.uxp .uxdanger{color:var(--bad)}
+.uxp .uxnote{padding:6px 10px;font-size:12px;color:var(--muted);max-width:none}
+.uxp #teamSt{max-width:none;padding:6px 10px}
+.uxalert{font-size:12px;color:var(--warn);font-weight:600;max-width:300px}
+.uxalert.err{color:var(--bad)}
+#uxEraseOn{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.app .stage>.bar .grp{border-right:0;margin-right:0;padding-right:4px}
+.uxkey{position:absolute;right:10px;bottom:10px;z-index:5}
+.uxkey .uxp{top:auto;bottom:calc(100% + 4px);left:auto;right:0;padding:10px 12px;min-width:250px}
+.uxkey .legend{flex-direction:column;align-items:flex-start;gap:7px;font-size:12px}
+.uxlibrow{display:flex;gap:6px;margin-top:8px;align-items:stretch}
+.uxcat{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.lib .chips{display:none}
+.lib .bankbar:empty{display:none}
+.ptabs .uxm{flex:1;display:flex}
+.ptabs .uxm>.uxmb{flex:1;justify-content:center}
+.ptabs .uxp{min-width:180px}
+.ptabs .uxp button{display:block;flex:none;width:100%;text-align:left;padding:8px 12px;border-bottom:0;border-radius:6px;font-weight:400;color:var(--ink)}
+.ptabs .uxp button:hover{background:var(--bg)}
+.ptabs .uxp button[aria-pressed="true"]{font-weight:600;color:var(--accent)}
+.insp.ux-empty{padding:8px 12px}
+.insp.ux-empty>*{display:none}
+.insp.ux-empty::before{content:'Click an item on the plan to see its size and details here.';font-size:12.5px;color:var(--muted)}
+@media (min-width:761px){#sheetWrap{height:clamp(420px,calc(100vh - 230px),900px)}}
+body.uxfull .app{grid-template-columns:minmax(0,1fr)}
+body.uxfull .app>.lib,body.uxfull .app>.side{display:none}
+@media (min-width:761px){body.uxfull #sheetWrap{height:clamp(420px,calc(100vh - 190px),1400px)}}
+@media (max-width:760px){.app .stage>.bar{position:relative}.app .stage>.bar .uxm{position:static}.app .stage>.bar .uxp{top:100%;left:8px;right:8px;max-width:none}}
+</style>
+<script id="uxKitJs">
+/* Calmer layout (ux-kit). Moves the planner's own controls into a simpler frame.
+   It never replaces a handler: every control keeps its id and its original click. */
+(function(){
+  const $=id=>document.getElementById(id);
+  if(!$('vDown')||$('uxNav')) return;
+  const mk=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e};
+  const pressed=id=>{const b=$(id);return !!b&&b.getAttribute('aria-pressed')==='true'};
+  const watch=(node,fn,opt)=>{if(node)new MutationObserver(fn).observe(node,opt||{attributes:true,attributeFilter:['aria-pressed']})};
+  const safe=fn=>{try{fn()}catch(e){console.error('ux-kit',e)}};
 
+  /* ---- menus ---- */
+  const menus=[];
+  function closeAll(){menus.forEach(m=>{m.p.hidden=true;m.b.setAttribute('aria-expanded','false')})}
+  function menu(label,id,right){
+    const w=mk('div','uxm'+(right?' uxr':'')),b=mk('button','btn sm uxmb','<span class="uxl"></span><span class="uxc" aria-hidden="true">&#9662;</span>'),p=mk('div','uxp');
+    b.type='button';b.id=id;b.setAttribute('aria-haspopup','true');b.setAttribute('aria-expanded','false');b.firstChild.textContent=label;p.hidden=true;
+    b.addEventListener('click',()=>{const open=p.hidden;closeAll();if(open){p.hidden=false;b.setAttribute('aria-expanded','true')}});
+    p.addEventListener('click',e=>{const t=e.target.closest('button');if(t&&!t.hasAttribute('data-uxkeep'))closeAll()});
+    w.append(b,p);menus.push({b,p});
+    return {w,b,p,lab:b.firstChild};
+  }
+  document.addEventListener('click',e=>{if(!e.target.closest('.uxm'))closeAll()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAll()});
+
+  /* ---- 1. header: views, then floor and version ---- */
+  safe(()=>{
+    const old=document.querySelector('header .tabs');old.classList.add('ux-old');
+    const views=mk('div','tabs uxviews');views.setAttribute('role','group');views.setAttribute('aria-label','View');
+    [['plan','Plan'],['3d','3D flow'],['walk','Walk-through'],['sheet','Drawing sheets'],['foh','Front of house']].forEach(a=>{const b=mk('button');b.dataset.w=a[0];b.textContent=a[1];views.append(b)});
+    const nav=mk('div','uxnav');nav.id='uxNav';
+    const fl=mk('div','tabs');fl.setAttribute('role','group');fl.setAttribute('aria-label','Floor');
+    [['down','Downstairs'],['up','Upstairs']].forEach(a=>{const b=mk('button');b.dataset.f=a[0];b.textContent=a[1];fl.append(b)});
+    const ver=mk('div','tabs');ver.setAttribute('role','group');ver.setAttribute('aria-label','Version');
+    [['plan','Concept','Your working layout'],['orig','Original','The architect’s drawing as it came, read only']].forEach(a=>{const b=mk('button');b.dataset.v=a[0];b.textContent=a[1];b.title=a[2];ver.append(b)});
+    nav.append(fl,ver);old.after(views,nav);
+    let F='down',V='plan';
+    const idOf=(f,v)=>'v'+(f==='down'?'Down':'Up')+(v==='orig'?'O':'');
+    const srcOf={'3d':'v3d',walk:'vWalk',sheet:'vSheet',foh:'vFoh'};
+    function sync(){
+      let w='plan';
+      if(pressed('vFoh'))w='foh';else if(pressed('vWalk'))w='walk';else if(pressed('v3d'))w='3d';else if(pressed('vSheet'))w='sheet';
+      else [['down','plan'],['up','plan'],['down','orig'],['up','orig']].forEach(a=>{if(pressed(idOf(a[0],a[1]))){F=a[0];V=a[1]}});
+      views.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.w===w));
+      fl.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===F));
+      ver.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===V));
+      nav.hidden=w!=='plan';
+    }
+    views.onclick=e=>{const b=e.target.closest('[data-w]');if(!b)return;const t=$(b.dataset.w==='plan'?idOf(F,V):srcOf[b.dataset.w]);if(t)t.click()};
+    fl.onclick=e=>{const b=e.target.closest('[data-f]');if(b)$(idOf(b.dataset.f,V)).click()};
+    ver.onclick=e=>{const b=e.target.closest('[data-v]');if(b)$(idOf(F,b.dataset.v)).click()};
+    ['vDown','vUp','vDownO','vUpO','v3d','vWalk','vSheet','vFoh'].forEach(i=>watch($(i),sync));
+    sync();
+    /* help + feedback links */
+    const links=mk('div','uxlinks'),help=mk('button',null,'How it works');help.type='button';help.id='uxHelp';
+    help.onclick=()=>{const g=$('guide');if(!g)return;const off=getComputedStyle(g).display==='none';g.style.display=off?'':'none';try{localStorage.setItem('guideHidden',off?'0':'1')}catch(e){}};
+    links.append(help);
+    const rq=$('reqBtn');if(rq){rq.className='';links.append(rq)}
+    document.querySelector('header').append(links);
+  });
+
+  /* ---- 2. one status line: chips, then the next action ---- */
+  safe(()=>{
+    function next(){
+      const b=$('goalBar');if(!b)return;
+      while(b.firstChild&&b.firstChild.nodeName!=='BUTTON')b.firstChild.remove();
+      let n=null;try{n=nextAction(checksOf(state.view),goalState())}catch(e){}
+      if(!n||!n.text)return;
+      const s=mk('span','uxnext','<b>Next</b><span></span>');s.lastChild.textContent=n.text;s.lastChild.title=n.text;
+      if(n.go){const g=mk('button','gchip');g.type='button';g.textContent=n.btn||'Go there';g.onclick=()=>{if(mode!=='plan')setView(state.view);n.go()};s.append(g)}
+      b.append(s);
+    }
+    if(typeof updateGoalBar==='function'){const u=updateGoalBar;updateGoalBar=function(){u.apply(this,arguments);safe(next)};updateGoalBar()}
+  });
+
+  /* ---- 3. toolbar: one row, the rest in menus ---- */
+  safe(()=>{
+    const bar=document.querySelector('.app .stage>.bar');
+    const lab=id=>{const i=$(id);return i&&i.closest('label')};
+    const hint=bar.querySelector('.mhint');
+    const g1=mk('div','grp edit-only'),g2=mk('div','grp'),g3=mk('div','grp');
+    g1.append($('undo'));g2.append($('zout'),$('zin'),$('fit'));
+    const full=mk('button','btn sm','Full view');full.type='button';full.id='uxFull';full.title='Hide the equipment list and the right panel so the plan fills the screen. Click again to bring them back.';
+    const setFull=on=>{document.body.classList.toggle('uxfull',on);full.setAttribute('aria-pressed',on);full.textContent=on?'Show panels':'Full view';try{localStorage.setItem('uxFull',on?'1':'0')}catch(e){}};
+    full.onclick=()=>{setFull(!document.body.classList.contains('uxfull'));requestAnimationFrame(()=>$('fit').click())};
+    let f0=false;try{f0=localStorage.getItem('uxFull')==='1'}catch(e){}
+    setFull(f0);if(f0)requestAnimationFrame(()=>$('fit').click());
+    g2.append(full);
+    const er=mk('button','btn sm','Erasing lines · Done');er.type='button';er.id='uxEraseOn';er.hidden=true;er.title='Erase mode is on: drag a box over the grey lines. Click here when you finish.';er.onclick=()=>$('mErase').click();
+    g3.append($('mMeas'),$('mClr'),hint,$('mPart'),er);
+    const view=menu('View','uxView');
+    ['tClr','tFlow','tGrid','tDraw','tTag','tDim'].forEach(i=>{const l=lab(i);if(l)view.p.append(l)});
+    view.p.append($('mRestore'));
+    const lay=menu('Layouts','uxLay');lay.w.classList.add('edit-only');
+    lay.p.append($('seedC'),$('seed'),$('seedCold'));
+    const team=menu('Team','uxTeam',true);
+    const alert=mk('span','uxalert');alert.hidden=true;alert.setAttribute('role','status');
+    team.p.append($('teamSave'),$('teamLoad'),mk('div','uxsep'),$('teamSt'));
+    const more=menu('More','uxMore',true);
+    const clr=$('clear');clr.setAttribute('data-uxkeep','');clr.classList.add('uxdanger');
+    more.p.append($('lockAll'),$('unlockAll'),$('mErase'),$('mPartReset'),mk('div','uxsep'),clr);
+    const grow=mk('span','grow');
+    [...bar.children].forEach(c=>c.remove());
+    bar.append(g1,g2,g3,view.w,lay.w,grow,alert,team.w,more.w);
+    watch($('mErase'),()=>{er.hidden=!pressed('mErase')});
+    const ts=$('teamSt');
+    function teamSync(){
+      const t=ts.textContent,c=t.replace(/\bu_[A-Za-z0-9_-]{10,}\b/g,'a teammate');
+      if(c!==t){ts.textContent=c;return}
+      const m=/Team plan v(\d+)/.exec(c),flag=ts.classList.contains('new')||ts.classList.contains('err');
+      team.lab.textContent=m?'Team · v'+m[1]:'Team';
+      team.b.classList.toggle('uxwarn',flag);
+      alert.hidden=!flag;alert.className='uxalert'+(ts.classList.contains('err')?' err':'');
+      alert.textContent=ts.classList.contains('new')?'A newer team plan is waiting: open Team':flag?c:'';
+    }
+    watch(ts,teamSync,{childList:true,characterData:true,subtree:true,attributes:true,attributeFilter:['class']});
+    teamSync();
+  });
+
+  /* ---- 4. legend behind a Key button on the plan ---- */
+  safe(()=>{
+    const leg=document.querySelector('.app .stage>.bar .legend'),sw=$('sheetWrap');if(!leg||!sw)return;
+    const row=leg.parentNode,k=menu('Key','uxKey',true);
+    k.w.classList.add('uxkey');k.b.title='What the wall colours and lines mean';
+    k.p.append(leg);sw.append(k.w);row.remove();
+    ['pointerdown','mousedown','wheel','touchstart'].forEach(t=>k.w.addEventListener(t,e=>e.stopPropagation()));
+  });
+
+  /* ---- 5. library: one category list, one Add menu ---- */
+  safe(()=>{
+    const chips=$('chips'),bb=document.querySelector('.lib .bankbar');if(!chips)return;
+    const sel=mk('select','uxcat');sel.id='uxCat';sel.setAttribute('aria-label','Equipment category');
+    let sig='';
+    function fill(){
+      const bs=[...chips.querySelectorAll('[data-c]')],s=bs.map(b=>b.dataset.c+'='+b.textContent).join('|');
+      if(s!==sig){sig=s;sel.textContent='';bs.forEach(b=>{const o=mk('option');o.value=b.dataset.c;o.textContent=b.dataset.c==='all'?'All equipment':b.textContent;sel.append(o)})}
+      const on=bs.find(b=>b.getAttribute('aria-pressed')==='true');if(on)sel.value=on.dataset.c;
+    }
+    sel.onchange=()=>{const b=[...chips.querySelectorAll('[data-c]')].find(x=>x.dataset.c===sel.value);if(b)b.click()};
+    watch(chips,fill,{childList:true});fill();
+    const row=mk('div','uxlibrow'),add=menu('Add','uxAdd',true);
+    add.b.classList.add('pri');add.b.title='Add your own equipment, a stainless item, or a colleague’s items';
+    ['bankNew','bankFab','bankImp','bankShare'].forEach(i=>{const b=$(i);if(b){b.classList.remove('pri');b.textContent=b.textContent.replace(/^\+\s*/,'');add.p.append(b)}});
+    row.append(sel,add.w);chips.after(row);
+  });
+
+  /* ---- 6. right panel: two tabs and More; quiet inspector when nothing is selected ---- */
+  safe(()=>{
+    const pt=$('pChecks').parentNode,ids=['pBom','pAdv','pReq','pNotes'],m=menu('More','uxPMore',true);
+    m.b.className='uxmb';ids.forEach(i=>m.p.append($(i)));pt.append(m.w);
+    function sync(){const on=ids.map($).find(b=>b.getAttribute('aria-pressed')==='true');m.lab.textContent=on?on.textContent:'More';m.b.setAttribute('aria-pressed',!!on)}
+    ids.forEach(i=>watch($(i),sync,{attributes:true,attributeFilter:['aria-pressed'],childList:true,characterData:true,subtree:true}));sync();
+    const insp=$('insp');
+    const empty=()=>insp.classList.toggle('ux-empty',!insp.querySelector('input,select,textarea,button'));
+    watch(insp,empty,{childList:true});empty();
+  });
+})();
+</script>
 </body>
 </html>
