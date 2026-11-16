@@ -3887,7 +3887,10 @@ function allIssuesOf(r){
        the floor reads comes out blank. */
     var m = normMethod(r.method);
     if (!hasMethod(m)) out.push({ key:'method', sec:'method', s:'no method — nothing for the pass to cook from' });
-    if (!FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
+    /* a dish taken out of the Food Bible (the "Food bible" pill, 16 Nov 2026) has no page
+       there to be blank — tea and coffee are costed, not studied. The Sunday report
+       (recipe-report) carries the same line; change both or neither. */
+    if (r.show_bible !== false && !FSEC.some(function(f){ return String(m[f.k] || '').trim(); }))
       out.push({ key:'floor', sec:'floor', s:'nothing for the floor — the Food Bible page is blank' });
     /* Plating, the pass and the crockery were saved and printed and never once checked, so
        a dish with no plating instruction was reported as FINISHED. It is not a small gap:
@@ -4057,6 +4060,8 @@ function marksOf(r){
        not needed on this dish — otherwise the row and the list disagree with each other,
        and the row is the one he is standing in front of */
     out.push({ k:'Method', on: hasMethod(m) || !!waivedAt(r.id, 'method') });
+    /* out of the Food Bible = no floor page, so there is no Floor mark to chase */
+    if (r.show_bible !== false)
     out.push({ k:'Floor',  on: FSEC.some(function(f){ return String(m[f.k] || '').trim(); })
                                || !!waivedAt(r.id, 'floor') });
   } else {
@@ -13780,6 +13785,7 @@ document.addEventListener('click', function(e){
           : shF === 'show_bible'
           ? (shNow ? 'is back in the Food Bible.' : 'is out of the Food Bible. The recipe is still here.')
           : (shNow ? 'now shows at Roberto’s Mare.' : 'no longer shows at Roberto’s Mare.')));
+        if (shF === 'show_bible') render();     /* the Floor mark comes and goes with it */
       }, function(err){ shb.disabled = false; flash('Not changed — ' + err.message, true); });
     return;
   }
