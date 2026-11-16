@@ -13785,7 +13785,7 @@ document.addEventListener('click', function(e){
           : shF === 'show_bible'
           ? (shNow ? 'is back in the Food Bible.' : 'is out of the Food Bible. The recipe is still here.')
           : (shNow ? 'now shows at Roberto’s Mare.' : 'no longer shows at Roberto’s Mare.')));
-        if (shF === 'show_bible') render();     /* the Floor mark comes and goes with it */
+        render();     /* the row follows the tap: the hover text on all three, and the Floor mark with Food bible */
       }, function(err){ shb.disabled = false; flash('Not changed — ' + err.message, true); });
     return;
   }
