@@ -168,6 +168,12 @@ html,body{background:var(--ground)}
 .chip small{opacity:.75;margin-left:4px;font-weight:500}
 .chip.on{background:var(--vino);color:#fff;border-color:var(--vino)}
 .q{margin-left:auto;width:250px;border:1px solid var(--sabbia-dark);background:#fff;border-radius:6px;padding:10px 12px;font-size:14px;min-height:42px}
+/* the restaurant's job cards live on the FOH page; a technician gets a way across (16 Nov 2026) */
+.fohlink{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--oro);border-radius:8px;text-decoration:none;color:var(--ink)}
+.fohlink .ft{flex:1;min-width:200px}.fohlink .ft b{display:block;font-family:var(--serif);font-size:21px;font-weight:600;line-height:1.15}
+.fohlink .ft span{display:block;margin-top:3px;font-size:13.5px;color:var(--muted)}.fohlink .ft span em{font-style:normal;font-weight:700;color:var(--err)}
+.fohlink .go{flex:none;padding:11px 16px;border-radius:6px;background:var(--vino);color:var(--cream);font-weight:600;font-size:14px;min-height:44px;display:flex;align-items:center}
+@media (max-width:560px){.fohlink .go{width:100%;justify-content:center}}
 .h2{font-family:var(--serif);font-size:18px;margin:8px 0 0;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .h2 span{font:12px var(--sans);color:var(--muted)}
 .jc{background:#fff;border:1px solid var(--line);border-left:3px solid var(--vino);border-radius:6px;padding:14px 16px;display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;align-items:center;width:100%;text-align:left;cursor:pointer;box-shadow:0 2px 12px rgba(44,24,16,.05);font:inherit;color:inherit}
@@ -248,6 +254,10 @@ html,body{background:var(--ground)}
    ════════════════════════════════════════════════════════════════════════════ */
 var SB_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
+// The restaurant (FOH) keeps its own job cards in its own database. Only its public counts are read here.
+var FOH_URL = 'https://paoaivwtkzujmrgrfjuq.supabase.co';
+var FOH_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhb2Fpdnd0a3p1am1yZ3JmanVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNzAxMzAsImV4cCI6MjA5NjY0NjEzMH0.VynG9PBeIaqRG2lkMEuzskkcB11EhR-UfO9eGYsaUxk';
+var FOH_PAGE = 'https://robertos-leadership.github.io/robertos-foh/foh-maintenance.html';
 var EMPLS = 'learnEmp', EMPFOR = 12*60*60*1000;   // the same sign-in as Learning and Training
 var MAX_FILE = 50*1024*1024, MAX_FILES = 8;
 var STATUS = { new:'New', acknowledged:'Acknowledged', in_progress:'In progress', on_hold:'On hold', completed:'Completed' };
@@ -380,7 +390,7 @@ function signIn(emp){
     if (S.tab === 'buy' && !canBuy()) S.tab = 'cards';
     // the technician and the chefs get the Tools tab; reading it now puts the month-end ! on the tab
     if (S.tab === 'tools' && !canTools()) S.tab = 'cards';
-    return Promise.all([loadList(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null, canBuy() ? loadBuys().catch(function(){}) : null]).then(draw);
+    return Promise.all([loadList(), loadFoh(), S.tab === 'cal' ? loadCal() : null, canTools() ? loadTools().catch(function(){}) : null, canBuy() ? loadBuys().catch(function(){}) : null]).then(draw);
   }).catch(function(e){ S.busy = false; S.err = say(e); S.me = null; draw(); });
 }
 function signOut(){
@@ -395,6 +405,23 @@ function loadCard(id){ return get('maint_get', { p_emp:S.emp, p_id:id }).then(fu
 function loadCal(){ return get('maint_tasks_list', { p_emp:S.emp }).then(function(r){ S.cal = r; if (!S.month) S.month = (r.today || todayIso()).slice(0,7); }); }
 function loadTools(){ return get('maint_tools_get', { p_emp:S.emp, p_month:S.tmonth }).then(function(r){ S.tools = r; }); }
 function loadTab(){ return (S.tab === 'cal' ? loadCal() : S.tab === 'tools' ? loadTools() : S.tab === 'buy' ? loadBuys() : loadList()); }
+// A technician works two lists: the kitchen's (this page) and the restaurant's (the FOH page). The strip under
+// the tabs says how many restaurant cards are open and opens that page. A GET, so the DEV site can read it too.
+// If the count cannot be read the strip still shows, without numbers: the way across must not depend on it.
+function loadFoh(){
+  if (!S.me || !S.me.tech) return Promise.resolve();
+  return fetch(FOH_URL + '/rest/v1/rpc/fmaint_summary', { headers:{ apikey:FOH_KEY, Authorization:'Bearer ' + FOH_KEY }, cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){ S.foh = j && typeof j.open === 'number' ? j : null; })
+    .catch(function(){ S.foh = null; });
+}
+function fohHtml(){
+  if (!S.me || !S.me.tech || (S.foh && !S.foh.open)) return '';
+  var n = S.foh ? S.foh.open + ' open' + (S.foh['new'] ? ' · <em>' + S.foh['new'] + ' new</em>' : '') + ' · ' : '';
+  return '<a class="fohlink" href="' + FOH_PAGE + '" target="_blank" rel="noopener">' +
+    '<span class="ft"><b>Restaurant job cards</b><span>' + n + 'reported by the restaurant team, on their own page</span></span>' +
+    '<span class="go">Open restaurant cards →</span></a>';
+}
 function loadPlaces(){ return get('maint_places', { p_emp:S.emp }).then(function(r){ S.places = r; }); }
 
 /* ── drawing ── */
@@ -465,7 +492,7 @@ function drawList(){
     return inFilter(c, f) && (!q || [jc(c.card_no), c.equipment, c.problem, c.location, c.reported_by, c.tech_name].join(' ').toLowerCase().indexOf(q) >= 0);
   });
   var lab = (FILTERS.filter(function(x){ return x[0] === f; })[0] || ['', ''])[1];
-  var html = barHtml('Maintenance', 'Report anything broken in the kitchen, and see everything already reported — who has it, and where it stands.', heroActions()) + tabsHtml() + '<div class="body">' + msgs() +
+  var html = barHtml('Maintenance', 'Report anything broken in the kitchen, and see everything already reported — who has it, and where it stands.', heroActions()) + tabsHtml() + fohHtml() + '<div class="body">' + msgs() +
     '<div class="fbar"><div class="chips">' + FILTERS.map(function(x){
       var n = L.filter(function(c){ return inFilter(c, x[0]); }).length;
       return '<button class="chip' + (f === x[0] ? ' on' : '') + '" type="button" data-f="' + x[0] + '" aria-pressed="' + (f === x[0]) + '">' + x[1] + (n ? '<small>' + n + '</small>' : '') + '</button>'; }).join('') + '</div>' +
@@ -1288,7 +1315,7 @@ function typing(){
 function freshen(){
   if (!S.me || document.hidden || S.busy || typing() || S.viewer != null || S.tview || S.tbusy) return;
   if (S.view === 'card' && S.card && !S.hold && !S.completing && !S.sendBack && !Object.keys(S.d).length) loadCard(S.card.card.id).then(draw).catch(function(){});
-  else if (S.view === 'list' && S.tab === 'cards') loadList().then(draw).catch(function(){});
+  else if (S.view === 'list' && S.tab === 'cards') Promise.all([loadList(), loadFoh()]).then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'cal' && !S.doneAsk) loadCal().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'tools' && !S.rmTool && !Object.keys(S.d).length) loadTools().then(draw).catch(function(){});
   else if (S.view === 'list' && S.tab === 'buy') loadBuys().then(draw).catch(function(){});
