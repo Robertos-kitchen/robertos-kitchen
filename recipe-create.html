@@ -424,6 +424,25 @@ input.pick.empty::placeholder{color:var(--attn);opacity:.75;font-weight:400}
 .name.sheetname{font-size:30px;margin-bottom:8px}
 .kindline{font-family:var(--sans);font-size:12.5px;color:var(--vino-light);margin:0 0 16px}
 .kindline b{color:var(--vino)}
+/* earlier versions of a saved recipe — its own card, so it carries its own colours */
+.hv,body.roomstep .hv{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:8px;padding:14px 16px;margin:0 0 16px;font-family:var(--sans);color:var(--vino);text-align:left}
+.hv .lnk,body.roomstep .hv .lnk{color:var(--vino)}
+.hv .hvh{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.hv .hvt{font-family:var(--serif);font-size:21px;color:var(--vino)}
+.hv .hvv{border-top:1px solid var(--sabbia-dark);margin-top:10px;padding-top:12px}
+.hv .hvr{display:flex;justify-content:space-between;gap:10px 12px;align-items:flex-start;flex-wrap:wrap}
+.hv .hvx{flex:1 1 220px;min-width:0}
+.hv .hvw{font-size:14px;font-weight:600;color:var(--vino)}
+.hv .hvs{font-size:12px;color:var(--vino-light);margin-top:2px}
+.hv .hvb{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:3px;font-family:var(--sans);font-size:12.5px;padding:9px 14px;cursor:pointer;min-height:40px}
+.hv .hvb.q{background:none;color:var(--vino);border-color:var(--sabbia-dark)}
+.hv .hvask{margin-top:10px;background:var(--sabbia-light);border-left:3px solid var(--oro);padding:10px 12px;font-size:13px;line-height:1.5;color:var(--vino)}
+.hv .hvask .hvbs{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.hv table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;margin-top:8px;color:var(--vino)}
+.hv td{padding:5px 8px 5px 0;border-top:1px solid var(--sabbia);vertical-align:top;overflow-wrap:anywhere}
+.hv td.c1{width:40%}
+.hv tr.hh td{border-top:none;font-size:12px;color:var(--vino-light)}
+.hv .hvm{font-size:13px;color:var(--vino-light);margin-top:10px;line-height:1.5}
 .addb.blank{background:none;color:var(--vino);border:1px solid var(--sabbia-dark)}
 .alsoin{padding:0 16px 14px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark)}
 .alsoin .bring{margin-top:0}
@@ -3397,7 +3416,201 @@ function asCopy(){
 /* on the sheet of a saved recipe, where the kind line sits on a new one */
 function copyLine(){
   return '<div class="kindline">Need one like this with something changed? ' +
-    '<button class="lnk" id="rcopy">Copy it as a new recipe</button> — this one stays as it is.</div>';
+    '<button class="lnk" id="rcopy">Copy it as a new recipe</button> — this one stays as it is.<br>' +
+    'Changed by mistake? <button class="lnk" id="hvopen">See earlier versions</button></div>' +
+    '<div id="hvbox">' + hvHTML() + '</div>';
+}
+/* ── earlier versions ──
+   A recipe saved over by mistake had nowhere to come back from: on 16 November the
+   a la carte tiramisu was turned into the brunch one instead of being copied first, and
+   the only old copy was an Excel somebody happened to have downloaded. The database now
+   keeps the recipe as it was before every change (recipe_history). This is the door to
+   it: what was different then, and one button that puts it back — lines, menus and all.
+   Putting a version back is itself a change, so today's goes into the same list and the
+   undo can be undone. */
+var HV = { id:null, open:false, busy:false, data:null, err:null, show:{}, ask:null, msg:null };
+function hvReset(){ HV = { id:S.id, open:false, busy:false, data:null, err:null, show:{}, ask:null, msg:null }; }
+function hvWhen(iso){
+  try {
+    var d = new Date(iso), o = { timeZone:'Asia/Dubai', weekday:'short', day:'numeric', month:'short',
+                                 hour:'2-digit', minute:'2-digit', hour12:false };
+    if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+    return d.toLocaleString('en-GB', o).replace(/,/g, '');
+  } catch(e){ return String(iso || ''); }
+}
+function hvNum(v){ var n = Number(v); return isFinite(n) ? String(Math.round(n * 1000) / 1000) : String(v); }
+function hvLineSay(l){
+  var s = (l.qty == null || l.qty === '') ? 'no amount' : hvNum(l.qty) + (l.unit ? ' ' + l.unit : '');
+  if (l.trim){
+    var w = Number(l.waste || 0), y = l.yield == null ? 100 : Number(l.yield);
+    s += ' · trim' + (w ? ', waste ' + hvNum(w) + '%' : '') + (y !== 100 ? ', yield ' + hvNum(y) + '%' : '');
+  }
+  if (l.note) s += ' · ' + l.note;
+  return s.trim() || 'no amount';
+}
+var HVM = { method:'Method', plating:'Plating', story:'Story', foh:'Menu line', ing:'Ingredients for the guest',
+            say:'Say it like this', garnish:'Garnish', crockery:'Crockery', crock:'Crockery picked',
+            cutlery:'Cutlery', mise:'Mise en place', more:'More information', pass:'Pass time',
+            store:'How to store', code:'Dish code', diet:'Diet', order:'Order' };
+function hvTxt(v){
+  if (v == null || v === '') return '';
+  if (Array.isArray(v)) return v.every(function(x){ return typeof x === 'string' && x.length < 30; }) ? v.join(', ') : '\u0001';
+  if (typeof v === 'object') return '\u0001';
+  return String(v).replace(/\s+/g, ' ').trim();
+}
+/* what is different between a version and today — only that, never the whole recipe */
+function hvDiff(a, b){
+  var out = [];
+  if (!a || !b) return out;
+  function put(label, x, y){ if (x !== y) out.push([label, x, y]); }
+  function list(v){ return (Array.isArray(v) && v.length) ? v.slice().sort().join(', ') : 'none'; }
+  function makes(r){ return r.makes_qty == null ? 'not set' : hvNum(r.makes_qty) + (r.makes_unit ? ' ' + r.makes_unit : ''); }
+  function price(r){ return r.menu_price == null ? 'none' : hvNum(r.menu_price); }
+  put('Name', a.name || '', b.name || '');
+  put('Section', a.section || 'none', b.section || 'none');
+  put('Makes', makes(a), makes(b));
+  put('Menu price', price(a), price(b));
+  put('Menus', list(a.menus), list(b.menus));
+  put('Allergens', list(a.allergens), list(b.allergens));
+  put('Put away', a.archived ? 'yes' : 'no', b.archived ? 'yes' : 'no');
+  function keyed(lines){
+    var seen = {}, m = {}, order = [];
+    (lines || []).forEach(function(l){
+      var n = l.label || '(no name)'; seen[n] = (seen[n] || 0) + 1;
+      var k = n + (seen[n] > 1 ? ' (' + seen[n] + ')' : '');
+      m[k] = hvLineSay(l); order.push(k);
+    });
+    return { m:m, order:order };
+  }
+  var A = keyed(a.lines), B = keyed(b.lines);
+  A.order.concat(B.order.filter(function(k){ return !(k in A.m); })).forEach(function(k){
+    put(k, k in A.m ? A.m[k] : 'not on it', k in B.m ? B.m[k] : 'not on it');
+  });
+  var ma = a.method || {}, mb = b.method || {}, ks = Object.keys(ma);
+  Object.keys(mb).forEach(function(k){ if (ks.indexOf(k) < 0) ks.push(k); });
+  ks.forEach(function(k){
+    if (JSON.stringify(ma[k] == null ? '' : ma[k]) === JSON.stringify(mb[k] == null ? '' : mb[k])) return;
+    var x = hvTxt(ma[k]), y = hvTxt(mb[k]);
+    var cx = x.length > 70 ? x.slice(0, 70) + '…' : x, cy = y.length > 70 ? y.slice(0, 70) + '…' : y;
+    if (x === '\u0001' || y === '\u0001' || cx === cy){ cx = 'as it was'; cy = 'changed'; }
+    out.push([HVM[k] || (k.charAt(0).toUpperCase() + k.slice(1)), cx || 'empty', cy || 'empty']);
+  });
+  put('Notes', hvTxt(a.notes) || 'empty', hvTxt(b.notes) || 'empty');
+  if (a.photos_md5 && b.photos_md5 && a.photos_md5 !== b.photos_md5) out.push(['Photos', 'as they were', 'changed']);
+  return out;
+}
+function hvHTML(){
+  if (!S.id) return '';
+  if (HV.id !== S.id) hvReset();
+  if (!HV.open) return '';
+  var h = '<div class="hv" id="hv"><div class="hvh"><span class="hvt">Earlier versions</span>' +
+          '<button class="lnk" id="hvclose">Close</button></div>';
+  if (HV.msg) h += '<div class="hvask">' + esc(HV.msg) + '</div>';
+  if (HV.err){
+    h += '<div class="hvm">Could not read them — ' + esc(plain(HV.err)) +
+         ' <button class="lnk" id="hvretry">Try again</button></div>';
+  } else if (!HV.data){
+    h += '<div class="hvm">Reading…</div>';
+  } else if (!HV.data.versions.length){
+    h += '<div class="hvm">No earlier version is kept for this recipe yet. One is kept each time it is changed.</div>';
+  } else {
+    var now = HV.data.now, vs = HV.data.versions;
+    vs.forEach(function(v, i){
+      var d = hvDiff(v.shape, now), when = hvWhen(v.until), open = !!HV.show[v.id];
+      var by = i === 0 ? (now && now.by) : vs[i - 1].shape.by;
+      h += '<div class="hvv"><div class="hvr"><div class="hvx">' +
+           '<div class="hvw">As it was until ' + esc(when) + '</div>' +
+           '<div class="hvs">' + (by ? 'Then changed by ' + esc(by) + ' · ' : '') +
+           (d.length ? d.length + (d.length === 1 ? ' difference' : ' differences') + ' from today' : 'Same as today') +
+           '</div></div>';
+      if (d.length){
+        h += open ? '<button class="hvb" data-hvback="' + v.id + '">Put this version back</button>'
+                  : '<button class="lnk" data-hvshow="' + v.id + '">Show</button>';
+      }
+      h += '</div>';
+      if (HV.ask === v.id){
+        h += '<div class="hvask">' + (HV.busy ? 'Putting it back…' :
+             'Put the version of ' + esc(when) + ' back? Today’s version is kept in this list, so you can undo it.' +
+             '<div class="hvbs"><button class="hvb" data-hvyes="' + v.id + '">Yes, put it back</button>' +
+             '<button class="hvb q" id="hvno">No</button></div>') + '</div>';
+      }
+      if (open && d.length){
+        h += '<table><tr class="hh"><td class="c1"></td><td>Then</td><td>Today</td></tr>' +
+             d.map(function(r){
+               return '<tr><td class="c1">' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td><td>' + esc(r[2]) + '</td></tr>';
+             }).join('') + '</table>' +
+             '<div class="hvm"><button class="lnk" data-hvshow="' + v.id + '">Hide</button></div>';
+      }
+      h += '</div>';
+    });
+  }
+  return h + '</div>';
+}
+function hvDraw(){ var el = $('hvbox'); if (el) el.innerHTML = hvHTML(); }
+function hvLoad(){
+  var id = S.id;
+  HV.err = null; HV.data = null; hvDraw();
+  return sb('rpc/recipe_history_view', { method:'POST', body:{ p_recipe:id } }).then(function(d){
+    if (S.id !== id || HV.id !== id) return;
+    HV.data = { now:(d && d.now) || null, versions:(d && d.versions) || [] };
+    var first = HV.data.versions[0];
+    if (first && hvDiff(first.shape, HV.data.now).length) HV.show[first.id] = true;
+    hvDraw();
+  }).catch(function(err){
+    if (S.id !== id) return;
+    HV.err = (err && err.message) || 'no answer'; hvDraw();
+  });
+}
+function hvBack(hid){
+  if (HV.busy) return;
+  var id = S.id, v = null;
+  ((HV.data && HV.data.versions) || []).forEach(function(x){ if (String(x.id) === String(hid)) v = x; });
+  if (!v) return;
+  var when = hvWhen(v.until);
+  HV.busy = true; hvDraw();
+  sb('rpc/recipe_history_undo', { method:'POST', body:{ p_hid:Number(hid),
+       p_by:(WHO && WHO.emp_id != null) ? String(WHO.emp_id) : null, p_by_name:(WHO && WHO.name) || null } })
+    .then(function(){
+      return openRecipe(id).then(function(){
+        hvReset(); HV.open = true;
+        render(); rows(); foot(); window.scrollTo(0, 0);
+        flash('Put back as it was until ' + when + '. The version it replaced is kept in Earlier versions.');
+        hvLoad();
+      }, function(){
+        HV.busy = false; HV.ask = null;
+        HV.msg = 'It was put back, but this sheet could not be read again. Open the recipe again to see it.';
+        hvDraw();
+      });
+    }, function(err){
+      HV.busy = false; HV.ask = null;
+      HV.msg = 'Could not put it back — ' + plain((err && err.message) || 'no answer') + '. Nothing was changed.';
+      hvDraw();
+    });
+}
+function hvClick(e){
+  var t = e.target;
+  if (!t || !t.closest) return false;
+  if (t.id === 'hvopen'){
+    if (HV.id !== S.id) hvReset();
+    HV.open = !HV.open; HV.msg = null; HV.ask = null;
+    hvDraw();
+    if (HV.open) hvLoad();
+    return true;
+  }
+  if (!t.closest('#hv')) return false;
+  if (t.id === 'hvclose'){ HV.open = false; hvDraw(); return true; }
+  if (t.id === 'hvretry'){ hvLoad(); return true; }
+  if (t.id === 'hvno'){ HV.ask = null; hvDraw(); return true; }
+  var d = t.dataset || {};
+  if (d.hvshow){ HV.show[d.hvshow] = !HV.show[d.hvshow]; if (String(HV.ask) === d.hvshow) HV.ask = null; hvDraw(); return true; }
+  if (d.hvback){
+    /* what is on the sheet and not saved would be replaced without a word */
+    if (isDirty()){ HV.ask = null; HV.msg = 'Save the changes on this sheet first. Putting a version back replaces what is on it.'; }
+    else { HV.msg = null; HV.ask = Number(d.hvback); }
+    hvDraw(); return true;
+  }
+  if (d.hvyes){ hvBack(d.hvyes); return true; }
+  return true;
 }
 function copiedFlash(from){
   return 'A new recipe, copied from “' + from + '” — which is unchanged. ' +
@@ -13766,6 +13979,7 @@ document.addEventListener('click', function(e){
     return;
   }
   /* ── a copy ── from the sheet, or from a row of the book */
+  if (hvClick(e)) return;
   if (e.target.id === 'rcopy'){ copyHere(); return; }
   var cpb = e.target.closest('[data-copy]');
   if (cpb){ copyFromBook(cpb); return; }
