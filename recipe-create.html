@@ -1900,10 +1900,10 @@ function nameHit(qw, name){
   }
   return { first: Math.min.apply(null,pos), extra: nw.length - qw.length };
 }
-function search(qRaw){
+function search(qRaw, all){
   var qw = words(qRaw); if (!qw.length) return [];
   var hits = [];
-  pickable().forEach(function(it){
+  (all ? catalogue() : pickable()).forEach(function(it){
     var h = nameHit(qw, it.name);
     if (h) hits.push({ it:it, first:h.first, extra:h.extra });
   });
@@ -3719,7 +3719,14 @@ function archiveRecipe(id, on){
 var MYB = [];              /* pseudo-items, shaped like a stock item so everything else just works */
 var BATCH = {};            /* id -> { name, makesQty, makesUnit, lines } */
 function pool(){ return MYB.length ? ING.concat(MYB) : ING; }            /* everything, so a link still resolves */
-function pickable(){ return MYB.length ? ING.concat(MYB.filter(function(b){ return !b.away; })) : ING; }
+/* Chef Andrea, 17 Nov 2026: "remove batch recipe (old recipe) and keep only our batch
+   recipe". FMC's own 'Batch Recipe (Food)' articles are no longer OFFERED on a line --
+   every one sat next to ours under the same name with a different price. They stay in
+   ING and in pool(), so a line already pointing at one still resolves and still costs,
+   and Aung's list and the FMC comparison (catalogue()) still show them. */
+function isFmcBatch(it){ return !!(it && it.group === 'Batch Recipe (Food)'); }
+function catalogue(){ return MYB.length ? ING.concat(MYB.filter(function(b){ return !b.away; })) : ING; }
+function pickable(){ return catalogue().filter(function(i){ return !isFmcBatch(i); }); }
 function isMine(code){ return typeof code === 'string' && code.indexOf('R:') === 0; }
 function idOf(code){ return String(code).slice(2); }
 
@@ -8382,7 +8389,7 @@ function render(){
         '<tbody id="ltb"></tbody></table><div class="lnote" id="lnote"></div>';
     var draw = function(){
       var q = $('lq').value.trim(), g = $('lg').value, ty = $('lt').value;
-      var list = q ? search(q) : ING.slice();
+      var list = q ? search(q, true) : ING.slice();
       if (g)  list = list.filter(function(i){ return i.group === g; });
       if (ty) list = list.filter(function(i){
         var b = i.group === 'Batch Recipe (Food)';
@@ -10587,7 +10594,8 @@ function cbListHTML(r, q){
      A batch of ours with no cost yet goes last: a line pointing at it prices the whole
      dish at nothing, so it is still offered and never offered first. */
   grp('Our batch recipes', mine);
-  grp('Batch', batches);
+  /* only ever the one this line already points at -- FMC's batches are not offered */
+  grp('FMC batch — on this line now', batches);
   grp('Ingredients', prods);
   grp('Ours — no cost yet', mineBad);
   if (!f.list.length)
