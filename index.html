@@ -1408,11 +1408,12 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span><span class="home-chip">Maintenance<span class="maint-badge" hidden></span></span></span>
+    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Service Count</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span><span class="home-chip">Maintenance<span class="maint-badge" hidden></span></span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
     <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
+    <button class="home-tile compact" onclick="openServiceCount()"><span class="home-code">CNT</span><span><span class="home-name">Service Count</span><span class="home-meta">Meat and fish count &mdash; mid-service and end of night</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
     <button class="home-tile compact" onclick="openCrockeryCount()"><span class="home-code">CRCK</span><span><span class="home-name">Crockery Count</span><span class="home-meta">The monthly plate count — what is in the store, what is out in operation, and what we have broken since last time.</span></span></button>
     <button class="home-tile compact" onclick="openArticleCatalogue()"><span class="home-code">ART</span><span><span class="home-name">Article Catalogue</span><span class="home-meta">Every article FMC holds &mdash; name, code, unit, price</span></span></button>
@@ -1490,6 +1491,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <div id="reports-view" class="ops-view" style="display:none"></div>
 <div id="order-view" class="ops-view" style="display:none"></div>
 <div id="fish-view" class="ops-view" style="display:none"></div>
+<div id="count-view" class="ops-view" style="display:none"></div>
 <div id="mytasks-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
 <div id="crockerycount-view" class="ops-view" style="display:none"></div>
@@ -1606,6 +1608,10 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <!-- the house frame for My Tasks, the Closing report and the Team survey + the footer fix (7 Oct 2026) -->
 <script src="k-frame.js?v=1792990460"></script>
 <script src="app.js?v=1794992552"></script>
+<!-- Service Count (the mid-service and night count) and the Weekly Responsibilities box under the
+     rota. Both load AFTER app.js: they hang themselves on its screens instead of editing it. -->
+<script src="service-count.js?v=1795619305"></script>
+<script src="weekly-resp.js?v=1795619305"></script>
 <!-- Find: one box on the home screen for what is already in the app (12 Oct 2026, inbox 873e8292) -->
 <script src="find.js?v=1792584690"></script>
 
@@ -1632,7 +1638,7 @@ window.FB_INBOX = {
   screen: function(){
     var NAME = { 'home-view':'Home', 'pass-view':'The pass', 'dashboard-view':'Dashboard',
       'report-view':'Service report', 'reports-view':'Reports', 'order-view':'Market list',
-      'fish-view':'Fish display', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
+      'fish-view':'Fish display', 'count-view':'Service count', 'mytasks-view':'My tasks', 'stocktake-view':'Stock take', 'crockerycount-view':'Crockery count', 'interviews-view':'Interviews', 'catalogue-view':'Article catalogue', 'fmcmatch-view':'Match to FMC',
       'recipes-view':'Recipes', 'recipecreate-view':'Recipes — create', 'recipecard-view':'Recipes — a recipe',
       'foodbible-view':'Food bible', 'tasting-view':'Recipes — tasting', 'rnd-view':'Recipes — R&D', 'bizlunch-view':'Recipes — business lunch', 'learning-view':'Learning', 'training-view':'Training', 'maintenance-view':'Maintenance', 'menupdf-view':'Menu PDFs', 'todo-view':'To do',
       'micros-view':'Micros', 'check-view':'Checklist', 'closing-view':'Closing report',
