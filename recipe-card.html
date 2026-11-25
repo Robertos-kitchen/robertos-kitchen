@@ -211,6 +211,7 @@ body.roomstep .foot{margin-top:26px}
 .btn{background:var(--vino);color:var(--cream);border:none;border-radius:4px;font-family:var(--sans);font-size:11px;
   letter-spacing:1.6px;text-transform:uppercase;font-weight:700;padding:0 18px;height:46px;cursor:pointer}
 .btn.ghost{background:none;color:var(--vino);border:1.5px solid var(--sabbia-dark)}
+.pdfhint{margin-top:12px;max-width:64ch;background:#fbf3e9;color:#2a1a12;border:1px solid #cbb89c;border-radius:8px;padding:10px 13px;font-size:14px;line-height:1.5}
 .btn:disabled{opacity:.4;cursor:default}
 
 .port{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:18px 0 2px}
@@ -1366,7 +1367,8 @@ function viewCard(){
           '</div>'; }).join('')
       : '<div class="card"><div class="h">Method</div>'+stepsHTML([])+'</div>') +
     '<div class="card">'+allergenHTML()+'</div>' +
-    '<div class="noprint"><button class="btn ghost" id="print">Print this card</button></div>' +
+    '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ghost" id="print">Print this card</button>' +
+      '<button class="btn ghost" data-pdf="one">Save as PDF to send</button></div>' +
   '</div>';
 }
 
@@ -1424,6 +1426,31 @@ function scaleBar(c, onDish){
 function current(){ return comp==='dish'
   ? {name:R.name,lines:R.lines,method:R.method,makes:R.makes,photos:R.photos}
   : SUBS[comp]; }
+/* Save as PDF (25 Nov 2026 — Chef Andrea: a franchise that does not have the app needs the
+   recipe as a file). It is the SAME paper as Print: the browser's own "Save as PDF" printer
+   writes the file, so the PDF can never differ from the printed card, and no cost is on it.
+   The title is set first because that is what the browser offers as the file name. The line
+   that says what to choose only appears once the button is pressed. */
+function pdfOut(b){
+  var nm = String((typeof R !== 'undefined' && R && R.name) || 'Recipe').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
+  var was = document.title, top = null, topWas = '';
+  try { if (window.top !== window){ top = window.top.document; topWas = top.title; } } catch(e){ top = null; }
+  document.title = "Roberto's recipe - " + nm;
+  if (top) { try { top.title = document.title; } catch(e){} }
+  var h = document.getElementById('pdfhint');
+  if (!h && b.parentNode && b.parentNode.parentNode){
+    h = document.createElement('div'); h.id = 'pdfhint'; h.className = 'noprint pdfhint';
+    b.parentNode.parentNode.insertBefore(h, b.parentNode.nextSibling);
+  }
+  if (h) h.textContent = 'The print window is opening. Under Printer (or Destination) choose "Save as PDF", then Save. ' +
+    'On an iPad or phone: in the print preview tap Share, then Save to Files. The file is named after the dish. No cost is on it.';
+  var back = function(){
+    window.removeEventListener('afterprint', back);
+    document.title = was; if (top) { try { top.title = topWas; } catch(e){} }
+  };
+  window.addEventListener('afterprint', back);
+  setTimeout(function(){ window.print(); }, 250);
+}
 function viewStation(){
   var c=current(), fl=flat(c.method), onDish = (comp==='dish');
   return '<div class="wrap">' +
@@ -1455,6 +1482,7 @@ function viewStation(){
     '<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap">' +
       '<button class="btn ghost" data-print="one">Print ' + esc(onDish ? 'the dish' : 'this batch') + '</button>' +
       '<button class="btn ghost" data-print="all">Print the dish and all its batches</button>' +
+      '<button class="btn ghost" data-pdf="all">Save as PDF to send</button>' +
       /* the card grows the one thing the pass actually asks for */
       (onDish && prodList().length
         ? '<button class="btn" id="toprod">What do I make?</button>' : '') +
@@ -1995,6 +2023,11 @@ document.addEventListener('click', function(e){
   if (b && b.dataset.print){
     document.body.classList.toggle('printall', b.dataset.print==='all');
     window.print();
+    return;
+  }
+  if (b && b.dataset.pdf){
+    document.body.classList.toggle('printall', b.dataset.pdf==='all');
+    pdfOut(b);
     return;
   }
   var row=t.closest?t.closest('tr.sub'):null;
