@@ -155,6 +155,20 @@
     pickFor = -1; render();
   }
 
+  // ── printed with the rota: schedPrint (app.js) asks for this ───────────────
+  // Only the SAVED list of the week on screen; a half-written change is not printed.
+  // Styles are inline because the rota prints in its own window with its own sheet.
+  window.wkrPrintHtml = function(){
+    if (!loaded || loadFailed || week !== weekKey() || !rows.length) return '';
+    var td = 'border:1px solid #999;padding:3px 7px;font-size:13px;text-align:left;vertical-align:top;';
+    return '<table style="width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;break-inside:avoid">' +
+      '<tr><td colspan="2" style="' + td + 'background:#410207;color:#fff;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:12px;-webkit-print-color-adjust:exact;print-color-adjust:exact">Weekly Responsibilities</td></tr>' +
+      rows.map(function(r){
+        return '<tr><td style="' + td + 'width:55%;font-weight:700">' + esc(r.task || '—') + '</td><td style="' + td + 'font-weight:600">' +
+          (r.people.length ? r.people.map(function(p){ return esc(p.name); }).join(' · ') : '—') + '</td></tr>'; }).join('') +
+      '</table>';
+  };
+
   // ── hang under the schedule ────────────────────────────────────────────────
   function sync(){
     var k = weekKey(); if (!k) return;

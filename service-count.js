@@ -10,6 +10,9 @@
 // which changes that one cell inside the document. So two people counting at the
 // same time can never overwrite each other's lines — the fault Fish of the Day had
 // to be repaired for in August cannot happen here by construction.
+// A line counted at 0 portions is put on Fish of the Day's 86 list by the same database
+// function (service_count_sync86), and taken off when it has stock again — the latest
+// count decides (night once it has a number, otherwise mid-service).
 // Reads the tables — never a hardcoded copy of the list.
 // ══════════════════════════════════════════════════════════════════════════
 (function(){
@@ -146,6 +149,7 @@
         '<button type="button" class="sc-btn" data-act="print">Print</button></div>' +
       '</div>' +
       '<div id="sc-summary">' + summaryHtml() + '</div>' +
+      '<div class="sc-fishnote">A line counted at 0 portions goes onto the 86 list of Fish of the Day by itself, and comes off again when it has stock.</div>' +
       secs.map(function(sec){
         var list = items.filter(function(i){ return i.section === sec; });
         return '<div class="sc-sec"><div class="sc-sechead"><span>' + esc(sec) + '</span><small>' + list.length + (list.length === 1 ? ' line' : ' lines') + '</small></div>' +
@@ -255,6 +259,7 @@
     '.sc-btn:hover{background:var(--vino);color:#fbf3e9}' +
     '.sc-sum{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:9px 12px;border-radius:8px;margin-bottom:8px;font-size:14px;line-height:1.45;color:#2a1a12}' +
     '.sc-sum b{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;white-space:nowrap}' +
+    '.sc-fishnote{font-size:12.5px;color:#4a3526;margin:2px 2px 10px}' +
     '.sc-sum86{background:#f6dcd9;border:1px solid #c98c86}.sc-sum86 b{color:#7a1218}' +
     '.sc-sumord{background:#f3ead0;border:1px solid #c9b274}.sc-sumord b{color:#5c4300}' +
     '.sc-sum.sc-quiet{background:#f7f1e7;border-color:var(--sabbia-dark)}.sc-sum.sc-quiet b,.sc-sum.sc-quiet span{color:#4a3526}' +

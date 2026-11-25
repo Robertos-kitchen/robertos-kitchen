@@ -7373,6 +7373,8 @@ function schedPrint() {
     });
   });
   html += '</tbody></table>';
+  // the week's responsibilities print under the rota (weekly-resp.js; nothing is added when none are set)
+  try { if (typeof window.wkrPrintHtml === 'function') html += window.wkrPrintHtml(); } catch (e) { console.warn('weekly responsibilities print', e); }
   var printDoc = '<!doctype html><html><head><title>Robertos Kitchen Roster</title>' +
     '<style>' +
     '@page{size:A3 landscape;margin:6mm}' +
