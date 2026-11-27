@@ -8,6 +8,10 @@
 //     [{ task, people:[{id,name}] }]. Nothing in `roster` or `staff` is written.
 //   • Read by everyone who opens the Schedule; changed only with the Schedule
 //     unlocked (the same edit code as the rota, and the master codes with it).
+//   • 27 Nov 2026 (Antonio, Send feedback 26 Nov): each job says HOW OFTEN —
+//     freq 'daily' | 'weekly' (+ the one day) | 'days' (+ the chosen days);
+//     days = 0..6 counted from the Monday. Jobs saved before this have no freq
+//     and show none (never guessed). The Today view marks the jobs due today.
 // It hangs itself under the week grid and the Today view by wrapping
 // renderSchedView, so the schedule code itself is not edited.
 // ══════════════════════════════════════════════════════════════════════════
@@ -18,12 +22,51 @@
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function warn(msg, ok){ if (typeof kToast === 'function') kToast(msg, !ok); else console.warn(msg); }
   function weekKey(){ return (typeof schedWeekStart !== 'undefined' && schedWeekStart) ? formatDate(schedWeekStart) : null; }
+  var FREQS = ['daily', 'weekly', 'days'];
+  var DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var DAYL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  function cleanDays(d){
+    var out = [];
+    (Array.isArray(d) ? d : []).forEach(function(x){ x = +x; if (x >= 0 && x <= 6 && x === Math.floor(x) && out.indexOf(x) < 0) out.push(x); });
+    return out.sort(function(a, b){ return a - b; });
+  }
   function clean(list){
     return (Array.isArray(list) ? list : []).map(function(r){
+      var f = (r && FREQS.indexOf(r.freq) >= 0) ? r.freq : null;
+      var days = (f === 'weekly' || f === 'days') ? cleanDays(r.days) : [];
+      if (f === 'weekly') days = days.slice(0, 1);
       return { task: String((r && r.task) || '').slice(0, 140),
                people: (Array.isArray(r && r.people) ? r.people : []).filter(function(p){ return p && p.name; }).slice(0, MAX_PEOPLE)
-                         .map(function(p){ return { id: p.id == null ? null : p.id, name: String(p.name) }; }) };
+                         .map(function(p){ return { id: p.id == null ? null : p.id, name: String(p.name) }; }),
+               freq: f, days: days };
     }).slice(0, MAX_ROWS);
+  }
+  // the date of day d (0 = Monday) of the week on screen, e.g. "10 Dec"
+  function dayDate(d){
+    if (typeof schedWeekStart === 'undefined' || !schedWeekStart) return '';
+    return addDays(schedWeekStart, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+  // "Every day" · "Once a week · Thursday 10 Dec" · "Mon · Wed · Fri" · '' (not set)
+  function freqLabel(r){
+    if (r.freq === 'daily') return 'Every day';
+    if (r.freq === 'weekly') return r.days.length ? 'Once a week · ' + DAYL[r.days[0]] + ' ' + dayDate(r.days[0]) : 'Once a week';
+    if (r.freq === 'days'){
+      if (r.days.length === 7) return 'Every day';
+      return r.days.length ? r.days.map(function(d){ return DAY[d]; }).join(' · ') : '';
+    }
+    return '';
+  }
+  // which day of the week on screen today is (0..6), or -1 when today is not in it
+  function todayIdx(){
+    if (typeof schedWeekStart === 'undefined' || !schedWeekStart) return -1;
+    for (var d = 0; d < 7; d++) if (formatDate(addDays(schedWeekStart, d)) === formatDate(new Date())) return d;
+    return -1;
+  }
+  // true / false when the job says how often, null when it does not
+  function dueOn(r, d){
+    if (r.freq === 'daily') return true;
+    if (r.freq === 'weekly' || r.freq === 'days') return r.days.indexOf(d) >= 0;
+    return null;
   }
   function staffList(){
     var s = (typeof schedStaff !== 'undefined' && Array.isArray(schedStaff)) ? schedStaff : [];
@@ -55,10 +98,31 @@
       '<button type="button" class="wkr-btn" data-a="edit">' + (rows.length ? 'Change' : 'Set this week') + '</button></div>';
     if (loadFailed) return head + '<div class="wkr-empty">This week’s responsibilities could not be loaded. Reopen the Schedule.</div>';
     if (!rows.length) return head + '<div class="wkr-empty">Nothing set for this week yet.</div>';
+    var t = (typeof schedView !== 'undefined' && schedView === 'day') ? todayIdx() : -1;
     return head + '<div class="wkr-list">' + rows.map(function(r){
-      return '<div class="wkr-row"><div class="wkr-task">' + esc(r.task || '—') + '</div><div class="wkr-people">' +
+      var fl = freqLabel(r), due = t >= 0 ? dueOn(r, t) : null;
+      var mark = due === true ? '<span class="wkr-today">Today</span>' : due === false ? '<span class="wkr-nottoday">Not today</span>' : '';
+      return '<div class="wkr-row"><div><div class="wkr-task">' + esc(r.task || '—') + '</div>' +
+        ((fl || mark) ? '<div class="wkr-freq">' + mark + esc(fl) + '</div>' : '') + '</div><div class="wkr-people">' +
         (r.people.length ? r.people.map(function(p){ return '<span class="wkr-chip">' + esc(p.name) + '</span>'; }).join('') : '<span class="wkr-none">nobody yet</span>') +
       '</div></div>'; }).join('') + '</div>';
+  }
+
+  function oftenHtml(r, i){
+    var opts = [['daily', 'Every day'], ['weekly', 'Once a week'], ['days', 'Chosen days']];
+    var out = '<div class="wkr-often" role="group" aria-label="How often"><span class="wkr-fl">How often</span>' +
+      opts.map(function(o){
+        var on = r.freq === o[0];
+        return '<button type="button" class="wkr-opt" data-a="freq" data-f="' + o[0] + '" data-i="' + i + '" aria-pressed="' + on + '">' + o[1] + '</button>'; }).join('') + '</div>';
+    if (r.freq === 'weekly' || r.freq === 'days'){
+      out += '<div class="wkr-often wkr-days" role="group" aria-label="' + (r.freq === 'weekly' ? 'Which day' : 'Which days') + '">' +
+        '<span class="wkr-fl">' + (r.freq === 'weekly' ? 'Which day' : 'Which days') + '</span>' +
+        DAY.map(function(d, k){
+          var on = r.days.indexOf(k) >= 0;
+          return '<button type="button" class="wkr-opt wkr-day" data-a="day" data-d="' + k + '" data-i="' + i + '" aria-pressed="' + on + '" aria-label="' + DAYL[k] + ' ' + esc(dayDate(k)) + '">' +
+            d + '<small>' + esc(dayDate(k).split(' ')[0]) + '</small></button>'; }).join('') + '</div>';
+    }
+    return out;
   }
 
   function editHtml(){
@@ -76,6 +140,7 @@
       }
       return '<div class="wkr-erow">' +
         '<input class="wkr-in" data-i="' + i + '" maxlength="140" placeholder="The job — e.g. Basement cold rooms: clean and organise" value="' + esc(r.task) + '">' +
+        oftenHtml(r, i) +
         '<div class="wkr-people">' + r.people.map(function(p, j){
           return '<span class="wkr-chip wkr-chip-e">' + esc(p.name) + '<button type="button" data-a="unp" data-i="' + i + '" data-j="' + j + '" aria-label="Take ' + esc(p.name) + ' off this job">&times;</button></span>'; }).join('') + picker +
           '<button type="button" class="wkr-rm" data-a="rm" data-i="' + i + '">Remove this job</button></div>' +
@@ -97,7 +162,7 @@
   }
 
   function startEdit(){
-    draft = clean(rows); if (!draft.length) draft.push({ task: '', people: [] });
+    draft = clean(rows); if (!draft.length) draft.push({ task: '', people: [], freq: 'daily', days: [] });
     pickFor = -1; render();
     var f = document.querySelector('#wkr-box .wkr-in'); if (f && !f.value) f.focus();
   }
@@ -106,6 +171,8 @@
     var out = clean(draft).map(function(r){ r.task = r.task.trim().replace(/\s+/g, ' '); return r; })
                           .filter(function(r){ return r.task || r.people.length; });
     if (out.some(function(r){ return !r.task; })){ warn('One job has people but no name — write what the job is, or remove it.'); return; }
+    var noDay = out.filter(function(r){ return (r.freq === 'weekly' || r.freq === 'days') && !r.days.length; })[0];
+    if (noDay){ warn('Pick the day for “' + noDay.task.slice(0, 40) + '” — or choose Every day.'); return; }
     if (window.DEV_READ_ONLY){ warn('DEV site is read-only — nothing was saved. Tap the DEV badge (bottom-left) to test saving.'); return; }
     var k = week; busy = true; render();
     var res = await sb.from('sched_week_tasks').upsert({ week_start: k, doc: { rows: out }, updated_by: (window.CURRENT_USER || null), updated_at: new Date().toISOString() }, { onConflict: 'week_start' });
@@ -139,10 +206,22 @@
     }
     if (!draft) return;
     if (typeof schedTouchLock === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedTouchLock();
-    if (a === 'addrow'){ draft.push({ task: '', people: [] }); pickFor = -1; render(); var ins = document.querySelectorAll('#wkr-box .wkr-in'); if (ins.length) ins[ins.length - 1].focus(); return; }
+    if (a === 'addrow'){ draft.push({ task: '', people: [], freq: 'daily', days: [] }); pickFor = -1; render(); var ins = document.querySelectorAll('#wkr-box .wkr-in'); if (ins.length) ins[ins.length - 1].focus(); return; }
     if (a === 'rm'){ draft.splice(i, 1); pickFor = -1; render(); return; }
     if (a === 'pick'){ pickFor = i; render(); var s = document.querySelector('#wkr-box .wkr-sel'); if (s) s.focus(); return; }
     if (a === 'unp'){ draft[i].people.splice(+b.dataset.j, 1); render(); return; }
+    if (a === 'freq'){
+      var f = b.dataset.f, r = draft[i]; r.freq = f;
+      if (f === 'daily') r.days = [];
+      else if (f === 'weekly') r.days = r.days.slice(0, 1);
+      render(); return;
+    }
+    if (a === 'day'){
+      var d = +b.dataset.d, rr = draft[i];
+      if (rr.freq === 'weekly') rr.days = [d];
+      else { var at = rr.days.indexOf(d); if (at >= 0) rr.days.splice(at, 1); else rr.days.push(d); rr.days = cleanDays(rr.days); }
+      render(); return;
+    }
     if (a === 'copy'){ copyLast(); return; }
     if (a === 'cancel'){ draft = null; pickFor = -1; render(); return; }
     if (a === 'save'){ if (!busy) save(); return; }
@@ -164,7 +243,9 @@
     return '<table style="width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;break-inside:avoid">' +
       '<tr><td colspan="2" style="' + td + 'background:#410207;color:#fff;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:12px;-webkit-print-color-adjust:exact;print-color-adjust:exact">Weekly Responsibilities</td></tr>' +
       rows.map(function(r){
-        return '<tr><td style="' + td + 'width:55%;font-weight:700">' + esc(r.task || '—') + '</td><td style="' + td + 'font-weight:600">' +
+        var fl = freqLabel(r);
+        return '<tr><td style="' + td + 'width:55%;font-weight:700">' + esc(r.task || '—') +
+          (fl ? '<div style="font-size:11.5px;font-weight:600;margin-top:1px">' + esc(fl) + '</div>' : '') + '</td><td style="' + td + 'font-weight:600">' +
           (r.people.length ? r.people.map(function(p){ return esc(p.name); }).join(' · ') : '—') + '</td></tr>'; }).join('') +
       '</table>';
   };
@@ -210,6 +291,14 @@
     '.wkr-chip{display:inline-flex;align-items:center;gap:4px;background:var(--vino);color:#fbf3e9;border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600}' +
     '.wkr-chip-e{padding-right:4px}.wkr-chip-e button{width:24px;height:24px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:15px;line-height:1;cursor:pointer}' +
     '.wkr-none{font-size:13px;color:#5e4636;font-style:italic}' +
+    '.wkr-freq{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:3px;font-size:13px;font-weight:600;color:#4a3526}' +
+    '.wkr-today{background:#1f5f3a;color:#fff;border-radius:5px;padding:1px 7px;font-size:12px;font-weight:700}' +
+    '.wkr-nottoday{border:1px solid #8a7462;color:#4a3526;border-radius:5px;padding:0 6px;font-size:12px;font-weight:600}' +
+    '.wkr-often{display:flex;flex-wrap:wrap;gap:6px;align-items:center}' +
+    '.wkr-fl{font-size:12.5px;font-weight:700;color:#4a3526;min-width:78px}' +
+    '.wkr-opt{min-height:36px;padding:5px 12px;border-radius:7px;border:1.5px solid var(--vino);background:#fff;color:var(--vino);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-sans)}' +
+    '.wkr-opt[aria-pressed=true]{background:var(--vino);color:#fbf3e9}' +
+    '.wkr-day{min-width:46px;padding:3px 6px;display:inline-flex;flex-direction:column;align-items:center;line-height:1.1}.wkr-day small{font-size:11px;font-weight:600}' +
     '.wkr-erow{padding:10px 0;border-top:1px solid var(--sabbia-dark);display:flex;flex-direction:column;gap:8px}' +
     '.wkr-in{width:100%;box-sizing:border-box;min-height:42px;padding:7px 10px;font-size:15px;color:#2a1a12;background:#fff;border:1.5px solid #b9a58e;border-radius:7px;font-family:var(--font-sans)}' +
     '.wkr-in::placeholder{color:#6b5443}.wkr-in:focus,.wkr-sel:focus{outline:none;border-color:var(--vino);box-shadow:0 0 0 2px rgba(65,2,7,.18)}' +
@@ -217,7 +306,8 @@
     '.wkr-sel{min-height:36px;padding:5px 8px;font-size:14px;color:#2a1a12;background:#fff;border:1.5px solid #b9a58e;border-radius:7px;max-width:100%}' +
     '.wkr-rm{margin-left:auto;padding:6px 10px;min-height:34px;border:0;background:transparent;color:#7a1218;font-size:12.5px;font-weight:600;text-decoration:underline;cursor:pointer}' +
     '.wkr-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:12px;border-top:1px solid var(--sabbia-dark)}.wkr-gap{flex:1}' +
-    '@media(max-width:640px){.wkr-row{grid-template-columns:1fr;gap:6px}#wkr-box{padding:12px 10px 24px}}' +
+    '@media(max-width:640px){.wkr-row{grid-template-columns:1fr;gap:6px}#wkr-box{padding:12px 10px 120px}' +
+    '.wkr-fl{flex-basis:100%;min-width:0}.wkr-often{gap:5px}.wkr-opt{padding:5px 10px}.wkr-day{min-width:0;flex:1 1 0;padding:3px 2px}}' +
     '@media print{#wkr-box{display:none}}' +
     '</style>';
 })();
