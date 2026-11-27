@@ -968,6 +968,9 @@ body.roomstep .kev-up,body.roomstep .home-section.open .home-panel{
 .home-section.open .home-toggle{border-radius:8px 8px 0 0;border-bottom-color:transparent;min-height:0;flex:0 0 auto}
 .home-section.open .home-chips{display:none}
 .home-panel{margin-top:0}
+/* Daily Operations grouped by category (27 Nov 2026, Chef Andrea, inbox f48ce3d7) */
+.home-subgroup{grid-column:1 / -1;font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--cream);margin:10px 0 0;padding-bottom:5px;border-bottom:1px solid rgba(245,237,224,.28)}
+.home-subgroup:first-child{margin-top:0}
 .home-section.open .home-panel{background:var(--vino);border:1px solid var(--sabbia-dark);border-top:none;border-left:4px solid var(--accent);border-radius:0 0 8px 8px;padding:14px;gap:9px}
 .home-section.open .home-tile.compact{background:var(--sabbia-light);border-color:transparent}
 .home-section.open .home-tile.compact .home-name{color:var(--vino)}
@@ -1408,20 +1411,25 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-chev" id="ops-chev">&#9662;</span>
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-chips"><span class="home-chip">Market List</span><span class="home-chip">Fish Display</span><span class="home-chip">Service Count</span><span class="home-chip">Stock Take</span><span class="home-chip">Article Catalogue</span><span class="home-chip">Recipes</span><span class="home-chip">Reports</span><span class="home-chip">Scheduling</span><span class="home-chip">Calendar</span><span class="home-chip">Learning</span><span class="home-chip">Maintenance<span class="maint-badge" hidden></span></span></span>
+    <span class="home-chips"><span class="home-chip">Ordering &amp; stock</span><span class="home-chip">Counts &amp; month end</span><span class="home-chip">Menu &amp; food</span><span class="home-chip">Team &amp; planning</span><span class="home-chip">The kitchen<span class="maint-badge" hidden></span></span></span>
   </button>
   <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
+    <div class="home-subgroup">Ordering &amp; stock</div>
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
-    <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
-    <button class="home-tile compact" onclick="openServiceCount()"><span class="home-code">CNT</span><span><span class="home-name">Service Count</span><span class="home-meta">Meat and fish count &mdash; mid-service and end of night</span></span></button>
+    <button class="home-tile compact" onclick="openArticleCatalogue()"><span class="home-code">ART</span><span><span class="home-name">Article Catalogue</span><span class="home-meta">Every article FMC holds &mdash; name, code, unit, price</span></span></button>
+    <div class="home-subgroup">Counts &amp; month end</div>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
     <button class="home-tile compact" onclick="openCrockeryCount()"><span class="home-code">CRCK</span><span><span class="home-name">Crockery Count</span><span class="home-meta">The monthly plate count — what is in the store, what is out in operation, and what we have broken since last time.</span></span></button>
-    <button class="home-tile compact" onclick="openArticleCatalogue()"><span class="home-code">ART</span><span><span class="home-name">Article Catalogue</span><span class="home-meta">Every article FMC holds &mdash; name, code, unit, price</span></span></button>
-    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Recipe book, create new recipes, recipe card, Food Bible, current menu</span></span></button>
+    <button class="home-tile compact" onclick="openServiceCount()"><span class="home-code">CNT</span><span><span class="home-name">Service Count</span><span class="home-meta">Meat and fish count &mdash; mid-service and end of night</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
+    <div class="home-subgroup">Menu &amp; food</div>
+    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Recipe book, create new recipes, recipe card, Food Bible, current menu</span></span></button>
+    <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
+    <div class="home-subgroup">Team &amp; planning</div>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
     <button class="home-tile compact" type="button" onclick="openCalendar()"><span class="home-code">CAL</span><span><span class="home-name">Calendar</span><span class="home-meta">Tastings, pushes, lives &mdash; the month ahead</span></span></button>
     <button class="home-tile compact" type="button" onclick="openLearning()"><span class="home-code">LRN</span><span><span class="home-name">Learning</span><span class="home-meta">Read a short page, take a 5-question test &mdash; sign in with your employee ID</span></span></button>
+    <div class="home-subgroup">The kitchen</div>
     <button class="home-tile compact" type="button" onclick="openMaintenance()"><span class="maint-badge corner" hidden></span><span class="home-code">MNT</span><span><span class="home-name">Maintenance</span><span class="home-meta" id="maint-meta">Report a problem &middot; job cards &middot; maintenance calendar</span></span></button>
     <button class="home-tile compact" type="button" onclick="openKitchenDesign()"><span class="home-code">DSN</span><span><span class="home-name">Kitchen Design</span><span class="home-meta">Plans, checks, 3D walk-through and photo renders &mdash; one project per kitchen</span></span></button>
   </div>
@@ -1607,7 +1615,7 @@ body.roomstep .kev-hl-note{color:#5A3A1E}
 <script src="floorplan.js?v=1792584690"></script>
 <!-- the house frame for My Tasks, the Closing report and the Team survey + the footer fix (7 Oct 2026) -->
 <script src="k-frame.js?v=1792990460"></script>
-<script src="app.js?v=1795629037"></script>
+<script src="app.js?v=1795773283"></script>
 <!-- Service Count (the mid-service and night count) and the Weekly Responsibilities box under the
      rota. Both load AFTER app.js: they hang themselves on its screens instead of editing it. -->
 <script src="service-count.js?v=1795629037"></script>
