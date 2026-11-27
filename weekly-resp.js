@@ -41,10 +41,13 @@
                freq: f, days: days };
     }).slice(0, MAX_ROWS);
   }
-  // the date of day d (0 = Monday) of the week on screen, e.g. "10 Dec"
+  // the Monday of the loaded week (`week`, the one being shown or changed) as a Date
+  function weekMon(){ return week ? new Date(week + 'T12:00:00') : null; }
+  function weekName(k){ return k ? new Date(k + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''; }
+  // the date of day d (0 = Monday) of the loaded week, e.g. "10 Dec"
   function dayDate(d){
-    if (typeof schedWeekStart === 'undefined' || !schedWeekStart) return '';
-    return addDays(schedWeekStart, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    var m = weekMon(); if (!m) return '';
+    return addDays(m, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
   // "Every day" · "Once a week · Thursday 10 Dec" · "Mon · Wed · Fri" · '' (not set)
   function freqLabel(r){
@@ -127,7 +130,13 @@
 
   function editHtml(){
     var staff = staffList();
-    var out = '<div class="wkr-head"><div><div class="wkr-title">Weekly Responsibilities</div><div class="wkr-sub">Changing this week — the rota is not touched</div></div></div>';
+    var out = '<div class="wkr-head"><div><div class="wkr-title">Weekly Responsibilities</div><div class="wkr-sub">Changing the week of ' + esc(weekName(week)) + ' — the rota is not touched</div></div></div>';
+    // moved to another week with a change open: say so, never let it read as this week's
+    var here = weekKey();
+    if (here && here !== week){
+      out += '<div class="wkr-elsewhere" role="status">You are looking at the week of ' + esc(weekName(here)) + '. This change is for the week of ' +
+        esc(weekName(week)) + ' — Save or Cancel it first.<button type="button" class="wkr-btn" data-a="back">Go back to ' + esc(weekName(week)) + '</button></div>';
+    }
     out += draft.map(function(r, i){
       var taken = r.people.map(function(p){ return String(p.id); });
       var free = staff.filter(function(p){ return taken.indexOf(String(p.id)) < 0; });
@@ -187,8 +196,9 @@
   }
 
   async function copyLast(){
-    var prev = formatDate(addDays(schedWeekStart, -7));
+    var k = week, prev = formatDate(addDays(weekMon(), -7));
     var r = await sb.from('sched_week_tasks').select('doc').eq('week_start', prev).maybeSingle();
+    if (!draft || week !== k) return;                  // the edit ended while last week was loading
     var got = clean(r.data && r.data.doc && r.data.doc.rows);
     if (r.error){ warn('Last week could not be read — check the connection.'); return; }
     if (!got.length){ warn('Last week had nothing set.'); return; }
@@ -223,6 +233,11 @@
       render(); return;
     }
     if (a === 'copy'){ copyLast(); return; }
+    if (a === 'back'){
+      var n = Math.round((weekMon() - schedWeekStart) / (7 * 864e5));
+      if (n && typeof schedWeekOffset === 'function') schedWeekOffset(n);
+      return;
+    }
     if (a === 'cancel'){ draft = null; pickFor = -1; render(); return; }
     if (a === 'save'){ if (!busy) save(); return; }
   }
@@ -305,6 +320,7 @@
     '.wkr-add{padding:6px 12px;min-height:34px;border-radius:999px;border:1.5px dashed var(--vino);background:transparent;color:var(--vino);font-size:13px;font-weight:600;cursor:pointer}' +
     '.wkr-sel{min-height:36px;padding:5px 8px;font-size:14px;color:#2a1a12;background:#fff;border:1.5px solid #b9a58e;border-radius:7px;max-width:100%}' +
     '.wkr-rm{margin-left:auto;padding:6px 10px;min-height:34px;border:0;background:transparent;color:#7a1218;font-size:12.5px;font-weight:600;text-decoration:underline;cursor:pointer}' +
+    '.wkr-elsewhere{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;padding:9px 12px;border-radius:8px;background:#fff3cd;border:1.5px solid #8a5a00;color:#3d2600;font-size:14px;font-weight:600}' +
     '.wkr-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:12px;border-top:1px solid var(--sabbia-dark)}.wkr-gap{flex:1}' +
     '@media(max-width:640px){.wkr-row{grid-template-columns:1fr;gap:6px}#wkr-box{padding:12px 10px 120px}' +
     '.wkr-fl{flex-basis:100%;min-width:0}.wkr-often{gap:5px}.wkr-opt{padding:5px 10px}.wkr-day{min-width:0;flex:1 1 0;padding:3px 2px}}' +
